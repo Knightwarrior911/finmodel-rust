@@ -83,7 +83,13 @@ def _extract_tag_annual(
         # Try reporting currency first, fall back to USD, then shares (for unit-less counts)
         entries = units.get(currency) or units.get("USD") or units.get("shares") or []
         annual = [e for e in entries if e.get("form") in ("10-K", "20-F") and e.get("fp") == "FY"]
-        annual.sort(key=lambda e: e["end"])
+        # Deduplicate by year (keep latest end date per calendar year)
+        by_year: dict[str, dict] = {}
+        for e in annual:
+            yr = e["end"][:4]
+            if yr not in by_year or e["end"] > by_year[yr]["end"]:
+                by_year[yr] = e
+        annual = sorted(by_year.values(), key=lambda e: e["end"])
         if len(annual) >= n_periods:
             vals = [round(e["val"] / 1e6, 2) for e in annual[-n_periods:]]
             return vals, tag
@@ -109,10 +115,18 @@ def parse_xbrl_to_raw(
             key=lambda e: e["end"],
         )
         if len(annual) >= periods_historical:
-            for e in annual[-periods_historical:]:
-                year = e["end"][:4]
-                period_labels.append(f"{year}A")
-            break
+            # Deduplicate by year: if multiple entries share a calendar year
+            # (e.g. amended filings), keep the latest by end date.
+            by_year: dict[str, dict] = {}
+            for e in annual:
+                yr = e["end"][:4]
+                if yr not in by_year or e["end"] > by_year[yr]["end"]:
+                    by_year[yr] = e
+            deduped = sorted(by_year.values(), key=lambda e: e["end"])
+            if len(deduped) >= periods_historical:
+                for e in deduped[-periods_historical:]:
+                    period_labels.append(f"{e['end'][:4]}A")
+                break
 
     is_data, bs_data, cfs_data, sources = {}, {}, {}, {}
 

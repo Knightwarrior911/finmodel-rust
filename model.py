@@ -15,12 +15,11 @@ def _check_api_key():
         print("ERROR: ANTHROPIC_API_KEY not set.")
         print("  Set it once in this terminal:  set ANTHROPIC_API_KEY=sk-ant-...")
         print("  Or permanently:                setx ANTHROPIC_API_KEY sk-ant-...")
+        print("  No API key? Use --direct flag for US tickers (pulls from SEC, no API needed).")
         sys.exit(1)
 
 
 def main():
-    _check_api_key()
-
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
@@ -31,22 +30,37 @@ def main():
     parser.add_argument("--periods-projected", type=int, default=5)
     parser.add_argument("--filing", default=None, help="Path to annual report PDF (overrides fetched data)")
     parser.add_argument("--ir-url", default=None, help="Investor relations page URL for non-US companies")
+    parser.add_argument("--direct", action="store_true", help="Skip LLM preflight — look up US ticker directly from EDGAR (no API key needed)")
     parser.add_argument("--force", action="store_true", help="Bypass verification halt on critical failures")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
     args = parser.parse_args()
 
     out_path = args.output or f"{args.ticker.replace('.', '_')}_model.xlsx"
 
+    if not args.direct:
+        _check_api_key()
+
     print(f"[1/6] Pre-flight: resolving {args.ticker}...")
-    from src.preflight import run_preflight
-    try:
-        cfg = run_preflight(
+    if args.direct:
+        from src.preflight import run_preflight_direct
+        preflight_fn = lambda: run_preflight_direct(
             args.ticker,
             periods_historical=args.periods_historical,
             periods_projected=args.periods_projected,
             filing_override=args.filing,
             force=args.force,
         )
+    else:
+        from src.preflight import run_preflight
+        preflight_fn = lambda: run_preflight(
+            args.ticker,
+            periods_historical=args.periods_historical,
+            periods_projected=args.periods_projected,
+            filing_override=args.filing,
+            force=args.force,
+        )
+    try:
+        cfg = preflight_fn()
     except ValueError as e:
         print(f"ERROR: {e}")
         sys.exit(1)

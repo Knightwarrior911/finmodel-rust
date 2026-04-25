@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import patch, MagicMock
-from src.preflight import run_preflight
+from src.preflight import run_preflight, run_preflight_direct
 from schemas.financial_data import ModelConfig
 
 
@@ -44,6 +44,40 @@ def test_preflight_non_us():
         cfg = run_preflight("Toyota")
     assert cfg.domicile == "non-US"
     assert cfg.currency == "JPY"
+
+
+def mock_requests_get(url, **kwargs):
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    if "company_tickers" in url:
+        mock_resp.json.return_value = {
+            "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}
+        }
+        mock_resp.status_code = 200
+    elif "companyfacts" in url:
+        mock_resp.json.return_value = {"facts": {"us-gaap": {
+            "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
+                {"form": "10-K", "fp": "FY", "end": "2024-09-28", "val": 391035000000},
+            ]}}
+        }}}
+        mock_resp.status_code = 200
+    return mock_resp
+
+
+def test_preflight_direct_us_ticker():
+    with patch("src.preflight.requests.get", side_effect=mock_requests_get):
+        cfg = run_preflight_direct("AAPL")
+    assert cfg.ticker == "AAPL"
+    assert cfg.company_name == "Apple Inc."
+    assert cfg.domicile == "US"
+    assert cfg.currency == "USD"
+    assert cfg.fiscal_year_end == "Sep"
+
+
+def test_preflight_direct_unknown_ticker_raises():
+    with patch("src.preflight.requests.get", side_effect=mock_requests_get):
+        with pytest.raises(ValueError, match="not found in EDGAR"):
+            run_preflight_direct("XXXX")
 
 
 def test_preflight_raises_on_ambiguity():

@@ -63,6 +63,12 @@ def reconcile(data: ReconciledFinancialData) -> tuple[ReconciledFinancialData, D
     data = deepcopy(data)  # don't mutate caller's object
     consistency_errors = check_consistency(data)
 
+    # Skip LLM reconciliation when there are no notes to cross-check against.
+    # This covers --direct mode (EDGAR-only, no PDF footnotes) and empty note sets.
+    if not data.notes:
+        data.flags = consistency_errors
+        return data, DiscrepancyReport(items=consistency_errors)
+
     context = {
         "periods": data.periods,
         "income_statement": data.income_statement,
