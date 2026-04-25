@@ -2,9 +2,15 @@
 import json
 import os
 import tempfile
-import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+from src.preflight import run_preflight
+from src.fetcher import fetch_us_filing
+from src.reconciler import reconcile
+from src.engine import ModelEngine
+from src.verifier import verify
+from src.writer import ExcelWriter
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -20,13 +26,17 @@ RECONCILE_RESPONSE = json.dumps({
 
 
 def make_llm_sequence(*responses):
-    """Returns a mock Anthropic client that cycles through responses."""
+    """Returns a mock Anthropic client that returns each response in order. Raises if called more times than responses provided."""
     call_count = [0]
     def create(**kwargs):
-        idx = min(call_count[0], len(responses) - 1)
+        if call_count[0] >= len(responses):
+            raise AssertionError(
+                f"LLM called {call_count[0] + 1} times but only {len(responses)} responses provided"
+            )
+        resp = responses[call_count[0]]
         call_count[0] += 1
         mock_msg = MagicMock()
-        mock_msg.content = [MagicMock(text=responses[idx])]
+        mock_msg.content = [MagicMock(text=resp)]
         return mock_msg
     mock_client = MagicMock()
     mock_client.messages.create.side_effect = create
@@ -44,6 +54,8 @@ def mock_requests_get(url, headers=None, timeout=None):
         mock_resp.json.return_value = json.loads(
             (FIXTURE_DIR / "xbrl_facts.json").read_text()
         )
+    else:
+        raise ValueError(f"Unexpected URL in test: {url}")
     return mock_resp
 
 
@@ -57,18 +69,12 @@ def test_end_to_end_us_company():
              patch("src.reconciler.anthropic.Anthropic", return_value=mock_client), \
              patch("src.fetcher.requests.get", side_effect=mock_requests_get):
 
-            from src.preflight import run_preflight
-            from src.fetcher import fetch_us_filing
-            from src.reconciler import reconcile
-            from src.engine import ModelEngine
-            from src.verifier import verify
-            from src.writer import ExcelWriter
-
             cfg = run_preflight("AAPL", periods_historical=2, periods_projected=2)
             raw = fetch_us_filing(cfg)
             reconciled, disc_report = reconcile(raw)
             model_out = ModelEngine(reconciled, cfg).build()
             report = verify(model_out)
+            assert report.passed or not report.critical_failures, f"Unexpected critical failures: {report.critical_failures}"
             ExcelWriter(model_out, report, cfg.company_name, out_path, sources=reconciled.sources).write()
 
         assert os.path.exists(out_path)
@@ -85,11 +91,6 @@ def test_end_to_end_model_periods():
     with patch("src.preflight.anthropic.Anthropic", return_value=mock_client), \
          patch("src.reconciler.anthropic.Anthropic", return_value=mock_client), \
          patch("src.fetcher.requests.get", side_effect=mock_requests_get):
-
-        from src.preflight import run_preflight
-        from src.fetcher import fetch_us_filing
-        from src.reconciler import reconcile
-        from src.engine import ModelEngine
 
         cfg = run_preflight("AAPL", periods_historical=2, periods_projected=2)
         raw = fetch_us_filing(cfg)
