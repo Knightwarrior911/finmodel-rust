@@ -313,7 +313,16 @@ class ExcelWriter:
         write_row(r, "Total Liabilities", "total_liabilities", fmt.number_bold, fmt.label_bold); r += 1
         write_row(r, "  Retained Earnings", "retained_earnings", fmt.number); r += 1
         write_row(r, "Total Equity", "total_equity", fmt.number_bold, fmt.label_bold); r += 1
-        write_row(r, "Total L+E", "total_liabilities", fmt.number_total, fmt.label_bold)
+        ws.write(r, LABEL_COL, "Total L+E", fmt.label_bold)
+        liab_vals = self._vals(o.balance_sheet, "total_liabilities")
+        equity_vals = self._vals(o.balance_sheet, "total_equity")
+        for j in range(len(o.periods)):
+            col = DATA_START_COL + j
+            lv = liab_vals[j] if j < len(liab_vals) else 0
+            ev = equity_vals[j] if j < len(equity_vals) else 0
+            le_total = (lv or 0) + (ev or 0)
+            f = fmt.hist_divider_right if j == self.hist_count - 1 else fmt.number_total
+            ws.write(r, col, le_total, f)
 
         ws.set_landscape()
         ws.fit_to_pages(1, 0)
