@@ -8,7 +8,7 @@ from src.fetcher import get_cik, fetch_xbrl_facts, parse_xbrl_to_raw, fetch_us_f
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
-def mock_get(url, headers=None):
+def mock_get(url, headers=None, timeout=None):
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     if "company_tickers" in url:

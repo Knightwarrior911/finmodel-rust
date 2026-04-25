@@ -1,5 +1,6 @@
 import json
 import anthropic
+from copy import deepcopy
 from schemas.financial_data import ReconciledFinancialData, DiscrepancyReport, SourceCitation
 
 RECONCILE_SYSTEM = """You are a senior financial analyst reconciling data extracted from company filings.
@@ -59,6 +60,7 @@ def _merge_notes(data: ReconciledFinancialData, notes_merged: dict) -> Reconcile
 
 
 def reconcile(data: ReconciledFinancialData) -> tuple[ReconciledFinancialData, DiscrepancyReport]:
+    data = deepcopy(data)  # don't mutate caller's object
     consistency_errors = check_consistency(data)
 
     context = {
@@ -77,7 +79,10 @@ def reconcile(data: ReconciledFinancialData) -> tuple[ReconciledFinancialData, D
         messages=[{"role": "user", "content": json.dumps(context, default=str)}],
     )
     raw = response.content[0].text.strip()
-    result_json = json.loads(raw)
+    try:
+        result_json = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Reconciler LLM returned invalid JSON: {e}\nRaw: {raw[:200]}") from e
 
     discrepancies = result_json.get("discrepancies", []) + consistency_errors
     notes_merged = result_json.get("notes_merged", {})

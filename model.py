@@ -10,6 +10,9 @@ import sys
 
 
 def main():
+    import sys
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description="Build a 3-statement financial model from company filings")
     parser.add_argument("--ticker", required=True, help="Company ticker or name (e.g. AAPL, Toyota)")
     parser.add_argument("--periods-historical", type=int, default=5)
@@ -107,7 +110,7 @@ def main():
     print(f"[6/6] Writing Excel model to {out_path}...")
     try:
         from src.writer import ExcelWriter
-        writer = ExcelWriter(model_output, report, cfg.company_name, out_path, sources=reconciled.sources)
+        writer = ExcelWriter(model_output, report, cfg.company_name, out_path, sources=reconciled.sources, currency=reconciled.currency)
         writer.write()
     except Exception as e:
         print(f"ERROR in [6/6] writing Excel: {e}")

@@ -27,6 +27,7 @@ class ModelEngine:
     def __init__(self, data: ReconciledFinancialData, cfg: ModelConfig):
         self.data = data
         self.cfg = cfg
+        self._plug_used = False
 
     def build(self) -> ModelOutput:
         assumptions = self._derive_assumptions()
@@ -59,7 +60,7 @@ class ModelEngine:
             schedules=schedules,
             assumptions=assumptions,
             converged=True,
-            plug_used=False,
+            plug_used=self._plug_used,
         )
 
     def _projection_periods(self, hist_periods: list[str]) -> list[str]:
@@ -190,10 +191,12 @@ class ModelEngine:
             goodwill = (bs_hist.get("goodwill") or [0])[-1] or 0
             total_assets = cash + ar + inv + ppe + goodwill
             total_liab = ap + ltd
-            total_equity_val = prev_equity + ni
+            dividends = assumptions["dividend_per_share"] * shares
+            total_equity_val = prev_equity + ni - dividends
             # Ensure BS balances — plug equity if needed
             if abs(total_assets - (total_liab + total_equity_val)) > 1:
                 total_equity_val = total_assets - total_liab
+                self._plug_used = True
 
             append(is_proj, "revenue", rev)
             append(is_proj, "cogs", cogs)
@@ -210,11 +213,17 @@ class ModelEngine:
             append(is_proj, "eps_diluted", round(eps_diluted, 4))
             append(is_proj, "shares_diluted", round(shares, 0))
 
+            total_current_assets = cash + ar + inv
+            total_current_liabilities = ap
+
             append(bs_proj, "cash", cash)
             append(bs_proj, "accounts_receivable", ar)
             append(bs_proj, "inventory", inv)
+            append(bs_proj, "total_current_assets", total_current_assets)
             append(bs_proj, "ppe_net", ppe)
+            append(bs_proj, "goodwill", goodwill)
             append(bs_proj, "accounts_payable", ap)
+            append(bs_proj, "total_current_liabilities", total_current_liabilities)
             append(bs_proj, "long_term_debt", ltd)
             append(bs_proj, "total_liabilities", total_liab)
             append(bs_proj, "retained_earnings", re)

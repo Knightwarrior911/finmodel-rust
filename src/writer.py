@@ -128,12 +128,14 @@ def _write_year_headers(ws, fmt: Formats, periods: list[str], hist_count: int,
 
 class ExcelWriter:
     def __init__(self, output: ModelOutput, report: VerificationReport,
-                 company_name: str, out_path: str, sources: dict | None = None):
+                 company_name: str, out_path: str, sources: dict | None = None,
+                 currency: str = "USD"):
         self.output = output
         self.report = report
         self.company_name = company_name
         self.out_path = out_path
         self.sources = sources or {}
+        self.currency = currency
         self.b = _load_branding()
         self.hist_count = sum(1 for p in output.periods if p.endswith("A"))
 
@@ -170,7 +172,7 @@ class ExcelWriter:
 
     def _write_is(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Income Statement", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Income Statement", self.currency)
         _write_year_headers(ws, fmt, o.periods, self.hist_count)
 
         START = 8
@@ -267,7 +269,7 @@ class ExcelWriter:
 
     def _write_bs(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Balance Sheet", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Balance Sheet", self.currency)
         _write_year_headers(ws, fmt, o.periods, self.hist_count)
 
         START = 8
@@ -331,7 +333,7 @@ class ExcelWriter:
 
     def _write_cf(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Cash Flow Statement", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Cash Flow Statement", self.currency)
         _write_year_headers(ws, fmt, o.periods, self.hist_count)
 
         START = 8
@@ -390,7 +392,7 @@ class ExcelWriter:
 
     def _write_assumptions(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Projection Assumptions", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Projection Assumptions", self.currency)
 
         proj_periods = [p for p in o.periods if p.endswith("E")]
         _write_year_headers(ws, fmt, proj_periods, 0)
@@ -431,7 +433,7 @@ class ExcelWriter:
 
     def _write_schedules(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Supporting Schedules", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Supporting Schedules", self.currency)
         _write_year_headers(ws, fmt, o.periods, self.hist_count)
 
         START = 8
@@ -449,9 +451,9 @@ class ExcelWriter:
         for label, field in ppe_rows:
             ws.write(r, LABEL_COL, f"  {label}", fmt.label_bold if field == "closing" else fmt.label)
             for j, sched in enumerate(o.schedules.get("ppe_rollforward", [])):
-                col = DATA_START_COL + j
+                col = DATA_START_COL + 1 + j  # +1 because schedule starts from period[1]
                 base_f = fmt.number_bold if field == "closing" else fmt.number
-                f = fmt.hist_divider_right if j == self.hist_count - 1 else base_f
+                f = fmt.hist_divider_right if (j + 1) == self.hist_count - 1 else base_f
                 ws.write(r, col, sched.get(field), f)
             r += 1
 
@@ -461,7 +463,7 @@ class ExcelWriter:
 
     def _write_sources(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Sources & Audit Trail", "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Sources & Audit Trail", self.currency)
 
         headers = ["Line Item", "Period", "Value ($M)", "Filing", "XBRL Tag / Page", "Confidence", "Notes"]
         for j, h in enumerate(headers):

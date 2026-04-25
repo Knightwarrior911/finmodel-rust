@@ -40,7 +40,10 @@ def extract_notes_from_text(text: str, periods: list[str]) -> dict:
         messages=[{"role": "user", "content": prompt}],
     )
     raw = response.content[0].text.strip()
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Extractor LLM returned invalid JSON: {e}\nRaw: {raw[:200]}") from e
 
 
 def extract_notes_from_pdf_vision(pdf_path: str, periods: list[str]) -> dict:
