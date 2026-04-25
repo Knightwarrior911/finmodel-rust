@@ -30,12 +30,14 @@ def verify(output: ModelOutput) -> VerificationReport:
                 )
 
         # CRITICAL: CFS cash tie
+        # Full equation: net_change = CFO + CFI + CFF + FX effect
         cfo = _get(cfs, "cfo", i)
         cfi = _get(cfs, "cfi", i)
         cff = _get(cfs, "cff", i)
         net_change = _get(cfs, "net_change_cash", i)
+        fx = _get(cfs, "fx_effect_on_cash", i) or 0.0
         if all(v is not None for v in [cfo, cfi, cff, net_change]):
-            computed = cfo + cfi + cff
+            computed = cfo + cfi + cff + fx
             diff = abs(computed - net_change)
             checks["cfs_tie"] = diff <= CFS_TOLERANCE
             if diff > CFS_TOLERANCE:

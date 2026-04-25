@@ -39,9 +39,12 @@ XBRL_TAG_MAP = {
     "accounts_payable": ["AccountsPayableCurrent"],
     "total_current_liabilities": ["LiabilitiesCurrent"],
     "long_term_debt": ["LongTermDebtNoncurrent", "LongTermDebt"],
-    "total_liabilities": ["Liabilities"],
+    "total_liabilities": ["Liabilities", "LiabilitiesOtherThanLongtermDebtNoncurrent"],
     "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
-    "total_equity": ["StockholdersEquity"],
+    "total_equity": [
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+    ],
     # Cash Flow
     "cfo": ["NetCashProvidedByUsedInOperatingActivities"],
     "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
@@ -50,6 +53,10 @@ XBRL_TAG_MAP = {
     "dividends_paid": ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock"],
     "buybacks": ["PaymentsForRepurchaseOfCommonStock"],
     "net_change_cash": ["CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect"],
+    "fx_effect_on_cash": [
+        "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        "EffectOfExchangeRateOnCashAndCashEquivalents",
+    ],
 }
 
 
@@ -151,11 +158,23 @@ def parse_xbrl_to_raw(
                "ppe_net", "goodwill", "intangibles_net", "total_assets", "accounts_payable",
                "total_current_liabilities", "long_term_debt", "total_liabilities",
                "retained_earnings", "total_equity"]
-    cfs_keys = ["cfo", "capex", "cfi", "cff", "dividends_paid", "buybacks", "net_change_cash"]
+    cfs_keys = ["cfo", "capex", "cfi", "cff", "dividends_paid", "buybacks", "net_change_cash", "fx_effect_on_cash"]
 
     load(is_data, is_keys)
     load(bs_data, bs_keys)
     load(cfs_data, cfs_keys)
+
+    # Derive total_liabilities = total_assets - total_equity when the Liabilities
+    # tag is absent (some companies only tag current + noncurrent liabilities separately)
+    if "total_liabilities" not in bs_data and "total_assets" in bs_data and "total_equity" in bs_data:
+        bs_data["total_liabilities"] = [
+            round(a - e, 2)
+            for a, e in zip(bs_data["total_assets"], bs_data["total_equity"])
+        ]
+        sources["total_liabilities"] = [
+            SourceCitation(filing=f"10-K {lbl}", confidence=0.95, xbrl_tag="derived:Assets-Equity")
+            for lbl in period_labels
+        ]
 
     return ReconciledFinancialData(
         ticker=str(cik),
