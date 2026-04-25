@@ -97,9 +97,4 @@ def test_writer_creates_required_tabs():
         writer.write()
         import openpyxl
         wb = openpyxl.load_workbook(out_path)
-        assert "IS" in wb.sheetnames
-        assert "BS" in wb.sheetnames
-        assert "CF" in wb.sheetnames
-        assert "Assumptions" in wb.sheetnames
-        assert "Schedules" in wb.sheetnames
-        assert "Sources" in wb.sheetnames
+        assert set(wb.sheetnames) == {"Cover", "IS", "BS", "CF", "Sources"}
