@@ -1,0 +1,16 @@
+primary_color: "#255BE3"
+ink_color: "#0F1632"
+alert_color: "#FF3C28"
+sand_color: "#EAE0D3"
+gray_01: "#A4ACAF"
+gray_03: "#D3DADD"
+gray_04: "#E6EBED"
+white: "#FFFFFF"
+blue_input: "#0000FF"
+green_link: "#008000"
+font_body: "Arial"
+font_display: "Arial"
+font_condensed: "Arial Narrow"
+font_size_body: 10
+font_size_title: 16
+font_size_subheader: 11
