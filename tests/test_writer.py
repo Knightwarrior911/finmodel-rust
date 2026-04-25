@@ -2,7 +2,6 @@
 import os
 import tempfile
 import pytest
-import xlsxwriter
 from pathlib import Path
 from schemas.financial_data import ModelOutput, VerificationReport
 from src.writer import ExcelWriter

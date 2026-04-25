@@ -119,10 +119,10 @@ def _write_tab_header(ws, fmt: Formats, title: str, subtitle: str, currency: str
 
 def _write_year_headers(ws, fmt: Formats, periods: list[str], hist_count: int,
                         start_col: int = 3, label_col: int = 2):
+    ws.set_column(label_col, label_col, 32)
     for j, period in enumerate(periods):
         col = start_col + j
         ws.write(7, col, period, fmt.year_header)
-        ws.set_column(label_col, label_col, 32)
         ws.set_column(col, col, 12)
 
 
@@ -155,21 +155,22 @@ class ExcelWriter:
             ws.set_tab_color(color)
             sheets[name] = ws
 
-        self._write_is(wb, sheets["IS"], fmt)
-        self._write_bs(wb, sheets["BS"], fmt)
-        self._write_cf(wb, sheets["CF"], fmt)
-        self._write_assumptions(wb, sheets["Assumptions"], fmt)
-        self._write_schedules(wb, sheets["Schedules"], fmt)
-        self._write_sources(wb, sheets["Sources"], fmt)
-
-        wb.close()
+        try:
+            self._write_is(wb, sheets["IS"], fmt)
+            self._write_bs(wb, sheets["BS"], fmt)
+            self._write_cf(wb, sheets["CF"], fmt)
+            self._write_assumptions(wb, sheets["Assumptions"], fmt)
+            self._write_schedules(wb, sheets["Schedules"], fmt)
+            self._write_sources(wb, sheets["Sources"], fmt)
+        finally:
+            wb.close()
 
     def _vals(self, section: dict, key: str) -> list:
         return section.get(key, [None] * len(self.output.periods))
 
     def _write_is(self, wb, ws, fmt: Formats):
         o = self.output
-        _write_tab_header(ws, fmt, self.company_name, "Income Statement", o.periods[0][:3] if o.periods else "USD")
+        _write_tab_header(ws, fmt, self.company_name, "Income Statement", "USD")
         _write_year_headers(ws, fmt, o.periods, self.hist_count)
 
         START = 8
@@ -205,14 +206,14 @@ class ExcelWriter:
                 col = DATA_START_COL + j
                 n_val = numerator[j] if numerator and j < len(numerator) else None
                 d_val = denominator[j] if denominator and j < len(denominator) else None
-                val = (n_val / d_val) if n_val and d_val and d_val != 0 else None
+                val = (n_val / d_val) if n_val is not None and d_val is not None and d_val != 0 else None
                 f = fmt.hist_divider_right if j == self.hist_count - 1 else fmt.pct_italic
                 ws.write(row, col, val, f)
 
         r = START
         write_row(r, "Revenue", rev, fmt.number, fmt.label_bold); r += 1
         write_pct_row(r, "  YoY Growth %", [
-            ((rev[j] / rev[j-1] - 1) if j > 0 and rev[j-1] else None) for j in range(len(rev))
+            ((rev[j] / rev[j-1] - 1) if j > 0 and rev[j-1] is not None and rev[j-1] != 0 else None) for j in range(len(rev))
         ], [1] * len(rev)); r += 1
 
         write_row(r, "Cost of Revenue", cogs, fmt.number); r += 1
@@ -224,12 +225,12 @@ class ExcelWriter:
         ws.set_row(r, 5); r += 1  # spacer
 
         write_row(r, "EBITDA", [
-            (g - s - rd_v) if g and s and rd_v else None
-            for g, s, rd_v in zip(gross, sga, rd)
+            (e + d) if e is not None and d is not None else None
+            for e, d in zip(ebit, da)
         ], fmt.number_bold, fmt.label_bold); r += 1
         write_pct_row(r, "  EBITDA Margin %", [
-            ((g - s - rd_v) if g and s and rd_v else None)
-            for g, s, rd_v in zip(gross, sga, rd)
+            (e + d) if e is not None and d is not None else None
+            for e, d in zip(ebit, da)
         ], rev); r += 1
 
         write_row(r, "D&A", da, fmt.number); r += 1
@@ -262,7 +263,7 @@ class ExcelWriter:
         ws.set_print_scale(90)
         ws.set_landscape()
         ws.fit_to_pages(1, 0)
-        ws.set_footer(f"&L IS &R Page &P")
+        ws.set_footer("&L IS &R Page &P")
 
     def _write_bs(self, wb, ws, fmt: Formats):
         o = self.output
@@ -361,7 +362,14 @@ class ExcelWriter:
         write_row(r, "Cash from Financing", "cff", o.cash_flow_statement, fmt.number_total, fmt.label_bold); r += 2
 
         write_row(r, "Net Change in Cash", "net_change_cash", o.cash_flow_statement, fmt.number_bold, fmt.label_bold); r += 1
-        write_row(r, "Beginning Cash", "cash", o.balance_sheet, fmt.number); r += 1
+        ws.write(r, LABEL_COL, "Beginning Cash", fmt.label)
+        bs_cash_beg = self._vals(o.balance_sheet, "cash")
+        for j in range(len(o.periods)):
+            col = DATA_START_COL + j
+            beg = bs_cash_beg[j - 1] if j > 0 else None
+            f = fmt.hist_divider_right if j == self.hist_count - 1 else fmt.number
+            ws.write(r, col, beg, f)
+        r += 1
 
         ws.write(r, LABEL_COL, "Ending Cash", fmt.label_bold)
         bs_cash = self._vals(o.balance_sheet, "cash")
@@ -442,7 +450,8 @@ class ExcelWriter:
             ws.write(r, LABEL_COL, f"  {label}", fmt.label_bold if field == "closing" else fmt.label)
             for j, sched in enumerate(o.schedules.get("ppe_rollforward", [])):
                 col = DATA_START_COL + j
-                f = fmt.number_bold if field == "closing" else fmt.number
+                base_f = fmt.number_bold if field == "closing" else fmt.number
+                f = fmt.hist_divider_right if j == self.hist_count - 1 else base_f
                 ws.write(r, col, sched.get(field), f)
             r += 1
 
