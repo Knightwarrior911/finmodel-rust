@@ -1,4 +1,5 @@
 # financial_model/src/fetcher.py
+import tempfile
 import requests
 from schemas.financial_data import ReconciledFinancialData, SourceCitation
 
@@ -159,3 +160,35 @@ def fetch_us_filing(cfg) -> ReconciledFinancialData:
     raw.currency = cfg.currency
     raw.fiscal_year_end = cfg.fiscal_year_end
     return raw
+
+
+def fetch_non_us_filing(cfg) -> ReconciledFinancialData:
+    from src.extractor import scrape_ir_page_for_pdfs, extract_notes_from_pdf
+
+    pdf_urls = scrape_ir_page_for_pdfs(cfg.ticker, cfg.company_name)
+    if not pdf_urls:
+        raise ValueError(f"No annual report PDFs found for {cfg.company_name}")
+
+    all_notes: dict = {}
+    for url in pdf_urls:
+        resp = requests.get(url, headers={"User-Agent": "FinancialModelBot vinit.paul@gmail.com"}, timeout=30)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            f.write(resp.content)
+            tmp_path = f.name
+        notes = extract_notes_from_pdf(tmp_path, periods=[f"{y}A" for y in range(2019, 2025)])
+        all_notes.update(notes)
+
+    periods = [f"{y}A" for y in range(2025 - cfg.periods_historical, 2025)]
+    return ReconciledFinancialData(
+        ticker=cfg.ticker,
+        company_name=cfg.company_name,
+        currency=cfg.currency,
+        fiscal_year_end=cfg.fiscal_year_end,
+        periods=periods,
+        income_statement={},
+        balance_sheet={},
+        cash_flow_statement={},
+        notes=all_notes,
+        sources={},
+        flags=["Non-US company — data sourced from IR page PDFs"],
+    )
