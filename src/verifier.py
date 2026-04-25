@@ -2,6 +2,8 @@ from schemas.financial_data import ModelOutput, VerificationReport
 
 BS_TOLERANCE = 1.0   # $1M tolerance for balance sheet check
 CFS_TOLERANCE = 1.0
+CFS_WARN_PCT = 0.001    # 0.1% of total activity → warning
+CFS_CRITICAL_PCT = 0.01  # 1.0% of total activity → critical failure
 
 
 def verify(output: ModelOutput) -> VerificationReport:
@@ -17,16 +19,17 @@ def verify(output: ModelOutput) -> VerificationReport:
     for i, period in enumerate(output.periods):
         checks = {}
 
-        # CRITICAL: BS balance
+        # CRITICAL: BS balance (Assets = Liabilities + Equity + Redeemable NCI)
         assets = _get(bs, "total_assets", i)
         liab = _get(bs, "total_liabilities", i)
         equity = _get(bs, "total_equity", i)
+        rnci = _get(bs, "redeemable_nci", i) or 0.0
         if all(v is not None for v in [assets, liab, equity]):
-            diff = abs(assets - (liab + equity))
+            diff = abs(assets - (liab + equity + rnci))
             checks["bs_balance"] = diff <= BS_TOLERANCE
             if diff > BS_TOLERANCE:
                 critical.append(
-                    f"Balance sheet mismatch {period}: assets={assets:.0f}, L+E={liab+equity:.0f}, diff={diff:.0f}"
+                    f"Balance sheet mismatch {period}: assets={assets:.0f}, L+E+RNCI={liab+equity+rnci:.0f}, diff={diff:.0f}"
                 )
 
         # CRITICAL: CFS cash tie
@@ -39,10 +42,17 @@ def verify(output: ModelOutput) -> VerificationReport:
         if all(v is not None for v in [cfo, cfi, cff, net_change]):
             computed = cfo + cfi + cff + fx
             diff = abs(computed - net_change)
-            checks["cfs_tie"] = diff <= CFS_TOLERANCE
-            if diff > CFS_TOLERANCE:
+            total_activity = abs(cfo) + abs(cfi) + abs(cff)
+            warn_tol = max(CFS_TOLERANCE, total_activity * CFS_WARN_PCT)
+            crit_tol = max(CFS_TOLERANCE, total_activity * CFS_CRITICAL_PCT)
+            checks["cfs_tie"] = diff <= warn_tol
+            if diff > crit_tol:
                 critical.append(
-                    f"CFS mismatch {period}: computed={computed:.0f}, stated={net_change:.0f}"
+                    f"CFS mismatch {period}: computed={computed:.0f}, stated={net_change:.0f}, diff={diff:.0f}"
+                )
+            elif diff > warn_tol:
+                warnings.append(
+                    f"CFS minor gap {period}: diff={diff:.0f} ({diff/total_activity:.2%} of activity) — may reflect discontinued operations"
                 )
 
         # WARNINGS

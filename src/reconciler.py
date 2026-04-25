@@ -24,12 +24,13 @@ def check_consistency(data: ReconciledFinancialData) -> list[str]:
         assets = bs.get("total_assets", [None] * (i + 1))[i]
         liab = bs.get("total_liabilities", [None] * (i + 1))[i]
         equity = bs.get("total_equity", [None] * (i + 1))[i]
+        rnci = (bs.get("redeemable_nci") or [None] * (i + 1))[i] or 0.0
         if assets is None or liab is None or equity is None:
             continue
-        diff = abs(assets - (liab + equity))
+        diff = abs(assets - (liab + equity + rnci))
         if diff > assets * TOLERANCE_PCT:
             errors.append(
-                f"Balance sheet mismatch {period}: assets={assets:.0f}, L+E={liab + equity:.0f}, diff={diff:.0f}"
+                f"Balance sheet mismatch {period}: assets={assets:.0f}, L+E+RNCI={liab + equity + rnci:.0f}, diff={diff:.0f}"
             )
 
     is_data = data.income_statement
