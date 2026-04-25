@@ -138,6 +138,25 @@ BS_SCHED_R: dict[str, int] = {
 }
 
 
+# Case selector lives on Cover tab (0-based row 28 = Excel row 29, col C)
+COVER_CASE_ROW = 28
+
+# Scenario assumption rows on IS tab (0-based)
+IS_SCEN_R: dict[str, int] = {
+    # spacer 48
+    "hdr":    49,
+    "labels": 50,   # Base | Upside | Downside sub-headers
+    "rev_g":  51,
+    "gm":     52,
+    "sga":    53,
+    "rd":     54,
+    "da":     55,
+    "tax":    56,
+    "int":    57,
+    "shares": 58,
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Format palette
 # ─────────────────────────────────────────────────────────────────────────────
@@ -406,6 +425,18 @@ class ExcelWriter:
         ws.write(23, DATA0, "Same-tab formula — do not edit directly", fmt.cv_sub)
         ws.write(24, LABEL, "Green text", fmt.cv_green)
         ws.write(24, DATA0, "Cross-tab link formula — do not edit directly", fmt.cv_sub)
+
+        # ── Model Controls ───────────────────────────────────────────────────
+        ws.set_row(27, 20)
+        ws.write(27, LABEL, "Model Controls", fmt.lbl_b)
+        ws.write(COVER_CASE_ROW, LABEL,
+                 "Active Scenario   (1 = Base  |  2 = Upside  |  3 = Downside)", fmt.lbl)
+        ws.write(COVER_CASE_ROW, DATA0, 1, fmt.cv_blue)   # blue input, default Base
+        case_addr = _c(COVER_CASE_ROW, DATA0)
+        ws.write(COVER_CASE_ROW + 1, LABEL, "Current Case", fmt.lbl)
+        ws.write_formula(COVER_CASE_ROW + 1, DATA0,
+                         f'=CHOOSE({case_addr},"Base","Upside","Downside")',
+                         fmt.cv_black)
 
         ws.set_landscape()
         ws.fit_to_pages(1, 0)
@@ -682,8 +713,12 @@ class ExcelWriter:
         ws.set_row(R["drv_header"], 16)
         ws.write(R["drv_header"], LABEL, "PROJECTION DRIVERS", fmt.lbl_sec)
 
-        def _drv(row: int, label: str, hist_fn, proj_val, pct: bool = True) -> None:
-            """Driver row: implied historical formula | blue projection assumption."""
+        # Case selector absolute reference on Cover tab
+        _case = f"Cover!${xl_col_to_name(DATA0)}${COVER_CASE_ROW + 1}"
+
+        def _drv(row: int, label: str, hist_fn, scen_key: str,
+                 pct: bool = True) -> None:
+            """Driver row: implied historical formula | CHOOSE from scenario table."""
             ws.write(row, LABEL, label, fmt.lbl_drv)
             for j in range(n_h):
                 fmla = hist_fn(j)
@@ -692,12 +727,14 @@ class ExcelWriter:
                     ws.write_formula(row, self._col(j), fmla, f)
                 else:
                     ws.write_blank(row, self._col(j), f)
+            SR = IS_SCEN_R
+            base_c = _c(SR[scen_key], DATA0)
+            up_c   = _c(SR[scen_key], DATA0 + 1)
+            down_c = _c(SR[scen_key], DATA0 + 2)
+            f = fmt.num_p if pct else fmt.num   # black formula (computed from scenario)
             for j in range(n_p):
-                f = fmt.drv if pct else fmt.drv_num
-                if proj_val is not None:
-                    ws.write(row, self._col(n_h + j), proj_val, f)
-                else:
-                    ws.write_blank(row, self._col(n_h + j), f)
+                ws.write_formula(row, self._col(n_h + j),
+                                 f"=CHOOSE({_case},{base_c},{up_c},{down_c})", f)
 
         def _rev_g(j):
             if j == 0: return None
@@ -711,25 +748,66 @@ class ExcelWriter:
             return fn
 
         _drv(R["drv_rev_g"], "Revenue Growth %",
-             _rev_g, asmp.get("revenue_growth_pct"))
+             _rev_g, "rev_g")
         _drv(R["drv_gm"],    "Gross Margin %",
-             _ratio(R["gross_profit"], R["revenue"]), asmp.get("gross_margin_pct"))
+             _ratio(R["gross_profit"], R["revenue"]), "gm")
         _drv(R["drv_sga"],   "SG&A % Revenue",
-             _ratio(R["sga"], R["revenue"]), asmp.get("sga_pct_rev"))
+             _ratio(R["sga"], R["revenue"]), "sga")
         _drv(R["drv_rd"],    "R&D % Revenue",
-             _ratio(R["rd"],  R["revenue"]), asmp.get("rd_pct_rev"))
+             _ratio(R["rd"],  R["revenue"]), "rd")
         _drv(R["drv_da"],    "D&A % Revenue",
-             _ratio(R["da"],  R["revenue"]), asmp.get("da_pct_rev"))
+             _ratio(R["da"],  R["revenue"]), "da")
         _drv(R["drv_tax"],   "Effective Tax Rate %",
-             _ratio(R["tax"], R["ebt"]),     asmp.get("tax_rate_pct"))
-        _drv(R["drv_int"],   "Interest Rate % (Phase 2: → debt schedule)",
-             lambda j: None, asmp.get("interest_rate_pct"))
+             _ratio(R["tax"], R["ebt"]), "tax")
+        _drv(R["drv_int"],   "Interest Rate %",
+             lambda j: None, "int")
         _drv(R["drv_shares"],"Diluted Shares ('000s)",
-             lambda j: None, asmp.get("shares_diluted"), pct=False)
+             lambda j: None, "shares", pct=False)
+
+        self._sp(ws, 48)
+        self._write_is_scenarios(ws, fmt)
 
         ws.set_landscape(); ws.fit_to_pages(1, 0)
         ws.set_footer(f"&L IS &C {self.co} &R Page &P")
         ws.set_print_scale(85)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # IS scenario assumption table
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _write_is_scenarios(self, ws, fmt: _Fmt) -> None:
+        SR = IS_SCEN_R
+        asmp = self.o.assumptions
+
+        ws.set_row(SR["hdr"], 16)
+        ws.write(SR["hdr"], LABEL, "SCENARIO ASSUMPTIONS  (all projection periods)", fmt.lbl_sec)
+
+        # Sub-headers: Base | Upside | Downside in first 3 data columns
+        for col_off, lbl in [(0, "Base"), (1, "Upside"), (2, "Downside")]:
+            ws.write(SR["labels"], DATA0 + col_off, lbl, fmt.hcol)
+
+        def _row(skey: str, label: str, base_val,
+                 delta: float, pct: bool = True) -> None:
+            ws.write(SR[skey], LABEL, f"  {label}", fmt.lbl_drv)
+            f = fmt.drv if pct else fmt.drv_num
+            if base_val is not None:
+                vals = [base_val, base_val + delta, base_val - delta]
+            else:
+                vals = [None, None, None]
+            for col_off, v in enumerate(vals):
+                if v is not None:
+                    ws.write(SR[skey], DATA0 + col_off, v, f)
+                else:
+                    ws.write_blank(SR[skey], DATA0 + col_off, f)
+
+        _row("rev_g",  "Revenue Growth %",    asmp.get("revenue_growth_pct"), 0.02)
+        _row("gm",     "Gross Margin %",       asmp.get("gross_margin_pct"),   0.01)
+        _row("sga",    "SG&A % Revenue",       asmp.get("sga_pct_rev"),        0.005)
+        _row("rd",     "R&D % Revenue",        asmp.get("rd_pct_rev"),         0.005)
+        _row("da",     "D&A % Revenue",        asmp.get("da_pct_rev"),         0.002)
+        _row("tax",    "Effective Tax Rate %", asmp.get("tax_rate_pct"),       0.01)
+        _row("int",    "Interest Rate %",      asmp.get("interest_rate_pct"),  0.005)
+        _row("shares", "Diluted Shares ('000s)", asmp.get("shares_diluted"),   0,   pct=False)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Pct margin row helper (formula all periods)
