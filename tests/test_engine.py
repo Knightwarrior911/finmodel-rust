@@ -90,3 +90,26 @@ def test_engine_convergence_flag():
     engine = ModelEngine(HIST_DATA, CFG)
     output = engine.build()
     assert isinstance(output.converged, bool)
+
+
+def test_cash_reconciles_with_cfs():
+    engine = ModelEngine(HIST_DATA, CFG)
+    output = engine.build()
+    bs_cash = output.balance_sheet["cash"]
+    net_change = output.cash_flow_statement["net_change_cash"]
+    # For each projected period, verify bs_cash[i] == bs_cash[i-1] + net_change[i]
+    hist_count = len(HIST_DATA.periods)
+    for i in range(hist_count, len(output.periods)):
+        expected = round(bs_cash[i - 1] + net_change[i], 2)
+        assert abs(bs_cash[i] - expected) < 0.05, (
+            f"Cash reconciliation failed at {output.periods[i]}: "
+            f"bs_cash={bs_cash[i]}, prev+net_change={expected}"
+        )
+
+
+def test_engine_ebitda_in_output():
+    engine = ModelEngine(HIST_DATA, CFG)
+    output = engine.build()
+    assert "ebitda" in output.income_statement
+    proj_ebitda = output.income_statement["ebitda"][len(HIST_DATA.periods):]
+    assert all(e is not None for e in proj_ebitda)

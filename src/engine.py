@@ -2,12 +2,12 @@ from copy import deepcopy
 from schemas.financial_data import ReconciledFinancialData, ModelConfig, ModelOutput
 
 
-def _avg(values: list, n: int = 3) -> float:
+def _avg(values: list[float], n: int = 3) -> float:
     valid = [v for v in values[-n:] if v is not None]
     return sum(valid) / len(valid) if valid else 0.0
 
 
-def _pct_growth_avg(values: list, n: int = 3) -> float:
+def _pct_growth_avg(values: list[float], n: int = 3) -> float:
     rates = []
     for i in range(1, len(values)):
         if values[i - 1] and values[i - 1] != 0:
@@ -15,7 +15,7 @@ def _pct_growth_avg(values: list, n: int = 3) -> float:
     return _avg(rates, n)
 
 
-def _days(numerator: list, denominator: list, scale: float = 365.0) -> float:
+def _days(numerator: list[float], denominator: list[float], scale: float = 365.0) -> float:
     ratios = [
         (n / d * scale) for n, d in zip(numerator, denominator)
         if d and d != 0 and n is not None
@@ -24,14 +24,9 @@ def _days(numerator: list, denominator: list, scale: float = 365.0) -> float:
 
 
 class ModelEngine:
-    MAX_ITER = 100
-    TOLERANCE = 0.01  # $M convergence tolerance
-
     def __init__(self, data: ReconciledFinancialData, cfg: ModelConfig):
         self.data = data
         self.cfg = cfg
-        self._converged = True
-        self._plug_used = False
 
     def build(self) -> ModelOutput:
         assumptions = self._derive_assumptions()
@@ -63,12 +58,18 @@ class ModelEngine:
             cash_flow_statement=merge(cfs_hist, cfs_proj),
             schedules=schedules,
             assumptions=assumptions,
-            converged=self._converged,
-            plug_used=self._plug_used,
+            converged=True,
+            plug_used=False,
         )
 
     def _projection_periods(self, hist_periods: list[str]) -> list[str]:
-        last_year = int(hist_periods[-1][:4])
+        try:
+            last_year = int(hist_periods[-1][:4])
+        except (ValueError, IndexError):
+            raise ValueError(
+                f"Cannot parse year from period label '{hist_periods[-1]}'. "
+                "Expected format: 'YYYYA' (e.g., '2023A')"
+            )
         return [f"{last_year + i}E" for i in range(1, self.cfg.periods_projected + 1)]
 
     def _derive_assumptions(self) -> dict:
@@ -174,13 +175,17 @@ class ModelEngine:
             ppe = prev_ppe + capex - da
             re = prev_re + ni - (assumptions["dividend_per_share"] * shares)
 
-            # Cash and circulars
-            cash, ltd, converged = self._resolve_circulars(
-                prev_cash, prev_ltd, ni, da, capex, assumptions
-            )
-            self._converged = self._converged and converged
-            if not converged:
-                self._plug_used = True
+            # Cash derived directly from CFS (lagged int_inc avoids circular)
+            ltd = prev_ltd
+            d_ar = ar - prev_ar
+            d_inv = inv - prev_inv
+            d_ap = ap - prev_ap
+            cfo = ni + da - d_ar - d_inv + d_ap
+            cfi = -capex
+            dividends = assumptions["dividend_per_share"] * shares
+            cff = -dividends
+            net_change = cfo + cfi + cff
+            cash = prev_cash + net_change
 
             goodwill = (bs_hist.get("goodwill") or [0])[-1] or 0
             total_assets = cash + ar + inv + ppe + goodwill
@@ -190,22 +195,13 @@ class ModelEngine:
             if abs(total_assets - (total_liab + total_equity_val)) > 1:
                 total_equity_val = total_assets - total_liab
 
-            # CFS
-            d_ar = ar - prev_ar
-            d_inv = inv - prev_inv
-            d_ap = ap - prev_ap
-            cfo = ni + da - d_ar - d_inv + d_ap
-            cfi = -capex
-            dividends = assumptions["dividend_per_share"] * shares
-            cff = -dividends
-            net_change = cfo + cfi + cff
-
             append(is_proj, "revenue", rev)
             append(is_proj, "cogs", cogs)
             append(is_proj, "gross_profit", gross)
             append(is_proj, "sga", sga)
             append(is_proj, "rd", rd)
             append(is_proj, "da", da)
+            append(is_proj, "ebitda", ebitda)
             append(is_proj, "ebit", ebit)
             append(is_proj, "interest_expense", int_exp)
             append(is_proj, "interest_income", int_inc)
@@ -243,23 +239,6 @@ class ModelEngine:
 
         return is_proj, bs_proj, cfs_proj
 
-    def _resolve_circulars(
-        self, prev_cash: float, prev_ltd: float, ni: float, da: float,
-        capex: float, assumptions: dict
-    ) -> tuple[float, float, bool]:
-        cash = prev_cash
-        ltd = prev_ltd
-        for _ in range(self.MAX_ITER):
-            prev_cash_iter = cash
-            cfo_approx = ni + da
-            cfi_approx = -capex
-            cff_approx = -(assumptions["dividend_per_share"] * assumptions["shares_diluted"])
-            cash = prev_cash + cfo_approx + cfi_approx + cff_approx
-            if abs(cash - prev_cash_iter) < self.TOLERANCE:
-                return cash, ltd, True
-        # Fallback: plug — return computed cash, flag non-convergence
-        return cash, ltd, False
-
     def _build_schedules(
         self, is_d: dict, bs_d: dict, cfs_d: dict, periods: list[str], assumptions: dict
     ) -> dict:
@@ -269,11 +248,10 @@ class ModelEngine:
         capex_vals = cfs_d.get("capex", [0] * n)
 
         ppe_schedule = []
-        for i in range(n):
-            opening = ppe_vals[i - 1] if i > 0 else 0.0
+        for i in range(1, n):  # start at 1, opening is always ppe_vals[i-1]
             ppe_schedule.append({
                 "period": periods[i],
-                "opening": round(opening, 2),
+                "opening": round(ppe_vals[i - 1] if i - 1 < len(ppe_vals) else 0, 2),
                 "capex": round(capex_vals[i] if i < len(capex_vals) else 0, 2),
                 "da": round(da_vals[i] if i < len(da_vals) else 0, 2),
                 "closing": round(ppe_vals[i] if i < len(ppe_vals) else 0, 2),
