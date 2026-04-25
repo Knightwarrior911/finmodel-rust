@@ -3,21 +3,34 @@ Usage:
   python model.py --ticker AAPL
   python model.py --ticker AAPL --periods-historical 5 --periods-projected 5
   python model.py --ticker 7203.T --filing /path/to/annual_report.pdf
+  python model.py --ticker 7203.T --ir-url https://toyota-global.com/investors/
   python model.py --ticker AAPL --force
 """
-import argparse
+import os
 import sys
 
 
+def _check_api_key():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("ERROR: ANTHROPIC_API_KEY not set.")
+        print("  Set it once in this terminal:  set ANTHROPIC_API_KEY=sk-ant-...")
+        print("  Or permanently:                setx ANTHROPIC_API_KEY sk-ant-...")
+        sys.exit(1)
+
+
 def main():
-    import sys
+    _check_api_key()
+
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+    import argparse
     parser = argparse.ArgumentParser(description="Build a 3-statement financial model from company filings")
     parser.add_argument("--ticker", required=True, help="Company ticker or name (e.g. AAPL, Toyota)")
     parser.add_argument("--periods-historical", type=int, default=5)
     parser.add_argument("--periods-projected", type=int, default=5)
     parser.add_argument("--filing", default=None, help="Path to annual report PDF (overrides fetched data)")
+    parser.add_argument("--ir-url", default=None, help="Investor relations page URL for non-US companies")
     parser.add_argument("--force", action="store_true", help="Bypass verification halt on critical failures")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
     args = parser.parse_args()
@@ -37,14 +50,15 @@ def main():
     except ValueError as e:
         print(f"ERROR: {e}")
         sys.exit(1)
-    print(f"      → {cfg.company_name} ({cfg.ticker}), {cfg.domicile}, {cfg.currency}")
+    print(f"      → {cfg.company_name} ({cfg.ticker}), {cfg.domicile}, {cfg.currency}, FY ends {cfg.fiscal_year_end}")
 
     print(f"[2/6] Fetching filings...")
     try:
         if args.filing:
             from src.extractor import extract_notes_from_pdf
+            from src.utils import compute_historical_periods
             from schemas.financial_data import ReconciledFinancialData
-            periods = [f"{y}A" for y in range(2025 - cfg.periods_historical, 2025)]
+            periods = compute_historical_periods(cfg.fiscal_year_end, cfg.periods_historical)
             notes = extract_notes_from_pdf(args.filing, periods)
             raw_data = ReconciledFinancialData(
                 ticker=cfg.ticker, company_name=cfg.company_name,
@@ -57,7 +71,7 @@ def main():
             raw_data = fetch_us_filing(cfg)
         else:
             from src.fetcher import fetch_non_us_filing
-            raw_data = fetch_non_us_filing(cfg)
+            raw_data = fetch_non_us_filing(cfg, ir_url=args.ir_url)
     except Exception as e:
         print(f"ERROR in [2/6] fetching: {e}")
         sys.exit(1)

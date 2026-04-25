@@ -2,6 +2,7 @@
 import tempfile
 import requests
 from schemas.financial_data import ReconciledFinancialData, SourceCitation
+from src.utils import compute_historical_periods
 
 EDGAR_HEADERS = {"User-Agent": "FinancialModelBot vinit.paul@gmail.com"}
 
@@ -72,13 +73,16 @@ def fetch_xbrl_facts(cik: str) -> dict:
     return resp.json()
 
 
-def _extract_tag_annual(gaap: dict, tags: list[str], n_periods: int) -> tuple[list[float], str | None]:
+def _extract_tag_annual(
+    gaap: dict, tags: list[str], n_periods: int, currency: str = "USD"
+) -> tuple[list[float], str | None]:
     for tag in tags:
         if tag not in gaap:
             continue
         units = gaap[tag].get("units", {})
-        usd_entries = units.get("USD") or units.get("shares") or []
-        annual = [e for e in usd_entries if e.get("form") == "10-K" and e.get("fp") == "FY"]
+        # Try reporting currency first, fall back to USD, then shares (for unit-less counts)
+        entries = units.get(currency) or units.get("USD") or units.get("shares") or []
+        annual = [e for e in entries if e.get("form") in ("10-K", "20-F") and e.get("fp") == "FY"]
         annual.sort(key=lambda e: e["end"])
         if len(annual) >= n_periods:
             vals = [round(e["val"] / 1e6, 2) for e in annual[-n_periods:]]
@@ -86,7 +90,9 @@ def _extract_tag_annual(gaap: dict, tags: list[str], n_periods: int) -> tuple[li
     return [], None
 
 
-def parse_xbrl_to_raw(facts: dict, periods_historical: int) -> ReconciledFinancialData:
+def parse_xbrl_to_raw(
+    facts: dict, periods_historical: int, currency: str = "USD"
+) -> ReconciledFinancialData:
     gaap = facts.get("facts", {}).get("us-gaap", {})
     entity = facts.get("entityName", "Unknown")
     cik = facts.get("cik", 0)
@@ -97,9 +103,9 @@ def parse_xbrl_to_raw(facts: dict, periods_historical: int) -> ReconciledFinanci
     for tag in rev_tags:
         if tag not in gaap:
             continue
-        entries = gaap[tag].get("units", {}).get("USD", [])
+        entries = gaap[tag].get("units", {}).get(currency) or gaap[tag].get("units", {}).get("USD") or []
         annual = sorted(
-            [e for e in entries if e.get("form") == "10-K" and e.get("fp") == "FY"],
+            [e for e in entries if e.get("form") in ("10-K", "20-F") and e.get("fp") == "FY"],
             key=lambda e: e["end"],
         )
         if len(annual) >= periods_historical:
@@ -112,7 +118,7 @@ def parse_xbrl_to_raw(facts: dict, periods_historical: int) -> ReconciledFinanci
 
     def load(section: dict, keys: list[str]):
         for key in keys:
-            vals, found_tag = _extract_tag_annual(gaap, XBRL_TAG_MAP[key], periods_historical)
+            vals, found_tag = _extract_tag_annual(gaap, XBRL_TAG_MAP[key], periods_historical, currency)
             if vals:
                 section[key] = vals
                 sources[key] = [
@@ -140,8 +146,8 @@ def parse_xbrl_to_raw(facts: dict, periods_historical: int) -> ReconciledFinanci
     return ReconciledFinancialData(
         ticker=str(cik),
         company_name=entity,
-        currency="USD",
-        fiscal_year_end="Dec",
+        currency=currency,
+        fiscal_year_end="",  # set by caller from cfg
         periods=period_labels,
         income_statement=is_data,
         balance_sheet=bs_data,
@@ -155,19 +161,20 @@ def parse_xbrl_to_raw(facts: dict, periods_historical: int) -> ReconciledFinanci
 def fetch_us_filing(cfg) -> ReconciledFinancialData:
     cik = get_cik(cfg.ticker)
     facts = fetch_xbrl_facts(cik)
-    raw = parse_xbrl_to_raw(facts, cfg.periods_historical)
+    raw = parse_xbrl_to_raw(facts, cfg.periods_historical, cfg.currency)
     raw.ticker = cfg.ticker
-    raw.currency = cfg.currency
     raw.fiscal_year_end = cfg.fiscal_year_end
     return raw
 
 
-def fetch_non_us_filing(cfg) -> ReconciledFinancialData:
+def fetch_non_us_filing(cfg, ir_url: str | None = None) -> ReconciledFinancialData:
     from src.extractor import scrape_ir_page_for_pdfs, extract_notes_from_pdf
 
-    pdf_urls = scrape_ir_page_for_pdfs(cfg.ticker, cfg.company_name)
+    pdf_urls = scrape_ir_page_for_pdfs(cfg.ticker, cfg.company_name, ir_url=ir_url)
     if not pdf_urls:
         raise ValueError(f"No annual report PDFs found for {cfg.company_name}")
+
+    periods = compute_historical_periods(cfg.fiscal_year_end, cfg.periods_historical)
 
     all_notes: dict = {}
     for url in pdf_urls:
@@ -175,10 +182,9 @@ def fetch_non_us_filing(cfg) -> ReconciledFinancialData:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(resp.content)
             tmp_path = f.name
-        notes = extract_notes_from_pdf(tmp_path, periods=[f"{y}A" for y in range(2019, 2025)])
+        notes = extract_notes_from_pdf(tmp_path, periods)
         all_notes.update(notes)
 
-    periods = [f"{y}A" for y in range(2025 - cfg.periods_historical, 2025)]
     return ReconciledFinancialData(
         ticker=cfg.ticker,
         company_name=cfg.company_name,

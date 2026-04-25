@@ -1,8 +1,10 @@
 # financial_model/src/extractor.py
 import json
+import subprocess
+from urllib.parse import quote, urljoin
+
 import anthropic
 import pdfplumber
-import fitz  # pymupdf
 from pathlib import Path
 
 NOTES_SYSTEM_PROMPT = """You are a senior financial analyst extracting data from company filing text.
@@ -46,44 +48,65 @@ def extract_notes_from_text(text: str, periods: list[str]) -> dict:
         raise ValueError(f"Extractor LLM returned invalid JSON: {e}\nRaw: {raw[:200]}") from e
 
 
-def extract_notes_from_pdf_vision(pdf_path: str, periods: list[str]) -> dict:
-    doc = fitz.open(pdf_path)
-    pages_text = []
-    for page in doc:
-        pages_text.append(page.get_text())
-    full_text = "\n".join(pages_text)
-    doc.close()
-    return extract_notes_from_text(full_text, periods)
-
-
 def extract_notes_from_pdf(pdf_path: str, periods: list[str]) -> dict:
     with pdfplumber.open(pdf_path) as pdf:
         text_pages = [p.extract_text() or "" for p in pdf.pages]
     full_text = "\n".join(text_pages)
 
     result = extract_notes_from_text(full_text, periods)
-    confidence = result.get("confidence", 0.0)
 
-    if confidence < 0.75:
-        result = extract_notes_from_pdf_vision(pdf_path, periods)
+    if result.get("confidence", 1.0) < 0.75:
+        result.setdefault("discrepancies", []).append(
+            "Low extraction confidence — PDF may be image-based or poorly structured"
+        )
 
     return result
 
 
-def scrape_ir_page_for_pdfs(ticker: str, company_name: str) -> list[str]:
-    import requests
-    from bs4 import BeautifulSoup
+def _find_ir_url_via_browser(company_name: str, ticker: str) -> str:
+    """Use actionbook browser (extension mode) to find the company IR page URL."""
+    session = "fm_ir_search"
+    query = f"{company_name} {ticker} investor relations annual report"
+    search_url = f"https://www.google.com/search?q={quote(query)}"
 
+    # Start headed browser (extension mode)
+    subprocess.run(
+        ["actionbook", "browser", "start", "--set-session-id", session, "--headed"],
+        capture_output=True, check=False
+    )
+    subprocess.run(
+        ["actionbook", "browser", "goto", search_url, "--session", session, "--tab", "t1"],
+        check=True
+    )
+    result = subprocess.run(
+        ["actionbook", "browser", "text", "--session", session, "--tab", "t1"],
+        capture_output=True, text=True
+    )
+    subprocess.run(
+        ["actionbook", "browser", "close", "--session", session],
+        capture_output=True, check=False
+    )
+
+    page_text = result.stdout[:4000]
     client = anthropic.Anthropic()
-    search_resp = client.messages.create(
+    resp = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=256,
         messages=[{
             "role": "user",
-            "content": f"Return ONLY a URL for the investor relations page of {company_name} ({ticker}). No prose, just the URL."
-        }],
+            "content": (
+                f"From these Google search results for '{company_name} investor relations', "
+                f"extract ONLY the URL of the official investor relations or annual reports page. "
+                f"Return just the URL, no prose.\n\n{page_text}"
+            )
+        }]
     )
-    ir_url = search_resp.content[0].text.strip()
+    return resp.content[0].text.strip()
+
+
+def _scrape_pdfs_from_url(ir_url: str) -> list[str]:
+    import requests
+    from bs4 import BeautifulSoup
 
     headers = {"User-Agent": "Mozilla/5.0 (compatible; FinancialModelBot/1.0)"}
     resp = requests.get(ir_url, headers=headers, timeout=15)
@@ -95,8 +118,21 @@ def scrape_ir_page_for_pdfs(ticker: str, company_name: str) -> list[str]:
         text = a.get_text(strip=True).lower()
         if href.endswith(".pdf") and any(kw in text for kw in ["annual", "report", "20-f", "results"]):
             if not href.startswith("http"):
-                from urllib.parse import urljoin
                 href = urljoin(ir_url, href)
             pdf_links.append(href)
 
-    return pdf_links[:6]  # limit to most recent filings
+    return pdf_links[:6]
+
+
+def scrape_ir_page_for_pdfs(
+    ticker: str, company_name: str, ir_url: str | None = None
+) -> list[str]:
+    """Find and return annual report PDF URLs from a company's IR page.
+
+    If ir_url is provided, scrapes it directly.
+    Otherwise uses actionbook browser to discover the IR page via Google search.
+    """
+    if ir_url:
+        return _scrape_pdfs_from_url(ir_url)
+    ir_url = _find_ir_url_via_browser(company_name, ticker)
+    return _scrape_pdfs_from_url(ir_url)
