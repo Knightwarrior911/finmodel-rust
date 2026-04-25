@@ -49,16 +49,16 @@ def verify(output: ModelOutput) -> VerificationReport:
             warnings.append(f"Negative revenue {period}: {rev:.0f}")
 
         gross = _get(is_d, "gross_profit", i)
-        if gross is not None and rev and rev != 0:
+        if gross is not None and rev is not None and rev > 0:
             gm = gross / rev
             if not (0 <= gm <= 1):
                 warnings.append(f"Gross margin outside 0-100% {period}: {gm:.1%}")
 
-        ni = _get(is_d, "net_income", i)
+        ebit = _get(is_d, "ebit", i)
         da = _get(is_d, "da", i)
-        if ni is not None and da is not None and rev and rev != 0:
-            ebitda = ni + da  # simplified
-            if ebitda != 0 and liab is not None and equity is not None:
+        if ebit is not None and da is not None and liab is not None:
+            ebitda = ebit + da
+            if ebitda != 0:
                 net_debt = (liab or 0) - (_get(bs, "cash", i) or 0)
                 if net_debt > ebitda * 10:
                     warnings.append(f"High leverage {period}: net debt/EBITDA > 10x")
@@ -67,7 +67,7 @@ def verify(output: ModelOutput) -> VerificationReport:
 
     if output.plug_used:
         notes.append("Circular reference resolved via plug (not iterative convergence)")
-    if not output.converged:
+    elif not output.converged:
         notes.append("Iterative circular resolution did not converge — plug applied")
 
     passed = len(critical) == 0

@@ -1,5 +1,4 @@
 # financial_model/tests/test_verifier.py
-import pytest
 from schemas.financial_data import ModelOutput, VerificationReport
 from src.verifier import verify
 
@@ -10,6 +9,7 @@ def make_balanced_output(periods=("2023A", "2024E")):
         income_statement={
             "revenue": [100.0] * n,
             "net_income": [15.0] * n,
+            "ebit": [20.0] * n,
             "da": [5.0] * n,
         },
         balance_sheet={
@@ -68,3 +68,11 @@ def test_verify_notes_plug_used():
     output.plug_used = True
     report = verify(output)
     assert any("plug" in n.lower() for n in report.notes)
+
+
+def test_verify_fails_cfs_mismatch():
+    output = make_balanced_output()
+    output.cash_flow_statement["net_change_cash"] = [999.0, 999.0]  # cfo+cfi+cff=12, stated=999
+    report = verify(output)
+    assert report.passed is False
+    assert any("cfs" in f.lower() or "cash flow" in f.lower() for f in report.critical_failures)
