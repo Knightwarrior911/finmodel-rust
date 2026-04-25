@@ -106,6 +106,37 @@ CF_R: dict[str, int] = {
     "chk_ni": 33, "chk_cash": 34,
 }
 
+# Supporting schedule rows on the BS tab (0-based)
+BS_SCHED_R: dict[str, int] = {
+    # spacer 33, 34 after bs_check
+    "sched_title": 35,
+    # spacer 36
+    "ppe_hdr":    37,
+    "ppe_beg":    38,
+    "ppe_capex":  39,
+    "ppe_da":     40,
+    "ppe_other":  41,
+    "ppe_end":    42,
+    # spacer 43
+    "wc_hdr":     44,
+    "wc_ar_days": 45,
+    "wc_ar":      46,
+    "wc_inv_days":47,
+    "wc_inv":     48,
+    "wc_ap_days": 49,
+    "wc_ap":      50,
+    # spacer 51
+    "wc_net_chg": 52,
+    # spacer 53
+    "debt_hdr":   54,
+    "debt_rate":  55,
+    "debt_beg":   56,
+    "debt_new":   57,
+    "debt_repaid":58,
+    "debt_end":   59,
+    "debt_int":   60,
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Format palette
@@ -543,13 +574,17 @@ class ExcelWriter:
         self._pct_row(ws, R["ebitda_margin"], "  EBITDA Margin %",
                       R["ebitda"], R["revenue"], fmt)
 
-        # ── Interest Expense (Phase 1: blue hardcoded all periods) ───────────
-        # Phase 2: replace with =IF(circ,AVG(beg_LTD,end_LTD),beg_LTD)*rate
+        # ── Interest Expense: hist=blue; proj=green from BS debt schedule ──────
         r = R["int_exp"]
         ws.write(r, LABEL, "  Interest Expense", fmt.lbl)
         all_ie = self._av(o.income_statement, "interest_expense")
-        for j in range(self.n):
+        for j in range(n_h):
             self._hc(ws, r, j, all_ie[j], fmt.hc, fmt.hc_hs)
+        for j in range(n_p):
+            col = self._col(n_h + j)
+            sched_c = _c(BS_SCHED_R["debt_int"], col)
+            self._fmla(ws, r, n_h + j, f"=BS!{sched_c}", fmt.xt,
+                       all_ie[n_h + j] if (n_h + j) < len(all_ie) else None)
 
         # ── Interest Income (Phase 1: blue hardcoded all periods) ────────────
         r = R["int_inc"]
@@ -771,8 +806,19 @@ class ExcelWriter:
                              _xr("CF", ec_row, self._col(n_h + j)),
                              fmt.xt, p_cash_is[j])
 
-        _bs_row(R["ar"],        "  Accounts Receivable",  "ar")
-        _bs_row(R["inventory"], "  Inventory",             "inventory")
+        # AR: hist=blue; proj=formula link to WC schedule (same tab, black)
+        for _row, _lbl, _key in [
+            (R["ar"],        "  Accounts Receivable", "ar"),
+            (R["inventory"], "  Inventory",            "inventory"),
+        ]:
+            ws.write(_row, LABEL, _lbl, fmt.lbl)
+            for j in range(n_h):
+                self._hc(ws, _row, j, h[_key][j], fmt.hc, fmt.hc_hs)
+            for j in range(n_p):
+                sched_c = _c(BS_SCHED_R["wc_ar" if _key == "ar" else "wc_inv"],
+                             self._col(n_h + j))
+                cache = all_v[_key][n_h + j]
+                self._fmla(ws, _row, n_h + j, f"={sched_c}", fmt.num, cache)
 
         # Total Current Assets — formula for projections, blue for hist
         r = R["total_cur_assets"]
@@ -786,7 +832,14 @@ class ExcelWriter:
             cache  = all_v["total_cur_assets"][n_h + j]
             self._fmla(ws, r, n_h + j, f"={cash_c}+{ar_c}+{inv_c}", fmt.num_b, cache)
 
-        _bs_row(R["ppe_net"],    "  PP&E, net",        "ppe_net")
+        # PP&E: hist=blue; proj=formula link to PP&E schedule (same tab, black)
+        ws.write(R["ppe_net"], LABEL, "  PP&E, net", fmt.lbl)
+        for j in range(n_h):
+            self._hc(ws, R["ppe_net"], j, h["ppe_net"][j], fmt.hc, fmt.hc_hs)
+        for j in range(n_p):
+            sched_c = _c(BS_SCHED_R["ppe_end"], self._col(n_h + j))
+            cache = all_v["ppe_net"][n_h + j]
+            self._fmla(ws, R["ppe_net"], n_h + j, f"={sched_c}", fmt.num, cache)
         _bs_row(R["goodwill"],   "  Goodwill",          "goodwill")
         _bs_row(R["intangibles"],"  Intangibles, net",  "intangibles")
 
@@ -807,7 +860,14 @@ class ExcelWriter:
         # ── LIABILITIES & EQUITY ──────────────────────────────────────────────
         ws.write(R["le_hdr"], LABEL, "LIABILITIES & EQUITY", fmt.lbl_sec)
 
-        _bs_row(R["ap"],           "  Accounts Payable",        "ap")
+        # AP: hist=blue; proj=formula link to WC schedule (same tab, black)
+        ws.write(R["ap"], LABEL, "  Accounts Payable", fmt.lbl)
+        for j in range(n_h):
+            self._hc(ws, R["ap"], j, h["ap"][j], fmt.hc, fmt.hc_hs)
+        for j in range(n_p):
+            sched_c = _c(BS_SCHED_R["wc_ap"], self._col(n_h + j))
+            cache = all_v["ap"][n_h + j]
+            self._fmla(ws, R["ap"], n_h + j, f"={sched_c}", fmt.num, cache)
 
         # Total Current Liab — formula for projections
         r = R["total_cur_liab"]
@@ -819,8 +879,25 @@ class ExcelWriter:
             cache = all_v["total_cur_liab"][n_h + j]
             self._fmla(ws, r, n_h + j, f"={ap_c}", fmt.num_b, cache)
 
-        _bs_row(R["ltd"],        "  Long-Term Debt",       "ltd")
-        _bs_row(R["total_liab"], "Total Liabilities",      "total_liab", bold=True)
+        # LTD: hist=blue; proj=formula link to debt schedule (same tab, black)
+        ws.write(R["ltd"], LABEL, "  Long-Term Debt", fmt.lbl)
+        for j in range(n_h):
+            self._hc(ws, R["ltd"], j, h["ltd"][j], fmt.hc, fmt.hc_hs)
+        for j in range(n_p):
+            sched_c = _c(BS_SCHED_R["debt_end"], self._col(n_h + j))
+            cache = all_v["ltd"][n_h + j]
+            self._fmla(ws, R["ltd"], n_h + j, f"={sched_c}", fmt.num, cache)
+
+        # Total Liabilities: hist=blue; proj=formula (cur liab + LTD)
+        r = R["total_liab"]
+        ws.write(r, LABEL, "Total Liabilities", fmt.lbl_b)
+        for j in range(n_h):
+            self._hc(ws, r, j, h["total_liab"][j], fmt.hc_b, fmt.hc_b_hs)
+        for j in range(n_p):
+            cl_c  = self._cell(R["total_cur_liab"], n_h + j)
+            ltd_c = self._cell(R["ltd"],             n_h + j)
+            cache = all_v["total_liab"][n_h + j]
+            self._fmla(ws, r, n_h + j, f"={cl_c}+{ltd_c}", fmt.num_b, cache)
 
         # RNCI / Mezzanine
         r = R["rnci"]
@@ -846,7 +923,23 @@ class ExcelWriter:
             cache   = all_v["retained_earnings"][n_h + j]
             self._fmla(ws, r, n_h + j, f"={prev_re}+{ni_c[1:]}", fmt.num, cache)
 
-        _bs_row(R["total_equity"], "Total Equity", "total_equity", bold=True)
+        # Total Equity: hist=blue; proj=rollforward (prev + NI − Divs − Buybacks)
+        r = R["total_equity"]
+        ws.write(r, LABEL, "Total Equity", fmt.lbl_b)
+        for j in range(n_h):
+            self._hc(ws, r, j, h["total_equity"][j], fmt.hc_b, fmt.hc_b_hs)
+        for j in range(n_p):
+            ci  = n_h + j
+            col = self._col(ci)
+            prev_eq = self._cell(r, ci - 1)
+            ni_c    = _c(IS_R["net_income"], col)
+            div_c   = _c(CF_R["dividends"],  col)
+            bb_c    = _c(CF_R["buybacks"],   col)
+            cache   = all_v["total_equity"][ci]
+            # NI from IS (green), Divs and Buybacks from CF (green outflows, positive sign)
+            self._fmla(ws, r, ci,
+                       f"={prev_eq}+IS!{ni_c}-CF!{div_c}-CF!{bb_c}",
+                       fmt.xt_b, cache)
 
         # Total L + Mezzanine + E (formula all periods)
         r = R["total_le"]
@@ -876,9 +969,231 @@ class ExcelWriter:
             self._fmla(ws, r, j, f"={ta_c}-{tle_c}", fmt.chk_ok, cache)
         self._apply_check_cf(wb, ws, r)
 
+        # Supporting schedules (PP&E, WC, Debt) below main BS section
+        self._write_bs_schedules(wb, ws, fmt)
+
         ws.set_landscape(); ws.fit_to_pages(1, 0)
         ws.set_footer(f"&L BS &C {self.co} &R Page &P")
         ws.set_print_scale(85)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # BS supporting schedules
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _write_bs_schedules(self, wb, ws, fmt: _Fmt) -> None:
+        o = self.o
+        n_h, n_p = self.n_h, self.n_p
+        SR = BS_SCHED_R
+        R  = BS_R
+
+        # Raw data
+        h_ppe   = self._hv(o.balance_sheet,       "ppe_net")
+        h_ar    = self._hv(o.balance_sheet,       "accounts_receivable")
+        h_inv   = self._hv(o.balance_sheet,       "inventory")
+        h_ap    = self._hv(o.balance_sheet,       "accounts_payable")
+        h_ltd   = self._hv(o.balance_sheet,       "long_term_debt")
+        h_capex = self._hv(o.cash_flow_statement, "capex")
+        h_da    = self._hv(o.income_statement,    "da")
+        h_rev   = self._hv(o.income_statement,    "revenue")
+        h_cogs  = self._hv(o.income_statement,    "cogs")
+        h_ie    = self._hv(o.income_statement,    "interest_expense")
+
+        all_ppe   = self._av(o.balance_sheet,       "ppe_net")
+        all_capex = self._av(o.cash_flow_statement, "capex")
+        all_da    = self._av(o.income_statement,    "da")
+        all_rev   = self._av(o.income_statement,    "revenue")
+        all_cogs  = self._av(o.income_statement,    "cogs")
+        all_ltd   = self._av(o.balance_sheet,       "long_term_debt")
+        all_ie    = self._av(o.income_statement,    "interest_expense")
+        all_ar    = self._av(o.balance_sheet,       "accounts_receivable")
+        all_inv   = self._av(o.balance_sheet,       "inventory")
+        all_ap    = self._av(o.balance_sheet,       "accounts_payable")
+
+        def _safe(a, b):
+            return round(a / b, 6) if (a and b) else None
+
+        last = n_h - 1
+        ar_days   = _safe((h_ar[last]  or 0) * 365, h_rev[last])   or 45.0
+        inv_days  = _safe((h_inv[last] or 0) * 365, h_cogs[last])  or 30.0
+        ap_days   = _safe((h_ap[last]  or 0) * 365, h_cogs[last])  or 45.0
+        avg_ltd   = ((h_ltd[last - 1] or h_ltd[last] or 0) + (h_ltd[last] or 0)) / 2 if last > 0 else (h_ltd[last] or 0)
+        debt_rate = _safe(h_ie[last] or 0, avg_ltd) or 0.04
+
+        # Section header
+        self._sp(ws, 33); self._sp(ws, 34)
+        ws.set_row(SR["sched_title"], 16)
+        ws.write(SR["sched_title"], LABEL, "SUPPORTING SCHEDULES", fmt.lbl_sec)
+
+        # ── PP&E Schedule ─────────────────────────────────────────────────────
+        self._sp(ws, 36)
+        ws.set_row(SR["ppe_hdr"], 16)
+        ws.write(SR["ppe_hdr"],   LABEL, "PP&E Schedule",                   fmt.lbl_b)
+        ws.write(SR["ppe_beg"],   LABEL, "  Beginning PP&E",                fmt.lbl)
+        ws.write(SR["ppe_capex"], LABEL, "  + Capital Expenditures",        fmt.lbl)
+        ws.write(SR["ppe_da"],    LABEL, "  − Depreciation & Amort.",  fmt.lbl)
+        ws.write(SR["ppe_other"], LABEL, "  + Other / Acquisitions",        fmt.lbl)
+        ws.write(SR["ppe_end"],   LABEL, "Ending PP&E",                     fmt.lbl_b)
+
+        for j in range(n_h):
+            hs  = self._hs(j)
+            beg = all_ppe[j - 1] if j > 0 else None
+            self._hc(ws, SR["ppe_beg"],   j, beg,        fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["ppe_capex"], j, h_capex[j], fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["ppe_da"],    j, h_da[j],    fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["ppe_other"], j, 0.0,        fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["ppe_end"],   j, h_ppe[j],   fmt.hc_b, fmt.hc_b_hs)
+
+        for j in range(n_p):
+            ci  = n_h + j
+            col = self._col(ci)
+            # beginning = prior ending (same-tab)
+            prev_end = (self._cell(R["ppe_net"], n_h - 1) if j == 0
+                        else _c(SR["ppe_end"], self._col(ci - 1)))
+            beg_cache = all_ppe[ci - 1] if (ci - 1) < len(all_ppe) else None
+            ws.write_formula(SR["ppe_beg"], col, f"={prev_end}", fmt.num, beg_cache)
+            # capex: green from CF
+            ws.write_formula(SR["ppe_capex"], col,
+                             f"=CF!{_c(CF_R['capex'], col)}", fmt.xt, all_capex[ci])
+            # D&A: green from IS
+            ws.write_formula(SR["ppe_da"], col,
+                             f"=IS!{_c(IS_R['da'], col)}", fmt.xt, all_da[ci])
+            # other: blue 0
+            ws.write(SR["ppe_other"], col, 0.0, fmt.hc)
+            # ending = beg + capex − da + other
+            beg_c = _c(SR["ppe_beg"],   col)
+            cap_c = _c(SR["ppe_capex"], col)
+            da_c  = _c(SR["ppe_da"],    col)
+            oth_c = _c(SR["ppe_other"], col)
+            end_cache = (beg_cache or 0) + (all_capex[ci] or 0) - (all_da[ci] or 0)
+            ws.write_formula(SR["ppe_end"], col,
+                             f"={beg_c}+{cap_c}-{da_c}+{oth_c}", fmt.num_b, end_cache)
+
+        # ── Working Capital Schedule ──────────────────────────────────────────
+        self._sp(ws, SR["ppe_end"] + 1)
+        ws.set_row(SR["wc_hdr"], 16)
+        ws.write(SR["wc_hdr"],     LABEL, "Working Capital Schedule",     fmt.lbl_b)
+        ws.write(SR["wc_ar_days"], LABEL, "  AR Days",                    fmt.lbl_drv)
+        ws.write(SR["wc_ar"],      LABEL, "  Accounts Receivable",        fmt.lbl)
+        ws.write(SR["wc_inv_days"],LABEL, "  Inventory Days",             fmt.lbl_drv)
+        ws.write(SR["wc_inv"],     LABEL, "  Inventory",                  fmt.lbl)
+        ws.write(SR["wc_ap_days"], LABEL, "  AP Days",                    fmt.lbl_drv)
+        ws.write(SR["wc_ap"],      LABEL, "  Accounts Payable",           fmt.lbl)
+        ws.write(SR["wc_net_chg"], LABEL, "  Net WC Change (CFO add-back)", fmt.lbl_i)
+
+        for j in range(n_h):
+            col = self._col(j)
+            rev_c = _c(IS_R["revenue"], col)
+            cogs_c = _c(IS_R["cogs"],  col)
+            bs_ar_c  = self._cell(R["ar"],        j)
+            bs_inv_c = self._cell(R["inventory"], j)
+            bs_ap_c  = self._cell(R["ap"],        j)
+            f_d = fmt.drv_imp_hs if self._hs(j) else fmt.drv_imp
+            ws.write_formula(SR["wc_ar_days"],  col,
+                             f"=IF(IS!{rev_c}<>0,{bs_ar_c}/IS!{rev_c}*365,\"\")", f_d)
+            self._hc(ws, SR["wc_ar"],  j, h_ar[j],  fmt.hc, fmt.hc_hs)
+            ws.write_formula(SR["wc_inv_days"], col,
+                             f"=IF(IS!{cogs_c}<>0,{bs_inv_c}/IS!{cogs_c}*365,\"\")", f_d)
+            self._hc(ws, SR["wc_inv"], j, h_inv[j], fmt.hc, fmt.hc_hs)
+            ws.write_formula(SR["wc_ap_days"],  col,
+                             f"=IF(IS!{cogs_c}<>0,{bs_ap_c}/IS!{cogs_c}*365,\"\")", f_d)
+            self._hc(ws, SR["wc_ap"],  j, h_ap[j],  fmt.hc, fmt.hc_hs)
+            ws.write_blank(SR["wc_net_chg"], col, fmt.num)
+
+        for j in range(n_p):
+            ci  = n_h + j
+            col = self._col(ci)
+            rev_c  = _c(IS_R["revenue"], col)
+            cogs_c = _c(IS_R["cogs"],   col)
+            ar_d   = _c(SR["wc_ar_days"],  col)
+            inv_d  = _c(SR["wc_inv_days"], col)
+            ap_d   = _c(SR["wc_ap_days"],  col)
+            # blue assumption drivers
+            ws.write(SR["wc_ar_days"],  col, ar_days,  fmt.drv)
+            ws.write(SR["wc_inv_days"], col, inv_days, fmt.drv)
+            ws.write(SR["wc_ap_days"],  col, ap_days,  fmt.drv)
+            # AR / Inventory / AP: cross-tab from IS (green)
+            ar_cache  = (all_rev[ci]  or 0) * ar_days  / 365
+            inv_cache = (all_cogs[ci] or 0) * inv_days / 365
+            ap_cache  = (all_cogs[ci] or 0) * ap_days  / 365
+            ws.write_formula(SR["wc_ar"],  col,
+                             f"=IF(IS!{rev_c}<>0,IS!{rev_c}*{ar_d}/365,0)",
+                             fmt.xt, ar_cache)
+            ws.write_formula(SR["wc_inv"], col,
+                             f"=IF(IS!{cogs_c}<>0,IS!{cogs_c}*{inv_d}/365,0)",
+                             fmt.xt, inv_cache)
+            ws.write_formula(SR["wc_ap"],  col,
+                             f"=IF(IS!{cogs_c}<>0,IS!{cogs_c}*{ap_d}/365,0)",
+                             fmt.xt, ap_cache)
+            # Net WC change = -(ΔAR) - (ΔInv) + (ΔAP)
+            if j == 0:
+                prev_ar  = self._cell(R["ar"],        n_h - 1)
+                prev_inv = self._cell(R["inventory"],  n_h - 1)
+                prev_ap  = self._cell(R["ap"],         n_h - 1)
+            else:
+                prev_ar  = _c(SR["wc_ar"],  self._col(ci - 1))
+                prev_inv = _c(SR["wc_inv"], self._col(ci - 1))
+                prev_ap  = _c(SR["wc_ap"],  self._col(ci - 1))
+            cur_ar  = _c(SR["wc_ar"],  col)
+            cur_inv = _c(SR["wc_inv"], col)
+            cur_ap  = _c(SR["wc_ap"],  col)
+            ws.write_formula(SR["wc_net_chg"], col,
+                             f"=-({cur_ar}-{prev_ar})-({cur_inv}-{prev_inv})+({cur_ap}-{prev_ap})",
+                             fmt.num)
+
+        # ── Debt Schedule ─────────────────────────────────────────────────────
+        self._sp(ws, SR["wc_net_chg"] + 1)
+        ws.set_row(SR["debt_hdr"], 16)
+        ws.write(SR["debt_hdr"],    LABEL, "Debt Schedule",               fmt.lbl_b)
+        ws.write(SR["debt_rate"],   LABEL, "  Interest Rate %",           fmt.lbl_drv)
+        ws.write(SR["debt_beg"],    LABEL, "  Beginning LTD",             fmt.lbl)
+        ws.write(SR["debt_new"],    LABEL, "  + New Issuances",           fmt.lbl)
+        ws.write(SR["debt_repaid"], LABEL, "  − Repayments",         fmt.lbl)
+        ws.write(SR["debt_end"],    LABEL, "Ending LTD",                  fmt.lbl_b)
+        ws.write(SR["debt_int"],    LABEL, "  Interest Expense (to IS)",  fmt.lbl_i)
+
+        for j in range(n_h):
+            col    = self._col(j)
+            end_c  = _c(SR["debt_end"], col)
+            ie_c   = _c(IS_R["int_exp"], col)
+            f_d    = fmt.drv_imp_hs if self._hs(j) else fmt.drv_imp
+            if j == 0:
+                rate_fmla = f"=IF({end_c}<>0,IS!{ie_c}/{end_c},\"\")"
+            else:
+                prev_end_c = _c(SR["debt_end"], self._col(j - 1))
+                rate_fmla  = (f"=IF(AVERAGE({prev_end_c},{end_c})<>0,"
+                              f"IS!{ie_c}/AVERAGE({prev_end_c},{end_c}),\"\")")
+            ws.write_formula(SR["debt_rate"], col, rate_fmla, f_d)
+            beg = all_ltd[j - 1] if j > 0 else None
+            self._hc(ws, SR["debt_beg"],    j, beg,        fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["debt_new"],    j, 0.0,        fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["debt_repaid"], j, 0.0,        fmt.hc,   fmt.hc_hs)
+            self._hc(ws, SR["debt_end"],    j, all_ltd[j], fmt.hc_b, fmt.hc_b_hs)
+            self._hc(ws, SR["debt_int"],    j, all_ie[j],  fmt.hc,   fmt.hc_hs)
+
+        for j in range(n_p):
+            ci  = n_h + j
+            col = self._col(ci)
+            ws.write(SR["debt_rate"], col, debt_rate, fmt.drv)
+            prev_end = (self._cell(R["ltd"], n_h - 1) if j == 0
+                        else _c(SR["debt_end"], self._col(ci - 1)))
+            beg_cache = all_ltd[ci - 1] if (ci - 1) < len(all_ltd) else None
+            ws.write_formula(SR["debt_beg"], col, f"={prev_end}", fmt.num, beg_cache)
+            ws.write(SR["debt_new"],    col, 0.0, fmt.hc)
+            ws.write(SR["debt_repaid"], col, 0.0, fmt.hc)
+            beg_c = _c(SR["debt_beg"],    col)
+            new_c = _c(SR["debt_new"],    col)
+            rep_c = _c(SR["debt_repaid"], col)
+            end_cache = beg_cache or 0
+            ws.write_formula(SR["debt_end"], col,
+                             f"={beg_c}+{new_c}-{rep_c}", fmt.num_b, end_cache)
+            # interest = IF(circ, AVG(beg,end), beg) × rate
+            rate_c = _c(SR["debt_rate"], col)
+            end_c  = _c(SR["debt_end"],  col)
+            circ_c = _c(IS_R["circ"], DATA0)
+            ie_cache = end_cache * debt_rate
+            ws.write_formula(SR["debt_int"], col,
+                             f"=IF(IS!{circ_c},AVERAGE({beg_c},{end_c}),{beg_c})*{rate_c}",
+                             fmt.num, ie_cache)
 
     # ─────────────────────────────────────────────────────────────────────────
     # CF tab
@@ -949,15 +1264,18 @@ class ExcelWriter:
             f = fmt.xt_hs if self._hs(j) else fmt.xt
             self._fmla(ws, r, j, _xr("IS", IS_R["da"], self._col(j)), f, all_da[j])
 
-        # Working Capital, net (Phase 1: blue hardcoded residual)
+        # WC: hist=blue residual (CFO−NI−DA); proj=green from BS WC schedule
         r = R["wc_net"]
-        ws.write(r, LABEL, "  Working Capital, net  (Phase 2: → WC schedule)", fmt.lbl)
+        ws.write(r, LABEL, "  Working Capital, net", fmt.lbl)
         p_wc = _res(p_cfo, [all_ni[n_h + j] for j in range(n_p)],
                             [all_da[n_h + j] for j in range(n_p)])
         for j in range(n_h):
             self._hc(ws, r, j, h_wc_res[j], fmt.hc, fmt.hc_hs)
         for j in range(n_p):
-            self._hc(ws, r, n_h + j, p_wc[j], fmt.hc, fmt.hc_hs)
+            col = self._col(n_h + j)
+            sched_c = _c(BS_SCHED_R["wc_net_chg"], col)
+            self._fmla(ws, r, n_h + j, f"=BS!{sched_c}", fmt.xt,
+                       p_wc[j] if j < len(p_wc) else None)
 
         # Other / misc CFO (blue residual)
         r = R["other_cfo"]
