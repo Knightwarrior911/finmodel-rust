@@ -31,3 +31,19 @@ def test_reconciled_financial_data_structure():
 def test_verification_report_passed():
     vr = VerificationReport(passed=True, critical_failures=[], warnings=[], notes=[], period_checks={})
     assert vr.passed is True
+
+def test_discrepancy_report_structure():
+    dr = DiscrepancyReport(items=["revenue mismatch: 10-K vs proxy"])
+    assert len(dr.items) == 1
+    assert "revenue" in dr.items[0]
+
+def test_model_output_structure():
+    mo = ModelOutput(
+        periods=["2022A", "2023A", "2024E"],
+        income_statement={}, balance_sheet={}, cash_flow_statement={},
+        schedules={}, assumptions={},
+        converged=True, plug_used=False
+    )
+    assert mo.converged is True
+    assert mo.plug_used is False
+    assert "2024E" in mo.periods

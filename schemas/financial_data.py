@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -20,6 +20,10 @@ class SourceCitation:
     confidence: float                # 1.0 = XBRL; <1.0 = PDF extraction
     page: int | None = None
     xbrl_tag: str | None = None
+
+    def __post_init__(self):
+        if not (0.0 <= self.confidence <= 1.0):
+            raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence}")
 
 
 @dataclass
