@@ -366,7 +366,7 @@ class ExcelWriter:
         bs_cash_beg = self._vals(o.balance_sheet, "cash")
         for j in range(len(o.periods)):
             col = DATA_START_COL + j
-            beg = bs_cash_beg[j - 1] if j > 0 else None
+            beg = bs_cash_beg[j - 1] if j > 0 and j - 1 < len(bs_cash_beg) else None
             f = fmt.hist_divider_right if j == self.hist_count - 1 else fmt.number
             ws.write(r, col, beg, f)
         r += 1
