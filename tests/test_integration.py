@@ -82,7 +82,7 @@ def test_end_to_end_us_company():
 
         import openpyxl
         wb = openpyxl.load_workbook(out_path)
-        assert set(wb.sheetnames) == {"Cover", "IS", "BS", "CF", "Sources"}
+        assert set(wb.sheetnames) == {"Cover", "Assumptions", "IS", "BS", "CF", "Sources"}
 
 
 def test_end_to_end_model_periods():

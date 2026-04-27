@@ -6,7 +6,7 @@ from schemas.financial_data import (
 def test_model_config_defaults():
     cfg = ModelConfig(ticker="AAPL", company_name="Apple Inc.", domicile="US",
                       currency="USD", fiscal_year_end="Sep")
-    assert cfg.periods_historical == 5
+    assert cfg.periods_historical == 3
     assert cfg.periods_projected == 5
     assert cfg.filing_override is None
     assert cfg.force is False

@@ -6,11 +6,12 @@ CFS_WARN_PCT = 0.001    # 0.1% of total activity → warning
 CFS_CRITICAL_PCT = 0.01  # 1.0% of total activity → critical failure
 
 
-def verify(output: ModelOutput) -> VerificationReport:
+def verify(output: ModelOutput, sector: str = "standard") -> VerificationReport:
     critical: list[str] = []
     warnings: list[str] = []
     notes: list[str] = []
     period_checks: dict = {}
+    is_utility = sector in ('utility', 'bank', 'reit', 'insurance')
 
     bs = output.balance_sheet
     is_d = output.income_statement
@@ -55,16 +56,42 @@ def verify(output: ModelOutput) -> VerificationReport:
                     f"CFS minor gap {period}: diff={diff:.0f} ({diff/total_activity:.2%} of activity) — may reflect discontinued operations"
                 )
 
-        # WARNINGS
+        # WARNINGS — per SPEC_methodology §8.2 Reasonableness Checks
+        capex_v = _get(cfs, "capex", i)
+        if (capex_v is None or capex_v == 0) and cfi is not None and cfi < -100:
+            warnings.append(
+                f"Capex missing/zero {period} but CFI={cfi:.0f} — "
+                "company likely uses custom XBRL extension tag not in EDGAR companyfacts"
+            )
+
         rev = _get(is_d, "revenue", i)
         if rev is not None and rev < 0:
             warnings.append(f"Negative revenue {period}: {rev:.0f}")
 
+        cogs_v = _get(is_d, "cogs", i)
         gross = _get(is_d, "gross_profit", i)
-        if gross is not None and rev is not None and rev > 0:
+        if not is_utility and gross is not None and rev is not None and rev > 0:
             gm = gross / rev
             if not (0 <= gm <= 1):
                 warnings.append(f"Gross margin outside 0-100% {period}: {gm:.1%}")
+            elif gm == 0.0 and (cogs_v is None or cogs_v == 0):
+                warnings.append(
+                    f"Gross profit = 0 with no COGS {period} — likely utility/bank. "
+                    "IS structure may need sector adaptation (SPEC_methodology §7)."
+                )
+
+        # Tax rate sanity (SPEC §8.2: 15-30% for US corporates; flag if outside 0-50%)
+        tax_v = _get(is_d, "income_tax", i)
+        ni_v  = _get(is_d, "net_income", i)
+        if tax_v is not None and ni_v is not None:
+            ebt_approx = ni_v + tax_v
+            if ebt_approx != 0:
+                eff_rate = tax_v / ebt_approx
+                if not (0 <= eff_rate <= 0.50):
+                    warnings.append(
+                        f"Effective tax rate {period}: {eff_rate:.1%} outside 0-50% — "
+                        "verify (PTCs/ITCs, NOLs, or deferred tax can explain <0%)"
+                    )
 
         ebit = _get(is_d, "ebit", i)
         da = _get(is_d, "da", i)
@@ -76,6 +103,21 @@ def verify(output: ModelOutput) -> VerificationReport:
                     warnings.append(f"High leverage {period}: net debt/EBITDA > 10x")
 
         period_checks[period] = checks
+
+    # WC days sanity — check derived assumptions (SPEC §8.3 edge case checks)
+    asmp = output.assumptions or {}
+    for key in ("dio_days", "dpo_days", "dso_days"):
+        val = asmp.get(key)
+        if val is None:
+            continue
+        # Scalar or list — take first value
+        check_val = val[0] if isinstance(val, list) else val
+        if check_val > 365:
+            label = {"dio_days": "DIO", "dpo_days": "DPO", "dso_days": "DSO"}[key]
+            critical.append(
+                f"{label} = {check_val:.0f} days (>365) — data quality failure. "
+                "Likely no-COGS company (utility/bank) with wrong denominator in WC days formula."
+            )
 
     if output.plug_used:
         notes.append("Circular reference resolved via plug (not iterative convergence)")

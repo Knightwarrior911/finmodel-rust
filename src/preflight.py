@@ -12,7 +12,7 @@ SYSTEM_PROMPT = """You are a financial analyst tool. Given a company name or tic
   "domicile": "US" or "non-US",
   "currency": "reporting currency ISO code",
   "fiscal_year_end": "month abbreviation e.g. Dec, Sep, Mar",
-  "periods_historical": 5,
+  "periods_historical": 3,
   "periods_projected": 5,
   "ambiguity": null or "clarification question if ticker is ambiguous"
 }
@@ -34,6 +34,33 @@ def _edgar_preflight(ticker: str) -> tuple[str, str] | None:
         if entry["ticker"] == ticker.upper():
             return entry["title"], str(entry["cik_str"]).zfill(10)
     return None
+
+
+def _derive_sic_and_sector(cik: str) -> tuple[int, str]:
+    """Fetch SIC code from EDGAR submissions API and map to sector."""
+    try:
+        resp = requests.get(
+            f"https://data.sec.gov/submissions/CIK{cik}.json",
+            headers=EDGAR_HEADERS, timeout=10,
+        )
+        if resp.status_code != 200:
+            return 0, "standard"
+        data = resp.json()
+        sic = int(data.get("sic") or 0)
+    except Exception:
+        return 0, "standard"
+
+    if 4900 <= sic <= 4999:
+        sector = "utility"
+    elif 6000 <= sic <= 6299:
+        sector = "bank"
+    elif 6311 <= sic <= 6411:
+        sector = "insurance"
+    elif 6500 <= sic <= 6599 or sic == 6798:
+        sector = "reit"
+    else:
+        sector = "standard"
+    return sic, sector
 
 
 def _derive_fy_end_from_xbrl(cik: str) -> str:
@@ -61,7 +88,7 @@ def _derive_fy_end_from_xbrl(cik: str) -> str:
 
 def run_preflight_direct(
     ticker: str,
-    periods_historical: int = 5,
+    periods_historical: int = 3,
     periods_projected: int = 5,
     filing_override: str | None = None,
     force: bool = False,
@@ -75,6 +102,7 @@ def run_preflight_direct(
         )
     company_name, cik = result
     fiscal_year_end = _derive_fy_end_from_xbrl(cik)
+    sic, sector = _derive_sic_and_sector(cik)
     return ModelConfig(
         ticker=ticker.upper(),
         company_name=company_name,
@@ -85,12 +113,14 @@ def run_preflight_direct(
         periods_projected=periods_projected,
         filing_override=filing_override,
         force=force,
+        sic=sic,
+        sector=sector,
     )
 
 
 def run_preflight(
     user_input: str,
-    periods_historical: int = 5,
+    periods_historical: int = 3,
     periods_projected: int = 5,
     filing_override: str | None = None,
     force: bool = False,
