@@ -144,9 +144,15 @@ def _de_and_tax(ticker: str) -> tuple[float, float]:
 
 def _filter_peers(target_mc: float, candidates: list[str],
                   target_ticker: str) -> tuple[list[str], list[tuple[str, str]]]:
-    """Apply size / listing filters. Returns (kept, excluded_with_reason)."""
+    """Apply size / listing filters. Returns (kept, excluded_with_reason).
+
+    If strict 0.3x-3x filter eliminates all candidates (target has no
+    same-size peers, e.g. TSLA), falls back to top 5 by market cap
+    regardless of threshold.
+    """
     kept: list[str] = []
     excluded: list[tuple[str, str]] = []
+    all_with_mc: list[tuple[float, str]] = []
     for tk in candidates:
         if tk.upper() == target_ticker.upper():
             excluded.append((tk, "is the target"))
@@ -155,11 +161,23 @@ def _filter_peers(target_mc: float, candidates: list[str],
         if mc <= 0:
             excluded.append((tk, "no market cap data"))
             continue
+        all_with_mc.append((mc, tk))
         if target_mc > 0 and not (0.3 * target_mc <= mc <= 3.0 * target_mc):
             excluded.append((tk, f"market cap {mc:,.0f}M outside 0.3x-3x target"))
             continue
         kept.append(tk)
-    # Cap final list to 10
+
+    # Fallback: if zero peers survive the size filter, keep top 5 by market cap
+    if not kept and all_with_mc:
+        all_with_mc.sort(key=lambda x: x[0], reverse=True)
+        fallback_tks = [tk for _, tk in all_with_mc[:5]]
+        for tk in fallback_tks:
+            for etk, reason in excluded:
+                if etk == tk and "outside" in reason:
+                    excluded.remove((etk, reason))
+                    break
+        kept = fallback_tks
+
     return kept[:10], excluded
 
 

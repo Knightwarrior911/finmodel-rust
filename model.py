@@ -329,6 +329,36 @@ def main():
     except Exception as e:
         print(f"      ⚠ Validator error: {e}")
 
+    # ── Verification Loop (per VERIFICATION_LOOP.md) ───────────────────
+    total += 1
+    print(_hdr("Running verification loop..."))
+    try:
+        from src.verification_loop import run_verification_loop
+        vt = run_verification_loop(out_path, reconciled, model_output,
+                                   max_iterations=3, tolerance=1.0)
+        print(f"      → status={vt.status}  iterations={vt.iterations}  "
+              f"force_executed={vt.force_executed}")
+        if vt.ground_truth and vt.ground_truth.unverifiable:
+            max_uv = min(3, len(vt.ground_truth.unverifiable))
+            for uv in vt.ground_truth.unverifiable[:max_uv]:
+                print(f"      ⚠ UNVERIFIABLE: {uv}")
+        if vt.comparison and vt.comparison.mismatches:
+            for mm in vt.comparison.mismatches[:5]:
+                print(f"      ✗ MISMATCH: {mm}")
+            if len(vt.comparison.mismatches) > 5:
+                print(f"      ... and {len(vt.comparison.mismatches)-5} more mismatches")
+        if vt.unresolved:
+            print(f"      WARNING: {len(vt.unresolved)} unresolved issues remain")
+        if vt.pre_delivery_checks:
+            for chk in vt.pre_delivery_checks[:5]:
+                print(f"      ✗ PRE-DELIVERY CHECK FAIL: {chk}")
+        if vt.status == "success":
+            print(f"      ✓ Verification loop passed")
+        elif vt.status == "partial":
+            print(f"      ⚠ Verification loop passed with unverifiable flags")
+    except Exception as e:
+        print(f"      ⚠ Verification loop error: {e}")
+
 
 if __name__ == "__main__":
     main()

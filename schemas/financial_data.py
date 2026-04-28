@@ -136,7 +136,7 @@ class PeerSet:
 
 @dataclass
 class PublicCompPeer:
-    """One peer with market data + LTM operating stats + LTM multiples."""
+    """One peer with market data + LTM operating stats + LTM & forward multiples."""
     ticker: str
     name: str
     country: str = "US"
@@ -157,11 +157,29 @@ class PublicCompPeer:
     ltm_ebit: float = 0.0
     ltm_net_income: float = 0.0
     ltm_eps_diluted: float = 0.0
-    # Multiples (None or float; "NM" = not meaningful)
+    # Forward estimates ($M) — from consensus where available
+    ntm_revenue: float = 0.0
+    ntm_ebitda: float = 0.0
+    fy1_revenue: float = 0.0
+    fy1_ebitda: float = 0.0
+    fy2_revenue: float = 0.0
+    fy2_ebitda: float = 0.0
+    ntm_eps: float = 0.0
+    fy1_eps: float = 0.0
+    # LTM Multiples
     ev_rev_ltm: float | None = None
     ev_ebitda_ltm: float | None = None
     ev_ebit_ltm: float | None = None
     pe_ltm: float | None = None
+    # Forward Multiples (NTM / FY+1 / FY+2)
+    ev_rev_ntm: float | None = None
+    ev_ebitda_ntm: float | None = None
+    ev_rev_fy1: float | None = None
+    ev_ebitda_fy1: float | None = None
+    ev_rev_fy2: float | None = None
+    ev_ebitda_fy2: float | None = None
+    pe_ntm: float | None = None
+    pe_fy1: float | None = None
     rationale: str = ""
 
 

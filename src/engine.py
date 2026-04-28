@@ -395,8 +395,8 @@ class ModelEngine:
             total_liab = ap + ltd + other_liab_hist
             # Equity rolls forward via NI (− dividends).
             total_equity_val = prev_equity + ni - dividends
-            # Enforce A = L + E (round sub-cent drift, plug via other_assets_hist)
-            total_assets = round(total_liab + total_equity_val, 2)
+            # Enforce A = L + RNCI + E (mezzanine NCI held flat per last_rnci from historical BS)
+            total_assets = round(total_liab + total_equity_val + last_rnci, 2)
 
             append(is_proj, "revenue", rev)
             append(is_proj, "cogs", cogs)

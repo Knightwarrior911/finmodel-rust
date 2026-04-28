@@ -11,6 +11,7 @@ Checks:
 Returns ValidationReport: list of failures + warnings + cell stats.
 """
 from dataclasses import dataclass, field
+import re
 
 
 @dataclass
@@ -19,13 +20,16 @@ class ValidationReport:
     failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     counts: dict = field(default_factory=dict)
+    gridlines_failures: list[str] = field(default_factory=list)
 
 
 _FORMULA_ERRORS = {"#REF!", "#VALUE!", "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!"}
 
 # RGB hex codes for spec font colors (case-insensitive comparisons)
 _BLUE  = {"FF0000FF", "0000FF"}
-_BLACK = {"FF000000", "000000", "FF0F1632", "0F1632", "FF595959", "595959"}   # ink + label gray
+# Brand override per SPEC_excel_formatting Section 14: Ink (#0F1632) used for formulas
+# and body text instead of pure #000000. Also includes label gray (#595959) for driver rows.
+_BLACK = {"FF000000", "000000", "FF0F1632", "0F1632", "FF595959", "595959"}
 _GREEN = {"FF008000", "008000"}
 _WHITE = {"FFFFFFFF", "FFFFFF"}   # total/highlight rows — exempt from color rules
 
@@ -71,6 +75,18 @@ def _is_two_hop(formula: str) -> bool:
     return True
 
 
+def _extract_refs(formula: str) -> set[str]:
+    """Extract cell refs from formula string."""
+    refs = set()
+    tokens = re.split(r"[+\-*/(),]", formula)
+    for token in tokens:
+        token = token.replace("=", "").strip()
+        m = re.match(r"((\w+!)?\$?[A-Z]{1,3}\$?\d+)", token)
+        if m:
+            refs.add(m.group(1))
+    return refs
+
+
 def validate_xlsx(path: str) -> ValidationReport:
     """Open xlsx and run spec checks. Returns ValidationReport."""
     import openpyxl
@@ -81,6 +97,14 @@ def validate_xlsx(path: str) -> ValidationReport:
 
     for sheet in wb.sheetnames:
         ws = wb[sheet]
+        # Gridlines must be off per SPEC_excel_formatting Section 1.1
+        sv = getattr(ws, "sheet_view", None)
+        if sv is not None:
+            show_grid = getattr(sv, "showGridLines", None)
+            if show_grid is not False:
+                rpt.gridlines_failures.append(
+                    f"{sheet}: gridlines visible (should be off)"
+                )
         skip_color = sheet in _SKIP_COLOR_SHEETS
 
         # Build comment set for this sheet
@@ -97,6 +121,18 @@ def validate_xlsx(path: str) -> ValidationReport:
                     continue
                 font_color = _normalize_color(getattr(cell.font, "color", None))
                 is_formula = isinstance(v, str) and v.startswith("=")
+
+                # Label color check (4b): col C text labels must not use data colors
+                if (cell.column == 3 and isinstance(v, str) and not is_formula
+                        and not isinstance(v, (int, float))):
+                    if _is_blue(font_color):
+                        rpt.warnings.append(
+                            f"[{sheet}] {cell.coordinate}: label text is blue"
+                        )
+                    elif _is_green(font_color):
+                        rpt.warnings.append(
+                            f"[{sheet}] {cell.coordinate}: label text is green"
+                        )
 
                 # Formula errors → FAIL (even on skipped sheets)
                 if isinstance(v, str) and v.upper() in _FORMULA_ERRORS:
@@ -155,12 +191,51 @@ def validate_xlsx(path: str) -> ValidationReport:
                             f"[{sheet}] {cell.coordinate}: hardcoded number not blue"
                         )
 
+    # Root-cause error categorization (4c)
+    error_cells: set[str] = set()
+    for f in rpt.failures:
+        parts = f.split("]")
+        if len(parts) >= 2:
+            coord = parts[1].strip().split(":")[0].strip()
+            if coord and " " not in coord:
+                error_cells.add(coord)
+    all_formulas: dict[str, list[str]] = {}
+    if error_cells:
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            for row in ws.iter_rows(values_only=False):
+                for cell in row:
+                    if isinstance(cell.value, str) and cell.value.startswith("="):
+                        refs = _extract_refs(cell.value)
+                        if refs:
+                            coord = f"{sheet}!{cell.coordinate}"
+                            all_formulas[coord] = list(refs)
+    propagated = 0
+    root = 0
+    for ec in error_cells:
+        ec_ref = ec.split("!")[-1] if "!" in ec else ec
+        is_prop = any(
+            ec_ref in refs for refs in all_formulas.values()
+        )
+        if is_prop:
+            propagated += 1
+        else:
+            root += 1
+    if propagated:
+        rpt.warnings.append(
+            f"Propagated errors: {propagated} cell(s) inherit errors. Root cause(s): {root} cell(s)."
+        )
+
     if missing_comments:
         rpt.warnings.append(
             f"Citation comments missing on {missing_comments} blue input cell(s). "
             "Per SPEC_spreadsheet_engineering §5 every hardcoded input requires "
             "a cell comment with cite:{{citationId}}."
         )
+
+    if rpt.gridlines_failures:
+        for gf in rpt.gridlines_failures:
+            rpt.failures.append(gf)
 
     rpt.counts = {
         "blue_inputs": blue, "black_formulas": black, "green_xrefs": green,

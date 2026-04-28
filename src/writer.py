@@ -126,13 +126,14 @@ CF_R: dict[str, int] = {
     "cfi": 26,
     # spacer 27
     "cff_hdr": 28,
-    "dividends": 29, "buybacks": 30, "other_cff": 31,
-    "cff": 32,
-    "fx_other": 33,   # FX & Other Adjustments — bridges CFO+CFI+CFF to actual net change
-    "net_change": 34, "beg_cash": 35, "ending_cash": 36,
-    "fcf": 37,
-    # spacer 38
-    "chk_ni": 39, "chk_cash": 40,
+    "dividends": 29, "dividend_drv": 30,  # two-hop restate for dividend per share
+    "buybacks": 31, "other_cff": 32,
+    "cff": 33,
+    "fx_other": 34,   # FX & Other Adjustments — bridges CFO+CFI+CFF to actual net change
+    "net_change": 35, "beg_cash": 36, "ending_cash": 37,
+    "fcf": 38,
+    # spacer 39
+    "chk_ni": 40, "chk_cash": 41,
 }
 
 # Supporting schedule rows on the BS tab (0-based)
@@ -426,7 +427,7 @@ class _Fmt:
     BLUE  = "#0000FF"   # hardcoded input
     BLACK = "#0F1632"   # same-tab formula (ink color)
     GREEN = "#008000"   # cross-tab link
-    NAVY  = "#2558B3"   # Brand Blue — headers, year headers, table rules, totals fill
+    NAVY  = "#255BE3"   # Brand Blue — headers, year headers, table rules, totals fill
     RED   = "#FF3C28"   # check failure (used sparingly)
     LGRAY = "#E6EBED"   # tab strip / sensitivity headers / alt row shading
     MGRAY = "#D3DADD"   # hist|proj divider, sensitivity base case
@@ -454,7 +455,7 @@ class _Fmt:
         self.lbl      = mk(font_color=Bk, align="left")
         self.lbl_b    = mk(font_color=Bk, align="left", bold=True)
         self.lbl_i    = mk(font_color="#595959", align="left", italic=True, indent=1)
-        self.lbl_sec  = mk(font_color=Bk, bold=True, bg_color=self.LGRAY, align="left")
+        self.lbl_sec  = mk(font_color=Bk, bold=True, bg_color=self.SAND, align="left")
         self.lbl_drv  = mk(font_color="#595959", italic=True, align="left", indent=1)
         self.lbl_chk  = mk(font_color=Bk, align="left", italic=True)
 
@@ -1609,7 +1610,7 @@ class ExcelWriter:
             # cache must match formula: engine_TCA only sums cash+ar+inv; formula adds other_ca.
             cache  = (all_v["total_cur_assets"][n_h + j] or 0) + other_ca
             self._fmla(ws, r, n_h + j,
-                       f"={cash_c}+{ar_c}+{inv_c}+{other_ca:.2f}", fmt.num_b, cache)
+                       f"=ROUND({cash_c}+{ar_c}+{inv_c}+{other_ca:.2f},2)", fmt.num_b, cache)
 
         # PP&E: hist=blue; proj=formula link to PP&E schedule (same tab, black)
         ws.write(R["ppe_net"], LABEL, "  PP&E, net", fmt.lbl)
@@ -1634,7 +1635,7 @@ class ExcelWriter:
             gw_c  = self._cell(R["goodwill"],          n_h + j)
             ia_c  = self._cell(R["intangibles"],       n_h + j)
             cache = all_v["total_assets"][n_h + j]
-            self._fmla(ws, r, n_h + j, f"={ca_c}+{ppe_c}+{gw_c}+{ia_c}+{other_ta:.2f}",
+            self._fmla(ws, r, n_h + j, f"=ROUND({ca_c}+{ppe_c}+{gw_c}+{ia_c}+{other_ta:.2f},2)",
                        fmt.tot_d, cache)
 
         # ── LIABILITIES & EQUITY ──────────────────────────────────────────────
@@ -1660,7 +1661,7 @@ class ExcelWriter:
         for j in range(n_p):
             ap_c  = self._cell(R["ap"], n_h + j)
             cache = (all_v["ap"][n_h + j] or 0) + other_cl
-            self._fmla(ws, r, n_h + j, f"={ap_c}+{other_cl:.2f}", fmt.num_b, cache)
+            self._fmla(ws, r, n_h + j, f"=ROUND({ap_c}+{other_cl:.2f},2)", fmt.num_b, cache)
 
         # Deferred Revenue — Current: hist=blue; proj=held flat
         h_def_cur = self._hv(o.balance_sheet, "deferred_revenue_current")
@@ -1747,7 +1748,7 @@ class ExcelWriter:
             cache   = all_v["total_equity"][ci]
             # NI to Common from IS (green), Divs and Buybacks from CF (green outflows, positive sign)
             self._fmla(ws, r, ci,
-                       f"={prev_eq}+IS!{ni_c}-CF!{div_c}-CF!{bb_c}",
+                       f"=ROUND({prev_eq}+IS!{ni_c}-CF!{div_c}-CF!{bb_c},2)",
                        fmt.xt_b, cache)
 
         # Total L + Mezzanine + E — all periods use blue-fill total format
@@ -1762,7 +1763,7 @@ class ExcelWriter:
             rn     = all_v["redeemable_nci"][j]
             te     = all_v["total_equity"][j]
             cache  = ((tl or 0) + (rn or 0) + (te or 0)) if tl is not None else None
-            self._fmla(ws, r, j, f"={tl_c}+{rnci_c}+{te_c}", f, cache)
+            self._fmla(ws, r, j, f"=ROUND({tl_c}+{rnci_c}+{te_c},2)", f, cache)
 
         # BS Check: Total Assets − Total L+M+E  (should = 0)
         r = R["bs_check"]
@@ -2301,7 +2302,7 @@ class ExcelWriter:
             ot_c  = self._cell(R["other_cfi"],       j)
             f = fmt.num_b_hs if self._hs(j) else fmt.num_b
             cache = all_cfi[j] if j < n_h else p_cfi[j - n_h] if j - n_h < len(p_cfi) else 0
-            self._fmla(ws, r, j, f"={cap_c}+{inv_c}+{ot_c}", f, cache or 0)
+            self._fmla(ws, r, j, f"=ROUND({cap_c}+{inv_c}+{ot_c},2)", f, cache or 0)
 
         # ── CFF ──────────────────────────────────────────────────────────────
         ws.write(R["cff_hdr"], LABEL, "FINANCING ACTIVITIES", fmt.lbl_sec)
@@ -2312,13 +2313,28 @@ class ExcelWriter:
         div_assump_row = ASSUMP_R["active_drv0"] + SCEN_KEY_TO_DRIVER_IDX["div"]
         for j in range(n_h):
             self._hc(ws, r, j, all_div[j], fmt.hc, fmt.hc_hs)
+        rd = R["dividend_drv"]
+        ws.write(rd, LABEL, "    Dividend per Share ($)", fmt.lbl_drv)
+        all_shares = self._hv(o.income_statement, "shares_diluted")
+        for j in range(n_h):
+            col = self._col(j)
+            div_c = _c(r, col)
+            sh_c = _c(self._isr("shares_diluted"), col)
+            cache = abs(all_div[j] or 0) / max(abs(all_shares[j] or 1), 1) if all_div[j] else 0
+            ws.write_formula(rd, col,
+                             f"=IF(IS!{sh_c}<>0,ABS({div_c})/IS!{sh_c},0)",
+                             fmt.xt_n_hs, cache)
         for j in range(n_p):
             ci = n_h + j
+            col = self._col(ci)
             div_cell = _c(div_assump_row, ASSUMP_DATA0 + j)
+            ws.write_formula(rd, col, f"=Assumptions!{div_cell}", fmt.xt_n, 0)
+            sh_c = _c(self._isr("shares_diluted"), col)
+            drv_c = _c(R["dividend_drv"], col)
             cache = all_div[ci] if ci < len(all_div) else 0
             f = fmt.xt_hs if self._hs(ci) else fmt.xt
-            ws.write_formula(r, self._col(ci),
-                             f"=Assumptions!{div_cell}", f, cache or 0)
+            ws.write_formula(r, col,
+                             f"=IS!{sh_c}*{drv_c}", f, cache or 0)
 
         r = R["buybacks"]
         ws.write(r, LABEL, "  Share Buybacks", fmt.lbl)
@@ -2343,7 +2359,7 @@ class ExcelWriter:
             all_cff = self._av(o.cash_flow_statement, "cff")
             cache = all_cff[j]
             # divs and buybacks stored as positive outflow magnitudes — subtract them.
-            self._fmla(ws, r, j, f"=-{div_c}-{bb_c}+{ot_c}", f, cache)
+            self._fmla(ws, r, j, f"=ROUND(-{div_c}-{bb_c}+{ot_c},2)", f, cache)
 
         # ── FX & Other Adjustments ───────────────────────────────────────────
         # Historical: residual = XBRL_net_change − (CFO + CFI + CFF). Bridges the gap
@@ -2372,7 +2388,7 @@ class ExcelWriter:
             cff_c = self._cell(R["cff"],      j)
             fx_c  = self._cell(R["fx_other"], j)
             f = fmt.num_b_hs if self._hs(j) else fmt.num_b
-            self._fmla(ws, r, j, f"={cfo_c}+{cfi_c}+{cff_c}+{fx_c}", f, all_nc[j])
+            self._fmla(ws, r, j, f"=ROUND({cfo_c}+{cfi_c}+{cff_c}+{fx_c},2)", f, all_nc[j])
 
         r = R["beg_cash"]
         ws.write(r, LABEL, "Beginning Cash", fmt.lbl)
@@ -2460,17 +2476,17 @@ class ExcelWriter:
                                    "valign": "vcenter", **kw})
         factor_f = _mk(font_color=_Fmt.BLACK, align="right", num_format="0.0000")
         price_f  = _mk(font_color=_Fmt.BLACK, align="right",
-                        num_format="$#,##0.00", bold=True, top=2)
+                        num_format=_Fmt._PX, bold=True, top=2)
         price_xt = _mk(font_color=_Fmt.GREEN, align="right",
-                        num_format="$#,##0.00", bold=True, top=2)
+                        num_format=_Fmt._PX, bold=True, top=2)
         # Sensitivity: base cell (highlighted), base row, normal cell
         # DCF inline tables use SAME-sheet refs → black font per spec
         sens_base_f = _mk(font_color="#FFFFFF",    align="right",
-                           num_format="$#,##0.00", bold=True, bg_color=_Fmt.NAVY)
+                           num_format=_Fmt._PX, bold=True, bg_color=_Fmt.NAVY)
         sens_hi_f   = _mk(font_color=_Fmt.BLACK,   align="right",
-                           num_format="$#,##0.00", bg_color="#DEEAF1")  # black, light blue row
+                           num_format=_Fmt._PX, bg_color="#DEEAF1")  # black, light blue row
         sens_norm_f = _mk(font_color=_Fmt.BLACK,   align="right",
-                           num_format="$#,##0.00")   # black: same-sheet formula per spec
+                           num_format=_Fmt._PX)   # black: same-sheet formula per spec
 
         # ── header ───────────────────────────────────────────────────────────
         ws.set_row(0, 4); ws.set_row(1, 4); ws.set_row(2, 26)
@@ -2928,7 +2944,7 @@ class ExcelWriter:
         f_mult     = _mk(font_color=_Fmt.BLACK, align="right", num_format='0.0"x"')
         f_dol      = _mk(font_color=_Fmt.BLACK, align="right", num_format="$#,##0")
         f_pct      = _mk(font_color=_Fmt.BLACK, align="right", num_format="0.0%")
-        f_eps      = _mk(font_color=_Fmt.BLACK, align="right", num_format="$#,##0.00")
+        f_eps      = _mk(font_color=_Fmt.BLACK, align="right", num_format=_Fmt._PX)
         f_target_l = _mk(font_color="#FFFFFF", bold=True, bg_color=_Fmt.NAVY, align="left")
         f_target_d = _mk(font_color="#FFFFFF", bold=True, bg_color=_Fmt.NAVY,
                           align="right", num_format="$#,##0")
@@ -2942,7 +2958,7 @@ class ExcelWriter:
         f_agg_p    = _mk(font_color=_Fmt.BLACK, bold=True, bg_color=_Fmt.LGRAY,
                           align="right", num_format="0.0%")
         f_imp      = _mk(font_color=_Fmt.BLACK, bold=True, align="right",
-                          num_format="$#,##0.00")
+                          num_format=_Fmt._PX)
 
         # ── header bar ───────────────────────────────────────────────────────
         ws.set_row(0, 4); ws.set_row(1, 4); ws.set_row(2, 26)
@@ -3337,10 +3353,10 @@ class ExcelWriter:
         ws.hide_gridlines(2)
         ws.set_column(MARGIN, MARGIN2, 3)
         ws.set_column(LABEL, LABEL, 14)
-        ws.set_column(DATA0, DATA0 + 19, 12)
+        ws.set_column(DATA0, DATA0 + 26, 12)
 
         ws.set_row(2, 28)
-        self._span(ws, 2, LABEL, DATA0 + 19, f"{pc.target_company_name} — Public Comps  (Peer Detail)", fmt.hbar)
+        self._span(ws, 2, LABEL, DATA0 + 26, f"{pc.target_company_name} — Public Comps  (Peer Detail)", fmt.hbar)
         ws.write(4, LABEL, f"As of {pc.as_of_date}  |  Source: {pc.source}", fmt.hsub)
         ws.write(5, LABEL, "(USD $ in millions, multiples per spec)", fmt.hunit)
 
@@ -3350,6 +3366,8 @@ class ExcelWriter:
             "Shares (M)", "Mkt Cap ($M)", "Debt", "Cash", "EV ($M)",
             "LTM Rev", "LTM EBITDA", "LTM EBIT", "LTM NI", "LTM EPS",
             "EV/Rev", "EV/EBITDA", "EV/EBIT", "P/E", "% off High",
+            "NTM Rev", "FY+1 Rev", "FY+2 Rev",
+            "EV/Rev NTM", "EV/EBITDA NTM", "EV/EBITDA FY+1", "P/E NTM",
         ]
         for i, c in enumerate(cols):
             ws.write(7, LABEL + i, c, fmt.hcol)
@@ -3368,15 +3386,20 @@ class ExcelWriter:
                 p.shares_diluted, p.market_cap, p.total_debt, p.cash, p.enterprise_value,
                 p.ltm_revenue, p.ltm_ebitda, p.ltm_ebit, p.ltm_net_income, p.ltm_eps_diluted,
                 p.ev_rev_ltm, p.ev_ebitda_ltm, p.ev_ebit_ltm, p.pe_ltm, pct_off_hi,
+                p.ntm_revenue, p.fy1_revenue, p.fy2_revenue,
+                p.ev_rev_ntm, p.ev_ebitda_ntm, p.ev_ebitda_fy1, p.pe_ntm,
             ]
             col_labels = [
                 "Ticker", "Tier", "Share Price", "52w High", "52w Low",
                 "Shares Diluted (M)", "Market Cap ($M)", "Total Debt ($M)", "Cash ($M)", "EV ($M)",
                 "LTM Revenue ($M)", "LTM EBITDA ($M)", "LTM EBIT ($M)", "LTM Net Income ($M)", "LTM EPS",
                 "EV/Revenue (LTM)", "EV/EBITDA (LTM)", "EV/EBIT (LTM)", "P/E (LTM)", "% off 52w High",
+                "NTM Revenue ($M)", "FY+1 Revenue ($M)", "FY+2 Revenue ($M)",
+                "EV/Revenue (NTM)", "EV/EBITDA (NTM)", "EV/EBITDA (FY+1)", "P/E (NTM)",
             ]
             formats = [fmt.lbl, fmt.hc] + [fmt.hc_d] * 3 + [fmt.hc] + [fmt.hc_d] * 4 + \
-                      [fmt.hc_d] * 4 + [fmt.hc] + [fmt.hc_m] * 4 + [fmt.hc_p]
+                      [fmt.hc_d] * 4 + [fmt.hc] + [fmt.hc_m] * 4 + [fmt.hc_p] + \
+                      [fmt.hc_d] * 3 + [fmt.hc_m] * 3 + [fmt.hc_m]
             for c_idx_off, (val, f, lbl) in enumerate(zip(row_vals, formats, col_labels)):
                 c_idx = LABEL + c_idx_off
                 if val is None:
@@ -3415,7 +3438,10 @@ class ExcelWriter:
             ws.write(8, DATA0 + i, h, fmt.hcol)
 
         stat_names = ["Min", "P25", "Median", "Mean", "P75", "Max"]
-        for i, key in enumerate(["ev_rev_ltm", "ev_ebitda_ltm", "ev_ebit_ltm", "pe_ltm"]):
+        for i, key in enumerate([
+            "ev_rev_ltm", "ev_ebitda_ltm", "ev_ebit_ltm", "pe_ltm",
+            "ev_rev_ntm", "ev_ebitda_ntm", "pe_ntm",
+        ]):
             r = 9 + i
             s = pc.stats.get(key)
             mult_name = s.multiple_name if s else key

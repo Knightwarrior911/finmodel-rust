@@ -101,10 +101,36 @@ def _edgar_ltm_stats(ticker: str) -> dict:
     return out
 
 
+def _yf_forward_estimates(ticker: str) -> dict:
+    """Pull forward consensus estimates from yfinance (NTM, FY+1, FY+2)."""
+    out = {"rev_growth_ntm": 0.0, "rev_growth_fy1": 0.0, "rev_growth_fy2": 0.0,
+           "eps_ntm": 0.0, "eps_fy1": 0.0}
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        try:
+            growth = t.growth_estimates
+            if isinstance(growth, dict):
+                out["rev_growth_ntm"] = float(growth.get("revenueGrowthYOY", {}).get("+0Q", 0) or 0)
+                out["rev_growth_fy1"] = float(growth.get("revenueGrowthYOY", {}).get("+1Y", 0) or 0)
+                out["rev_growth_fy2"] = float(growth.get("revenueGrowthYOY", {}).get("+2Y", 0) or 0)
+        except Exception:
+            pass
+        try:
+            info = t.info
+            out["eps_ntm"] = float(info.get("forwardEps") or 0)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("yfinance forward estimates failed for %s: %s", ticker, e)
+    return out
+
+
 def _build_peer(ticker: str, tier: int = 1) -> "PublicCompPeer":
     from schemas.financial_data import PublicCompPeer
     md = _yf_market_data(ticker)
     op = _edgar_ltm_stats(ticker)
+    fwd = _yf_forward_estimates(ticker)
     ev = md["market_cap"] + md["total_debt"] - md["cash"]
     p = PublicCompPeer(
         ticker=ticker,
@@ -124,14 +150,32 @@ def _build_peer(ticker: str, tier: int = 1) -> "PublicCompPeer":
         ltm_net_income=op["ltm_net_income"],
         ltm_eps_diluted=op["ltm_eps_diluted"],
     )
-    # Compute multiples (None when denominator <= 0 → "NM")
+    # Forward estimates: apply consensus growth to LTM
+    if p.ltm_revenue > 0:
+        p.ntm_revenue = round(p.ltm_revenue * (1 + fwd["rev_growth_ntm"]), 2)
+        p.fy1_revenue = round(p.ltm_revenue * (1 + fwd["rev_growth_fy1"]), 2)
+        p.fy2_revenue = round(p.ltm_revenue * (1 + fwd["rev_growth_fy2"]), 2)
+    if p.ltm_ebitda > 0 and fwd["rev_growth_ntm"]:
+        p.ntm_ebitda = round(p.ltm_ebitda * (1 + fwd["rev_growth_ntm"]), 2)
+        p.fy1_ebitda = round(p.ltm_ebitda * (1 + fwd["rev_growth_fy1"]), 2)
+        p.fy2_ebitda = round(p.ltm_ebitda * (1 + fwd["rev_growth_fy2"]), 2)
+    p.ntm_eps = fwd.get("eps_ntm", 0.0)
+    p.fy1_eps = fwd.get("eps_fy1", 0.0)
+    # Compute LTM multiples
     p.ev_rev_ltm    = round(ev / p.ltm_revenue,  2) if p.ltm_revenue  > 0 else None
     p.ev_ebitda_ltm = round(ev / p.ltm_ebitda,   2) if p.ltm_ebitda   > 0 else None
     p.ev_ebit_ltm   = round(ev / p.ltm_ebit,     2) if p.ltm_ebit     > 0 else None
-    p.pe_ltm        = round(p.share_price / p.ltm_eps_diluted, 2) \
-                      if p.ltm_eps_diluted > 0 else None
+    p.pe_ltm        = round(p.share_price / p.ltm_eps_diluted, 2)                       if p.ltm_eps_diluted > 0 else None
+    # Compute forward multiples
+    p.ev_rev_ntm    = round(ev / p.ntm_revenue,   2) if p.ntm_revenue   > 0 else None
+    p.ev_ebitda_ntm = round(ev / p.ntm_ebitda,    2) if p.ntm_ebitda    > 0 else None
+    p.ev_rev_fy1    = round(ev / p.fy1_revenue,   2) if p.fy1_revenue   > 0 else None
+    p.ev_ebitda_fy1 = round(ev / p.fy1_ebitda,    2) if p.fy1_ebitda    > 0 else None
+    p.ev_rev_fy2    = round(ev / p.fy2_revenue,   2) if p.fy2_revenue   > 0 else None
+    p.ev_ebitda_fy2 = round(ev / p.fy2_ebitda,    2) if p.fy2_ebitda    > 0 else None
+    p.pe_ntm        = round(p.share_price / p.ntm_eps, 2) if p.ntm_eps > 0 else None
+    p.pe_fy1        = round(p.share_price / p.fy1_eps, 2) if p.fy1_eps > 0 else None
     return p
-
 
 def _summary_stats(values: list[float], name: str) -> "CompMultipleStats":
     from schemas.financial_data import CompMultipleStats
@@ -181,12 +225,18 @@ def build_public_comps(
 
     peers = [_build_peer(tk, tier=1) for tk in kept[:8]]
 
-    # Summary stats per multiple
+    # Summary stats per multiple — LTM + forward
     stats = {
         "ev_rev_ltm":    _summary_stats([p.ev_rev_ltm    for p in peers], "EV / Revenue (LTM)"),
         "ev_ebitda_ltm": _summary_stats([p.ev_ebitda_ltm for p in peers], "EV / EBITDA (LTM)"),
         "ev_ebit_ltm":   _summary_stats([p.ev_ebit_ltm   for p in peers], "EV / EBIT (LTM)"),
         "pe_ltm":        _summary_stats([p.pe_ltm        for p in peers], "P/E (LTM)"),
+        "ev_rev_ntm":    _summary_stats([p.ev_rev_ntm    for p in peers], "EV / Revenue (NTM)"),
+        "ev_ebitda_ntm": _summary_stats([p.ev_ebitda_ntm for p in peers], "EV / EBITDA (NTM)"),
+        "ev_rev_fy1":    _summary_stats([p.ev_rev_fy1    for p in peers], "EV / Revenue (FY+1)"),
+        "ev_ebitda_fy1": _summary_stats([p.ev_ebitda_fy1 for p in peers], "EV / EBITDA (FY+1)"),
+        "pe_ntm":        _summary_stats([p.pe_ntm        for p in peers], "P/E (NTM)"),
+        "pe_fy1":        _summary_stats([p.pe_fy1        for p in peers], "P/E (FY+1)"),
     }
 
     # Implied valuation: median EV/EBITDA × target_ebitda → equity bridge → /shares
