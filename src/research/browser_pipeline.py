@@ -298,17 +298,18 @@ class BrowserPipeline:
         key_words = [w for w in words if w not in skip]
 
         bases = []
-        # 1. Combined name FIRST (hdfcbank) — most common pattern
-        if combined not in bases:
-            bases.append(combined)
-        # 2. Key recognizable word (bam from Royal BAM Group)
+        # 1. Key recognizable word FIRST (bam from Royal BAM Group)
+        #    Short brand names are the most common domain pattern
         if key_words:
             hint = key_words[-1]
-            if hint not in bases and hint != combined:
+            if hint not in bases:
                 bases.append(hint)
             if len(key_words) >= 2 and key_words[0] not in bases:
                 bases.append(key_words[0])
-        # 3. First word
+        # 2. Combined name SECOND (hdfcbank, royabamgroup)
+        if combined not in bases:
+            bases.append(combined)
+        # 3. First word last
         if words[0] not in bases:
             bases.append(words[0])
 
