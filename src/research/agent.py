@@ -32,6 +32,7 @@ from src.research.browser_pipeline import BrowserPipeline
 from src.research.market_data import get_market_data
 from kb.sectors import detect_sector
 from kb.ev_bridge import EVBridgeInput, format_ev_bridge
+from src.research.output_writer import ResearchExcelWriter
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,14 @@ class ResearchAgent:
             }
         )
 
+        # Write Excel
+        try:
+            writer = ResearchExcelWriter()
+            xl_path = writer.write_ev_bridge(ev)
+            logger.info(f"EV bridge Excel: {xl_path}")
+        except Exception as e:
+            logger.warning(f"Excel write failed: {e}")
+
         return format_ev_bridge(ev)
 
     async def close(self):
@@ -352,10 +361,20 @@ class ResearchAgent:
                 'short_term': f'ASC 842 Note, 10-K filing',
             }
 
-            return format_bridge(inputs, out, revenue=revenue or 0,
+            bridge_text = format_bridge(inputs, out, revenue=revenue or 0,
                                 company=sec_company.name or company,
                                 period=f"FY{year}",
                                 notes_ref=notes)
+
+            # Write Excel
+            try:
+                writer = ResearchExcelWriter()
+                writer.write_ifrs_bridge(inputs, out, sec_company.name or company,
+                                        f"FY{year}", revenue=revenue or 0, notes=notes)
+            except Exception as e:
+                logger.warning(f"Excel write failed: {e}")
+
+            return bridge_text
 
         # --- PATH B: Non-US Company (browser pipeline) ---
         pipeline = BrowserPipeline()
@@ -390,9 +409,19 @@ class ResearchAgent:
                 'short_term': f'Annual Report Note - Short-term lease',
             }
 
-            return format_bridge(inputs, out, revenue=fin.revenue or 0,
+            bridge_text = format_bridge(inputs, out, revenue=fin.revenue or 0,
                                 company=company, period=f"FY{year}",
                                 notes_ref=notes)
+
+            # Write Excel
+            try:
+                writer = ResearchExcelWriter()
+                writer.write_ifrs_bridge(inputs, out, company, f"FY{year}",
+                                        revenue=fin.revenue or 0, notes=notes)
+            except Exception as e:
+                logger.warning(f"Excel write failed: {e}")
+
+            return bridge_text
 
         finally:
             await pipeline.close()
