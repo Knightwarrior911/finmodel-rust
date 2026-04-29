@@ -1178,6 +1178,13 @@ class ExcelWriter:
             cache = sum(self._av(is_d, k)[j] or 0 for _, k in seg_rows) if seg_rows else None
             return f"={seg_cells}", cache
 
+        elif key == "cogs" and any(k.startswith("cogs_seg_") for k in rm):
+            # COGS subtotal = sum of cost-segment rows when cogs_detail is present
+            seg_rows = sorted((rm[k], k) for k in rm if k.startswith("cogs_seg_"))
+            seg_cells = "+".join(self._cell(r, j) for r, _ in seg_rows)
+            cache = sum(self._av(is_d, k)[j] or 0 for _, k in seg_rows) if seg_rows else None
+            return f"={seg_cells}", cache
+
         elif key == "gross_profit":
             cogs_r = rm.get("cogs", IS_R.get("cogs", 12))
             rev_c = self._cell(rev_r, j); cogs_c = self._cell(cogs_r, j)
@@ -1275,6 +1282,11 @@ class ExcelWriter:
             prev_c = self._cell(rev_r, ci - 1)
             d_c = drv("revenue_growth_pct")
             return f"={prev_c}*(1+{d_c})"
+
+        elif key == "cogs" and any(k.startswith("cogs_seg_") for k in rm):
+            # COGS subtotal = sum of cost-segment rows when cogs_detail is present
+            seg_rows = sorted(rm[k] for k in rm if k.startswith("cogs_seg_"))
+            return f"={'+'.join(cell(r) for r in seg_rows)}"
 
         elif key == "cogs":
             gp_r = rm.get("gross_profit", IS_R.get("gross_profit", 13))
@@ -1400,16 +1412,22 @@ class ExcelWriter:
 
         def _pf(ci):
             hs = self._hs(ci)
-            if key == "revenue":        return fmt.num_d
+            if key == "revenue":
+                if isr.row_type == "subtotal":  return fmt.num_b_hs if hs else fmt.num_b
+                return fmt.num_d
             if key == "gross_profit":   return fmt.num_bd_hs if hs else fmt.num_bd
             if key in ("interest_expense", "interest_income"): return fmt.xt_hs if hs else fmt.xt
             if bold:                    return fmt.num_b_hs if hs else fmt.num_b
             return fmt.num_hs if hs else fmt.num
 
         # ── historical ────────────────────────────────────────────────────────
-        is_blue = (key in self._IS_BLUE_HIST or key.startswith("rev_seg_") or key.startswith("opex_"))
+        is_blue = (key in self._IS_BLUE_HIST or key.startswith("rev_seg_") or key.startswith("opex_") or key.startswith("cogs_seg_"))
+        # Aggregation subtotals: when component rows exist in rm, use formula mode
+        # (gets bold + top border via num_b). EBIT/NI stay blue — they ARE raw XBRL data.
         if key == "revenue" and isr.row_type == "subtotal":
-            is_blue = False  # revenue subtotal is a SUM formula, not blue data
+            is_blue = False
+        if key == "cogs" and isr.row_type == "subtotal" and any(k.startswith("cogs_seg_") for k in rm):
+            is_blue = False
         if is_blue:
             f_n, f_hs = _hf_pair()
             for j in range(n_h):
@@ -1550,9 +1568,6 @@ class ExcelWriter:
         last = n_h - 1
         _g = lambda k: all_v[k][last] or 0
         other_ca  = _g("total_cur_assets") - _g("cash") - _g("ar") - _g("inventory")
-        # other_ta: unmodeled non-current assets held flat. Intangibles excluded because
-        # ia_c is already added separately in the total_assets projection formula.
-        other_ta  = _g("total_assets") - _g("total_cur_assets") - _g("ppe_net") - _g("goodwill") - _g("intangibles")
         other_ltl = _g("total_liab") - _g("total_cur_liab") - _g("ltd")
 
         # ── ASSETS ───────────────────────────────────────────────────────────
@@ -1624,19 +1639,16 @@ class ExcelWriter:
         _bs_row(R["intangibles"],"  Intangibles, net",  "intangibles")
 
         # Total Assets — hist: hardcoded XBRL (tot_d fill); proj: formula (tot_d fill)
-        # Hist must stay hardcoded — other_ta constant is last-period only, wrong for earlier years.
         r = R["total_assets"]
         ws.write(r, LABEL, "Total Assets", fmt.lbl_b)
         for j in range(n_h):
             self._hc_cite(ws, r, j, h["total_assets"][j], fmt.tot_d, fmt.tot_d_hs, line_item="total_assets")
         for j in range(n_p):
-            ca_c  = self._cell(R["total_cur_assets"], n_h + j)
-            ppe_c = self._cell(R["ppe_net"],           n_h + j)
-            gw_c  = self._cell(R["goodwill"],          n_h + j)
-            ia_c  = self._cell(R["intangibles"],       n_h + j)
+            tle_c = self._cell(R["total_le"], n_h + j)
             cache = all_v["total_assets"][n_h + j]
-            self._fmla(ws, r, n_h + j, f"=ROUND({ca_c}+{ppe_c}+{gw_c}+{ia_c}+{other_ta:.2f},2)",
-                       fmt.tot_d, cache)
+            # Derive total_assets from L+E side to guarantee BS balance.
+            # The asset-side plug (other_ta) shifts with LTD, making constant plug unreliable.
+            self._fmla(ws, r, n_h + j, f"=ROUND({tle_c},2)", fmt.tot_d, cache)
 
         # ── LIABILITIES & EQUITY ──────────────────────────────────────────────
         ws.write(R["le_hdr"], LABEL, "LIABILITIES & EQUITY", fmt.lbl_sec)
@@ -1742,11 +1754,11 @@ class ExcelWriter:
             ci  = n_h + j
             col = self._col(ci)
             prev_eq = self._cell(r, ci - 1)
-            ni_c    = _c(self._isr("ni_common"),  col)
+            ni_c    = _c(self._isr("net_income"),  col)
             div_c   = _c(CF_R["dividends"],  col)
             bb_c    = _c(CF_R["buybacks"],   col)
             cache   = all_v["total_equity"][ci]
-            # NI to Common from IS (green), Divs and Buybacks from CF (green outflows, positive sign)
+            # Total NI (not ni_common) — total_equity includes NCI balance (StockholdersEquityIncludingNCI)
             self._fmla(ws, r, ci,
                        f"=ROUND({prev_eq}+IS!{ni_c}-CF!{div_c}-CF!{bb_c},2)",
                        fmt.xt_b, cache)
@@ -2105,13 +2117,15 @@ class ExcelWriter:
 
         self._tab_header(ws, self.co, "Cash Flow Statement", fmt)
         self._col_headers(ws, R["headers"], fmt)
-        for sp in (20, 27, 38):
+        for sp in (20, 27, 39):
             self._sp(ws, sp)
 
         # pull XBRL data
         h_cfo  = self._hv(o.cash_flow_statement, "cfo")
         h_ni   = self._hv(o.income_statement,    "net_income")
-        h_da   = self._hv(o.income_statement,    "da")
+        # D&A add-back: read from CFS first (authoritative total); IS is fallback for companies
+        # where the CFS tag wasn't populated (both should have same value after fetcher override).
+        h_da   = self._hv(o.cash_flow_statement, "da") or self._hv(o.income_statement, "da")
         h_cap  = self._hv(o.cash_flow_statement, "capex")
         h_cfi  = self._hv(o.cash_flow_statement, "cfi")
         h_div  = self._hv(o.cash_flow_statement, "dividends_paid")
@@ -2171,9 +2185,10 @@ class ExcelWriter:
                        f, all_ni[j])
 
         # D&A: green cross-tab link to IS (all periods)
+        # Both tabs share the same authoritative CFS value after fetcher override.
         r = R["da"]
         ws.write(r, LABEL, "  D&A (add-back)", fmt.lbl)
-        all_da = self._av(o.income_statement, "da")
+        all_da = self._av(o.cash_flow_statement, "da") or self._av(o.income_statement, "da")
         for j in range(self.n):
             f = fmt.xt_hs if self._hs(j) else fmt.xt
             self._fmla(ws, r, j, _xr("IS", self._isr("da"), self._col(j)), f, all_da[j])

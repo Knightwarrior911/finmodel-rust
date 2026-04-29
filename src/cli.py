@@ -89,10 +89,15 @@ def main():
     has_sga  = any(v and v != 0 for v in (_is.get("sga")  or []))
     revenue_segments = raw_data.notes.get("revenue_segments", []) if raw_data.notes else []
     opex_items = raw_data.notes.get("opex_items", []) if raw_data.notes else []
+    cogs_detail = raw_data.notes.get("cogs_detail", []) if raw_data.notes else []
+
+    # One-time items that should NOT recur in projections.
+    _NON_RECURRING_GROUPS = {"restruct", "ma", "impair", "legal", "gainloss", "severance"}
 
     # Map dynamic opex data into traditional key slots for engine backward compat.
     # Only for standard sector — bank/insurance/reit/utility use their own mapping.
     extra_opex_keys: list[str] = []
+    nonrecurring_opex_keys: list[str] = []
     if opex_items and cfg.sector == "standard":
         cogs_items = [o for o in opex_items if o["category"] == "cogs"]
         rd_items   = [o for o in opex_items if o["category"] == "opex_rd"]
@@ -109,6 +114,8 @@ def main():
             for idx, oi in enumerate(other_oe):
                 if idx > 0:
                     extra_opex_keys.append(oi["key"])
+                    if oi.get("group", "") in _NON_RECURRING_GROUPS:
+                        nonrecurring_opex_keys.append(oi["key"])
         has_cogs = bool(cogs_items)
         has_rd   = bool(rd_items)
         has_sga  = bool(other_oe)
@@ -120,6 +127,7 @@ def main():
         revenue_segments=revenue_segments,
         opex_items=opex_items,
         filing_labels=filing_labels,
+        cogs_detail=cogs_detail,
     )
     if revenue_segments:
         print(f"      → {len(revenue_segments)} revenue segments detected: "
@@ -127,22 +135,38 @@ def main():
         cfg.revenue_segments = revenue_segments
     else:
         cfg.revenue_segments = []
+    cfg.cogs_detail = cogs_detail
+    if cogs_detail:
+        print(f"      → {len(cogs_detail)} cost-of-revenue sub-items detected: "
+              f"{', '.join(c['label'] for c in cogs_detail)}")
+        # cogs_seg_* keys project proportionally — treat as extra_opex_keys
+        for cd in cogs_detail:
+            if cd["key"] not in extra_opex_keys:
+                extra_opex_keys.append(cd["key"])
     if opex_items:
         print(f"      → {len(opex_items)} opex items from actual XBRL disclosure: "
               f"{', '.join(o['label'] for o in opex_items)}")
         cfg.opex_items = opex_items
         cfg.extra_opex_keys = extra_opex_keys
+        cfg.nonrecurring_opex_keys = nonrecurring_opex_keys
+        if nonrecurring_opex_keys:
+            labels = [o["label"] for o in opex_items if o["key"] in nonrecurring_opex_keys]
+            print(f"      → {len(nonrecurring_opex_keys)} non-recurring items zeroed in projections: "
+                  f"{', '.join(labels)}")
     else:
         cfg.opex_items = []
         cfg.extra_opex_keys = []
+        cfg.nonrecurring_opex_keys = []
 
     print(_hdr("Reconciling data across all filing sources..."))
     try:
         from src.reconciler import reconcile
         reconciled, discrepancy_report = reconcile(raw_data)
     except Exception as e:
-        print(f"ERROR reconciling: {e}")
-        sys.exit(1)
+        print(f"      ⚠ Reconciliation skipped ({e}); using raw XBRL data")
+        reconciled = raw_data
+        from schemas.financial_data import DiscrepancyReport
+        discrepancy_report = DiscrepancyReport(items=[])
     if discrepancy_report.items:
         print(f"      ⚠ {len(discrepancy_report.items)} discrepancies flagged:")
         for d in discrepancy_report.items:
@@ -229,7 +253,13 @@ def main():
         print(_hdr("Computing WACC..."))
         try:
             from src.wacc import compute_wacc
+            from src.peers import _beta as _fetch_target_beta
             target_debt = (model_output.balance_sheet.get("long_term_debt") or [0])[-1] or 0
+            # Use target's own levered beta as fallback when no peers available.
+            # Unlever it here using target D/E so compute_wacc receives an unlevered beta.
+            own_levered_beta = _fetch_target_beta(cfg.ticker)
+            target_de = assumptions.target_de_ratio or 0.30
+            own_unlevered_beta = own_levered_beta / (1 + (1 - 0.21) * target_de)
             wacc_output = compute_wacc(
                 peer_set=peer_set,
                 target_market_cap=peer_set.target_market_cap or 0,
@@ -238,6 +268,7 @@ def main():
                 equity_risk_premium=assumptions.equity_risk_premium,
                 cost_of_debt_pretax=assumptions.cost_of_debt_pretax,
                 target_de_ratio=assumptions.target_de_ratio,
+                fallback_beta=own_unlevered_beta,
             )
             print(f"      → median Bu={wacc_output.median_unlevered_beta:.2f}  "
                   f"Be_target={wacc_output.target_levered_beta:.2f}  "
@@ -342,6 +373,12 @@ def main():
             max_uv = min(3, len(vt.ground_truth.unverifiable))
             for uv in vt.ground_truth.unverifiable[:max_uv]:
                 print(f"      ⚠ UNVERIFIABLE: {uv}")
+        # Financial intelligence issues (conceptual/first-principles failures)
+        intel_notes = [n for n in (vt.notes or []) if n.startswith("⚠ [")]
+        if intel_notes:
+            print(f"      ── Intelligence checks: {len(intel_notes)} issue(s) ──")
+            for note in intel_notes:
+                print(f"      {note}")
         if vt.comparison and vt.comparison.mismatches:
             for mm in vt.comparison.mismatches[:5]:
                 print(f"      ✗ MISMATCH: {mm}")
@@ -352,8 +389,10 @@ def main():
         if vt.pre_delivery_checks:
             for chk in vt.pre_delivery_checks[:5]:
                 print(f"      ✗ PRE-DELIVERY CHECK FAIL: {chk}")
-        if vt.status == "success":
+        if vt.status == "success" and not intel_notes:
             print(f"      ✓ Verification loop passed")
+        elif vt.status == "success" and intel_notes:
+            print(f"      ✓ Mechanics passed — review intelligence flags above")
         elif vt.status == "partial":
             print(f"      ⚠ Verification loop passed with unverifiable flags")
     except Exception as e:

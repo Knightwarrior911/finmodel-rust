@@ -91,7 +91,8 @@ def _sp() -> ISRow:
 
 def _build_standard_is(has_cogs: bool, has_rd: bool, has_sga: bool,
                        revenue_segments: list[dict] | None = None,
-                       opex_items: list[dict] | None = None) -> list[ISRow]:
+                       opex_items: list[dict] | None = None,
+                       cogs_detail: list[dict] | None = None) -> list[ISRow]:
     rows: list[ISRow] = []
 
     # ── Revenue ────────────────────────────────────────────────────────
@@ -123,8 +124,14 @@ def _build_standard_is(has_cogs: bool, has_rd: bool, has_sga: bool,
         # COST OF REVENUES — actual COGS line items
         if cogs_items:
             rows.append(_sec("COST OF REVENUES"))
-            for ci in cogs_items:
-                rows.append(_li("cogs", f"  {ci['label']}"))
+            if cogs_detail:
+                # Detailed breakdown from R-file (e.g. subscription vs professional services)
+                for cd in cogs_detail:
+                    rows.append(_li(cd["key"], f"  {cd['label']}"))
+                rows.append(_st("cogs", "  Total Cost of Revenues"))
+            else:
+                for ci in cogs_items:
+                    rows.append(_li("cogs", f"  {ci['label']}"))
             rows.append(_st("gross_profit", "Gross Profit"))
             rows.append(_drv("Gross Margin %", "gross_margin_pct",
                              hist_numer="gross_profit", hist_denom="revenue"))
@@ -504,8 +511,11 @@ def _apply_filing_labels(rows: list[ISRow], filing_labels: dict[str, str]) -> li
     """Override hardcoded IS labels with actual XBRL concept labels from filing."""
     if not filing_labels:
         return rows
+    # Keys where the XBRL taxonomy label is worse than the hardcoded one
+    _SKIP_LABEL_OVERRIDE = frozenset({"da", "ebitda", "ebit", "gross_profit", "net_income"})
     for isr in rows:
-        if isr.key and isr.key in filing_labels and isr.row_type in ("line_item", "subtotal"):
+        if (isr.key and isr.key in filing_labels and isr.row_type == "line_item"
+                and isr.key not in _SKIP_LABEL_OVERRIDE):
             xl = filing_labels[isr.key]
             ws = isr.label[:len(isr.label) - len(isr.label.lstrip())]
             isr.label = ws + xl
@@ -520,6 +530,7 @@ def build_is_structure(
     revenue_segments: list[dict] | None = None,
     opex_items: list[dict] | None = None,
     filing_labels: dict[str, str] | None = None,
+    cogs_detail: list[dict] | None = None,
 ) -> list[ISRow]:
     """Return the IS row list for the given sector and detected field flags.
 
@@ -553,6 +564,7 @@ def build_is_structure(
             has_cogs=has_cogs, has_rd=has_rd, has_sga=has_sga,
             revenue_segments=revenue_segments,
             opex_items=opex_items,
+            cogs_detail=cogs_detail,
         )
 
     return _apply_filing_labels(rows, filing_labels or {})

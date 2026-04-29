@@ -81,16 +81,29 @@ def build_assumptions_block(
     gm_up   = +0.01 if not is_utility else +0.01   # same magnitude; semantic differs
     gm_down = -0.01 if not is_utility else -0.01
 
-    base = _build_scenario("Base", a, n_proj)
+    # Sector-appropriate exit EBITDA multiples.
+    # Cyclicals (energy, materials, autos): 6-10x. Industrials: 10-14x.
+    # Consumer/Healthcare/Tech: 16-22x. Utilities: 12-16x (on EBIT basis).
+    _SECTOR_MULTIPLES: dict[str, tuple[float, float, float]] = {
+        # sector → (base, upside, downside)
+        "utility":   (14.0, 16.0, 12.0),
+        "bank":      (12.0, 14.0, 10.0),
+        "insurance": (12.0, 14.0, 10.0),
+        "reit":      (16.0, 18.0, 14.0),
+        "standard":  (16.0, 20.0, 12.0),
+    }
+    mult_base, mult_up, mult_down = _SECTOR_MULTIPLES.get(sector, (16.0, 20.0, 12.0))
+
+    base = _build_scenario("Base", a, n_proj, exit_mult=mult_base)
     upside = _build_scenario(
         "Upside", a, n_proj,
         rev_g_delta=+0.02, gm_delta=gm_up, capex_delta=-0.01,
-        terminal_g=0.030, exit_mult=14.0,
+        terminal_g=0.030, exit_mult=mult_up,
     )
     downside = _build_scenario(
         "Downside", a, n_proj,
         rev_g_delta=-0.02, gm_delta=gm_down, capex_delta=+0.01,
-        terminal_g=0.020, exit_mult=10.0,
+        terminal_g=0.020, exit_mult=mult_down,
     )
 
     market = _fetch_market_inputs(ticker)

@@ -53,51 +53,107 @@ def _yf_market_data(ticker: str) -> dict:
 
 
 def _edgar_ltm_stats(ticker: str) -> dict:
-    """Pull LTM revenue, EBITDA, EBIT, NI, EPS from EDGAR XBRL (last reported FY)."""
+    """Pull LTM revenue, EBITDA, EBIT, NI from EDGAR XBRL (last reported FY).
+
+    Handles both 10-K (US-GAAP) and 20-F (IFRS or US-GAAP) filers.
+    Falls back to yfinance financials if EDGAR has no usable data.
+    """
     out = {"ltm_revenue": 0.0, "ltm_ebitda": 0.0, "ltm_ebit": 0.0,
            "ltm_net_income": 0.0, "ltm_eps_diluted": 0.0}
     try:
         from src.fetcher import get_cik, fetch_xbrl_facts
-        cik = get_cik(ticker)
+        try:
+            cik = get_cik(ticker)
+        except Exception:
+            raise ValueError(f"No EDGAR CIK for {ticker}")
         facts = fetch_xbrl_facts(cik)
-        gaap = facts.get("facts", {}).get("us-gaap", {})
+        all_namespaces = facts.get("facts", {})
+        gaap = all_namespaces.get("us-gaap", {})
+        ifrs = all_namespaces.get("ifrs-full", {})
 
-        def _last_annual(tags: list[str]) -> float:
+        def _last_val(ns: dict, tags: list[str]) -> float:
             for tag in tags:
-                if tag not in gaap:
+                if tag not in ns:
                     continue
-                entries = gaap[tag].get("units", {}).get("USD", [])
+                units = ns[tag].get("units", {})
+                entries_raw = units.get("USD") or next(
+                    (v for k, v in units.items() if k not in ("USD/shares", "pure") and v), None
+                ) or []
                 annual = sorted(
-                    [e for e in entries if e.get("form") == "10-K" and e.get("fp") == "FY"],
+                    [e for e in entries_raw
+                     if e.get("form") in ("10-K", "20-F") and e.get("fp") == "FY"],
                     key=lambda e: e["end"]
                 )
                 if annual:
                     return float(annual[-1]["val"]) / 1e6
             return 0.0
 
-        out["ltm_revenue"] = _last_annual([
-            "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
-            "RevenueFromContractWithCustomerIncludingAssessedTax",
-            "SalesRevenueNet",
-        ])
-        out["ltm_ebit"] = _last_annual(["OperatingIncomeLoss"])
-        da = _last_annual(["DepreciationDepreciationAndAmortization",
-                           "DepreciationAndAmortization", "Depreciation"])
-        out["ltm_ebitda"] = out["ltm_ebit"] + da
-        out["ltm_net_income"] = _last_annual(["NetIncomeLoss"])
-        # EPS not divided by 1e6
+        # US-GAAP lookup
+        rev  = _last_val(gaap, ["RevenueFromContractWithCustomerExcludingAssessedTax",
+                                 "Revenues", "SalesRevenueNet",
+                                 "RevenueFromContractWithCustomerIncludingAssessedTax"])
+        ebit = _last_val(gaap, ["OperatingIncomeLoss"])
+        da   = _last_val(gaap, ["DepreciationDepletionAndAmortization",
+                                 "DepreciationAndAmortization", "Depreciation"])
+        ni   = _last_val(gaap, ["NetIncomeLoss"])
+
+        # IFRS fallback — used when filer uses IFRS (NVS, AZN, UL, etc.)
+        if rev == 0.0:
+            rev = _last_val(ifrs, ["RevenueFromSaleOfGoods", "Revenue",
+                                    "RevenueFromContractsWithCustomers",
+                                    "RevenueFromRoyalties"])
+        if ebit == 0.0:
+            ebit = _last_val(ifrs, ["ProfitLossFromOperatingActivities",
+                                     "OperatingProfitLoss"])
+        if da == 0.0:
+            da = sum(_last_val(ifrs, [t]) for t in [
+                "DepreciationPropertyPlantAndEquipment",
+                "DepreciationRightofuseAssets",
+                "AmortisationIntangibleAssetsOtherThanGoodwill",
+                "AdjustmentsForDepreciationAndAmortisationExpense",
+            ])
+        if ni == 0.0:
+            ni = _last_val(ifrs, ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"])
+
+        out["ltm_revenue"]    = rev
+        out["ltm_ebit"]       = ebit
+        out["ltm_ebitda"]     = ebit + da
+        out["ltm_net_income"] = ni
+
+        # EPS — US-GAAP only (IFRS EPS not standardised in EDGAR)
         for tag in ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"]:
             if tag in gaap:
+                units = gaap[tag].get("units", {})
+                entries_raw = units.get("USD/shares") or units.get("shares") or []
                 annual = sorted(
-                    [e for e in gaap[tag].get("units", {}).get("USD/shares", [])
-                     if e.get("form") == "10-K" and e.get("fp") == "FY"],
+                    [e for e in entries_raw
+                     if e.get("form") in ("10-K", "20-F") and e.get("fp") == "FY"],
                     key=lambda e: e["end"]
                 )
                 if annual:
                     out["ltm_eps_diluted"] = float(annual[-1]["val"])
                     break
-    except Exception as e:
-        logger.warning("EDGAR LTM stats failed for %s: %s", ticker, e)
+
+    except Exception as edgar_err:
+        logger.info("EDGAR LTM stats unavailable for %s (%s) — trying yfinance", ticker, edgar_err)
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            fin = t.financials
+            if fin is not None and not fin.empty:
+                def _row(labels: list[str]) -> float:
+                    for lbl in labels:
+                        for idx in fin.index:
+                            if lbl.lower() in str(idx).lower():
+                                v = fin.loc[idx].iloc[0]
+                                return float(v) / 1e6 if v and v == v else 0.0
+                    return 0.0
+                out["ltm_revenue"]    = _row(["Total Revenue", "Revenue"])
+                out["ltm_ebit"]       = _row(["Operating Income", "EBIT"])
+                out["ltm_ebitda"]     = _row(["EBITDA"]) or out["ltm_ebit"]
+                out["ltm_net_income"] = _row(["Net Income"])
+        except Exception as yf_err:
+            logger.warning("yfinance LTM stats also failed for %s: %s", ticker, yf_err)
     return out
 
 
@@ -177,9 +233,12 @@ def _build_peer(ticker: str, tier: int = 1) -> "PublicCompPeer":
     p.pe_fy1        = round(p.share_price / p.fy1_eps, 2) if p.fy1_eps > 0 else None
     return p
 
+_MAX_MEANINGFUL_MULTIPLE = 60.0   # > 60x EV/EBITDA = NM; usually GAAP M&A charge distortion
+
+
 def _summary_stats(values: list[float], name: str) -> "CompMultipleStats":
     from schemas.financial_data import CompMultipleStats
-    vs = [v for v in values if v is not None and v > 0]
+    vs = [v for v in values if v is not None and 0 < v < _MAX_MEANINGFUL_MULTIPLE]
     if not vs:
         return CompMultipleStats(multiple_name=name, values=[], min=0, p25=0,
                                  median=0, mean=0, p75=0, max=0, count=0)

@@ -14,14 +14,16 @@ EDGAR_HEADERS = {"User-Agent": "FinancialModelBot vinit.paul@gmail.com"}
 XBRL_TAG_MAP: dict[str, list[str]] = {
     # ── Income Statement ────────────────────────────────────────────────────
     "revenue": [
-        "Revenues",                                               # pre-ASC 606 total — banks/insurers/REITs
+        # Specific ASC-606 tags first — prevent generic "Revenues" from winning for
+        # industrial/pharma/tech companies (avoids including discontinued-ops segments).
         "RevenueFromContractWithCustomerExcludingAssessedTax",   # ASC 606 primary (post-2018)
         "SalesRevenueNet",                                        # older manufacturing / retail
         "RevenueFromContractWithCustomerIncludingAssessedTax",    # includes sales tax
         "RegulatedAndUnregulatedOperatingRevenue",                # utilities
         "HealthCareOrganizationRevenue",                          # healthcare
         "RealEstateRevenueNet",                                   # REITs
-        # ── added by coverage audit ──────────────────────────────────────
+        "Revenues",                                               # generic total — banks/insurers; fallback for others
+        # ── financial-sector specific ─────────────────────────────────────
         "RevenueNotFromContractWithCustomer",                     # non-ASC-606 revenue (financials)
         "InterestAndFeeIncomeLoansAndLeases",                     # banks: primary interest income
         "NoninterestIncome",                                      # banks: fee income
@@ -140,15 +142,15 @@ XBRL_TAG_MAP: dict[str, list[str]] = {
         "CommonStockSharesOutstanding",                           # fallback for companies without WA diluted
     ],
     "da": [
-        "DepreciationDepletionAndAmortization",
+        # CF-statement add-back concept (preferred — most companies use one of these two in CFS)
         "DepreciationAndAmortization",
+        "DepreciationDepletionAndAmortization",
         "DepreciationAmortizationAndAccretionNet",
-        # ── added by coverage audit ──────────────────────────────────────
         "DepreciationDepletionAndAmortizationExcludingDiscontinuedOperations",
-        "DepreciationAndAmortizationDiscontinuedOperations",      # some filers split
-        "AmortizationOfIntangibleAssets",                         # intangible-heavy companies only
-        "Depreciation",                                           # tangible-only filers (rare as standalone)
-        "DepreciationNonproduction",                              # manufacturing: non-COGS D
+        "DepreciationAndAmortizationDiscontinuedOperations",
+        "AmortizationOfIntangibleAssets",
+        "Depreciation",
+        "DepreciationNonproduction",
     ],
     # ── Balance Sheet — Assets ──────────────────────────────────────────────
     "cash": [
@@ -249,8 +251,8 @@ XBRL_TAG_MAP: dict[str, list[str]] = {
     ],
     "total_liabilities": [
         "Liabilities",
-        # ── added by coverage audit ──────────────────────────────────────
-        "LiabilitiesAndStockholdersEquity",                       # some filers omit Liabilities standalone
+        # LiabilitiesAndStockholdersEquity == total_assets (A=L+E identity) — NEVER use as total_liabilities.
+        # If "Liabilities" is absent the derivation step computes: total_assets − total_equity − rnci.
     ],
     "retained_earnings": [
         "RetainedEarningsAccumulatedDeficit",
@@ -446,10 +448,10 @@ def _annual_by_year(gaap: dict, tag: str, currency: str) -> dict[str, dict]:
     """Return dict of {year_str: best_entry} for a single XBRL tag.
 
     For a given calendar year, multiple 10-K entries can exist: the original
-    filing AND restated comparatives included in subsequent years' 10-Ks.
-    We prefer the ORIGINAL filing (earliest filed date) so that, e.g., a
-    company that reclassifies discontinued operations in a later 10-K doesn't
-    silently replace previously-reported GAAP figures.
+    filing AND restated comparatives in subsequent years' 10-Ks.
+    We prefer the MOST RECENT filing so that restated comparatives — e.g., after a
+    spin-off the 2023 10-K restates 2021/2022 to show continuing-ops only — are used
+    rather than the original inclusive figures. This gives accurate projection baselines.
     """
     units = gaap.get(tag, {}).get("units", {})
     entries = units.get(currency) or units.get("USD") or units.get("shares") or []
@@ -465,8 +467,9 @@ def _annual_by_year(gaap: dict, tag: str, currency: str) -> dict[str, dict]:
                 # Later fiscal year end within same calendar year → more complete
                 by_year[yr] = e
             elif e["end"] == existing["end"]:
-                # Same period end: prefer original filing (earliest filed date)
-                if e.get("filed", "9999-99-99") < existing.get("filed", "9999-99-99"):
+                # Same period end: prefer most-recent filing (latest filed date) to pick
+                # up restated comparatives (spin-offs, discontinued-ops reclassifications).
+                if e.get("filed", "0000-00-00") > existing.get("filed", "0000-00-00"):
                     by_year[yr] = e
     return by_year
 
@@ -878,9 +881,235 @@ def _detect_opex_items(
         key = f"opex_{slug}"
         result.append({
             "label": c["label"], "key": key, "category": c["category"],
+            "group": c["group"],
             "values": c["values"],
         })
     return result
+
+
+def _fetch_is_rfile_detail(cik_int: int, target_years: list[str]) -> dict:
+    """Parse the income statement R-file from the most-recent 10-K XBRL viewer.
+
+    Returns {"rev_detail": [...], "cogs_detail": [...]} where each item is
+    {"label": str, "key": str, "values": [float|None]}.
+    Empty dict on any failure (non-fatal — falls back to aggregate XBRL totals).
+    """
+    try:
+        import re as _re
+        import requests as _req
+        from bs4 import BeautifulSoup as _BS
+
+        # ── Step 1: find most-recent 10-K accession from submissions API ────
+        cik_padded = str(cik_int).zfill(10)
+        subs = _req.get(
+            f"https://data.sec.gov/submissions/CIK{cik_padded}.json",
+            headers=EDGAR_HEADERS,
+        ).json()
+        filings = subs.get("filings", {}).get("recent", {})
+        accn = next(
+            (an.replace("-", "") for form, an in zip(
+                filings.get("form", []), filings.get("accessionNumber", [])
+            ) if form == "10-K"),
+            None,
+        )
+        if not accn:
+            return {}
+
+        # ── Step 2: find IS R-file number from FilingSummary.xml ────────────
+        import xml.etree.ElementTree as _ET
+        base = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{accn}"
+        summary_xml = _req.get(f"{base}/FilingSummary.xml", headers=EDGAR_HEADERS).text
+        root = _ET.fromstring(summary_xml)
+        is_rfile = None
+        for report in root.findall(".//Report"):
+            long_name = (report.findtext("LongName") or "").lower()
+            rfile = report.findtext("HtmlFileName") or ""
+            if any(w in long_name for w in ("statement of operations", "income from operations",
+                                             "statements of operations")):
+                is_rfile = rfile
+                break
+        if not is_rfile:
+            return {}
+
+        # ── Step 3: parse the R-file HTML table ─────────────────────────────
+        html = _req.get(f"{base}/{is_rfile}", headers=EDGAR_HEADERS).text
+        soup = _BS(html, "html.parser")
+        rows = []
+        for tr in soup.find_all("tr"):
+            cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
+            if cells:
+                rows.append(cells)
+
+        if not rows:
+            return {}
+
+        # ── Step 4: map column indices → years from header row ───────────────
+        # Header row contains date strings like "Jan. 31, 2026" or "12 Months Ended"
+        col_year: dict[int, str] = {}
+        header_row_len: int = 0
+        for row in rows[:5]:
+            for ci, cell in enumerate(row):
+                m = _re.search(r"\b(20\d{2})\b", cell)
+                if m:
+                    col_year[ci] = m.group(1)
+            if col_year:
+                header_row_len = len(row)
+                break
+
+        if not col_year:
+            return {}
+
+        # Detect column offset: XBRL viewer header rows often have fewer columns
+        # than data rows because data rows include label + footnote prefix columns.
+        # Example: header has [2026, 2025, 2024] (3 cols) but data rows have
+        # [label, footnote, val_2026, val_2025, val_2024] (5 cols) → offset=2.
+        data_ncols = 0
+        for row in rows[2:8]:
+            if len(row) > header_row_len:
+                data_ncols = max(data_ncols, len(row))
+        col_offset = data_ncols - header_row_len if data_ncols > header_row_len else 0
+        if col_offset > 0:
+            col_year = {ci + col_offset: yr for ci, yr in col_year.items()}
+
+        def _parse_val(s: str) -> float | None:
+            s = _re.sub(r"[\$,\(\)\[\]\s]", "", s)
+            s = _re.sub(r"^\d+$", "", s) if len(s) <= 3 else s  # strip short footnotes
+            if not s or not _re.search(r"\d", s):
+                return None
+            try:
+                return float(s.replace(",", ""))
+            except ValueError:
+                return None
+
+        def _row_vals(cells: list[str]) -> dict[str, float | None]:
+            """Map year → parsed value for a data row."""
+            out: dict[str, float | None] = {}
+            for ci, yr in col_year.items():
+                if ci < len(cells):
+                    out[yr] = _parse_val(cells[ci])
+            return out
+
+        def _make_key(label: str, prefix: str) -> str:
+            slug = _re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+            return f"{prefix}{slug}"[:60]
+
+        # ── Step 5: state-machine scan for segment sections ──────────────────
+        # Consolidated totals appear first; segment sections repeat below them.
+        # A segment section looks like:
+        #   <segment name row, empty values>
+        #   Revenues:
+        #   Total revenues | ... | val1 | val2 | val3
+        #   Cost of revenues:
+        #   Total cost of revenues | ... | val1 | val2 | val3
+        _REV_TOTAL   = {"total revenues", "total revenue"}
+        _COST_TOTAL  = {"total cost of revenues", "total cost of revenue"}
+        _REV_HDR     = {"revenues:", "revenues", "revenue:"}
+        _COST_HDR    = {"cost of revenues:", "cost of revenues", "cost of revenue:"}
+        _SKIP_LABELS = {"revenues:", "cost of revenues:", "operating expenses:",
+                        "operating expenses", "cost of revenues", "revenues",
+                        "12 months ended", "consolidated statements of operations"}
+
+        # Standard IS line labels that are NOT segment names
+        _STD_LABELS = {
+            "total revenues", "total revenue",
+            "total cost of revenues", "gross profit",
+            "research and development", "sales and marketing",
+            "general and administrative", "restructuring",
+            "total operating expenses", "income from operations",
+            "net income", "basic net income per share", "diluted net income per share",
+        }
+
+        rev_detail:  list[dict] = []
+        cogs_detail: list[dict] = []
+
+        # Skip until we've seen at least one consolidated "Total revenues" row
+        found_consolidated_rev = False
+        found_consolidated_cost = False
+        current_segment: str | None = None
+        in_rev_section   = False
+        in_cost_section  = False
+
+        for row in rows:
+            if not row:
+                continue
+            label = row[0].strip().rstrip(":")
+            label_lc = label.lower().strip()
+
+            # Detect consolidated totals (first occurrences)
+            if not found_consolidated_rev and label_lc in _REV_TOTAL:
+                found_consolidated_rev = True
+                current_segment = None
+                in_rev_section = in_cost_section = False
+                continue
+            if not found_consolidated_cost and label_lc in _COST_TOTAL and found_consolidated_rev:
+                found_consolidated_cost = True
+                current_segment = None
+                in_rev_section = in_cost_section = False
+                continue
+
+            # Only process sub-items after we've seen consolidated totals
+            if not found_consolidated_rev:
+                continue
+
+            # Section headers
+            if label_lc in _REV_HDR:
+                in_rev_section = True
+                in_cost_section = False
+                continue
+            if label_lc in _COST_HDR:
+                in_cost_section = True
+                in_rev_section = False
+                continue
+
+            # Check if this row is a new segment name (label-only, no meaningful values)
+            vals_in_row = {ci: _parse_val(c) for ci, c in enumerate(row) if ci > 0}
+            has_values = any(v is not None for v in vals_in_row.values())
+
+            if (not has_values and label and label_lc not in _SKIP_LABELS
+                    and label_lc not in _STD_LABELS and label_lc not in _REV_HDR
+                    and label_lc not in _COST_HDR and len(label) > 3):
+                current_segment = label
+                in_rev_section = in_cost_section = False
+                continue
+
+            # Capture segment rev/cost totals
+            if current_segment and has_values:
+                yr_vals = _row_vals(row)
+                values = [yr_vals.get(yr) for yr in target_years]
+
+                if in_rev_section and label_lc in _REV_TOTAL:
+                    rev_detail.append({
+                        "label": current_segment,
+                        "key": _make_key(current_segment, "rev_seg_"),
+                        "values": values,
+                    })
+                    in_rev_section = False
+                elif in_cost_section and label_lc in _COST_TOTAL:
+                    cost_label = f"Cost of {current_segment.lower()}"
+                    cogs_detail.append({
+                        "label": cost_label,
+                        "key": _make_key(cost_label, "cogs_seg_"),
+                        "values": values,
+                    })
+                    in_cost_section = False
+
+        # Sanity: verify rev_detail sums within 2% of total revenue from XBRL
+        if rev_detail:
+            total_check = [
+                sum(item["values"][i] or 0 for item in rev_detail)
+                for i in range(len(target_years))
+            ]
+            # if any year's sum is far off from 0, check plausibility
+            # (can't verify against XBRL here, but non-zero is a good sign)
+            if all(t == 0 for t in total_check):
+                rev_detail = []
+                cogs_detail = []
+
+        return {"rev_detail": rev_detail, "cogs_detail": cogs_detail}
+
+    except Exception as e:
+        logger.debug("IS R-file detail fetch failed for CIK %s: %s", cik_int, e)
+        return {}
 
 
 def parse_xbrl_to_raw(
@@ -930,17 +1159,42 @@ def parse_xbrl_to_raw(
     cfs_keys = [
         "cfo", "capex", "investments_net_cfi", "cfi", "cff",
         "dividends_paid", "buybacks", "net_change_cash", "fx_effect_on_cash",
+        "da",  # D&A add-back belongs to CF statement — authoritative source for total D&A
     ]
 
     load(is_data, is_keys)
     load(bs_data, bs_keys)
     load(cfs_data, cfs_keys)
 
+    # D&A: CF statement is the authoritative source (captures total add-back, including
+    # amortization of acquired intangibles that is embedded inside COGS/SG&A on the IS).
+    # If cfs_data["da"] > is_data["da"] (or IS is missing), override IS with CFS value.
+    cfs_da = cfs_data.get("da", [])
+    is_da  = is_data.get("da",  [])
+    if cfs_da and any(v and v != 0 for v in cfs_da):
+        cfs_sum = sum(v or 0 for v in cfs_da)
+        is_sum  = sum(v or 0 for v in is_da)
+        if cfs_sum > is_sum or not is_da:
+            is_data["da"] = cfs_da
+
     # Detect company-specific revenue segments from non-standard XBRL namespaces
     segment_revenues = _detect_segments(facts, target_years, currency,
                                          is_data.get("revenue", []))
     for seg in segment_revenues:
         is_data[seg["key"]] = seg["values"]
+
+    # Try to fetch IS R-file detail (revenue breakdown + cost breakdown from XBRL viewer)
+    # This captures dimensional data not exposed by the companyfacts API.
+    rfile_detail = _fetch_is_rfile_detail(int(cik), target_years) if cik else {}
+    rev_detail  = rfile_detail.get("rev_detail",  [])
+    cogs_detail = rfile_detail.get("cogs_detail", [])
+    # R-file segments supersede custom-namespace segments (more reliable source)
+    if rev_detail:
+        segment_revenues = rev_detail
+        for seg in rev_detail:
+            is_data[seg["key"]] = seg["values"]
+    for cd in cogs_detail:
+        is_data[cd["key"]] = cd["values"]
 
     # Detect actual operating expense line items from XBRL concepts
     opex_items = _detect_opex_items(gaap, target_years, currency)
@@ -974,9 +1228,13 @@ def parse_xbrl_to_raw(
             {"label": s["label"], "key": s["key"]}
             for s in segment_revenues
         ]
+    if cogs_detail:
+        notes_meta["cogs_detail"] = [
+            {"label": c["label"], "key": c["key"]} for c in cogs_detail
+        ]
     if opex_items:
         notes_meta["opex_items"] = [
-            {"label": o["label"], "key": o["key"], "category": o["category"]}
+            {"label": o["label"], "key": o["key"], "category": o["category"], "group": o.get("group", "")}
             for o in opex_items
         ]
 

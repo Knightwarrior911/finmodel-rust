@@ -142,17 +142,37 @@ def establish_ground_truth(reconciled, model_output=None) -> GroundTruth:
 
 # ── Step 3: Force execution ────────────────────────────────────────────────
 
-def force_execute(xlsx_path: str, timeout_sec: int = 30) -> bool:
-    """Force Excel recalculation via LibreOffice headless (if available).
+def _force_execute_win32(xlsx_path: str, timeout_sec: int = 60) -> bool:
+    """Force Excel recalculation via win32com (Windows only, requires Excel installed)."""
+    try:
+        import win32com.client
+        import pythoncom
+        import os
+        pythoncom.CoInitialize()
+        abs_path = str(Path(xlsx_path).resolve())
+        xl = win32com.client.DispatchEx("Excel.Application")
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        try:
+            wb = xl.Workbooks.Open(abs_path)
+            xl.CalculateFull()
+            wb.Save()
+            wb.Close(SaveChanges=True)
+            return True
+        finally:
+            xl.Quit()
+            pythoncom.CoUninitialize()
+    except Exception as e:
+        logger.warning("win32com Excel recalc failed: %s", e)
+        return False
 
-    Returns True if successfully executed, False otherwise.
-    """
+
+def _force_execute_libreoffice(xlsx_path: str, timeout_sec: int = 30) -> bool:
+    """Force recalculation via LibreOffice headless (Linux/macOS fallback)."""
     libre_paths = [
-        "soffice",                          # Linux PATH
-        "libreoffice",                      # Linux CLI
-        "/Applications/LibreOffice.app/Contents/MacOS/soffice",  # macOS
-        "C:\\Program Files\\LibreOffice\\program\\soffice.exe",  # Windows 64
-        "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",  # Windows 32
+        "soffice",
+        "libreoffice",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
     ]
     lo_exe = None
     for p in libre_paths:
@@ -165,29 +185,78 @@ def force_execute(xlsx_path: str, timeout_sec: int = 30) -> bool:
             continue
 
     if not lo_exe:
-        logger.warning("LibreOffice not found — cannot force-recalculate xlsx")
         return False
 
     out_dir = str(Path(xlsx_path).parent)
     try:
         subprocess.run(
-            [
-                lo_exe, "--headless", "--norestore", "--nofirststartwizard",
-                "--convert-to", "xlsx", "--outdir", out_dir, xlsx_path,
-            ],
-            timeout=timeout_sec,
-            check=True,
+            [lo_exe, "--headless", "--norestore", "--nofirststartwizard",
+             "--convert-to", "xlsx", "--outdir", out_dir, xlsx_path],
+            timeout=timeout_sec, check=True,
         )
         return True
-    except subprocess.CalledProcessError:
-        logger.warning("LibreOffice convert failed for %s", xlsx_path)
+    except Exception:
         return False
-    except subprocess.TimeoutExpired:
-        logger.warning("LibreOffice timed out (%ss) for %s", timeout_sec, xlsx_path)
-        return False
+
+
+def force_execute(xlsx_path: str, timeout_sec: int = 60) -> bool:
+    """Force Excel recalculation. Tries win32com (Windows) then LibreOffice (Linux/macOS)."""
+    import platform
+    if platform.system() == "Windows":
+        ok = _force_execute_win32(xlsx_path, timeout_sec)
+        if ok:
+            return True
+        logger.warning("win32com recalc failed — Excel may not be installed")
+    ok = _force_execute_libreoffice(xlsx_path, timeout_sec)
+    if not ok:
+        logger.warning("No recalculation engine available (tried win32com + LibreOffice)")
+    return ok
 
 
 # ── Step 4: Compare to ground truth ─────────────────────────────────────────
+
+def _period_col_map(ws, header_row: int, max_col: int = 30) -> dict[str, int]:
+    """Scan a worksheet header row and return {period_label: column_index}.
+
+    Handles any layout — robust to writer placing headers at any column.
+    """
+    mapping: dict[str, int] = {}
+    for col in range(1, max_col + 1):
+        val = ws.cell(row=header_row, column=col).value
+        if val and isinstance(val, str) and (val.endswith("A") or val.endswith("E")):
+            mapping[val] = col
+    return mapping
+
+
+_TOTAL_REVENUE_PATTERNS = (
+    "total revenue",
+    "total revenues",
+    "net revenue",
+    "net revenues",
+    "revenue",
+    "revenues",
+)
+
+def _find_revenue_row(ws, label_col: int = 3, start_row: int = 11, max_row: int = 60) -> int:
+    """Scan IS worksheet label column for the total-revenue row.
+
+    Prefers 'total revenue(s)' labels; falls back to first bare 'revenue(s)'.
+    Returns row index (1-based) or start_row if not found.
+    """
+    total_row = None
+    bare_row = None
+    for row in range(start_row, max_row + 1):
+        val = ws.cell(row=row, column=label_col).value
+        if not val or not isinstance(val, str):
+            continue
+        norm = val.strip().lower()
+        if norm in ("total revenue", "total revenues"):
+            total_row = row
+            break
+        if norm in ("revenue", "revenues", "net revenue", "net revenues") and bare_row is None:
+            bare_row = row
+    return total_row or bare_row or start_row
+
 
 def compare_to_ground_truth(
     xlsx_path: str,
@@ -212,11 +281,11 @@ def compare_to_ground_truth(
     # ── BS balance check ──
     if "BS" in wb.sheetnames:
         ws = wb["BS"]
+        col_map = _period_col_map(ws, header_row=10)
         for j, period in enumerate(ground_truth.periods):
-            col = 7 + j  # G=7 for first data column
-            ta_cell = ws.cell(row=19, column=col).value     # Total Assets
-            tl_cell = ws.cell(row=27, column=col).value     # Total Liabilities
-            te_cell = ws.cell(row=33, column=col).value     # Total Equity
+            col = col_map.get(period)
+            if col is None:
+                continue
             chk_cell = ws.cell(row=35, column=col).value    # BS check row
 
             if chk_cell is not None and abs(float(chk_cell)) > tolerance:
@@ -229,12 +298,16 @@ def compare_to_ground_truth(
     # ── Revenue comparison (historical periods only) ──
     if "IS" in wb.sheetnames:
         ws = wb["IS"]
+        col_map = _period_col_map(ws, header_row=10)
+        rev_row = _find_revenue_row(ws, label_col=3, start_row=11, max_row=60)
         for j, period in enumerate(ground_truth.periods):
             if not period.endswith("A"):
                 # Projected periods have no ground truth — skip
                 continue
-            col = 7 + j
-            rev_cell = ws.cell(row=11, column=col).value
+            col = col_map.get(period)
+            if col is None:
+                continue
+            rev_cell = ws.cell(row=rev_row, column=col).value
             expected = ground_truth.revenue[j] if j < len(ground_truth.revenue) else None
             if rev_cell is not None and expected is not None and abs(expected) > 1:
                 result.checks_run += 1
@@ -265,6 +338,104 @@ def compare_to_ground_truth(
         result.passed = False
 
     return result
+
+
+# ── Financial intelligence checks ─────────────────────────────────────────
+# These encode financial first principles that catch conceptual errors a
+# mechanical formula check cannot see. Each check reasons about whether the
+# numbers are internally consistent AS A FINANCIAL MODEL — not just valid Excel.
+
+def financial_intelligence_checks(model_output, tolerance_pct: float = 0.05) -> list[str]:
+    """Cross-validate model output against financial first principles.
+
+    Catches errors that mechanical checks miss: IS D&A != CF D&A add-back,
+    broken EBITDA bridge, CFO below net income for a profitable company, etc.
+
+    Returns list of issue strings (empty = clean).
+    """
+    issues: list[str] = []
+    if model_output is None:
+        return ["model_output not available for intelligence checks"]
+
+    is_out = model_output.income_statement
+    cf_out = model_output.cash_flow_statement
+    periods = list(model_output.periods)
+    n_hist = sum(1 for p in periods if p.endswith("A"))
+
+    def _v(d: dict, key: str) -> list:
+        return d.get(key, []) or []
+
+    da_is   = _v(is_out, "da")
+    da_cf   = _v(cf_out, "da")
+    ebit    = _v(is_out, "ebit")
+    ebitda  = _v(is_out, "ebitda")
+    rev     = _v(is_out, "revenue")
+    cogs    = _v(is_out, "cogs")
+    gp      = _v(is_out, "gross_profit")
+    ni      = _v(is_out, "net_income")
+    cfo     = _v(cf_out, "cfo")
+
+    for i in range(n_hist):
+        period = periods[i] if i < len(periods) else f"period[{i}]"
+
+        # 1. D&A: IS add-back must equal CF add-back (same line, two tabs)
+        if i < len(da_is) and i < len(da_cf):
+            is_d, cf_d = da_is[i] or 0, da_cf[i] or 0
+            if cf_d > 1 and abs(is_d - cf_d) / cf_d > tolerance_pct:
+                issues.append(
+                    f"[D&A mismatch {period}] IS D&A={is_d:,.0f} != CF add-back={cf_d:,.0f} "
+                    f"IS pulling embedded/partial D&A instead of CF total"
+                )
+
+        # 2. EBITDA bridge: EBIT + D&A = EBITDA (to within $1M rounding)
+        if i < len(ebit) and i < len(da_is) and i < len(ebitda):
+            e, d, eb = ebit[i] or 0, da_is[i] or 0, ebitda[i] or 0
+            bridge = e + d
+            if abs(eb) > 1 and abs(bridge - eb) > 1:
+                issues.append(
+                    f"[EBITDA bridge {period}] EBIT({e:,.0f})+D&A({d:,.0f})={bridge:,.0f} != EBITDA({eb:,.0f})"
+                )
+
+        # 3. Gross profit arithmetic: Revenue − |COGS| = Gross Profit
+        if i < len(rev) and i < len(cogs) and i < len(gp):
+            r, c, g = rev[i] or 0, cogs[i] or 0, gp[i] or 0
+            if r > 1:
+                expected_gp = r - abs(c)
+                if abs(expected_gp - g) / r > tolerance_pct:
+                    issues.append(
+                        f"[Gross profit {period}] Rev({r:,.0f})−COGS({c:,.0f})={expected_gp:,.0f} != GP({g:,.0f})"
+                    )
+
+        # 4. CFO sanity: profitable company with positive D&A must have CFO > Net Income
+        #    (NI + D&A is the minimum CFO before WC, and WC rarely flips that)
+        if i < len(ni) and i < len(cfo) and i < len(da_is):
+            n, c, d = ni[i] or 0, cfo[i] or 0, da_is[i] or 0
+            if n > 0 and d > 0 and c < n:
+                issues.append(
+                    f"[CFO sanity {period}] CFO={c:,.0f} < Net Income={n:,.0f} "
+                    f"(profitable company with D&A={d:,.0f} — WC drag is unusually large)"
+                )
+
+        # 5. Revenue sanity: must be positive and not impossibly large (>$5T)
+        if i < len(rev):
+            r = rev[i] or 0
+            if r <= 0:
+                issues.append(f"[Revenue {period}] Revenue={r:,.0f} <= 0")
+            elif r > 5_000_000:
+                issues.append(f"[Revenue {period}] Revenue={r:,.0f} > $5T — likely unit error")
+
+        # 6. EBIT margin sanity: flag margins outside −50% to +80% (catches sign/unit errors)
+        if i < len(ebit) and i < len(rev):
+            e, r = ebit[i] or 0, rev[i] or 0
+            if r > 1:
+                margin = e / r
+                if margin < -0.5 or margin > 0.8:
+                    issues.append(
+                        f"[EBIT margin {period}] {margin:.1%} outside plausible range "
+                        f"(EBIT={e:,.0f} Rev={r:,.0f}) — check sign or unit"
+                    )
+
+    return issues
 
 
 # ── Pre-delivery checklist ──────────────────────────────────────────────────
@@ -332,6 +503,15 @@ def run_verification_loop(
         len(report.ground_truth.periods),
         len(report.ground_truth.unverifiable),
     )
+
+    # Step 1b: Financial intelligence checks — reason about the numbers before
+    # touching the Excel. Catches conceptual errors (wrong D&A source, broken
+    # EBITDA bridge, sign errors) that formula/format checks cannot see.
+    intel_issues = financial_intelligence_checks(model_output)
+    if intel_issues:
+        for issue in intel_issues:
+            logger.warning("INTELLIGENCE CHECK: %s", issue)
+        report.notes.extend([f"⚠ {i}" for i in intel_issues])
 
     # Step 3: Force execution
     report.force_executed = force_execute(xlsx_path)

@@ -200,7 +200,9 @@ class ModelEngine:
         if dpo > 365:
             dpo = 0.0
 
-        base_rev_growth = _pct_growth_avg(rev)
+        # Floor at -10%: prevents degenerate projections from cyclical downturns.
+        # Analyst should override this in the Assumptions tab for distressed companies.
+        base_rev_growth = max(_pct_growth_avg(rev), -0.10)
         result = {
             "revenue_growth_pct": base_rev_growth,
             "gross_margin_pct": gross_margin,
@@ -214,14 +216,15 @@ class ModelEngine:
                     self.data.cash_flow_statement.get("capex", [0] * len(rev)), rev
                 ) if r and r != 0 and c is not None]
             ),
-            "tax_rate_pct": _avg([
+            "tax_rate_pct": max(0.05, _avg([
                 t / (ni + t)
                 for t, ni in zip(
                     is_d.get("income_tax", [1] * len(rev)),
                     is_d.get("net_income", [5] * len(rev)),
                 )
-                if (ni + t) != 0
-            ]),
+                # Exclude distorted years: negative effective rates (DTA reversals, loss years)
+                if (ni + t) != 0 and t / (ni + t) >= 0
+            ]) or 0.21),
             "interest_rate_pct": 0.035,
             "dso_days": _days(
                 bs_d.get("accounts_receivable", [0] * len(rev)), rev
@@ -274,12 +277,18 @@ class ModelEngine:
                 seg_hist = is_hist.get(sk, [])
                 prev_seg[sk] = (seg_hist[-1] or 0) if seg_hist else 0
 
-        # Extra opex items (beyond primary cogs/rd/sga) held flat
+        # Extra opex items (beyond primary cogs/rd/sga).
+        # Non-recurring items (restructuring, impairment, M&A, severance, legal) are zeroed;
+        # recurring items are held flat at the last historical value.
         extra_opex_keys = getattr(self.cfg, 'extra_opex_keys', []) or []
+        nonrecurring_opex_keys = set(getattr(self.cfg, 'nonrecurring_opex_keys', []) or [])
         prev_flat_opex: dict[str, float] = {}
         for k in extra_opex_keys:
-            hist_vals = is_hist.get(k, [0])
-            prev_flat_opex[k] = (hist_vals[-1] or 0) if hist_vals else 0
+            if k in nonrecurring_opex_keys:
+                prev_flat_opex[k] = 0.0  # one-time — zero in projections
+            else:
+                hist_vals = is_hist.get(k, [0])
+                prev_flat_opex[k] = (hist_vals[-1] or 0) if hist_vals else 0
 
         def append(d, key, val):
             d.setdefault(key, []).append(round(val, 2))

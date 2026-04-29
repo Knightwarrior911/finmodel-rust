@@ -64,6 +64,37 @@ _CURATED_PEERS: dict[str, list[str]] = {
     "CVX":   ["XOM", "COP", "EOG", "PXD", "OXY", "DVN", "BP", "SHEL"],
     "PFE":   ["JNJ", "MRK", "LLY", "ABBV", "BMY", "AZN", "NVS", "GILD"],
     "MRK":   ["JNJ", "PFE", "LLY", "ABBV", "BMY", "AZN", "NVS", "GILD"],
+    # Consumer Staples
+    "PG":    ["CL", "KMB", "CHD", "COTY", "HENKY", "RBGLY", "UL", "NVS"],
+    "KO":    ["PEP", "MNST", "CELH", "COKE", "KDP", "STZ", "SAM", "BUD"],
+    "PEP":   ["KO", "MNST", "CELH", "KDP", "STZ", "SAM", "BUD", "FIZZ"],
+    "CL":    ["PG", "KMB", "CHD", "COTY", "UL", "RBGLY", "HENKY", "NWL"],
+    "PM":    ["MO", "BTI", "IMBBY", "JAPAY", "VGR", "TPB", "SWMAY", "UVV"],
+    "MO":    ["PM", "BTI", "IMBBY", "VGR", "TPB", "STG", "UVV", "SWMAY"],
+    # Food & Staples Retail
+    "COST":  ["WMT", "TGT", "KR", "BJ", "PSMT", "SFM", "GO", "ALDI"],
+    "KR":    ["WMT", "COST", "TGT", "ACI", "SFM", "GO", "WINN", "SVU"],
+    # Healthcare beyond pharma
+    "ABT":   ["MDT", "BSX", "SYK", "ZBH", "EW", "BAX", "BDX", "HOLX"],
+    "MDT":   ["ABT", "BSX", "SYK", "ZBH", "EW", "BAX", "BDX", "GEHC"],
+    # Financials
+    "BRK-B": ["JPM", "BAC", "WFC", "AXP", "V", "MA", "USB", "PNC"],
+    "V":     ["MA", "AXP", "DFS", "COF", "PYPL", "SQ", "FIS", "FISV"],
+    "MA":    ["V", "AXP", "DFS", "COF", "PYPL", "SQ", "FIS", "FISV"],
+    # Technology
+    "INTC":  ["AMD", "NVDA", "QCOM", "TXN", "MU", "MCHP", "ON", "LRCX"],
+    "QCOM":  ["INTC", "AMD", "NVDA", "AVGO", "MRVL", "MTK", "SWKS", "QRVO"],
+    "ADBE":  ["CRM", "MSFT", "ORCL", "NOW", "WDAY", "HUBS", "TEAM", "DDOG"],
+    "CRM":   ["MSFT", "ORCL", "ADBE", "NOW", "WDAY", "HUBS", "ZM", "TEAM"],
+    # Energy
+    "SLB":   ["HAL", "BKR", "FTI", "CHX", "NOV", "LBRT", "RES", "PTEN"],
+    "OXY":   ["COP", "DVN", "MRO", "FANG", "SM", "CLR", "CTRA", "APA"],
+    # Industrials
+    "MMM":   ["HON", "EMR", "ETN", "DOV", "PH", "ROK", "FLS", "ROP"],
+    "ETN":   ["HON", "EMR", "MMM", "DOV", "PH", "ROK", "ABB", "SE"],
+    "EMR":   ["HON", "ETN", "MMM", "DOV", "PH", "ROK", "FLS", "AME"],
+    "UPS":   ["FDX", "XPO", "SAIA", "ODFL", "CHRW", "EXPD", "JBHT", "GXO"],
+    "FDX":   ["UPS", "XPO", "SAIA", "ODFL", "CHRW", "EXPD", "JBHT", "TNT"],
 }
 
 
