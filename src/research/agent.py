@@ -387,8 +387,17 @@ class ResearchAgent:
                 return (f"Could not extract lease data for {company} {year}. "
                         f"ROU depr: {fin.rou_depreciation}, Lease int: {fin.lease_interest}")
 
+            # EBITDA hierarchy: Adjusted > Reported > Computed
             da_total = fin.depreciation_total or 0
-            ebitda = (fin.operating_income or 0) + da_total
+            if fin.adjusted_ebitda:
+                ebitda = fin.adjusted_ebitda
+                ebitda_source = "Adjusted EBITDA (company-reported, one-off items removed)"
+            elif fin.reported_ebitda:
+                ebitda = fin.reported_ebitda
+                ebitda_source = "Reported EBITDA (from annual report)"
+            else:
+                ebitda = (fin.operating_income or 0) + da_total
+                ebitda_source = f"Computed: EBIT ({fin.operating_income:,.0f}) + D&A ({da_total:,.0f})"
 
             inputs = IFRSAdjustmentInput(
                 rou_depreciation=fin.rou_depreciation or 0,
@@ -406,6 +415,7 @@ class ResearchAgent:
             notes = {
                 'ebit_src': f'Annual Report p.164 — Operating Result = {fin.operating_income:,.0f}',
                 'da_src': f'Annual Report p.164 — Depreciation & Amortisation = {da_total:,.0f}',
+                'ebitda_src': ebitda_source,
                 'rou_depr': f'Annual Report Note 15.3, p.192 — ROU Depreciation = {fin.rou_depreciation:,.0f}',
                 'lease_int': f'Annual Report Note 10, p.183 — Interest on Lease Liabilities = {fin.lease_interest:,.0f}',
                 'short_term': f'Annual Report Note 15.3 — Short-term rent = {fin.short_term_rent:,.0f} (excluded)',

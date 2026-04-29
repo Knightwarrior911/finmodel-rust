@@ -41,12 +41,17 @@ class ExtractedFinancials:
     company: str = ""
     year: str = ""
     revenue: Optional[float] = None
-    operating_income: Optional[float] = None  # EBIT
+    operating_income: Optional[float] = None  # EBIT / Operating Result
     net_income: Optional[float] = None
     total_assets: Optional[float] = None
     total_equity: Optional[float] = None
     total_debt: Optional[float] = None
     cash: Optional[float] = None
+
+    # EBITDA hierarchy (preference order)
+    adjusted_ebitda: Optional[float] = None   # Tier 1: Company-reported adjusted (one-offs removed)
+    reported_ebitda: Optional[float] = None   # Tier 2: Company-reported EBITDA
+    # If neither, compute: EBIT + D&A
 
     # IFRS 16 lease data
     rou_depreciation: Optional[float] = None
@@ -461,6 +466,35 @@ class BrowserPipeline:
         fin.cash = self._extract_amount(text, [
             r'Cash\s+and\s+cash\s+equivalents\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
         ], 'balance_sheet')
+
+        # Adjusted EBITDA (Tier 1 — company-reported, one-offs removed)
+        # Look for patterns like "Adjusted EBITDA of EUR 400 million" or "Adjusted EBITDA 400.3"
+        fin.adjusted_ebitda = self._extract_amount(text, [
+            r'[Aa]djusted\s+EBITDA.{0,30}?(?:EUR|EUR)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(?:million|mln|billion)?',
+            r'[Uu]nderlying\s+EBITDA.{0,30}?(?:EUR|EUR)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(?:million|mln|billion)?',
+        ], 'adjusted_ebitda')
+
+        # Reported EBITDA (Tier 2 — company-reported)
+        # Look for standalone EBITDA line in financial tables
+        fin.reported_ebitda = self._extract_amount(text, [
+            r'(?:^|\n)\s*EBITDA\s+.*?(\d{1,3}(?:,\d{3})+)',
+            r'[Rr]eported\s+EBITDA.{0,30}?(\d{1,3}(?:,\d{3})+)',
+        ], 'reported_ebitda')
+
+        # Sanity checks: if extracted EBITDA is way off expected range (based on EBIT),
+        # mark it as unreliable
+        if fin.adjusted_ebitda and fin.operating_income:
+            # Adjusted EBITDA should be >= EBIT and typically within 1-3x EBIT
+            if fin.adjusted_ebitda < fin.operating_income * 0.5:
+                fin.adjusted_ebitda = None  # Too low, unreliable
+            elif fin.adjusted_ebitda > fin.operating_income * 5:
+                fin.adjusted_ebitda = None  # Too high, unreliable
+
+        if fin.reported_ebitda and fin.operating_income:
+            if fin.reported_ebitda < fin.operating_income * 0.5:
+                fin.reported_ebitda = None
+            elif fin.reported_ebitda > fin.operating_income * 5:
+                fin.reported_ebitda = None
 
         # D&A total — matches "Depreciation and amortisation  (157,791)" format
         fin.depreciation_total = self._extract_amount(text, [
