@@ -430,12 +430,22 @@ class BrowserPipeline:
         # Strategy: find the consolidated income statement and balance sheet,
         # then pull numbers using regex patterns
 
-        # Revenue — matches formats like "Revenue  6  7,039,900" or "Revenue  7,039,900"
-        fin.revenue = self._extract_amount(text, [
-            r'Revenue\s+.*?(\d{1,3}(?:,\d{3}){2,})',
-            r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)',
-            r'Total\s+revenue\s+.*?(\d{1,3}(?:,\d{3}){2,})',
+        # Revenue — income statement format: "Revenue  6  7,039,900  6,454,951" (label note# value prior_year)
+        # AFTER the income statement header to avoid matching other "revenue" mentions
+        is_start = text.find("Consolidated income statement")
+        if is_start == -1:
+            is_start = text.find("Income statement")
+        fs_text = text[is_start:] if is_start > 0 else text
+
+        fin.revenue = self._extract_amount(fs_text[:50000], [
+            r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)\s+\d{1,3}(?:,\d{3})+',  # Note format
+            r'Revenue\s+(\d{1,3}(?:,\d{3}){2,})\s+\d{1,3}(?:,\d{3}){2,}',   # No note, has prior year
         ], 'income_statement')
+        # Fallback: search full text
+        if not fin.revenue:
+            fin.revenue = self._extract_amount(text, [
+                r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)\s+\d{1,3}(?:,\d{3})+',
+            ], 'income_statement')
 
         # Operating income / EBIT
         fin.operating_income = self._extract_amount(text, [
@@ -468,11 +478,23 @@ class BrowserPipeline:
         ], 'balance_sheet')
 
         # Adjusted EBITDA (Tier 1 — company-reported, one-offs removed)
-        # Look for patterns like "Adjusted EBITDA of EUR 400 million" or "Adjusted EBITDA 400.3"
-        fin.adjusted_ebitda = self._extract_amount(text, [
-            r'[Aa]djusted\s+EBITDA.{0,30}?(?:EUR|EUR)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(?:million|mln|billion)?',
-            r'[Uu]nderlying\s+EBITDA.{0,30}?(?:EUR|EUR)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(?:million|mln|billion)?',
-        ], 'adjusted_ebitda')
+        # Try "Total Group" segment table first: "Total Group  7,040  400.3  6,455  333.3"
+        tg_match = re.search(
+            r'Total\s+Group[\s\S]{0,200}?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s+(\d+\.?\d*)\s+(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+            text[:200000], re.IGNORECASE
+        )
+        if tg_match:
+            tg_adj_ebitda = float(tg_match.group(2).replace(',', ''))
+            # Total Group table in EUR millions, convert to thousands
+            if tg_adj_ebitda > 10 and tg_adj_ebitda < 100000:
+                fin.adjusted_ebitda = tg_adj_ebitda * 1_000  # millions -> thousands
+
+        if not fin.adjusted_ebitda:
+            fin.adjusted_ebitda = self._extract_amount(text, [
+                r'[Aa]djusted\s+EBITDA.{0,60}?(?:EUR|EUR|of\s+)?\s*(\d+\.?\d*)\s*(?:million|mln)',
+                r'[Aa]djusted\s+EBITDA\s+was.{0,40}?(?:EUR|EUR)?\s*(\d+\.?\d*)\s*(?:million|mln)',
+                r'[Uu]nderlying\s+EBITDA.{0,30}?(?:EUR|EUR)?\s*(\d+\.?\d*)\s*(?:million|mln)',
+            ], 'adjusted_ebitda')
 
         # Reported EBITDA (Tier 2 — company-reported)
         # Look for standalone EBITDA line in financial tables
@@ -534,10 +556,14 @@ class BrowserPipeline:
         return fin
 
     def _extract_amount(self, text: str, patterns: list[str],
-                        section: str = "") -> Optional[float]:
+                        section: str = "", scale: str = "auto") -> Optional[float]:
         """Extract a financial amount from text using regex patterns.
         Returns amount in the reported unit (thousands, millions as-is).
-        Looks for large numbers (5-10 digits) that represent financial amounts."""
+        scale: 'auto' detects from context, 'k' = thousands, 'm' = millions.
+
+        Looks for numbers with commas (1,234,567) or decimals (400.3).
+        Sane range check filters out small/irrelevant matches.
+        """
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
             for raw in matches:
@@ -545,9 +571,23 @@ class BrowserPipeline:
                     raw = raw[0]
                 try:
                     val = float(raw.replace(',', '').replace(' ', ''))
-                    # Sanity: financial line items should be large numbers (100K+)
-                    # This filters out small numbers that happen to match
-                    if val > 1000:
+                    # Sanity check based on context
+                    if section in ('income_statement', 'adjusted_ebitda'):
+                        if val > 10:  # Income statement items in thousands
+                            # If it's a decimal like 400.3, it's in millions -> convert to thousands
+                            if '.' in str(raw) and val < 10000:
+                                return val * 1_000  # millions -> thousands
+                            # If it's a comma number like 7,039,900 it's already in thousands
+                            if ',' in str(raw):
+                                return val
+                            # Clean integer in millions (like 7040) -> convert to thousands
+                            if val >= 100 and '.' not in str(raw):
+                                return val * 1_000
+                            return val
+                    elif section in ('lease_note', 'finance_note'):
+                        if val > 10:  # Lease note items can be smaller
+                            return val
+                    elif val > 1000:  # Generic: must be reasonably large
                         return val
                 except ValueError:
                     continue

@@ -165,8 +165,15 @@ def format_bridge(inputs: IFRSAdjustmentInput, out: IFRSAdjustmentOutput,
         lines.append(f"IFRS 16 Conversion Bridge -- {direction_label}")
     lines.append("=" * 70)
 
-    # --- EBITDA DERIVATION + IFRS 16 ADJUSTMENT ---
+    # --- EBITDA HIERARCHY ---
     da = inputs.standard_depreciation + inputs.standard_amortization
+    ebitda_computed = inputs.reported_ebit + da
+
+    # Determine which EBITDA to use (Adjusted > Reported > Computed)
+    ebitda_start = inputs.reported_ebitda if inputs.reported_ebitda > inputs.reported_ebit else ebitda_computed
+    # If reported_ebitda was explicitly provided AND differs from computed, use it
+    use_adjusted = (inputs.reported_ebitda > 0 and
+                    abs(inputs.reported_ebitda - ebitda_computed) > ebitda_computed * 0.01)
 
     lines.append("")
     lines.append("EBITDA DERIVATION")
@@ -177,33 +184,44 @@ def format_bridge(inputs: IFRSAdjustmentInput, out: IFRSAdjustmentOutput,
         lines.append(f"  + Depreciation & Amortisation                {da:>12,.0f}")
         lines.append(f"    Source: {notes_ref.get('da_src', 'income statement — D&A line')}")
     lines.append(f"  {'-' * 50}")
-    ebitda_computed = inputs.reported_ebit + da
-    lines.append(f"  {'= Reported EBITDA (computed: EBIT + D&A)':<40} {ebitda_computed:>12,.0f}")
+    lines.append(f"  {'= EBITDA (computed: EBIT + D&A)':<40} {ebitda_computed:>12,.0f}")
+
+    if use_adjusted:
+        lines.append("")
+        lines.append(f"  Adjusted EBITDA (company-reported)           {inputs.reported_ebitda:>12,.0f}")
+        lines.append(f"    Source: {notes_ref.get('ebitda_src', 'annual report — one-off items removed')}")
+        lines.append(f"    Difference vs computed: {inputs.reported_ebitda - ebitda_computed:+,.0f}")
+        lines.append(f"    (Adjusted EBITDA removes one-off items; has NOTHING to do with IFRS 16)")
+        lines.append(f"  {'-' * 50}")
+        ebitda_start = inputs.reported_ebitda
+    else:
+        lines.append(f"    (EBITDA not separately reported; computed from EBIT + D&A)")
+        ebitda_start = ebitda_computed
     lines.append("")
 
-    # Compute pre-IFRS EBITDA directly from ebitda_computed (single source of truth)
+    # Compute pre-IFRS EBITDA from the starting EBITDA
     if out.direction.name == "IFRS_TO_US_GAAP":
-        pre_ifrs_ebitda = ebitda_computed - inputs.rou_depreciation - inputs.lease_interest
+        pre_ifrs_ebitda = ebitda_start - inputs.rou_depreciation - inputs.lease_interest
         pre_ifrs_ebit = inputs.reported_ebit - inputs.lease_interest
     else:
-        pre_ifrs_ebitda = ebitda_computed + inputs.rou_depreciation + inputs.lease_interest
+        pre_ifrs_ebitda = ebitda_start + inputs.rou_depreciation + inputs.lease_interest
         pre_ifrs_ebit = inputs.reported_ebit + inputs.lease_interest
 
-    ebitda_delta = pre_ifrs_ebitda - ebitda_computed
+    ebitda_delta = pre_ifrs_ebitda - ebitda_start
 
     lines.append("IFRS 16 ADJUSTMENT")
     lines.append("-" * 50)
-    lines.append(f"  {'Reported EBITDA (Post-IFRS)':<40} {ebitda_computed:>12,.0f}")
+    lines.append(f"  {'Starting EBITDA (Post-IFRS)':<40} {ebitda_start:>12,.0f}")
     lines.append(f"  {op} ROU Depreciation                          {inputs.rou_depreciation:>12,.0f}")
     lines.append(f"    Source: {notes_ref.get('rou_depr', 'lease note — depreciation of ROU assets')}")
     lines.append(f"  {op} Interest on lease liabilities            {inputs.lease_interest:>12,.0f}")
     lines.append(f"    Source: {notes_ref.get('lease_int', 'finance expense note — interest on lease liab')}")
     lines.append(f"  {'-' * 50}")
     lines.append(f"  {'= Pre-IFRS EBITDA':<40} {pre_ifrs_ebitda:>12,.0f}")
-    if ebitda_computed > 0:
-        lines.append(f"  EBITDA Delta: {ebitda_delta:+,.0f}  ({abs(ebitda_delta)/ebitda_computed*100:.1f}% of computed EBITDA)")
+    if ebitda_start > 0:
+        lines.append(f"  EBITDA Delta: {ebitda_delta:+,.0f}  ({abs(ebitda_delta)/ebitda_start*100:.1f}% of starting EBITDA)")
     if revenue > 0:
-        lines.append(f"  Margin: {ebitda_computed/revenue*100:.1f}% {arrow} {pre_ifrs_ebitda/revenue*100:.1f}%")
+        lines.append(f"  Margin: {ebitda_start/revenue*100:.1f}% {arrow} {pre_ifrs_ebitda/revenue*100:.1f}%")
 
     # --- EBIT Bridge ---
     lines.append("")
