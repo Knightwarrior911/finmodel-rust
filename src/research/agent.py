@@ -299,27 +299,77 @@ class ResearchAgent:
             self._browser = None
 
     async def ifrs_analyze(self, company: str, year: str = "2025",
-                           country: str = "") -> str:
+                           country: str = "", ticker: str = "") -> str:
         """
-        Full IFRS 16 analysis for a non-US company.
-        Finds annual report, extracts lease data, runs conversion, returns bridge.
+        Full IFRS 16 analysis. Works for BOTH US and non-US companies.
+        US companies (ticker): direct HTTP to 10-K, ASC 842 extraction.
+        Non-US companies: browser pipeline to find annual report.
         """
         from kb.ifrs import IFRSAdjustmentInput, convert_ifrs_to_us_gaap, format_bridge
 
+        # --- PATH A: US Company (ticker provided, not international suffix) ---
+        intl_suffixes = ('.NS', '.BO', '.DE', '.PA', '.AS', '.L', '.SW',
+                        '.MI', '.MC', '.IR', '.CO', '.T', '.HK')
+        is_intl = ticker and any(ticker.endswith(s) for s in intl_suffixes)
+
+        if ticker and not is_intl:
+            from src.research.us_gaap_leases import extract_asc842_from_10k
+            from src.research.market_data import get_market_data
+
+            logger.info(f"IFRS analysis (US 10-K): {ticker}")
+            lease_data = extract_asc842_from_10k(ticker)
+
+            if not lease_data.estimated_rou_depreciation or not lease_data.estimated_lease_interest:
+                return (f"Could not extract ASC 842 lease data for {ticker}. "
+                        f"Confidence: {lease_data.extraction_confidence}.")
+
+            # Get financials from SEC EDGAR
+            sec_company, sec_fin = self.sec.get_company_financials(ticker)
+            md = get_market_data(ticker)
+
+            revenue = sec_fin.revenue or md.revenue
+            ebit = sec_fin.ebit or 0
+            ebitda = md.ebitda if md.ebitda and md.ebitda > (ebit or 0) else ebit
+
+            inputs = IFRSAdjustmentInput(
+                rou_depreciation=lease_data.estimated_rou_depreciation or 0,
+                lease_interest=lease_data.estimated_lease_interest or 0,
+                short_term_rent=lease_data.short_term_lease_cost or 0,
+                reported_ebit=ebit,
+                reported_ebitda=ebitda,
+                reported_ebita=ebit,
+                accounting_standard="US GAAP",
+            )
+
+            from kb.ifrs import convert_us_gaap_to_ifrs
+            out = convert_us_gaap_to_ifrs(inputs, revenue=revenue or 0)
+
+            notes = {
+                'rou_depr': (f'Est: Lease cost ({lease_data.operating_lease_cost/1e9:.1f}B) '
+                            f'- Liab ({lease_data.operating_lease_liability/1e9:.1f}B) '
+                            f'x Rate ({lease_data.weighted_avg_discount_rate}%)'),
+                'lease_int': f'Est: Liab x Disc rate = {lease_data.estimated_lease_interest/1e6:.0f}M',
+                'short_term': f'ASC 842 Note, 10-K filing',
+            }
+
+            return format_bridge(inputs, out, revenue=revenue or 0,
+                                company=sec_company.name or company,
+                                period=f"FY{year}",
+                                notes_ref=notes)
+
+        # --- PATH B: Non-US Company (browser pipeline) ---
         pipeline = BrowserPipeline()
         try:
-            logger.info(f"IFRS analysis: {company} {year}")
+            logger.info(f"IFRS analysis (browser): {company} {year}")
             doc, fin = await pipeline.run_full_pipeline(company, year, country)
 
             if not fin.rou_depreciation or not fin.lease_interest:
                 return (f"Could not extract lease data for {company} {year}. "
                         f"ROU depr: {fin.rou_depreciation}, Lease int: {fin.lease_interest}")
 
-            # Compute EBITDA from extracted data
             if fin.operating_income and fin.depreciation_total:
                 ebitda = fin.operating_income + fin.depreciation_total
             else:
-                # Fallback: try to find EBITDA pattern
                 ebitda = fin.operating_income or 0
 
             inputs = IFRSAdjustmentInput(
@@ -335,9 +385,9 @@ class ResearchAgent:
             out = convert_ifrs_to_us_gaap(inputs, revenue=fin.revenue or 0)
 
             notes = {
-                'rou_depr': f'Annual Report Note - ROU depreciation disclosure (p.{doc.total_pages} pages)',
-                'lease_int': f'Annual Report Note - Finance expense on lease liabilities',
-                'short_term': f'Annual Report Note - Short-term lease practical expedient',
+                'rou_depr': f'Annual Report Note (p.{doc.total_pages} pages)',
+                'lease_int': f'Annual Report Note - Finance expense',
+                'short_term': f'Annual Report Note - Short-term lease',
             }
 
             return format_bridge(inputs, out, revenue=fin.revenue or 0,
@@ -361,11 +411,12 @@ def research_sync(user_query: str, ticker: str = "", company: str = ""):
     return asyncio.run(_run())
 
 
-def ifrs_analyze_sync(company: str, year: str = "2025", country: str = ""):
+def ifrs_analyze_sync(company: str, year: str = "2025", country: str = "",
+                      ticker: str = ""):
     """Synchronous IFRS analysis entry point."""
     async def _run():
         agent = ResearchAgent()
-        bridge = await agent.ifrs_analyze(company, year, country)
+        bridge = await agent.ifrs_analyze(company, year, country, ticker=ticker)
         await agent.close()
         return bridge
 
@@ -436,8 +487,11 @@ if __name__ == "__main__":
             else:
                 i += 1
 
-        if mode == "ifrs" and company:
-            print(ifrs_analyze_sync(company, year))
+        if mode == "ifrs":
+            if ticker:
+                print(ifrs_analyze_sync(company or ticker, year, ticker=ticker))
+            elif company:
+                print(ifrs_analyze_sync(company, year))
         elif mode == "ev_bridge" and ticker:
             print(ev_bridge_sync(ticker))
         else:
