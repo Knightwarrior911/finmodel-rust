@@ -235,7 +235,7 @@ class ResearchExcelWriter:
         arrow = "-" if output.direction.name == "IFRS_TO_US_GAAP" else "+"
 
         # === EBITDA DERIVATION ===
-        self._section("EBITDA Derivation")
+        self._section("EBITDA Derivation — Hierarchy: Adjusted > Reported > Computed")
 
         # EBIT from income statement (hardcoded input)
         r_ebit = self._row
@@ -252,20 +252,39 @@ class ResearchExcelWriter:
 
         self._divider()
 
-        # EBITDA = EBIT + D&A (BLACK FORMULA)
-        r_ebitda = self._row
-        if r_da:
-            ebitda_formula = f"={_c(r_ebit,DATA_START)}+{_c(r_da,DATA_START)}"
+        # Computed EBITDA = EBIT + D&A (BLACK FORMULA)
+        r_ebitda_computed = self._row
+        ebitda_formula = f"={_c(r_ebit,DATA_START)}+{_c(r_da,DATA_START)}" if r_da else f"={_c(r_ebit,DATA_START)}"
+        self._formula("EBITDA (computed: EBIT + D&A)", ebitda_formula)
+
+        # Check if Adjusted EBITDA was provided and differs from computed
+        ebitda_computed_val = inputs.reported_ebit + da
+        has_adjusted = (inputs.reported_ebitda > inputs.reported_ebit and
+                        abs(inputs.reported_ebitda - ebitda_computed_val) > ebitda_computed_val * 0.01)
+
+        r_start = r_ebitda_computed  # Which row has the starting EBITDA
+        if has_adjusted:
+            self._spacer()
+            r_adj = self._row
+            self._input("Adjusted EBITDA (company-reported, one-offs removed)",
+                       inputs.reported_ebitda, fmt_key="hc",
+                       comment=f"Source: {notes.get('ebitda_src', 'Annual report — one-off items removed')}")
+            r_diff = self._row
+            diff_formula = f"={_c(r_adj,DATA_START)}-{_c(r_ebitda_computed,DATA_START)}"
+            self._formula("  Difference (one-off items)", diff_formula, fmt_key="fm_plain", indent=True)
+            self._line("  (Adjusted EBITDA NOT related to IFRS 16 — one-off items only)", indent=True)
+            self._divider()
+            r_start = r_adj  # Starting EBITDA = Adjusted EBITDA
+            start_label = "Starting EBITDA (Adjusted, Post-IFRS)"
         else:
-            ebitda_formula = f"={_c(r_ebit,DATA_START)}"
-        self._formula("= Reported EBITDA (computed: EBIT + D&A)", ebitda_formula, bold=True)
+            self._line("  (EBITDA not separately reported; using computed EBIT + D&A)", indent=True)
+            start_label = "Starting EBITDA (Post-IFRS)"
+
         self._spacer()
 
         # === IFRS 16 ADJUSTMENT ===
         self._section("IFRS 16 Adjustment")
-
-        # Reference EBITDA (formula)
-        self._formula("Reported EBITDA (Post-IFRS)", f"={_c(r_ebitda,DATA_START)}")
+        self._formula(start_label, f"={_c(r_start,DATA_START)}")
 
         # ROU Depreciation (hardcoded input)
         r_rou = self._row
@@ -279,11 +298,11 @@ class ResearchExcelWriter:
 
         self._divider()
 
-        # Adjusted EBITDA (BLACK FORMULA)
+        # Pre-IFRS EBITDA (BLACK FORMULA from starting EBITDA)
         op = "-" if output.direction.name == "IFRS_TO_US_GAAP" else "+"
-        adj_formula = f"={_c(r_ebitda,DATA_START)}{op}{_c(r_rou,DATA_START)}{op}{_c(r_int,DATA_START)}"
+        adj_formula = f"={_c(r_start,DATA_START)}{op}{_c(r_rou,DATA_START)}{op}{_c(r_int,DATA_START)}"
         r_adj_ebitda = self._row
-        self._formula("Adjusted EBITDA (Pre-IFRS)", adj_formula, bold=True)
+        self._formula("Pre-IFRS EBITDA", adj_formula, bold=True)
 
         # Revenue (for margins)
         r_rev = None
@@ -293,12 +312,12 @@ class ResearchExcelWriter:
                        comment=f"Source: {notes.get('revenue_src', 'Annual report — income statement: Revenue')}")
             self._spacer()
 
-        # Margins
+        # Margins (using starting EBITDA)
         if revenue > 0 and r_rev is not None:
-            self._formula("  Reported EBITDA Margin",
-                         f"={_c(r_ebitda,DATA_START)}/{_c(r_rev,DATA_START)}",
+            self._formula("  Starting EBITDA Margin",
+                         f"={_c(r_start,DATA_START)}/{_c(r_rev,DATA_START)}",
                          fmt_key="fm_pct", indent=True)
-            self._formula("  Adjusted EBITDA Margin",
+            self._formula("  Pre-IFRS EBITDA Margin",
                          f"={_c(r_adj_ebitda,DATA_START)}/{_c(r_rev,DATA_START)}",
                          fmt_key="fm_pct", indent=True)
 
@@ -318,6 +337,12 @@ class ResearchExcelWriter:
         ebit_formula = f"={_c(r_ebit2,DATA_START)}{op}{_c(r_ebit_int,DATA_START)}"
         self._formula("Adjusted EBIT", ebit_formula, bold=True)
         self._spacer()
+
+        # === SOURCES ===
+        if pdf_url:
+            self._section("Sources")
+            self._line(f"  Annual Report: {pdf_url}", indent=True)
+            self._spacer()
 
         # === EXCLUDED ITEMS ===
         self._section("Items Excluded from Adjustment")
