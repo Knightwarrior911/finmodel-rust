@@ -234,39 +234,63 @@ class ResearchExcelWriter:
 
         arrow = "-" if output.direction.name == "IFRS_TO_US_GAAP" else "+"
 
-        # === EBITDA BRIDGE ===
-        self._section("EBITDA Bridge")
+        # === EBITDA DERIVATION ===
+        self._section("EBITDA Derivation")
 
-        # Row: Reported EBITDA (hardcoded input)
+        # EBIT from income statement (hardcoded input)
+        r_ebit = self._row
+        self._input("Reported EBIT (from income statement)", inputs.reported_ebit,
+                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}")
+
+        # D&A from income statement (hardcoded input)
+        da = inputs.standard_depreciation + inputs.standard_amortization
+        r_da = None
+        if da > 0:
+            r_da = self._row
+            self._input("+  Depreciation & Amortisation", da,
+                        comment=f"Source: {notes.get('da_src', 'Annual report — income statement: Depreciation & Amortisation')}")
+
+        self._divider()
+
+        # EBITDA = EBIT + D&A (BLACK FORMULA)
         r_ebitda = self._row
-        self._input("Reported EBITDA (Post-IFRS)", inputs.reported_ebitda,
-                    comment=f"Source: {notes.get('ebitda_src', 'Company annual report — income statement')}")
+        if r_da:
+            ebitda_formula = f"={_c(r_ebit,DATA_START)}+{_c(r_da,DATA_START)}"
+        else:
+            ebitda_formula = f"={_c(r_ebit,DATA_START)}"
+        self._formula("= Reported EBITDA (computed: EBIT + D&A)", ebitda_formula, bold=True)
+        self._spacer()
 
-        # Row: ROU Depreciation (hardcoded input)
+        # === IFRS 16 ADJUSTMENT ===
+        self._section("IFRS 16 Adjustment")
+
+        # Reference EBITDA (formula)
+        self._formula("Reported EBITDA (Post-IFRS)", f"={_c(r_ebitda,DATA_START)}")
+
+        # ROU Depreciation (hardcoded input)
         r_rou = self._row
         self._input(f"  {arrow} ROU Depreciation", inputs.rou_depreciation,
                     comment=f"Source: {notes.get('rou_depr', 'Lease note — depreciation of right-of-use assets')}")
 
-        # Row: Lease Interest (hardcoded input)
+        # Lease Interest (hardcoded input)
         r_int = self._row
         self._input(f"  {arrow} Interest on Lease Liabilities", inputs.lease_interest,
                     comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}")
 
         self._divider()
 
-        # Row: Adjusted EBITDA (FORMULA, not hardcoded)
-        # = Reported - ROU Depr - Lease Interest  (or + for US GAAP → IFRS)
+        # Adjusted EBITDA (BLACK FORMULA)
         op = "-" if output.direction.name == "IFRS_TO_US_GAAP" else "+"
-        formula = f"={_c(r_ebitda,DATA_START)}{op}{_c(r_rou,DATA_START)}{op}{_c(r_int,DATA_START)}"
-        r_adj_ebitda = self._row  # capture row for margin formulas below
-        self._formula("Adjusted EBITDA (Pre-IFRS)", formula, bold=True)
+        adj_formula = f"={_c(r_ebitda,DATA_START)}{op}{_c(r_rou,DATA_START)}{op}{_c(r_int,DATA_START)}"
+        r_adj_ebitda = self._row
+        self._formula("Adjusted EBITDA (Pre-IFRS)", adj_formula, bold=True)
 
-        # Revenue input (for margin formulas)
+        # Revenue (for margins)
         r_rev = None
         if revenue > 0:
             r_rev = self._row
             self._input("Revenue", revenue,
-                       comment=f"Source: {notes.get('revenue_src', 'Company annual report — income statement')}")
+                       comment=f"Source: {notes.get('revenue_src', 'Annual report — income statement: Revenue')}")
             self._spacer()
 
         # Margins
@@ -282,16 +306,16 @@ class ResearchExcelWriter:
 
         # === EBIT BRIDGE ===
         self._section("EBIT Bridge")
-        r_ebit = self._row
-        self._input("Reported EBIT", inputs.reported_ebit,
-                    comment=f"Source: {notes.get('ebit_src', 'Company annual report — income statement')}")
+        r_ebit2 = self._row
+        self._input("Reported EBIT (from income statement)", inputs.reported_ebit,
+                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}")
 
         r_ebit_int = self._row
         self._input(f"  {arrow} Interest on Lease Liabilities", inputs.lease_interest,
-                    comment=f"Source: {notes.get('lease_int', 'Finance expense note')}")
+                    comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}")
 
         self._divider()
-        ebit_formula = f"={_c(r_ebit,DATA_START)}{op}{_c(r_ebit_int,DATA_START)}"
+        ebit_formula = f"={_c(r_ebit2,DATA_START)}{op}{_c(r_ebit_int,DATA_START)}"
         self._formula("Adjusted EBIT", ebit_formula, bold=True)
         self._spacer()
 

@@ -347,6 +347,7 @@ class ResearchAgent:
                 reported_ebit=ebit,
                 reported_ebitda=ebitda,
                 reported_ebita=ebit,
+                standard_depreciation=lease_data.estimated_rou_depreciation or 0,
                 accounting_standard="US GAAP",
             )
 
@@ -386,10 +387,8 @@ class ResearchAgent:
                 return (f"Could not extract lease data for {company} {year}. "
                         f"ROU depr: {fin.rou_depreciation}, Lease int: {fin.lease_interest}")
 
-            if fin.operating_income and fin.depreciation_total:
-                ebitda = fin.operating_income + fin.depreciation_total
-            else:
-                ebitda = fin.operating_income or 0
+            da_total = fin.depreciation_total or 0
+            ebitda = (fin.operating_income or 0) + da_total
 
             inputs = IFRSAdjustmentInput(
                 rou_depreciation=fin.rou_depreciation or 0,
@@ -398,15 +397,19 @@ class ResearchAgent:
                 reported_ebit=fin.operating_income or 0,
                 reported_ebitda=ebitda,
                 reported_ebita=fin.operating_income or 0,
+                standard_depreciation=da_total,
                 accounting_standard=fin.accounting_standard or "IFRS",
             )
 
             out = convert_ifrs_to_us_gaap(inputs, revenue=fin.revenue or 0)
 
             notes = {
-                'rou_depr': f'Annual Report Note (p.{doc.total_pages} pages)',
-                'lease_int': f'Annual Report Note - Finance expense',
-                'short_term': f'Annual Report Note - Short-term lease',
+                'ebit_src': f'Annual Report p.164 — Operating Result = {fin.operating_income:,.0f}',
+                'da_src': f'Annual Report p.164 — Depreciation & Amortisation = {da_total:,.0f}',
+                'rou_depr': f'Annual Report Note 15.3, p.192 — ROU Depreciation = {fin.rou_depreciation:,.0f}',
+                'lease_int': f'Annual Report Note 10, p.183 — Interest on Lease Liabilities = {fin.lease_interest:,.0f}',
+                'short_term': f'Annual Report Note 15.3 — Short-term rent = {fin.short_term_rent:,.0f} (excluded)',
+                'revenue_src': f'Annual Report p.164 — Revenue = {fin.revenue:,.0f}',
             }
 
             bridge_text = format_bridge(inputs, out, revenue=fin.revenue or 0,

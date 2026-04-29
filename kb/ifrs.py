@@ -165,32 +165,48 @@ def format_bridge(inputs: IFRSAdjustmentInput, out: IFRSAdjustmentOutput,
         lines.append(f"IFRS 16 Conversion Bridge -- {direction_label}")
     lines.append("=" * 70)
 
-    # --- EBITDA Bridge ---
+    # --- EBITDA DERIVATION + IFRS 16 ADJUSTMENT ---
+    da = inputs.standard_depreciation + inputs.standard_amortization
+
     lines.append("")
-    lines.append("EBITDA BRIDGE")
+    lines.append("EBITDA DERIVATION")
     lines.append("-" * 50)
-    lines.append(f"  {'Post-IFRS EBITDA (reported)':<40} {inputs.reported_ebitda:>12,.0f}")
+    lines.append(f"  {'Reported EBIT (from income statement)':<40} {inputs.reported_ebit:>12,.0f}")
+    lines.append(f"    Source: {notes_ref.get('ebit_src', 'income statement — operating result')}")
+    if da > 0:
+        lines.append(f"  + Depreciation & Amortisation                {da:>12,.0f}")
+        lines.append(f"    Source: {notes_ref.get('da_src', 'income statement — D&A line')}")
+    lines.append(f"  {'-' * 50}")
+    ebitda_computed = inputs.reported_ebit + da
+    lines.append(f"  {'= Reported EBITDA (computed: EBIT + D&A)':<40} {ebitda_computed:>12,.0f}")
+    lines.append("")
+
+    lines.append("IFRS 16 ADJUSTMENT")
+    lines.append("-" * 50)
+    lines.append(f"  {'Reported EBITDA (Post-IFRS)':<40} {ebitda_computed:>12,.0f}")
     lines.append(f"  {op} ROU Depreciation                          {inputs.rou_depreciation:>12,.0f}")
-    lines.append(f"    Source: {notes_ref.get('rou_depr', 'lease note (IFRS 16 disclosure)')}")
+    lines.append(f"    Source: {notes_ref.get('rou_depr', 'lease note — depreciation of ROU assets')}")
     lines.append(f"  {op} Interest on lease liabilities            {inputs.lease_interest:>12,.0f}")
-    lines.append(f"    Source: {notes_ref.get('lease_int', 'finance expense note')}")
+    lines.append(f"    Source: {notes_ref.get('lease_int', 'finance expense note — interest on lease liab')}")
     lines.append(f"  {'-' * 50}")
     lines.append(f"  {'= Pre-IFRS EBITDA':<40} {out.adjusted_ebitda:>12,.0f}")
+    if ebitda_computed > 0:
+        lines.append(f"  EBITDA Delta: {out.ebitda_delta:+,.0f}  ({abs(out.ebitda_delta)/ebitda_computed*100:.1f}% of computed EBITDA)")
     if revenue > 0:
-        lines.append(f"  EBITDA Delta: {out.ebitda_delta:+,.0f}  ({abs(out.ebitda_delta)/inputs.reported_ebitda*100:.1f}% of reported)")
-        lines.append(f"  Margin: {out.reported_ebitda_margin:.1f}% {arrow} {out.adjusted_ebitda_margin:.1f}%")
+        lines.append(f"  Margin: {ebitda_computed/revenue*100:.1f}% {arrow} {out.adjusted_ebitda/revenue*100:.1f}%")
 
     # --- EBIT Bridge ---
     lines.append("")
     lines.append("EBIT BRIDGE")
     lines.append("-" * 50)
-    lines.append(f"  {'Post-IFRS EBIT (reported)':<40} {inputs.reported_ebit:>12,.0f}")
+    lines.append(f"  {'Reported EBIT (from income statement)':<40} {inputs.reported_ebit:>12,.0f}")
+    lines.append(f"    Source: {notes_ref.get('ebit_src', 'income statement — operating result')}")
     lines.append(f"  {op} Interest on lease liabilities            {inputs.lease_interest:>12,.0f}")
     lines.append(f"    Source: {notes_ref.get('lease_int', 'finance expense note')}")
     lines.append(f"  {'-' * 50}")
     lines.append(f"  {'= Pre-IFRS EBIT':<40} {out.adjusted_ebit:>12,.0f}")
     if revenue > 0:
-        lines.append(f"  Margin: {out.reported_ebit_margin:.1f}% {arrow} {out.adjusted_ebit_margin:.1f}%")
+        lines.append(f"  Margin: {inputs.reported_ebit/revenue*100:.1f}% {arrow} {out.adjusted_ebit/revenue*100:.1f}%")
 
     # --- EBITA Bridge ---
     lines.append("")
