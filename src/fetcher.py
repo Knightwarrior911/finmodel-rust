@@ -1,8 +1,11 @@
 # financial_model/src/fetcher.py
+import logging
 import tempfile
 import requests
 from schemas.financial_data import ReconciledFinancialData, SourceCitation
 from src.utils import compute_historical_periods
+
+logger = logging.getLogger(__name__)
 
 EDGAR_HEADERS = {"User-Agent": "FinancialModelBot vinit.paul@gmail.com"}
 
@@ -530,6 +533,13 @@ def _extract_tag_annual(
             return best_vals, f"{best_tag}(partial:{best_count}/{n})"
 
     return [], None
+
+
+# XBRL component tags for breaking out D&A into depreciation vs. amortization
+_DA_COMPONENTS = {
+    "depreciation": ["Depreciation"],
+    "amortization": ["AmortizationOfIntangibleAssets"],
+}
 
 
 def _apply_derivations(

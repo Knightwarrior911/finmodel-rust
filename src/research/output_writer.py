@@ -388,6 +388,12 @@ class ResearchExcelWriter:
         notes = ev_input.notes_ref or {}
         mc = ev_input.computed_market_cap
 
+        # Convert raw units to millions for display (header says "in millions")
+        def _m(val):
+            if val is None:
+                return 0
+            return val / 1_000_000
+
         # === EQUITY VALUE ===
         self._section("Equity Value")
 
@@ -396,14 +402,14 @@ class ResearchExcelWriter:
                     comment=f"Source: {notes.get('share_price', 'Primary exchange')}")
 
         r_shares = self._row
-        shares_display = ev_input.shares_outstanding
-        self._input("Shares Outstanding (wtd avg basic)", shares_display, fmt_key="hc_shares",
+        self._input("Shares Outstanding (wtd avg basic)", ev_input.shares_outstanding or 0, fmt_key="hc_shares",
                     comment=f"Source: {notes.get('shares', 'Latest filing — weighted average basic shares (F-001)')}")
 
         self._divider()
 
         r_mc = self._row
-        mc_formula = f"={_c(r_price,DATA_START)}*{_c(r_shares,DATA_START)}"
+        # Market cap in millions: price * shares / 1,000,000
+        mc_formula = f"={_c(r_price,DATA_START)}*{_c(r_shares,DATA_START)}/1000000"
         self._formula("Market Cap (Equity Value)", mc_formula, bold=True)
         self._spacer()
 
@@ -414,7 +420,7 @@ class ResearchExcelWriter:
         self._formula("Market Cap", f"={_c(r_mc,DATA_START)}")
         ev_row_start = self._row  # track for EV formula
 
-        # ADD items
+        # ADD items (converted to millions)
         add_map = [
             (ev_input.total_debt, "Total Debt",
              notes.get('total_debt', 'Balance Sheet')),
@@ -434,10 +440,10 @@ class ResearchExcelWriter:
         for val, label, comment in add_map:
             if val and val > 0:
                 r = self._row
-                self._input(f"+  {label}", val, comment=comment)
+                self._input(f"+  {label}", _m(val), comment=comment)
                 add_rows.append(r)
 
-        # SUBTRACT items
+        # SUBTRACT items (converted to millions)
         sub_map = [
             (ev_input.cash, "Cash & Cash Equivalents",
              notes.get('cash', 'Balance Sheet')),
@@ -459,12 +465,12 @@ class ResearchExcelWriter:
         for val, label, comment in sub_map:
             if val and val > 0:
                 r = self._row
-                self._input(f"-  {label}", val, comment=comment)
+                self._input(f"-  {label}", _m(val), comment=comment)
                 sub_rows.append(r)
 
         self._divider()
 
-        # EV formula: MC + sum(adds) - sum(subs)
+        # EV formula: MC + sum(adds) - sum(subs) (all in millions)
         terms = [_c(r_mc, DATA_START)]
         for r in add_rows:
             terms.append(f"+{_c(r, DATA_START)}")
@@ -479,16 +485,16 @@ class ResearchExcelWriter:
         if any([ev_input.ltm_revenue, ev_input.ltm_ebitda, ev_input.ltm_ebit]):
             self._section("Valuation Multiples")
 
-            # Revenue input (if available)
+            # Revenue input (if available, in millions)
             r_rev = None
             if ev_input.ltm_revenue:
                 r_rev = self._row
-                self._input("LTM Revenue", ev_input.ltm_revenue,
+                self._input("LTM Revenue", _m(ev_input.ltm_revenue),
                            comment=f"Source: {notes.get('revenue', 'SEC EDGAR / Annual Report')}")
 
             if ev_input.ltm_ebitda:
                 r_ebitda = self._row
-                self._input("LTM EBITDA", ev_input.ltm_ebitda,
+                self._input("LTM EBITDA", _m(ev_input.ltm_ebitda),
                            comment=f"Source: {notes.get('ebitda', 'yfinance / Company filing')}")
 
             self._spacer()

@@ -235,35 +235,210 @@ class ResearchAgent:
     async def ev_bridge_analyze(self, ticker: str) -> str:
         """
         Auto-build EV bridge combining yfinance (live price) + SEC EDGAR (balance sheet).
-        Works for any ticker with one command.
+        For non-US companies, falls back to browser pipeline to extract annual report data.
         """
         # 1. Get live market data
         md = get_market_data(ticker)
         if not md.current_price:
             return f"Could not get market data for {ticker}"
 
-        # 2. Try SEC EDGAR for balance sheet items
-        bs_debt = None
-        bs_cash = None
-        bs_goodwill = None
-        bs_revenue = None
+        # 2. Try SEC EDGAR for balance sheet items (US companies)
+        sec_fin = None       # Full Financials object from SEC
         sec_name = ""
+        is_us = True
         try:
-            if ticker.endswith('.NS') or ticker.endswith('.BO'):
-                pass  # Indian stocks — skip SEC
+            intl_suffixes = ('.DE', '.PA', '.AS', '.L', '.SW', '.MI', '.MC',
+                           '.IR', '.CO', '.T', '.HK', '.NS', '.BO')
+            if any(ticker.endswith(s) for s in intl_suffixes):
+                is_us = False
             else:
                 company, fin = self.sec.get_company_financials(ticker)
                 sec_name = company.name
-                bs_debt = fin.total_debt
-                bs_cash = fin.cash_and_equivalents
-                bs_goodwill = fin.goodwill
-                bs_revenue = fin.revenue
+                sec_fin = fin
         except Exception as e:
             logger.info(f"SEC EDGAR not available for {ticker}: {e}")
+            is_us = False
 
-        # 3. Build EV bridge input
+        # 3. For non-US: browser pipeline to extract annual report data
+        bp_extracted = None  # Full ExtractedFinancials object from browser
+        bp_name = ""
+        if not is_us:
+            try:
+                from src.research.browser_pipeline import BrowserPipeline
+                pipeline = BrowserPipeline()
+                company_name = md.company_name or ticker
+                logger.info(f"Browser pipeline: extracting annual report for {company_name}")
+                doc, extracted = await pipeline.run_full_pipeline(company_name, "2025", ticker=ticker)
+                bp_extracted = extracted
+                bp_name = extracted.company or company_name
+                logger.info(
+                    f"Browser pipeline extracted: debt={extracted.total_debt}, "
+                    f"cash={extracted.cash}, revenue={extracted.revenue}, "
+                    f"ebitda={extracted.adjusted_ebitda or extracted.reported_ebitda}, "
+                    f"nci={extracted.minority_interest}, pension_pbo={extracted.pension_pbo}"
+                )
+                await pipeline.close()
+            except Exception as e:
+                logger.warning(f"Browser pipeline failed for {ticker}: {e}")
+
+        # 3b. Auto-scale browser pipeline values to raw units
+        # PDFs report in millions or thousands. Market cap from yfinance is in raw units.
+        # Compare in same unit: market cap in millions vs extracted value.
+        if bp_extracted and md.market_cap and md.market_cap > 1e9:
+            mc = md.market_cap
+            mc_millions = mc / 1_000_000
+            bp = bp_extracted
+            bs_items = [bp.total_debt, bp.cash, bp.goodwill, bp.short_term_investments]
+            # If value is < 0.1% of market cap when both in millions, it's too small
+            has_tiny = any(
+                v and v > 0 and v < mc_millions * 0.001
+                for v in bs_items if v
+            )
+            if has_tiny:
+                # Values might be in thousands — scale to raw units (x1,000,000)
+                scale = 1_000_000
+                logger.info(f"Auto-scaling BP values x{scale:,} "
+                           f"(values too small vs market cap {mc:,.0f}, "
+                           f"mc_millions={mc_millions:,.0f})")
+            else:
+                # Values already in millions — scale to raw units (x1,000,000)
+                scale = 1_000_000
+                logger.info(f"Converting BP values from millions to raw units (x{scale:,})")
+
+            for field in ['total_debt', 'cash', 'goodwill', 'short_term_investments',
+                         'minority_interest', 'preferred_stock', 'equity_investments',
+                         'financial_investments', 'assets_held_for_sale',
+                         'discontinued_ops_assets', 'nol_dta',
+                         'pension_pbo', 'pension_plan_assets',
+                         'lease_liabilities_current', 'lease_liabilities_noncurrent',
+                         'operating_lease_liabilities', 'finance_lease_liabilities',
+                         'revenue', 'operating_income', 'net_income',
+                         'adjusted_ebitda', 'reported_ebitda',
+                         'depreciation_total', 'amortisation_total',
+                         'rou_depreciation', 'lease_interest', 'short_term_rent',
+                         'rou_assets', 'total_assets', 'total_equity']:
+                val = getattr(bp, field, None)
+                if val is not None and val > 0:
+                    try:
+                        setattr(bp, field, val * scale)
+                    except Exception:
+                        pass
+
+        # 4. Build EV bridge input — merge SEC + browser pipeline + yfinance
+        def _best(sec_val, bp_val, yf_val=None):
+            """Prefer SEC (XBRL) > browser pipeline (PDF extract) > yfinance (estimate)."""
+            if sec_val is not None:
+                return sec_val
+            if bp_val is not None:
+                return bp_val
+            return yf_val
+
+        sec = sec_fin
+        bp = bp_extracted
+
+        total_debt = _best(
+            sec.total_debt if sec else None,
+            bp.total_debt if bp else None
+        )
+        cash = _best(
+            sec.cash_and_equivalents if sec else None,
+            bp.cash if bp else None,
+            md.market_cap - md.enterprise_value if md.enterprise_value and md.market_cap else None
+        )
+        revenue = _best(
+            sec.revenue if sec else None,
+            bp.revenue if bp else None,
+            md.revenue
+        )
+        short_term_inv = _best(
+            sec.short_term_investments if sec else None,
+            bp.short_term_investments if bp else None
+        )
+        goodwill = _best(
+            sec.goodwill if sec else None,
+            bp.goodwill if bp else None
+        )
+        minority_interest = _best(
+            sec.minority_interest if sec else None,
+            bp.minority_interest if bp else None
+        )
+        preferred_stock = _best(
+            sec.preferred_stock if sec else None,
+            bp.preferred_stock if bp else None
+        )
+        equity_inv = _best(
+            None,  # SEC Financials doesn't have equity_investments yet
+            bp.equity_investments if bp else None
+        )
+        financial_inv = _best(
+            None,
+            bp.financial_investments if bp else None
+        )
+        assets_hfs = _best(
+            None,
+            bp.assets_held_for_sale if bp else None
+        )
+        disc_ops = _best(
+            None,
+            bp.discontinued_ops_assets if bp else None
+        )
+        nol_dta = _best(
+            None,
+            bp.nol_dta if bp else None
+        )
+        pension_pbo = _best(
+            sec.pension_pbo if sec else None,
+            bp.pension_pbo if bp else None
+        )
+        pension_plan_assets = _best(
+            sec.pension_plan_assets if sec else None,
+            bp.pension_plan_assets if bp else None
+        )
+        operating_leases = _best(
+            (sec.lease_liabilities_noncurrent if sec else None),
+            (bp.operating_lease_liabilities if bp else None) or (
+                # Fallback: combined lease liabilities as operating leases
+                ((bp.lease_liabilities_current or 0) + (bp.lease_liabilities_noncurrent or 0))
+                if bp and (bp.lease_liabilities_current or bp.lease_liabilities_noncurrent)
+                else None
+            )
+        )
+        finance_leases = _best(
+            (sec.lease_liabilities_current if sec else None),  # Approx: current portion as finance
+            bp.finance_lease_liabilities if bp else None
+        )
+
+        # Underfunded pension (R-015: only from notes, not BS tag)
+        underfunded_pension = None
+        if pension_pbo is not None and pension_plan_assets is not None:
+            net = pension_pbo - pension_plan_assets
+            if net > 0:
+                underfunded_pension = net
+            # If overfunded, leave as None (excluded per R-015)
+
+        # EBITDA hierarchy: browser (adjusted > reported) > yfinance
+        if bp:
+            ebitda = bp.adjusted_ebitda or bp.reported_ebitda
+            if not ebitda and bp.operating_income:
+                da = bp.depreciation_total or 0
+                ebitda = bp.operating_income + da
+        else:
+            ebitda = None
+        if not ebitda:
+            ebitda = md.ebitda
+
+        # Source labels
+        debt_src = ('SEC 10-Q/10-K Balance Sheet' if (sec and sec.total_debt)
+                    else 'Annual report via browser pipeline' if (bp and bp.total_debt)
+                    else 'Not available')
+        cash_src = ('SEC 10-Q/10-K Balance Sheet' if (sec and sec.cash_and_equivalents)
+                    else 'Annual report via browser pipeline' if (bp and bp.cash)
+                    else 'yfinance estimate')
+        pension_src = ('Pension footnote (R-015)' if underfunded_pension
+                       else 'Pension footnote — fully funded or no DB plan')
+
         ev = EVBridgeInput(
-            company=md.company_name or sec_name or ticker,
+            company=md.company_name or bp_name or sec_name or ticker,
             period=f"Live as of {md.price_date}",
             currency=md.currency,
 
@@ -271,24 +446,35 @@ class ResearchAgent:
             shares_outstanding=md.shares_outstanding,
             market_cap=md.market_cap,
 
-            # From SEC EDGAR balance sheet (if available)
-            total_debt=bs_debt,
-            operating_leases=None,  # Would need 10-Q/10-K note extraction
-            underfunded_pension=None,
+            total_debt=total_debt,
+            finance_leases=finance_leases,
+            operating_leases=operating_leases,
+            underfunded_pension=underfunded_pension,
+            minority_interest=minority_interest,
+            preferred_stock=preferred_stock,
 
-            cash=bs_cash or (md.market_cap - md.enterprise_value if md.enterprise_value and md.market_cap else None),
-            short_term_investments=None,
+            cash=cash,
+            short_term_investments=short_term_inv,
+            equity_investments=equity_inv,
+            financial_investments=financial_inv,
+            assets_held_for_sale=assets_hfs,
+            discontinued_ops_assets=disc_ops,
+            nol_dta=nol_dta,
 
-            goodwill=bs_goodwill,
+            goodwill=goodwill,
+            pension_bs_tag=(sec.pension_liability if sec else None),
 
-            ltm_revenue=bs_revenue or md.revenue,
-            ltm_ebitda=md.ebitda,
+            ltm_revenue=revenue,
+            ltm_ebitda=ebitda,
 
             notes_ref={
                 'share_price': f'{md.exchange} via yfinance ({md.price_date})',
                 'shares': 'yfinance shares outstanding (F-001: prefer latest filing weighted avg)',
-                'total_debt': 'SEC 10-Q/10-K Balance Sheet' if bs_debt else 'Not available',
-                'cash': 'SEC 10-Q/10-K Balance Sheet' if bs_cash else 'yfinance estimate',
+                'total_debt': debt_src,
+                'cash': cash_src,
+                'pension': pension_src,
+                'leases': ('ASC 842 / IFRS 16 note (R-016)' if operating_leases or finance_leases
+                          else 'Not disclosed'),
             }
         )
 
@@ -381,7 +567,7 @@ class ResearchAgent:
         pipeline = BrowserPipeline()
         try:
             logger.info(f"IFRS analysis (browser): {company} {year}")
-            doc, fin = await pipeline.run_full_pipeline(company, year, country)
+            doc, fin = await pipeline.run_full_pipeline(company, year, country, ticker=ticker)
 
             if not fin.rou_depreciation or not fin.lease_interest:
                 return (f"Could not extract lease data for {company} {year}. "

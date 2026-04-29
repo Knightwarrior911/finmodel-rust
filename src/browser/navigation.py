@@ -21,11 +21,20 @@ class BrowserNav:
         self.session = session
 
     async def google_search(self, query: str) -> str:
-        """Search Google, return page text."""
+        """Search Google, return page text. Handles consent redirects + cookies."""
         url = f"https://www.google.com/search?q={quote(query)}"
-        page = await self.session.goto(url)
+        try:
+            page = await self.session.goto(url)
+        except Exception:
+            # Navigation interrupted by consent/region redirect — recover current page
+            await asyncio.sleep(2)
+            page = self.session.default_page
+        if page:
+            await self.handle_cookies(page)
         await asyncio.sleep(1)
-        return await self.session.get_text(page)
+        if not page:
+            page = self.session.default_page
+        return await self.session.get_text(page) if page else ""
 
     async def google_search_operators(
         self, query: str, site: str = None, date_range: str = None,

@@ -192,18 +192,34 @@ class BrowserSession:
 
     async def goto(self, url: str, page: Page = None,
                    wait_until: str = "domcontentloaded") -> Page:
-        """Navigate to URL. Creates page if needed."""
+        """Navigate to URL. Creates page if needed.
+        Handles Google consent redirects and other navigation interruptions."""
         pg = page or self.default_page or await self.new_page()
-        try:
-            await pg.goto(url, wait_until=wait_until, timeout=30000)
-        except Exception:
-            # Retry with longer timeout
+        for attempt in range(3):
             try:
-                await pg.goto(url, wait_until="load", timeout=60000)
-            except Exception:
-                # Last resort: just load and wait
-                await pg.goto(url, wait_until="commit", timeout=30000)
-                await asyncio.sleep(3)
+                await pg.goto(url, wait_until=wait_until, timeout=30000)
+                break
+            except Exception as e:
+                err = str(e)
+                if "interrupted by another navigation" in err or "net::" in err:
+                    # Page is navigating — wait for it to settle, then use current page
+                    await asyncio.sleep(3)
+                    # Check if page landed somewhere useful
+                    current_url = pg.url
+                    if current_url and current_url != "about:blank":
+                        break
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                    # Try gentler approach
+                    try:
+                        await pg.goto(url, wait_until="commit", timeout=30000)
+                        await asyncio.sleep(3)
+                        break
+                    except Exception:
+                        continue
+                else:
+                    # Last attempt: just try to load whatever page is there
+                    await asyncio.sleep(2)
         return pg
 
     async def get_text(self, page: Page = None) -> str:
