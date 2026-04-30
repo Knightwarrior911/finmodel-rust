@@ -212,12 +212,18 @@ class ExtractedFinancials:
     operating_lease_liabilities: Optional[float] = None  # Operating leases per note (R-016)
     finance_lease_liabilities: Optional[float] = None    # Finance/capital leases per note
 
+    # Debt components (used to sum total_debt when no explicit total in filing)
+    current_borrowings: Optional[float] = None
+    noncurrent_borrowings: Optional[float] = None
+
     # Metadata
     currency: str = ""
     accounting_standard: str = ""  # IFRS or US GAAP
     source_sections: dict = field(default_factory=dict)
     extraction_confidence: dict = field(default_factory=dict)
     raw_snippets: dict = field(default_factory=dict)
+    # Maps field_name → PDF URL that was the source of that value
+    field_sources: dict = field(default_factory=dict)
 
 
 class BrowserPipeline:
@@ -226,6 +232,8 @@ class BrowserPipeline:
     def __init__(self):
         self._session: Optional[BrowserSession] = None
         self._llm = LLMNavigator()
+        self._last_doc = None   # best-available doc from failed validations
+        self._last_text = None  # corresponding text
 
     @property
     def session(self) -> BrowserSession:
@@ -243,17 +251,18 @@ class BrowserPipeline:
             await self._session.close()
             self._session = None
 
-    async def _dismiss_cookie_popup(self) -> bool:
+    async def _dismiss_cookie_popup(self, session=None) -> bool:
         """
         Dismiss cookie consent popups.
         Takes before/after screenshots for visibility.
         Handles: OneTrust, TrustArc, Cookiebot (iframe), generic banners.
         """
-        tab = self.session.default_page
+        s = session or self.session
+        tab = s.default_page
         if not tab:
             return False
 
-        await self._take_screenshot("cookie-before")
+        await self._take_screenshot("cookie-before", session=s)
 
         dismissed = False
 
@@ -349,11 +358,11 @@ class BrowserPipeline:
 
         if dismissed:
             await asyncio.sleep(random.uniform(0.5, 1.2))
-            await self._take_screenshot("cookie-after")
+            await self._take_screenshot("cookie-after", session=s)
             return dismissed
 
         # Pass 3: LLM visual fallback — screenshot → Claude identifies exact button text
-        snap = await self._take_screenshot("cookie-llm-check")
+        snap = await self._take_screenshot("cookie-llm-check", session=s)
         if snap:
             btn_text = await self._llm.decide_cookie_action(snap)
             if btn_text:
@@ -380,15 +389,16 @@ class BrowserPipeline:
                         logger.info(f"Cookie dismissed (LLM visual): {result}")
                         dismissed = True
                         await asyncio.sleep(random.uniform(0.5, 1.0))
-                        await self._take_screenshot("cookie-after")
+                        await self._take_screenshot("cookie-after", session=s)
                 except Exception:
                     pass
 
         return dismissed
 
-    async def _human_scroll(self):
+    async def _human_scroll(self, session=None):
         """Simulate human reading: scroll down in segments with pauses."""
-        tab = self.session.default_page
+        s = session or self.session
+        tab = s.default_page
         if not tab:
             return
         try:
@@ -403,9 +413,10 @@ class BrowserPipeline:
         except Exception:
             pass
 
-    async def _take_screenshot(self, label: str = "") -> Optional[str]:
+    async def _take_screenshot(self, label: str = "", session=None) -> Optional[str]:
         """Capture page screenshot for debug visibility. Returns saved path."""
-        tab = self.session.default_page
+        s = session or self.session
+        tab = s.default_page
         if not tab:
             return None
         try:
@@ -425,9 +436,10 @@ class BrowserPipeline:
             logger.debug(f"Screenshot failed: {e}")
             return None
 
-    async def _wait_for_js_render(self, min_links: int = 8, timeout: float = 10.0):
+    async def _wait_for_js_render(self, min_links: int = 8, timeout: float = 10.0, session=None):
         """Wait for JS to render page by polling anchor count until stable."""
-        tab = self.session.default_page
+        s = session or self.session
+        tab = s.default_page
         if not tab:
             return
         loop = asyncio.get_event_loop()
@@ -453,13 +465,14 @@ class BrowserPipeline:
     # --- STEP 0: Latest interim/quarterly report ---
 
     async def _find_latest_interim(
-        self, company: str, year: str, jurisdiction: dict
+        self, company: str, year: str, jurisdiction: dict, session=None
     ) -> Optional[str]:
         """
         Search for the most recent quarterly or semi-annual report.
         Returns PDF URL or None. Used to get fresh balance sheet data.
         """
-        nav = BrowserNav(self.session)
+        s = session or self.session
+        nav = BrowserNav(s)
         # Derive the current and prior year for interim search
         try:
             yr = int(year)
@@ -478,7 +491,7 @@ class BrowserPipeline:
         try:
             await nav.google_search(interim_terms)
             await asyncio.sleep(_human_delay(1, 3))
-            tab = self.session.default_page
+            tab = s.default_page
             if not tab:
                 return None
             blocked = json.dumps(BLOCKED_DOMAINS)
@@ -521,34 +534,38 @@ class BrowserPipeline:
             'rou_assets', 'lease_liabilities_current', 'lease_liabilities_noncurrent',
             'rou_depreciation', 'lease_interest',
         ]
-        for field in bs_fields:
-            interim_val = getattr(interim, field, None)
+        for f in bs_fields:
+            interim_val = getattr(interim, f, None)
             if interim_val is not None:
-                setattr(annual, field, interim_val)
+                setattr(annual, f, interim_val)
+                # Track that this field's source is the interim filing, not the annual
+                if interim.field_sources.get(f):
+                    annual.field_sources[f] = interim.field_sources[f]
         # Preserve income statement from annual
         return annual
 
     # --- STEP 1: Find annual report ---
 
     async def _find_via_regulator(self, company: str, year: str,
-                                  jurisdiction: dict) -> Optional[str]:
+                                  jurisdiction: dict, session=None) -> Optional[str]:
         """
         Search the official exchange/regulator filing database.
         Only applies to jurisdictions with well-indexed public filing databases.
         Returns a PDF URL directly from the authoritative source.
         """
+        s = session or self.session
         suffix = jurisdiction.get('ticker_suffix', '')
         regulator = REGULATOR_SITES.get(suffix)
         if not regulator:
             return None
 
-        nav = BrowserNav(self.session)
+        nav = BrowserNav(s)
         query = f'"{company}" "annual report" {year} site:{regulator}'
         logger.info(f"Regulator search [{regulator}]: {query}")
         await nav.google_search(query)
         await asyncio.sleep(_human_delay(2, 4))
 
-        tab = self.session.default_page
+        tab = s.default_page
         if not tab:
             return None
 
@@ -571,7 +588,7 @@ class BrowserPipeline:
             return candidates[0]
         return None
 
-    async def _find_via_ir_page(self, company: str, year: str) -> Optional[str]:
+    async def _find_via_ir_page(self, company: str, year: str, session=None) -> Optional[str]:
         """
         Find the company's official IR page via Google → navigate → text-match PDF.
 
@@ -579,7 +596,8 @@ class BrowserPipeline:
         We navigate there and find the link explicitly labelled 'Annual Report {year}'.
         No URL guessing — the IR page itself tells us which document is which.
         """
-        nav = BrowserNav(self.session)
+        s = session or self.session
+        nav = BrowserNav(s)
 
         # Strip legal form suffixes that over-constrain Google results
         import re as _re2
@@ -592,7 +610,7 @@ class BrowserPipeline:
         await nav.google_search(query)
         await asyncio.sleep(_human_delay(2, 4))
 
-        tab = self.session.default_page
+        tab = s.default_page
         if not tab:
             return None
 
@@ -636,13 +654,13 @@ class BrowserPipeline:
         logger.info(f"IR page candidates: {[u[:80] for u in ir_candidates[:4]]}")
 
         for ir_url in ir_candidates[:5]:
-            pdf_url = await self._extract_pdf_from_ir_page(ir_url, year)
+            pdf_url = await self._extract_pdf_from_ir_page(ir_url, year, session=s)
             if pdf_url:
                 return pdf_url
 
         return None
 
-    async def _extract_pdf_from_ir_page(self, ir_url: str, year: str) -> Optional[str]:
+    async def _extract_pdf_from_ir_page(self, ir_url: str, year: str, session=None) -> Optional[str]:
         """
         Navigate to an IR page and find the annual report PDF by text matching.
 
@@ -656,22 +674,23 @@ class BrowserPipeline:
         prevents matching "Annual Financial Statements" (standalone HGB/statutory)
         or "Half-Year Report".
         """
+        s = session or self.session
         try:
             logger.info(f"Navigating IR page: {ir_url[:100]}")
-            await asyncio.wait_for(self.session.goto(ir_url), timeout=30)
-            await self._wait_for_js_render(min_links=30)  # AEM sites load in phases
+            await asyncio.wait_for(s.goto(ir_url), timeout=30)
+            await self._wait_for_js_render(min_links=30, session=s)  # AEM sites load in phases
             await asyncio.sleep(_human_delay(3, 5))       # extra wait for PDF section
-            await self._dismiss_cookie_popup()
-            await self._take_screenshot("ir-page")
-            await self._human_scroll()
+            await self._dismiss_cookie_popup(session=s)
+            await self._take_screenshot("ir-page", session=s)
+            await self._human_scroll(session=s)
 
             # Pass 1: look for PDF directly on this page
-            pdf = await self._scan_page_for_annual_report_pdf(year)
+            pdf = await self._scan_page_for_annual_report_pdf(year, session=s)
             if pdf:
                 return pdf
 
             # Pass 2: follow annual-reports section navigation link (one level deeper)
-            tab = self.session.default_page
+            tab = s.default_page
             if not tab:
                 return None
 
@@ -716,17 +735,17 @@ class BrowserPipeline:
                 visited.add(sub_url)
                 try:
                     logger.info(f"Following sub-nav: '{nav.get('text','')[:50]}' → {sub_url[:80]}")
-                    await asyncio.wait_for(self.session.goto(sub_url), timeout=30)
-                    await self._wait_for_js_render(min_links=30)
+                    await asyncio.wait_for(s.goto(sub_url), timeout=30)
+                    await self._wait_for_js_render(min_links=30, session=s)
                     await asyncio.sleep(_human_delay(3, 5))
-                    await self._dismiss_cookie_popup()
-                    await self._take_screenshot(f"subnav-{len(visited)}")
-                    pdf = await self._scan_page_for_annual_report_pdf(year)
+                    await self._dismiss_cookie_popup(session=s)
+                    await self._take_screenshot(f"subnav-{len(visited)}", session=s)
+                    pdf = await self._scan_page_for_annual_report_pdf(year, session=s)
                     if pdf:
                         return pdf
 
                     # Pass 3: one level deeper from sub-nav (e.g. legal notice redirect)
-                    tab2 = self.session.default_page
+                    tab2 = s.default_page
                     if tab2:
                         deep_raw = await tab2.evaluate(f"""JSON.stringify((() => {{
                             const subnavKw = {subnav_kw};
@@ -751,11 +770,11 @@ class BrowserPipeline:
                             visited.add(deep_url)
                             try:
                                 logger.info(f"Deep nav: '{deep.get('text','')[:40]}' → {deep_url[:80]}")
-                                await asyncio.wait_for(self.session.goto(deep_url), timeout=30)
-                                await self._wait_for_js_render(min_links=30)
+                                await asyncio.wait_for(s.goto(deep_url), timeout=30)
+                                await self._wait_for_js_render(min_links=30, session=s)
                                 await asyncio.sleep(_human_delay(3, 5))
-                                await self._take_screenshot(f"deepnav-{len(visited)}")
-                                pdf = await self._scan_page_for_annual_report_pdf(year)
+                                await self._take_screenshot(f"deepnav-{len(visited)}", session=s)
+                                pdf = await self._scan_page_for_annual_report_pdf(year, session=s)
                                 if pdf:
                                     return pdf
                             except Exception as e2:
@@ -768,13 +787,14 @@ class BrowserPipeline:
 
         return None
 
-    async def _scan_page_for_annual_report_pdf(self, year: str) -> Optional[str]:
+    async def _scan_page_for_annual_report_pdf(self, year: str, session=None) -> Optional[str]:
         """
         Scan current page for a link whose text says '{year} Annual Report'.
         Link text must contain BOTH year AND annual keyword — no parent context.
         Excludes half-year reports, statutory accounts, sustainability reports.
         """
-        tab = self.session.default_page
+        s = session or self.session
+        tab = s.default_page
         if not tab:
             return None
 
@@ -951,7 +971,7 @@ class BrowserPipeline:
     # --- STEP 4: Extract financial data ---
 
     def extract_financials(self, text: str, company: str = "",
-                           year: str = "") -> ExtractedFinancials:
+                           year: str = "", pdf_url: str = "") -> ExtractedFinancials:
         """Extract structured financial data from annual report text."""
         fin = ExtractedFinancials(company=company, year=year)
 
@@ -1096,18 +1116,31 @@ class BrowserPipeline:
             r'Cash\s+and\s+cash\s+equivalents\s+(\d{1,3}(?:,\d{3})+)',      # No note
         ], 'balance_sheet')
 
-        # Total debt — prefer explicit totals; fallback to non-current borrowings line
+        # Total debt — prefer explicit aggregate lines; otherwise sum all Borrowings entries
+        # (Nordic IFRS has two "Borrowings" lines: non-current + current, both must be summed)
         fin.total_debt = self._extract_amount(bs_text, [
             r'(?:Total\s+)?[Ff]inancial\s+(?:debt|indebtedness)\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
             r'[Tt]otal\s+(?:interest[\s-]bearing\s+)?[Bb]orrowings\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
             r'[Tt]otal\s+[Dd]ebt\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
             r'[Ll]oans\s+and\s+borrowings\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'[Ii]nterest[-\s]bearing\s+(?:debt|liabilities)\s+.*?(\d{1,3}(?:,\d{3})+)',
-            # Fallback: first "Borrowings" line in BS — note may have leading space (\s*)
-            r'Borrowings\n\s*\d+\s*\n(\d{1,3}(?:,\d{3})+)',
-            r'Borrowings\s+\d+\s+(\d{1,3}(?:,\d{3})+)',
-            r'[Ll]ong[-\s]term\s+debt.{0,40}?(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
+
+        if fin.total_debt is None:
+            # Find ALL "Borrowings" entries (Nordic newline format: label\nnote\nvalue)
+            all_borrowings_nc = re.findall(r'[Bb]orrowings\n\s*\d+\s*\n(\d{1,3}(?:,\d{3})+)', bs_text)
+            all_borrowings_inline = re.findall(r'[Bb]orrowings\s+\d+\s+(\d{1,3}(?:,\d{3})+)', bs_text)
+            all_vals = all_borrowings_nc or all_borrowings_inline
+            if len(all_vals) >= 2:
+                # Sum first two occurrences — typically non-current + current
+                fin.total_debt = sum(float(v.replace(',', '')) for v in all_vals[:2])
+                logger.debug(f"total_debt summed from {len(all_vals[:2])} Borrowings lines: {fin.total_debt:,.0f}")
+            elif all_vals:
+                fin.total_debt = float(all_vals[0].replace(',', ''))
+            if fin.total_debt is None:
+                fin.total_debt = self._extract_amount(bs_text, [
+                    r'[Ll]ong[-\s]term\s+debt.{0,40}?(\d{1,3}(?:,\d{3})+)',
+                ], 'balance_sheet')
 
         # Goodwill — from consolidated BS (avoid matching notes/TOC)
         fin.goodwill = self._extract_amount(bs_text, [
@@ -1324,6 +1357,14 @@ class BrowserPipeline:
             r'Right[-\s]of[-\s]use\s+assets?\s+(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
+        # Tag every extracted field with its source PDF URL for audit trail
+        if pdf_url:
+            _skip = {'company', 'year', 'currency', 'accounting_standard',
+                     'source_sections', 'extraction_confidence', 'raw_snippets', 'field_sources'}
+            for fname, fval in fin.__dict__.items():
+                if fname not in _skip and fval is not None:
+                    fin.field_sources[fname] = pdf_url
+
         return fin
 
     def _extract_amount(self, text: str, patterns: list[str],
@@ -1369,96 +1410,236 @@ class BrowserPipeline:
 
     # --- FULL PIPELINE ---
 
+    async def _try_pdf(self, pdf_url: str, company: str, year: str) -> Optional[tuple]:
+        """Download, validate, and extract a PDF. Stores best-available on rejection."""
+        if not pdf_url:
+            return None
+        logger.info(f"  PDF URL: {pdf_url[:100]}")
+        try:
+            doc = self.download_pdf(pdf_url, company, year)
+            text = self.extract_text(doc)
+            logger.info(f"Downloaded: {doc.total_pages}p, {doc.total_chars:,}c")
+
+            if not self.is_valid_filing(doc, text):
+                self._last_doc, self._last_text = doc, text
+                logger.warning(f"Heuristic rejected ({doc.total_pages}p)")
+                return None
+
+            correct, reason = await self._llm.verify_document(text[:700], company, year)
+            if not correct:
+                self._last_doc, self._last_text = doc, text
+                logger.warning(f"LLM rejected: {reason}")
+                return None
+
+            doc.source = self.filing_type(text)
+            return doc, self.extract_financials(text, company, year, pdf_url=doc.pdf_url)
+        except Exception as e:
+            logger.warning(f"Download failed: {e}")
+        return None
+
+    async def _resolve_results(self, interim_url: Optional[str],
+                               annual_urls: list, company: str, year: str) -> Optional[tuple]:
+        """Try annual URLs; overlay interim BS if found."""
+        annual_result = None
+        for url in filter(None, annual_urls):
+            annual_result = await self._try_pdf(url, company, year)
+            if annual_result:
+                break
+
+        if annual_result:
+            doc, fin = annual_result
+            if interim_url:
+                interim_result = await self._try_pdf(interim_url, company, year)
+                if interim_result:
+                    fin = self._overlay_interim_bs(fin, interim_result[1])
+                    logger.info("BS overlaid with latest interim data")
+            return doc, fin
+
+        if interim_url:
+            return await self._try_pdf(interim_url, company, year)
+
+        return None
+
+    async def _phase1_nodriver_parallel(self, company: str, year: str,
+                                        jurisdiction: dict) -> list:
+        """
+        Phase 1: 3 concurrent nodriver tabs — fastest path, one Chrome process.
+        Returns [interim_url, regulator_url, ir_url] (any may be None).
+        """
+        await self._ensure_browser()
+        ts1 = await self.session.get_isolated_tab()
+        ts2 = await self.session.get_isolated_tab()
+        ts3 = await self.session.get_isolated_tab()
+
+        results = await asyncio.gather(
+            self._find_latest_interim(company, year, jurisdiction, session=ts1),
+            self._find_via_regulator(company, year, jurisdiction, session=ts2),
+            self._find_via_ir_page(company, year, session=ts3),
+            return_exceptions=True,
+        )
+        return [r if not isinstance(r, Exception) else None for r in results]
+
+    async def _phase2_actionbook_parallel(self, company: str, year: str,
+                                          jurisdiction: dict) -> Optional[tuple]:
+        """
+        Phase 2: Actionbook extension — real Chrome profile, anti-bot bypass.
+        Fires 3 Google searches into 3 tabs concurrently, extracts PDF candidates
+        from snapshots (which preserve href attributes unlike text output).
+        """
+        from urllib.parse import quote as _q
+        import time as _t
+
+        session_id = f"fm_{int(_t.time())}"
+
+        import shutil as _shutil
+        _ab_bin = (
+            _shutil.which("actionbook")
+            or _shutil.which("actionbook.cmd")
+            or r"C:\Users\vinit\AppData\Roaming\npm\actionbook.cmd"
+        )
+
+        async def ab(*args) -> str:
+            proc = await asyncio.create_subprocess_exec(
+                _ab_bin, *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out, _ = await proc.communicate()
+            return out.decode(errors="replace")
+
+        yr = int(year)
+        queries = {
+            "t1": f'"{company}" interim quarterly "half-year" report {yr} OR {yr + 1} filetype:pdf',
+            "t2": f'"{company}" annual report {year} filetype:pdf',
+            "t3": f'"{company}" investor relations annual report {year}',
+        }
+        search_url = lambda q: f"https://www.google.com/search?q={_q(q)}"
+
+        try:
+            # extension mode requires --open-url to create the first tab (t1)
+            await ab("browser", "start", "--set-session-id", session_id,
+                     "--mode", "extension", "--open-url", search_url(queries["t1"]))
+
+            # Open t2 and t3 concurrently (goto to a new tab ID creates it)
+            await asyncio.gather(
+                ab("browser", "goto", search_url(queries["t2"]),
+                   "--session", session_id, "--tab", "t2"),
+                ab("browser", "goto", search_url(queries["t3"]),
+                   "--session", session_id, "--tab", "t3"),
+            )
+            await asyncio.sleep(3)
+
+            # Snapshot all 3 tabs concurrently — snapshots include href attributes
+            snaps = await asyncio.gather(*[
+                ab("browser", "snapshot", "--session", session_id, "--tab", tab)
+                for tab in ("t1", "t2", "t3")
+            ])
+
+            # href: pattern in snapshot YAML captures all link targets including PDFs
+            href_re = re.compile(r'href:\s*(https?://[^\s]+)', re.IGNORECASE)
+            pdf_re  = re.compile(r'https?://[^\s"\'<>]+\.pdf(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
+
+            for snap in snaps:
+                # Collect all PDF URLs from hrefs in snapshot
+                hrefs = href_re.findall(snap)
+                pdf_urls = [u for u in hrefs if pdf_re.match(u)]
+                # Also catch any bare PDF URLs in the snapshot text
+                pdf_urls += pdf_re.findall(snap)
+                pdf_urls = list(dict.fromkeys(pdf_urls))[:10]  # dedupe, cap at 10
+
+                if not pdf_urls:
+                    continue
+                candidates = [{"href": u, "text": u} for u in pdf_urls]
+                url = await self._llm.select_annual_report_link(candidates, company, yr)
+                if url:
+                    result = await self._try_pdf(url, company, year)
+                    if result:
+                        return result
+
+        except Exception as e:
+            logger.warning(f"Actionbook phase 2 failed: {e}")
+        finally:
+            try:
+                await ab("browser", "close", "--session", session_id)
+            except Exception:
+                pass
+        return None
+
+    async def _phase3_browser_use(self, company: str, year: str) -> Optional[tuple]:
+        """
+        Phase 3: browser-use LLM Agent — nuclear option.
+        Full LLM-driven navigation handles arbitrary page structures.
+        """
+        try:
+            import os as _os
+            from browser_use import Agent
+            from browser_use.llm.anthropic.chat import ChatAnthropic as BUChatAnthropic
+
+            _api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+            if not _api_key:
+                logger.info("browser-use phase 3: ANTHROPIC_API_KEY not set, skipping")
+                return None
+            llm = BUChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0,
+                                  api_key=_api_key)
+            task = (
+                f"Find the {year} annual report PDF for {company}.\n"
+                f"1. Search Google: {company} annual report {year} filetype:pdf\n"
+                f"2. If no direct PDF, navigate to the company's official investor relations page.\n"
+                f"3. Return ONLY the direct PDF URL on its own line, nothing else."
+            )
+
+            agent = Agent(task=task, llm=llm, use_vision=False, max_failures=3,
+                          max_actions_per_step=5)
+            history = await agent.run(max_steps=15)
+            final = history.final_result() if history else None
+
+            if final:
+                pdf_re = re.compile(r'https?://[^\s"\'<>]+\.pdf(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
+                for url in pdf_re.findall(final):
+                    result = await self._try_pdf(url, company, year)
+                    if result:
+                        return result
+        except Exception as e:
+            logger.warning(f"browser-use phase 3 failed: {e}")
+        return None
+
     async def run_full_pipeline(self, company: str, year: str = "2025",
                                 country: str = "", ticker: str = "") -> tuple[FilingDocument, ExtractedFinancials]:
         """
-        Find → download → validate → extract annual report.
-
-        Strategy 1: Exchange/regulator database (BSE, HKEX, ASX, etc.)
-          — authoritative source, legally required filings.
-        Strategy 2: Company's own IR page found via Google
-          — navigate to actual IR page, text-match 'Annual Report {year}'.
-        No URL guessing. No PDF scoring.
+        4-phase pipeline: nodriver parallel → Actionbook anti-bot → browser-use LLM → fallback.
         """
         await self._ensure_browser()
         jurisdiction = _detect_jurisdiction(ticker, company)
         logger.info(f"Pipeline: {company} {year} | jurisdiction: {jurisdiction['country']}")
-        self._current_company = company  # expose to _scan_page_for_annual_report_pdf + sub-nav
+        self._current_company = company
 
-        last_doc = last_text = None
+        # Phase 1: parallel nodriver — 3 concurrent tabs (fastest)
+        logger.info("Phase 1: parallel nodriver (3 tabs)")
+        interim_url, regulator_url, ir_url = await self._phase1_nodriver_parallel(
+            company, year, jurisdiction
+        )
+        result = await self._resolve_results(interim_url, [regulator_url, ir_url], company, year)
+        if result:
+            return result
 
-        async def _try(pdf_url: Optional[str]) -> Optional[tuple]:
-            nonlocal last_doc, last_text
-            if not pdf_url:
-                return None
-            logger.info(f"  PDF URL: {pdf_url}")
-            try:
-                doc = self.download_pdf(pdf_url, company, year)
-                text = self.extract_text(doc)
-                logger.info(f"Downloaded: {doc.total_pages}p, {doc.total_chars:,}c | local={doc.pdf_path}")
+        # Phase 2: Actionbook extension — real Chrome, anti-bot bypass
+        logger.info("Phase 2: Actionbook parallel (real Chrome)")
+        result = await self._phase2_actionbook_parallel(company, year, jurisdiction)
+        if result:
+            return result
 
-                # Stage 1: fast heuristic (page count + keywords)
-                if not self.is_valid_filing(doc, text):
-                    last_doc, last_text = doc, text
-                    logger.warning(f"Heuristic rejected ({doc.total_pages}p) — no balance sheet found")
-                    return None
+        # Phase 3: browser-use LLM — handles any page structure
+        logger.info("Phase 3: browser-use LLM navigation")
+        result = await self._phase3_browser_use(company, year)
+        if result:
+            return result
 
-                # Stage 2: LLM verifies correct company + correct filing type
-                first_page = text[:700]
-                correct, reason = await self._llm.verify_document(first_page, company, year)
-                if not correct:
-                    last_doc, last_text = doc, text
-                    logger.warning(f"LLM rejected document: {reason}")
-                    return None
-
-                ftype = self.filing_type(text)
-                doc.source = ftype
-                logger.info(f"Filing type: {ftype}")
-                return doc, self.extract_financials(text, company, year)
-            except Exception as e:
-                logger.warning(f"Download failed: {e}")
-            return None
-
-        # Strategy 0: Latest quarterly/interim report (freshest balance sheet)
-        # Search for most recent quarterly or semi-annual report first — balance sheet
-        # items must come from the LATEST available filing, not always the annual report.
-        logger.info("Strategy 0: latest quarterly/interim report (freshest balance sheet)")
-        url = await self._find_latest_interim(company, year, jurisdiction)
-        interim_result = await _try(url)
-        # Don't return yet — keep as candidate, still want annual for full financial data
-
-        # Strategy 1: Exchange/regulator database (annual report)
-        logger.info("Strategy 1: exchange/regulator database")
-        url = await self._find_via_regulator(company, year, jurisdiction)
-        annual_result = await _try(url)
-        if annual_result:
-            doc, fin = annual_result
-            # Overlay fresh balance sheet from interim if available
-            if interim_result:
-                fin = self._overlay_interim_bs(fin, interim_result[1])
-                logger.info("Balance sheet overlaid with latest interim report data")
-            return doc, fin
-
-        # Strategy 2: Company IR page via Google (annual report)
-        logger.info("Strategy 2: company IR page via Google")
-        url = await self._find_via_ir_page(company, year)
-        annual_result = await _try(url)
-        if annual_result:
-            doc, fin = annual_result
-            if interim_result:
-                fin = self._overlay_interim_bs(fin, interim_result[1])
-                logger.info("Balance sheet overlaid with latest interim report data")
-            return doc, fin
-
-        # If only interim found (annual unavailable), use interim for everything
-        if interim_result:
-            logger.info("Only interim report found — using for all fields")
-            return interim_result
-
-        # Return best available if all strategies found documents but validation failed
-        if last_doc and last_text:
-            logger.warning("All strategies failed validation. Using best available.")
-            return last_doc, self.extract_financials(last_text, company, year)
+        # Best-available fallback
+        if self._last_doc and self._last_text:
+            logger.warning("All phases failed validation. Returning best available.")
+            return self._last_doc, self.extract_financials(
+                self._last_text, company, year, pdf_url=self._last_doc.pdf_url
+            )
 
         raise FileNotFoundError(f"Could not find any financial filing for {company} {year}")
 

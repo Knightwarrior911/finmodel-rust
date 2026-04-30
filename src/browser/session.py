@@ -137,6 +137,64 @@ class BrowserSession:
         self._tab = None
         self._started = False
 
+    async def get_isolated_tab(self) -> "TabSession":
+        """Open a new tab bound to a TabSession — safe for concurrent parallel strategies."""
+        if not self._browser:
+            await self.start()
+        tab = await self._browser.get("about:blank", new_tab=True)
+        return TabSession(self, tab)
+
     @property
     def is_connected(self) -> bool:
         return self._started and self._browser is not None
+
+
+class TabSession:
+    """
+    Binds all browser operations to a specific tab.
+    Drop-in replacement for BrowserSession in strategy functions running in parallel —
+    multiple TabSessions share one Chrome process without tab-state conflicts.
+    """
+
+    def __init__(self, parent: BrowserSession, tab):
+        self._parent = parent
+        self._tab = tab
+
+    @property
+    def default_page(self):
+        return self._tab
+
+    async def goto(self, url: str, **_) -> object:
+        try:
+            await self._tab.get(url)
+        except Exception as e:
+            logger.warning(f"TabSession.goto error for {url[:80]}: {e}")
+        return self._tab
+
+    async def get_text(self, tab=None) -> str:
+        return await self._parent.get_text(tab=self._tab)
+
+    async def get_title(self, tab=None) -> str:
+        return await self._parent.get_title(tab=self._tab)
+
+    async def screenshot(self, path: str, tab=None):
+        return await self._parent.screenshot(path, tab=self._tab)
+
+    async def click(self, selector: str, tab=None):
+        return await self._parent.click(selector, tab=self._tab)
+
+    async def evaluate(self, expression: str):
+        try:
+            return await self._tab.evaluate(expression)
+        except Exception:
+            return None
+
+    async def get_cookies(self) -> list:
+        return await self._parent.get_cookies()
+
+    async def new_page(self):
+        return await self._parent.get_isolated_tab()
+
+    @property
+    def is_connected(self) -> bool:
+        return self._parent.is_connected

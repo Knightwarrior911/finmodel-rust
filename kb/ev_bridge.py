@@ -298,8 +298,10 @@ class EVBridgeInput:
     ltm_ebitda: Optional[float] = None
     ltm_ebit: Optional[float] = None
 
-    # Source references
+    # Source references — text labels for cell comments
     notes_ref: dict = field(default_factory=dict)
+    # PDF URLs per field — used for clickable hyperlinks in Excel source column
+    field_urls: dict = field(default_factory=dict)
 
     @property
     def computed_market_cap(self) -> Optional[float]:

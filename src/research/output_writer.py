@@ -24,6 +24,7 @@ MARGIN_A = 0
 MARGIN_B = 1
 LABEL_COL = 2   # width 42
 DATA_START = 3   # Col D, width 13
+SOURCE_COL = 4   # Col E, width 18 — clickable PDF hyperlink for each hardcoded input
 
 # --- Colors from SPEC ---
 INK        = "#0F1632"
@@ -111,6 +112,9 @@ class ResearchExcelWriter:
         # Footer
         self.fmt["footer"] = mk(font_color="#999999", font_size=8, align="left")
 
+        # Source URL hyperlink (Col E — audit trail)
+        self.fmt["source_link"] = mk(font_color=BRAND_BLUE, underline=True, font_size=9, align="left")
+
     # ── sheet setup ───────────────────────────────────────────────────
 
     def _setup(self, name: str, title: str, units: str, data_cols: int = 2):
@@ -124,6 +128,7 @@ class ResearchExcelWriter:
         self.ws.set_column(LABEL_COL, LABEL_COL, 42)
         for c in range(DATA_START, DATA_START + data_cols):
             self.ws.set_column(c, c, 13)
+        self.ws.set_column(SOURCE_COL, SOURCE_COL, 18)  # audit trail hyperlinks
 
         # Row 0-1: spacers
         self.ws.set_row(0, 8)
@@ -154,10 +159,11 @@ class ResearchExcelWriter:
         self._row += 1
 
     def _input(self, label: str, value: float, fmt_key: str = "hc",
-               comment: str = "", indent: bool = False):
+               comment: str = "", indent: bool = False, url: str = ""):
         """
         Write a hardcoded INPUT cell (BLUE font). REQUIRES a source comment.
         Per SPEC: every blue cell must have a non-empty comment.
+        url: if provided, writes a clickable hyperlink in SOURCE_COL for full auditability.
         """
         lf = self.fmt["label_i"] if indent else self.fmt["label"]
         self.ws.write(self._row, LABEL_COL, label, lf)
@@ -169,6 +175,10 @@ class ResearchExcelWriter:
             self.ws.write_comment(self._row, DATA_START, comment,
                                  {"width": COMMENT_W, "height": COMMENT_H,
                                   "x_scale": 2, "y_scale": 2})
+
+        if url:
+            self.ws.write_url(self._row, SOURCE_COL, url,
+                              self.fmt["source_link"], "Annual Report")
         self._row += 1
 
     def _formula(self, label: str, formula: str, fmt_key: str = "fm",
@@ -240,7 +250,8 @@ class ResearchExcelWriter:
         # EBIT from income statement (hardcoded input)
         r_ebit = self._row
         self._input("Reported EBIT (from income statement)", inputs.reported_ebit,
-                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}")
+                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}",
+                    url=pdf_url)
 
         # D&A from income statement (hardcoded input)
         da = inputs.standard_depreciation + inputs.standard_amortization
@@ -248,7 +259,8 @@ class ResearchExcelWriter:
         if da > 0:
             r_da = self._row
             self._input("+  Depreciation & Amortisation", da,
-                        comment=f"Source: {notes.get('da_src', 'Annual report — income statement: Depreciation & Amortisation')}")
+                        comment=f"Source: {notes.get('da_src', 'Annual report — income statement: Depreciation & Amortisation')}",
+                        url=pdf_url)
 
         self._divider()
 
@@ -268,7 +280,8 @@ class ResearchExcelWriter:
             r_adj = self._row
             self._input("Adjusted EBITDA (company-reported, one-offs removed)",
                        inputs.reported_ebitda, fmt_key="hc",
-                       comment=f"Source: {notes.get('ebitda_src', 'Annual report — one-off items removed')}")
+                       comment=f"Source: {notes.get('ebitda_src', 'Annual report — one-off items removed')}",
+                       url=pdf_url)
             r_diff = self._row
             diff_formula = f"={_c(r_adj,DATA_START)}-{_c(r_ebitda_computed,DATA_START)}"
             self._formula("  Difference (one-off items)", diff_formula, fmt_key="fm_plain", indent=True)
@@ -289,12 +302,14 @@ class ResearchExcelWriter:
         # ROU Depreciation (hardcoded input)
         r_rou = self._row
         self._input(f"  {arrow} ROU Depreciation", inputs.rou_depreciation,
-                    comment=f"Source: {notes.get('rou_depr', 'Lease note — depreciation of right-of-use assets')}")
+                    comment=f"Source: {notes.get('rou_depr', 'Lease note — depreciation of right-of-use assets')}",
+                    url=pdf_url)
 
         # Lease Interest (hardcoded input)
         r_int = self._row
         self._input(f"  {arrow} Interest on Lease Liabilities", inputs.lease_interest,
-                    comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}")
+                    comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}",
+                    url=pdf_url)
 
         self._divider()
 
@@ -309,7 +324,8 @@ class ResearchExcelWriter:
         if revenue > 0:
             r_rev = self._row
             self._input("Revenue", revenue,
-                       comment=f"Source: {notes.get('revenue_src', 'Annual report — income statement: Revenue')}")
+                       comment=f"Source: {notes.get('revenue_src', 'Annual report — income statement: Revenue')}",
+                       url=pdf_url)
             self._spacer()
 
         # Margins (using starting EBITDA)
@@ -327,11 +343,13 @@ class ResearchExcelWriter:
         self._section("EBIT Bridge")
         r_ebit2 = self._row
         self._input("Reported EBIT (from income statement)", inputs.reported_ebit,
-                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}")
+                    comment=f"Source: {notes.get('ebit_src', 'Annual report — income statement: Operating Result')}",
+                    url=pdf_url)
 
         r_ebit_int = self._row
         self._input(f"  {arrow} Interest on Lease Liabilities", inputs.lease_interest,
-                    comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}")
+                    comment=f"Source: {notes.get('lease_int', 'Finance expense note — interest on lease liabilities')}",
+                    url=pdf_url)
 
         self._divider()
         ebit_formula = f"={_c(r_ebit2,DATA_START)}{op}{_c(r_ebit_int,DATA_START)}"
@@ -386,6 +404,7 @@ class ResearchExcelWriter:
         self._setup("EV Bridge", f"{name} – Enterprise Value Bridge", units)
 
         notes = ev_input.notes_ref or {}
+        urls = getattr(ev_input, 'field_urls', {}) or {}
         mc = ev_input.computed_market_cap
 
         # Convert raw units to millions for display (header says "in millions")
@@ -421,51 +440,52 @@ class ResearchExcelWriter:
         ev_row_start = self._row  # track for EV formula
 
         # ADD items (converted to millions)
+        # Each entry: (value, label, comment_text, field_key_for_url)
         add_map = [
             (ev_input.total_debt, "Total Debt",
-             notes.get('total_debt', 'Balance Sheet')),
+             notes.get('total_debt', 'Balance Sheet'), 'total_debt'),
             (ev_input.finance_leases, "Finance/Capital Lease Liabilities",
-             notes.get('finance_leases', 'ASC 842 / IFRS 16 note')),
+             notes.get('finance_leases', 'ASC 842 / IFRS 16 note'), 'finance_leases'),
             (ev_input.operating_leases, "Operating Lease Liabilities (R-016)",
-             notes.get('operating_leases', 'ASC 842 / IFRS 16 lease footnote (R-016)')),
+             notes.get('operating_leases', 'ASC 842 / IFRS 16 lease footnote (R-016)'), 'operating_leases'),
             (ev_input.underfunded_pension, "Underfunded Pension (R-015)",
-             notes.get('pension', 'Pension footnote ONLY — NOT balance sheet (R-015)')),
+             notes.get('pension', 'Pension footnote ONLY — NOT balance sheet (R-015)'), 'underfunded_pension'),
             (ev_input.minority_interest, "Minority Interest (NCI)",
-             notes.get('nci', 'Balance Sheet')),
+             notes.get('nci', 'Balance Sheet'), 'minority_interest'),
             (ev_input.preferred_stock, "Preferred Stock",
-             notes.get('preferred', 'Balance Sheet')),
+             notes.get('preferred', 'Balance Sheet'), 'preferred_stock'),
         ]
 
         add_rows = []
-        for val, label, comment in add_map:
+        for val, label, comment, url_key in add_map:
             if val and val > 0:
                 r = self._row
-                self._input(f"+  {label}", _m(val), comment=comment)
+                self._input(f"+  {label}", _m(val), comment=comment, url=urls.get(url_key, ''))
                 add_rows.append(r)
 
         # SUBTRACT items (converted to millions)
         sub_map = [
             (ev_input.cash, "Cash & Cash Equivalents",
-             notes.get('cash', 'Balance Sheet')),
+             notes.get('cash', 'Balance Sheet'), 'cash'),
             (ev_input.short_term_investments, "Short-term Investments",
-             notes.get('st_inv', 'Balance Sheet')),
+             notes.get('st_inv', 'Balance Sheet'), 'short_term_investments'),
             (ev_input.equity_investments, "Equity Method Investments (R-014)",
-             notes.get('equity_inv', 'Balance Sheet — non-operating (R-014)')),
+             notes.get('equity_inv', 'Balance Sheet — non-operating (R-014)'), 'equity_investments'),
             (ev_input.financial_investments, "Financial Investments (non-operating)",
-             notes.get('fin_inv', 'Balance Sheet')),
+             notes.get('fin_inv', 'Balance Sheet'), 'financial_investments'),
             (ev_input.assets_held_for_sale, "Assets Held for Sale",
-             notes.get('held_sale', 'Balance Sheet')),
+             notes.get('held_sale', 'Balance Sheet'), 'assets_held_for_sale'),
             (ev_input.discontinued_ops_assets, "Discontinued Ops Assets",
-             notes.get('disc_ops', 'Balance Sheet')),
+             notes.get('disc_ops', 'Balance Sheet'), 'discontinued_ops_assets'),
             (ev_input.nol_dta, "NOL Deferred Tax Assets",
-             notes.get('nol', 'Balance Sheet')),
+             notes.get('nol', 'Balance Sheet'), 'nol_dta'),
         ]
 
         sub_rows = []
-        for val, label, comment in sub_map:
+        for val, label, comment, url_key in sub_map:
             if val and val > 0:
                 r = self._row
-                self._input(f"-  {label}", _m(val), comment=comment)
+                self._input(f"-  {label}", _m(val), comment=comment, url=urls.get(url_key, ''))
                 sub_rows.append(r)
 
         self._divider()
@@ -490,12 +510,14 @@ class ResearchExcelWriter:
             if ev_input.ltm_revenue:
                 r_rev = self._row
                 self._input("LTM Revenue", _m(ev_input.ltm_revenue),
-                           comment=f"Source: {notes.get('revenue', 'SEC EDGAR / Annual Report')}")
+                           comment=f"Source: {notes.get('revenue', 'SEC EDGAR / Annual Report')}",
+                           url=urls.get('ltm_revenue', ''))
 
             if ev_input.ltm_ebitda:
                 r_ebitda = self._row
                 self._input("LTM EBITDA", _m(ev_input.ltm_ebitda),
-                           comment=f"Source: {notes.get('ebitda', 'yfinance / Company filing')}")
+                           comment=f"Source: {notes.get('ebitda', 'yfinance / Company filing')}",
+                           url=urls.get('ltm_ebitda', ''))
 
             self._spacer()
 

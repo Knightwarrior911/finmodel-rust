@@ -30,11 +30,68 @@ from src.research.filings import GlobalFilingNavigator
 from src.research.news import NewsSearcher
 from src.research.browser_pipeline import BrowserPipeline
 from src.research.market_data import get_market_data
+from src.research.deal_synthesis import synthesize_deal as _synthesize_deal
 from kb.sectors import detect_sector
 from kb.ev_bridge import EVBridgeInput, format_ev_bridge
 from src.research.output_writer import ResearchExcelWriter
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_ma_query(user_query: str, company_hint: str = "") -> tuple[str, str]:
+    """
+    Extract (target, acquirer) from an M&A query string.
+    Falls back to company_hint if provided.
+    """
+    import re as _re
+
+    # Strip conversational preamble
+    preamble = _re.compile(
+        r'^(?:what\s+(?:is|are|was|were)\s+(?:the\s+)?|'
+        r'(?:research|find|analyze|tell\s+me\s+about|look\s+up)\s+(?:the\s+)?|'
+        r'(?:deal\s+(?:terms|analysis|details|value)\s+for\s+(?:the\s+)?))',
+        _re.IGNORECASE,
+    )
+    q = preamble.sub("", user_query.strip()).strip()
+
+    # "X acquisition by Y" / "X acquired by Y" / "X merger with Y"
+    m = _re.search(
+        r'^(.+?)\s+(?:acquisition|acquired?|merger)\s+(?:by|with|of)\s+(.+)',
+        q, _re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), m.group(2).strip().rstrip(".,;?!")
+
+    # "merger of X with Y" / "merger between X and Y"
+    m = _re.search(
+        r'^merger\s+(?:of|between)\s+(.+?)\s+(?:with|and)\s+(.+)',
+        q, _re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), m.group(2).strip().rstrip(".,;?!")
+
+    # "Y acquires X" / "Y buys X" / "Y to acquire X"
+    m = _re.search(
+        r'^(.+?)\s+(?:acquires?|buys?|purchased?|(?:to\s+)?acquire[sd]?)\s+(.+)',
+        q, _re.IGNORECASE,
+    )
+    if m:
+        return m.group(2).strip().rstrip(".,;?!"), m.group(1).strip()
+
+    # "X / Y deal" or "X / Y acquisition"
+    m = _re.search(r'^([^/]+?)\s*/\s*([^/]+?)(?:\s+deal|\s+acquisition|\s+merger|$)', q, _re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+
+    # Fallback: stop before first trigger keyword → that's the target
+    triggers = ("acquisition", "acquir", "merger", "takeover", "buyout", "sold", "bought")
+    words = q.split()
+    for i, w in enumerate(words):
+        if any(t in w.lower() for t in triggers):
+            target = " ".join(words[:i]).strip()
+            return target or company_hint, ""
+
+    return company_hint or q, ""
 
 
 class ResearchAgent:
@@ -148,12 +205,23 @@ class ResearchAgent:
                 source.result = "found" if ir_url else "checked"
 
             elif result.query.query_type == QueryType.TRANSACTION_TERMS:
-                # M&A deal search
+                await self._ensure_browser()
                 news = NewsSearcher(self.browser)
-                deal_info = await news.find_ma_deal(company)
-                if deal_info:
-                    result.findings["deal_info"] = deal_info
-                source.result = "found" if deal_info else "checked"
+                target, acquirer = _parse_ma_query(
+                    result.query.user_query, company
+                )
+                deal_info = await news.find_ma_deal(target, acquirer=acquirer)
+                news_coverage = await news.search_all(
+                    f"{target} {acquirer} acquisition deal".strip(),
+                    sources=["reuters", "google_news"],
+                )
+                deal_info.update(news_coverage)
+                deal_summary = _synthesize_deal(deal_info)
+                result.findings["deal_info"] = deal_info
+                result.findings["deal_summary"] = deal_summary
+                source.result = "found" if any(
+                    v and "ERROR" not in str(v) for v in deal_info.values()
+                ) else "checked"
 
             else:
                 # Generic: try to find IR page
@@ -437,6 +505,26 @@ class ResearchAgent:
         pension_src = ('Pension footnote (R-015)' if underfunded_pension
                        else 'Pension footnote — fully funded or no DB plan')
 
+        # Build per-field PDF URLs for Excel audit hyperlinks
+        _fs = bp_extracted.field_sources if bp_extracted else {}
+        field_urls = {
+            'total_debt':            _fs.get('total_debt', ''),
+            'finance_leases':        _fs.get('finance_lease_liabilities', ''),
+            'operating_leases':      _fs.get('operating_lease_liabilities', ''),
+            'underfunded_pension':   _fs.get('pension_pbo', ''),
+            'minority_interest':     _fs.get('minority_interest', ''),
+            'preferred_stock':       _fs.get('preferred_stock', ''),
+            'cash':                  _fs.get('cash', ''),
+            'short_term_investments':_fs.get('short_term_investments', ''),
+            'equity_investments':    _fs.get('equity_investments', ''),
+            'financial_investments': _fs.get('financial_investments', ''),
+            'assets_held_for_sale':  _fs.get('assets_held_for_sale', ''),
+            'discontinued_ops_assets':_fs.get('discontinued_ops_assets', ''),
+            'nol_dta':               _fs.get('nol_dta', ''),
+            'ltm_revenue':           _fs.get('revenue', ''),
+            'ltm_ebitda':            _fs.get('adjusted_ebitda', '') or _fs.get('reported_ebitda', ''),
+        }
+
         ev = EVBridgeInput(
             company=md.company_name or bp_name or sec_name or ticker,
             period=f"Live as of {md.price_date}",
@@ -475,7 +563,8 @@ class ResearchAgent:
                 'pension': pension_src,
                 'leases': ('ASC 842 / IFRS 16 note (R-016)' if operating_leases or finance_leases
                           else 'Not disclosed'),
-            }
+            },
+            field_urls=field_urls,
         )
 
         # Write Excel
@@ -678,15 +767,34 @@ def print_result(result: ResearchResult):
     print(f"{'='*60}")
 
     if result.findings:
+        # Deal summary first if present
+        if "deal_summary" in result.findings:
+            print("\nDEAL SUMMARY:")
+            for k, v in result.findings["deal_summary"].items():
+                print(f"  {k}: {v}")
+
         print("\nFINDINGS:")
         for key, value in result.findings.items():
+            if key == "deal_summary":
+                continue  # already printed above
             if hasattr(value, '__dict__'):
                 print(f"  {key}:")
                 for k, v in value.__dict__.items():
                     if v is not None:
                         print(f"    {k}: {v}")
+            elif isinstance(value, dict):
+                print(f"  {key}:")
+                for k, v in value.items():
+                    v_str = str(v)
+                    # For deal_info, show source name + char count rather than raw article
+                    if key == "deal_info" and len(v_str) > 200:
+                        v_str = f"[{len(v_str)} chars retrieved]"
+                    elif len(v_str) > 300:
+                        v_str = v_str[:300] + "..."
+                    print(f"    {k}: {v_str}")
             else:
-                print(f"  {key}: {value}")
+                v_str = str(value)[:300] + "..." if len(str(value)) > 300 else str(value)
+                print(f"  {key}: {v_str}")
 
     if result.verification:
         v = result.verification
@@ -699,6 +807,8 @@ def print_result(result: ResearchResult):
 
 if __name__ == "__main__":
     import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) > 1:
         ticker = ""
         company = ""
