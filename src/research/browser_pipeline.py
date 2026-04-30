@@ -7,6 +7,7 @@ US companies prefer SEC EDGAR API (faster), browser as fallback.
 """
 
 import asyncio
+import json
 import logging
 import os
 import random
@@ -21,6 +22,7 @@ import requests
 from src.browser.session import BrowserSession
 from src.browser.navigation import BrowserNav
 from src.browser.extraction import BrowserExtract
+from src.browser.llm_navigator import LLMNavigator
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,12 @@ JURISDICTION_PATTERNS = {
     ".IR": ("Other", ["com"], "", "annual report"),
     ".AX": ("Australia", ["com.au", "com"], "site:asx.com.au",
             "annual report OR announcement"),
+    ".ST": ("Sweden", ["com", "se"], "",
+            "annual report OR årsredovisning OR financial statements"),
+    ".HE": ("Finland", ["com", "fi"], "",
+            "annual report OR vuosikertomus OR financial statements"),
+    ".OL": ("Norway", ["com", "no"], "",
+            "annual report OR årsrapport OR financial statements"),
 }
 
 
@@ -88,36 +96,64 @@ def _human_delay(min_s: float = 1.0, max_s: float = 6.0):
     return random.uniform(min_s, max_s)
 
 
-def _build_google_query(company: str, year: str, jurisdiction: dict) -> str:
-    """Build jurisdiction-aware Google search query with operators."""
-    country = jurisdiction["country"]
-    reg_site = jurisdiction["regulator_site"]
-    local_q = jurisdiction["local_query"]
-    tlds = jurisdiction["tlds"]
+# Exchange/regulator databases by ticker suffix.
+# These are authoritative sources — annual reports are legally required to be filed here.
+REGULATOR_SITES = {
+    '.NS': 'bseindia.com',
+    '.BO': 'bseindia.com',
+    '.HK': 'hkexnews.hk',
+    '.AX': 'asx.com.au',
+    '.T':  'edinet-fsa.go.jp',
+    '.CO': 'sgx.com',
+}
 
-    # Derive company domain hint for site: operator
-    skip = {'royal', 'group', 'n.v.', 'nv', 'plc', 'ltd', 'limited',
-            'inc', 'sa', 'ag', 'se', 'corporation', 'corp', 'co.',
-            'holding', 'holdings', 'international', 'intl', 'the',
-            'industries', 'limited.', 'private', 'pvt', 'gmbh'}
-    key_words = [w for w in company.lower().replace(',', '').split() if w not in skip]
-    domain_hint = "-".join(key_words) if len(key_words) >= 2 else (key_words[0] if key_words else "")
+# Link text keywords that unambiguously mean "annual report" in various languages
+ANNUAL_KEYWORDS = [
+    'annual report', 'annual financial report', 'annual review',
+    'integrated report', 'report and accounts',
+    'jaarverslag', 'geschäftsbericht', 'rapport annuel',
+    'relazione annuale', 'informe anual', 'годовой отчет',
+]
 
-    # Base: exact company name + annual report + year
-    base = f'"{company}" ({local_q}) {year} filetype:pdf'
+# Navigation section names that lead to annual reports (used for sub-nav following, not PDF text matching)
+SUBNAV_KEYWORDS = [
+    'annual report', 'annual reports', 'annual review', 'annual results',
+    'publications', 'publications and reports', 'publications & ad hoc',
+    'reports and publications', 'financial reports', 'financial publications',
+    'investor publications', 'results centre', 'results center',
+    'document library', 'regulatory disclosures', 'financial calendar',
+    # German
+    'geschäftsbericht', 'berichte', 'veröffentlichungen', 'publikationen', 'finanzberichte',
+    # French
+    'rapports financiers', 'publications financières', 'documents financiers',
+    # Dutch
+    'jaarverslag', 'publicaties', 'financiële publicaties',
+    # Italian/Spanish
+    'bilancio', 'relazioni', 'publicaciones', 'informes',
+]
 
-    # Prefer company's own domain
-    if domain_hint:
-        base += f" OR site:{domain_hint}.com"
-
-    # Jurisdiction-aware regulator site
-    if reg_site:
-        base += f" OR {reg_site}"
-
-    # Exclude noise domains
-    base += ' -inurl:(news OR press OR blog OR yahoo OR seekingalpha OR simplywallst OR macrotrends)'
-
-    return base
+# Domains known to aggregate/republish filings — skip these when looking for IR pages
+BLOCKED_DOMAINS = [
+    # Search engines / social
+    'google.com', 'google.co', 'about.google', 'bing.com',
+    'linkedin.com', 'twitter.com', 'facebook.com',
+    'reddit.com', 'youtube.com',
+    # Document aggregators — NEVER the company's own filing
+    'scribd.com', 'slideshare.net', 'issuu.com', 'academia.edu',
+    'annualreports.com', 'annualreportservice.com', 'reportlinker.com',
+    'slideboxx.com', 'yumpu.com', 'docplayer.net', 'calameo.com',
+    # Financial data vendors (not IR pages)
+    'seekingalpha.com', 'yahoo.com', 'reuters.com', 'bloomberg.com',
+    'wsj.com', 'ft.com', 'macrotrends.net', 'marketwatch.com',
+    'investing.com', 'simplywallst.com', 'wisesheets.io', 'stockanalysis.com',
+    'marketscreener.com', 'zonebourse.com', 'boerse.de', 'finanzen.net',
+    'spglobal.com', 'moodys.com', 'fitchratings.com',
+    # Nordic/European document aggregators (not the company's own IR)
+    'millistream.com', 'cision.com', 'mb.cision.com',
+    'huginonline.com', 'newswire.ca', 'accesswire.com',
+    # General encyclopedias / news
+    'wikipedia.org', 'businesswire.com', 'prnewswire.com', 'globenewswire.com',
+]
 
 
 @dataclass
@@ -189,6 +225,7 @@ class BrowserPipeline:
 
     def __init__(self):
         self._session: Optional[BrowserSession] = None
+        self._llm = LLMNavigator()
 
     @property
     def session(self) -> BrowserSession:
@@ -206,377 +243,608 @@ class BrowserPipeline:
             await self._session.close()
             self._session = None
 
-    async def _dismiss_cookie_popup(self):
-        """Dismiss common cookie consent popups that block page content."""
-        page = self.session.default_page
-        if not page:
-            return
+    async def _dismiss_cookie_popup(self) -> bool:
+        """
+        Dismiss cookie consent popups.
+        Takes before/after screenshots for visibility.
+        Handles: OneTrust, TrustArc, Cookiebot (iframe), generic banners.
+        """
+        tab = self.session.default_page
+        if not tab:
+            return False
+
+        await self._take_screenshot("cookie-before")
+
+        dismissed = False
+
+        # Pass 1: main document — OneTrust, TrustArc, generic buttons
         try:
-            # OneTrust (most common)
-            btn = page.locator("#onetrust-accept-btn-handler")
-            if await btn.count() > 0 and await btn.is_visible():
-                await btn.click()
-                await asyncio.sleep(random.uniform(0.3, 0.8))
-                return
-            # Common button texts
-            for label in ["Accept All", "Accept All Cookies", "Accept Cookies",
-                          "Accept", "Allow All", "Allow Cookies",
-                          "I Accept", "Agree", "OK", "Got it",
-                          "Accept and Continue", "Accept & Continue",
-                          "Akzeptieren", "Akzeptieren Alle", "Zustimmen",
-                          "Accepter", "Aceptar", "Accetta"]:
-                btn = page.locator(f"button:has-text('{label}')")
-                if await btn.count() > 0 and await btn.first.is_visible():
-                    await btn.first.click()
-                    await asyncio.sleep(random.uniform(0.3, 0.8))
-                    return
-            # Cookie consent banner links
-            for label in ["Accept", "Agree", "Allow"]:
-                link = page.locator(f"a:has-text('{label}')")
-                if await link.count() > 0 and await link.first.is_visible():
-                    await link.first.click()
-                    await asyncio.sleep(random.uniform(0.3, 0.8))
-                    return
+            result = await tab.evaluate("""(() => {
+                const labels = [
+                    'Accept All', 'Accept All Cookies', 'Accept Cookies',
+                    'Accept and Continue', 'Accept & Continue', 'I Accept',
+                    'Allow All', 'Allow Cookies', 'Accept', 'Agree', 'OK',
+                    'Akzeptieren', 'Akzeptieren Alle', 'Zustimmen',
+                    'Accepter', 'Tout accepter', 'Aceptar', 'Accetta', 'Accetta tutti'
+                ];
+                // OneTrust (most common on corporate IR sites)
+                const ot = document.getElementById('onetrust-accept-btn-handler');
+                if (ot && ot.offsetParent !== null) { ot.click(); return 'onetrust'; }
+
+                // TrustArc
+                const ta = document.querySelector(
+                    '#truste-consent-button, .truste-button.pdynamicbutton, ' +
+                    '[id*="truste"] button, [class*="trustarc"] button'
+                );
+                if (ta && ta.offsetParent !== null) { ta.click(); return 'trustarc'; }
+
+                // CookieYes / Complianz
+                const cy = document.querySelector(
+                    '.cky-btn-accept, .cmplz-btn.cmplz-accept, ' +
+                    '[data-cky-tag="accept-button"], [class*="cookie-accept"]'
+                );
+                if (cy && cy.offsetParent !== null) { cy.click(); return 'cookieyes'; }
+
+                // Generic: button or link whose text matches accept labels
+                const els = Array.from(document.querySelectorAll(
+                    'button, a[role="button"], a[class*="accept"], a[class*="cookie"], ' +
+                    '[class*="consent"] button, [id*="cookie"] button, [id*="consent"] button, ' +
+                    '[class*="gdpr"] button, [id*="gdpr"] button'
+                ));
+                for (const el of els) {
+                    const t = el.textContent.trim();
+                    if (labels.some(l => t === l || t.startsWith(l))) {
+                        if (el.offsetParent !== null) { el.click(); return t; }
+                    }
+                }
+                return null;
+            })()""")
+            if result:
+                logger.info(f"Cookie dismissed (main doc): {result}")
+                dismissed = True
         except Exception:
-            pass  # Cookie dismissal is best-effort
+            pass
+
+        # Pass 2: iframe-based banners (Cookiebot, TrustArc iframe, IAB)
+        # Same-origin iframes only — cross-origin iframes raise security error
+        if not dismissed:
+            try:
+                iframe_result = await tab.evaluate("""(() => {
+                    const frameSelectors = [
+                        'iframe[src*="cookiebot"]', 'iframe[src*="consent"]',
+                        'iframe[src*="trustarc"]', 'iframe[src*="quantcast"]',
+                        'iframe[id*="cookie"]',    'iframe[id*="consent"]',
+                        'iframe[name*="cookie"]',  'iframe[title*="cookie" i]',
+                        'iframe[title*="consent" i]', 'iframe[title*="privacy" i]'
+                    ];
+                    const labels = [
+                        'Accept', 'Accept All', 'Allow', 'Allow All', 'OK',
+                        'Agree', 'I Accept', 'Continue', 'Akzeptieren', 'Accepter'
+                    ];
+                    for (const sel of frameSelectors) {
+                        const frame = document.querySelector(sel);
+                        if (!frame) continue;
+                        try {
+                            const doc = frame.contentDocument || frame.contentWindow.document;
+                            if (!doc) continue;
+                            const btns = Array.from(doc.querySelectorAll(
+                                'button, a[role="button"], [class*="accept"]'
+                            ));
+                            for (const btn of btns) {
+                                const t = btn.textContent.trim();
+                                if (labels.some(l => t === l || t.startsWith(l))) {
+                                    btn.click();
+                                    return 'iframe:' + t;
+                                }
+                            }
+                        } catch(e) { /* cross-origin — skip */ }
+                    }
+                    return null;
+                })()""")
+                if iframe_result:
+                    logger.info(f"Cookie dismissed (iframe): {iframe_result}")
+                    dismissed = True
+            except Exception:
+                pass
+
+        if dismissed:
+            await asyncio.sleep(random.uniform(0.5, 1.2))
+            await self._take_screenshot("cookie-after")
+            return dismissed
+
+        # Pass 3: LLM visual fallback — screenshot → Claude identifies exact button text
+        snap = await self._take_screenshot("cookie-llm-check")
+        if snap:
+            btn_text = await self._llm.decide_cookie_action(snap)
+            if btn_text:
+                try:
+                    escaped = btn_text.replace("'", "\\'")
+                    result = await tab.evaluate(f"""(() => {{
+                        const els = Array.from(document.querySelectorAll(
+                            'button, a[role="button"], [class*="accept"], [class*="cookie"]'
+                        ));
+                        for (const el of els) {{
+                            if (el.textContent.trim() === '{escaped}' && el.offsetParent !== null) {{
+                                el.click(); return '{escaped}';
+                            }}
+                        }}
+                        // partial match fallback
+                        for (const el of els) {{
+                            if (el.textContent.trim().includes('{escaped}') && el.offsetParent !== null) {{
+                                el.click(); return el.textContent.trim();
+                            }}
+                        }}
+                        return null;
+                    }})()""")
+                    if result:
+                        logger.info(f"Cookie dismissed (LLM visual): {result}")
+                        dismissed = True
+                        await asyncio.sleep(random.uniform(0.5, 1.0))
+                        await self._take_screenshot("cookie-after")
+                except Exception:
+                    pass
+
+        return dismissed
 
     async def _human_scroll(self):
         """Simulate human reading: scroll down in segments with pauses."""
-        page = self.session.default_page
-        if not page:
+        tab = self.session.default_page
+        if not tab:
             return
         try:
-            # Scroll in 3-5 segments with pauses like actual reading
             segments = random.randint(3, 5)
             for _ in range(segments):
                 px = random.randint(200, 700)
-                await page.evaluate(f"window.scrollBy(0, {px})")
+                await tab.scroll_down(px)
                 await asyncio.sleep(random.uniform(0.5, 2.0))
-            # Sometimes scroll back up a bit (re-reading)
             if random.random() < 0.3:
-                await page.evaluate(f"window.scrollBy(0, -{random.randint(100, 300)})")
+                await tab.scroll_up(random.randint(100, 300))
                 await asyncio.sleep(random.uniform(0.5, 1.5))
         except Exception:
             pass
 
-    # --- STEP 1: Find annual report ---
-
-    async def find_annual_report(self, company: str, year: str = "2025",
-                                 country: str = "", ticker: str = "") -> Optional[str]:
-        """
-        Find company annual report PDF URL.
-        Strategy: Jurisdiction-aware Google search → IR URL patterns fallback.
-        """
-        await self._ensure_browser()
-
-        # Detect jurisdiction for targeted search
-        jurisdiction = _detect_jurisdiction(ticker, company)
-        logger.info(f"Jurisdiction: {jurisdiction['country']} (ticker={ticker}, company={company})")
-
-        # Strategy 1: Jurisdiction-aware Google search
-        google_candidates = []
+    async def _take_screenshot(self, label: str = "") -> Optional[str]:
+        """Capture page screenshot for debug visibility. Returns saved path."""
+        tab = self.session.default_page
+        if not tab:
+            return None
         try:
-            nav = BrowserNav(self.session)
-            query = _build_google_query(company, year, jurisdiction)
-            logger.info(f"Google query: {query[:150]}...")
-            await nav.google_search(query)
-            # Human-like pause — scan search results
-            await asyncio.sleep(_human_delay(3, 6))
-            google_candidates = await self._find_pdf_in_search_results(company, year)
-            if google_candidates:
-                self._google_candidates = google_candidates
-                logger.info(f"Found {len(google_candidates)} PDF candidates via Google, top: {google_candidates[0][:120]}")
-                return google_candidates[0]
+            import time
+            screenshots_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__)))),
+                "screenshots"
+            )
+            os.makedirs(screenshots_dir, exist_ok=True)
+            fname = f"{label}_{int(time.time())}.png" if label else f"snap_{int(time.time())}.png"
+            path = os.path.join(screenshots_dir, fname)
+            await tab.save_screenshot(path)
+            logger.info(f"Screenshot saved: {path}")
+            return path
         except Exception as e:
-            logger.warning(f"Google search failed: {e}")
-
-        # Strategy 2: Try common IR URL patterns (fallback)
-        common_patterns = self._get_ir_patterns(company)
-        consecutive_failures = 0
-        max_consecutive = 5
-
-        for url in common_patterns:
-            if consecutive_failures >= max_consecutive:
-                logger.info(f"Too many IR failures, giving up")
-                break
-            try:
-                # Human-like pause between URL attempts
-                await asyncio.sleep(_human_delay(2, 5))
-                logger.info(f"Trying IR URL: {url}")
-                await self.session.goto(url)
-                await asyncio.sleep(_human_delay(3, 8))
-                await self._dismiss_cookie_popup()
-                await self._human_scroll()
-                pdf_url = await self._find_pdf_link_on_page(year)
-                if pdf_url:
-                    logger.info(f"Found PDF on IR page: {pdf_url}")
-                    return pdf_url
-                consecutive_failures = 0
-            except Exception as e:
-                consecutive_failures += 1
-                logger.info(f"IR URL failed ({consecutive_failures}/{max_consecutive}): {url[:80]} - {type(e).__name__}")
-                continue
-
-        return None
-
-    async def _find_pdf_in_search_results(self, company: str, year: str) -> list[str]:
-        """Extract PDF URLs from Google search results page.
-        Returns list sorted by relevance (best first)."""
-        page = self.session.default_page
-        if not page:
-            return []
-
-        try:
-            links = await page.evaluate("""() => {
-                const links = document.querySelectorAll('a[href]');
-                return Array.from(links)
-                    .filter(a => a.href.toLowerCase().includes('.pdf'))
-                    .map(a => ({
-                        href: a.href,
-                        text: a.textContent.toLowerCase()
-                    }));
-            }""")
-
-            exclude_words = ['press release', 'results', 'trading update',
-                           'quarterly', 'q1', 'q2', 'q3', 'q4', 'interim',
-                           'half.year', 'hy', 'earnings release']
-
-            candidates = []
-            for link in (links or []):
-                href = link.get('href', '')
-                text = link.get('text', '')
-                href_lower = href.lower()
-
-                if year not in href and year not in text:
-                    continue
-
-                if any(ex in text for ex in exclude_words):
-                    continue
-                if any(ex in href_lower for ex in exclude_words):
-                    continue
-
-                # Score: full annual report > summary > other
-                score = 0
-                # Full annual report keywords
-                if any(w in text for w in ['annual report', 'jaarverslag', 'geschäftsbericht',
-                                           'annual review', 'integrated report', 'annual financial']):
-                    score = 100
-                # Summary / abbreviated versions
-                elif any(w in text for w in ['annual summary', 'annual-summary']):
-                    score = 30
-                elif any(w in text for w in ['annual', 'report', 'jaar']):
-                    score = 50
-                elif company.lower().split()[0] in text:
-                    score = 20
-
-                # Penalize annual summaries / abridged versions in filename
-                if '-as-' in href_lower or '-as.' in href_lower or href_lower.endswith('-as'):
-                    score -= 70
-                if 'summary' in href_lower or 'annual-summary' in href_lower:
-                    score -= 70
-                if 'abridged' in href_lower or 'short' in href_lower:
-                    score -= 50
-
-                # Penalize India subsidiary (not the parent company report)
-                if 'india' in href_lower:
-                    score -= 60
-
-                # Domain relevance: prefer URLs matching company name
-                company_slug = re.sub(r'[^a-z0-9]', '-', company.lower().strip())
-                company_domain_hint = company_slug.replace('--', '-').strip('-')
-                try:
-                    from urllib.parse import urlparse
-                    domain = urlparse(href).netloc.lower()
-                    # Exact domain match (e.g., siemens-energy.com = "siemens energy ag")
-                    if company_domain_hint in domain or domain in company_domain_hint:
-                        score += 30
-                    # Partial: first key word in domain
-                    first_word = company.lower().split()[0] if company.split() else ''
-                    if first_word and first_word in domain:
-                        score += 10
-                    # Penalize clearly different parent company domains
-                    # "new.siemens.com" vs expected "siemens-energy.com"
-                    if first_word and first_word in domain and company_domain_hint not in domain:
-                        # Check: is there another keyword that matches better?
-                        other_words = [w for w in company.lower().split() if w != first_word
-                                      and w not in ('ag', 'se', 'sa', 'plc', 'ltd', 'limited', 'inc', 'corp',
-                                                     'group', 'holding', 'holdings', 'n.v.', 'nv')]
-                        if other_words and not any(w in domain for w in other_words):
-                            score -= 20  # Only first word matches, not full company name
-                except Exception:
-                    pass
-
-                # Penalize parent/holding company domains when searching for subsidiary
-                # e.g., "Siemens Energy AG" → should NOT get "new.siemens.com" (Siemens AG parent)
-                company_words = set(company.lower().split()) - {'ag', 'se', 'sa', 'plc', 'ltd', 'limited',
-                                     'inc', 'corp', 'group', 'holding', 'holdings', 'n.v.', 'nv', 'gmbh'}
-                # If URL domain contains first word but NONE of the other key words, penalize
-                if len(company_words) >= 2:
-                    first = list(company_words)[0]
-                    others = company_words - {first}
-                    if first in domain and not any(w in domain for w in others):
-                        score -= 40  # Only parent company name matches, not subsidiary
-
-                if score > 0:
-                    candidates.append((score, href))
-                    logger.info(f"  PDF candidate (score={score}): {href[:120]}")
-
-            candidates.sort(key=lambda x: x[0], reverse=True)
-            if candidates:
-                logger.info(f"Top candidate (score={candidates[0][0]}): {candidates[0][1][:120]}")
-            return [url for _, url in candidates]
-        except Exception as e:
-            logger.warning(f"PDF link search failed: {e}")
-            return []
-
-    async def _find_pdf_link_on_page(self, year: str) -> Optional[str]:
-        """Find annual report PDF link on current page.
-        Uses text matching + file size heuristics (annual reports > 2MB typical)."""
-        page = self.session.default_page
-        if not page:
+            logger.debug(f"Screenshot failed: {e}")
             return None
 
+    async def _wait_for_js_render(self, min_links: int = 8, timeout: float = 10.0):
+        """Wait for JS to render page by polling anchor count until stable."""
+        tab = self.session.default_page
+        if not tab:
+            return
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        prev_count = 0
+        stable_ticks = 0
+        while loop.time() < deadline:
+            try:
+                raw = await tab.evaluate("document.querySelectorAll('a[href]').length")
+                count = int(raw) if raw is not None else 0
+                if count >= min_links:
+                    if count == prev_count:
+                        stable_ticks += 1
+                        if stable_ticks >= 2:
+                            return
+                    else:
+                        stable_ticks = 0
+                prev_count = count
+            except Exception:
+                pass
+            await asyncio.sleep(0.8)
+
+    # --- STEP 0: Latest interim/quarterly report ---
+
+    async def _find_latest_interim(
+        self, company: str, year: str, jurisdiction: dict
+    ) -> Optional[str]:
+        """
+        Search for the most recent quarterly or semi-annual report.
+        Returns PDF URL or None. Used to get fresh balance sheet data.
+        """
+        nav = BrowserNav(self.session)
+        # Derive the current and prior year for interim search
         try:
-            raw = await page.evaluate("""() => {
+            yr = int(year)
+        except ValueError:
+            yr = 2025
+        next_yr = yr + 1
+
+        # Build query targeting interim/quarterly reports
+        local_terms = jurisdiction.get('local_query', 'annual report')
+        interim_terms = (
+            f'("{company}" "interim report" OR "quarterly report" OR "half-year report" '
+            f'OR "Q1" OR "Q3" OR "six months" filetype:pdf) '
+            f'({next_yr} OR {yr})'
+        )
+        logger.info(f"Interim search: {company} latest quarterly/interim")
+        try:
+            await nav.google_search(interim_terms)
+            await asyncio.sleep(_human_delay(1, 3))
+            tab = self.session.default_page
+            if not tab:
+                return None
+            blocked = json.dumps(BLOCKED_DOMAINS)
+            raw = await tab.evaluate(f"""JSON.stringify((() => {{
+                const blocked = {blocked};
                 return Array.from(document.querySelectorAll('a[href]'))
-                    .filter(a => a.href.toLowerCase().includes('.pdf') ||
-                                 a.href.toLowerCase().includes('annual') ||
-                                 a.href.toLowerCase().includes('report'))
-                    .map(a => ({
-                        href: a.href,
-                        text: a.textContent.trim(),
-                        className: a.className,
-                        parentText: a.parentElement ? a.parentElement.textContent.trim().substring(0, 200) : ''
-                    }));
-            }""")
-
-            exclude_words = [
-                'press release', 'results', 'trading update', 'quarterly',
-                'q1', 'q2', 'q3', 'q4', 'interim', 'half.year', 'hy ',
-                'earnings release', 'invitation', 'agenda', 'notice',
-                'transcript', 'webcast', 'registration', 'tax report',
-                'remuneration', 'governance', 'esg report', 'csr report',
-                'sustainability report', 'proxy', 'circular', 'form 20-f',
-            ]
-            # Words that indicate this IS the annual report
-            include_words = [
-                'annual report', 'jaarverslag', 'geschäftsbericht',
-                'annual review', 'integrated report', 'annual financial',
-                'annual accounts', 'report and accounts', 'year in review',
-            ]
-
-            candidates = []
-            for link in (raw or []):
-                href = link.get('href', '')
-                text = (link.get('text', '') + ' ' + link.get('parentText', '')).lower()
-
-                # Must contain year
-                if year not in href and year not in text:
-                    continue
-
-                # Must not be an excluded type
-                if any(ex in text for ex in exclude_words):
-                    continue
-                if any(ex in href.lower() for ex in ['press-release', 'trading-update',
-                                                       'quarterly', 'interim', 'esef']):
-                    continue
-
-                # Score: higher = more likely the annual report
-                score = 0
-                if any(w in text for w in include_words):
-                    score = 100
-                elif any(w in text for w in ['annual', 'report', 'jaar', 'geschäfts']):
-                    score = 50
-                elif 'report' in text and year in text:
-                    score = 30
-                elif year in href:
-                    score = 10
-
-                # PDF files preferred
-                if href.lower().endswith('.pdf'):
-                    score += 20
-                # ESEF packages are NOT annual reports (machine-readable XBRL)
-                if 'esef' in href.lower() or 'esef' in text:
-                    score -= 90
-
-                if score > 0:
-                    candidates.append((score, href))
-
-            candidates.sort(key=lambda x: x[0], reverse=True)
+                    .filter(a => {{
+                        const h = a.href.toLowerCase();
+                        return h.includes('.pdf') &&
+                               !blocked.some(b => h.includes(b));
+                    }})
+                    .map(a => ({{ href: a.href, text: a.textContent.trim() }}))
+                    .slice(0, 15);
+            }})())""")
+            candidates = json.loads(raw) if raw else []
             if candidates:
-                best = candidates[0]
-                logger.info(f"Best PDF candidate (score={best[0]}): {best[1][:120]}")
-                return best[1]
-
+                href = await self._llm.select_latest_filing(candidates, company, yr)
+                if href:
+                    logger.info(f"Interim candidate: {href[:100]}")
+                    return href
         except Exception as e:
-            logger.warning(f"PDF link search failed: {e}")
+            logger.debug(f"Interim search failed: {e}")
+        return None
+
+    def _overlay_interim_bs(
+        self, annual: "ExtractedFinancials", interim: "ExtractedFinancials"
+    ) -> "ExtractedFinancials":
+        """
+        Override balance sheet items in annual financials with fresher interim data.
+        Income statement items (revenue, EBITDA) stay from the annual report.
+        """
+        bs_fields = [
+            'total_assets', 'total_equity', 'total_debt', 'cash',
+            'goodwill', 'short_term_investments',
+            'minority_interest', 'preferred_stock',
+            'equity_investments', 'financial_investments',
+            'assets_held_for_sale', 'discontinued_ops_assets', 'nol_dta',
+            'pension_pbo', 'pension_plan_assets',
+            'operating_lease_liabilities', 'finance_lease_liabilities',
+            'rou_assets', 'lease_liabilities_current', 'lease_liabilities_noncurrent',
+            'rou_depreciation', 'lease_interest',
+        ]
+        for field in bs_fields:
+            interim_val = getattr(interim, field, None)
+            if interim_val is not None:
+                setattr(annual, field, interim_val)
+        # Preserve income statement from annual
+        return annual
+
+    # --- STEP 1: Find annual report ---
+
+    async def _find_via_regulator(self, company: str, year: str,
+                                  jurisdiction: dict) -> Optional[str]:
+        """
+        Search the official exchange/regulator filing database.
+        Only applies to jurisdictions with well-indexed public filing databases.
+        Returns a PDF URL directly from the authoritative source.
+        """
+        suffix = jurisdiction.get('ticker_suffix', '')
+        regulator = REGULATOR_SITES.get(suffix)
+        if not regulator:
+            return None
+
+        nav = BrowserNav(self.session)
+        query = f'"{company}" "annual report" {year} site:{regulator}'
+        logger.info(f"Regulator search [{regulator}]: {query}")
+        await nav.google_search(query)
+        await asyncio.sleep(_human_delay(2, 4))
+
+        tab = self.session.default_page
+        if not tab:
+            return None
+
+        raw = await tab.evaluate(f"""JSON.stringify((() => {{
+            const reg = '{regulator}';
+            return Array.from(document.querySelectorAll('a[href]'))
+                .map(a => a.href)
+                .filter(href => {{
+                    const h = href.toLowerCase();
+                    return h.includes(reg) &&
+                           (h.includes('.pdf') || h.includes('download') ||
+                            h.includes('annual') || h.includes('annualreport'));
+                }})
+                .slice(0, 5);
+        }})())""")
+        candidates = json.loads(raw) if raw else []
+
+        if candidates:
+            logger.info(f"Regulator candidate: {candidates[0][:100]}")
+            return candidates[0]
+        return None
+
+    async def _find_via_ir_page(self, company: str, year: str) -> Optional[str]:
+        """
+        Find the company's official IR page via Google → navigate → text-match PDF.
+
+        Google returns the company's own investor relations page as the top result.
+        We navigate there and find the link explicitly labelled 'Annual Report {year}'.
+        No URL guessing — the IR page itself tells us which document is which.
+        """
+        nav = BrowserNav(self.session)
+
+        # Strip legal form suffixes that over-constrain Google results
+        import re as _re2
+        search_name = _re2.sub(
+            r'\s*\((?:publ|plc|ag|sa|nv|bv|ab|oy|asa|as|se|inc|ltd|llc|corp|gmbh|kg)\)\.?$',
+            '', company, flags=_re2.IGNORECASE
+        ).strip()
+        query = f'"{search_name}" "investor relations" "annual report" {year}'
+        logger.info(f"IR page search: {query}")
+        await nav.google_search(query)
+        await asyncio.sleep(_human_delay(2, 4))
+
+        tab = self.session.default_page
+        if not tab:
+            return None
+
+        blocked = json.dumps(BLOCKED_DOMAINS)
+        raw = await tab.evaluate(f"""JSON.stringify((() => {{
+            const blocked = {blocked};
+            // Paths that strongly indicate an annual reports section or IR landing page
+            const goodPaths = ['annual-report', 'annual-reports', 'publications-and-reports',
+                               'reports-and-publications', 'investor-publications',
+                               'financial-reports', 'yearly-report',
+                               'investor-relations', 'investors/reports', 'ir/reports'];
+            // Paths that indicate wrong page type or document-server paths (not IR pages)
+            const badPaths = ['ad-hoc', 'press-release', 'press-releases', 'news',
+                              'media', 'regulatory', 'agm', 'governance',
+                              'sustainability', 'esg', 'csr',
+                              'content/dam', '/dam/', 'cdn.', 'assets.'];
+
+            const links = Array.from(document.querySelectorAll('a[href]'))
+                .map(a => a.href)
+                .filter(href => {{
+                    const h = href.toLowerCase().split('#')[0].split('?')[0];
+                    return href.startsWith('http') &&
+                        !blocked.some(b => h.includes(b)) &&
+                        !h.endsWith('.pdf') &&
+                        !h.includes('.pdf/');
+                }});
+
+            // Score and sort: prefer annual-report paths, penalise bad paths
+            const scored = links.map(href => {{
+                const h = href.toLowerCase();
+                let score = 0;
+                if (goodPaths.some(p => h.includes(p))) score += 10;
+                if (badPaths.some(p => h.includes(p))) score -= 10;
+                if (h.includes('investor')) score += 2;
+                return {{ href, score }};
+            }});
+            scored.sort((a, b) => b.score - a.score);
+            return scored.slice(0, 8).map(x => x.href);
+        }})())""")
+        ir_candidates = json.loads(raw) if raw else []
+        logger.info(f"IR page candidates: {[u[:80] for u in ir_candidates[:4]]}")
+
+        for ir_url in ir_candidates[:5]:
+            pdf_url = await self._extract_pdf_from_ir_page(ir_url, year)
+            if pdf_url:
+                return pdf_url
 
         return None
 
-    def _get_ir_patterns(self, company: str) -> list[str]:
-        """Generate IR URL patterns. Combined name first (hdfcbank.com),
-        then recognizable parts (bam.com for 'Royal BAM Group')."""
-        raw = company.lower().replace("'", "").replace(".", "").replace(",", "")
-        words = raw.split()
+    async def _extract_pdf_from_ir_page(self, ir_url: str, year: str) -> Optional[str]:
+        """
+        Navigate to an IR page and find the annual report PDF by text matching.
 
-        # Combined slug (hdfcbank, royalbam)
-        combined = "".join(words)
+        Two-pass:
+        Pass 1 — look for a direct PDF link on the current page where the LINK TEXT
+                  contains both the year AND an annual report keyword.
+        Pass 2 — if nothing found, follow any navigation link whose text says
+                  "Annual Reports" / "Publications" one level deeper, then repeat.
 
-        skip = {'royal', 'group', 'n.v.', 'nv', 'plc', 'ltd', 'limited',
-                'inc', 'sa', 'ag', 'se', 'corporation', 'corp', 'co.',
-                'holding', 'holdings', 'international', 'intl', 'the',
-                'industries', 'limited.', 'private', 'pvt'}
-        key_words = [w for w in words if w not in skip]
-        key_hyphenated = "-".join(key_words)  # "siemens-energy" not "siemens-energy-ag"
+        Requiring the year + annual keyword in the link text itself (not parent)
+        prevents matching "Annual Financial Statements" (standalone HGB/statutory)
+        or "Half-Year Report".
+        """
+        try:
+            logger.info(f"Navigating IR page: {ir_url[:100]}")
+            await asyncio.wait_for(self.session.goto(ir_url), timeout=30)
+            await self._wait_for_js_render(min_links=30)  # AEM sites load in phases
+            await asyncio.sleep(_human_delay(3, 5))       # extra wait for PDF section
+            await self._dismiss_cookie_popup()
+            await self._take_screenshot("ir-page")
+            await self._human_scroll()
 
-        bases = []
-        # 1. Hyphenated key-words domain FIRST (siemens-energy.com)
-        #    Most common for multi-word company names
-        if key_hyphenated not in bases and len(key_words) >= 2:
-            bases.append(key_hyphenated)
-        # 2. Combined name SECOND (siemensenergyag)
-        if combined not in bases:
-            bases.append(combined)
-        # 3. Single key words LAST (siemens, energy)
-        if key_words:
-            for kw in key_words:
-                if kw not in bases:
-                    bases.append(kw)
-        # 4. First word fallback
-        if words[0] not in bases:
-            bases.append(words[0])
+            # Pass 1: look for PDF directly on this page
+            pdf = await self._scan_page_for_annual_report_pdf(year)
+            if pdf:
+                return pdf
 
-        tlds = ['com', 'co.in', 'nl', 'de', 'fr', 'co.uk', 'eu', 'be', 'ch']
+            # Pass 2: follow annual-reports section navigation link (one level deeper)
+            tab = self.session.default_page
+            if not tab:
+                return None
 
-        ir_paths = [
-            '/investors/annual-reports',
-            '/en/investors/annual-reports',
-            '/investors/annual-report',
-            '/investor-relations/annual-reports',
-            '/investors',
-            '/en/investors',
-            # European company IR patterns
-            '/global/en/company/investor-relations',
-            '/global/en/company/investor-relations.html',
-            '/company/investor-relations',
-            '/en/company/investor-relations',
-        ]
+            subnav_kw = json.dumps(SUBNAV_KEYWORDS)
+            nav_raw = await tab.evaluate(f"""JSON.stringify((() => {{
+                const subnavKw = {subnav_kw};
+                const navBad = ['half-year', 'interim', 'quarterly', 'sustainability',
+                                'esg', 'governance', 'agm', 'shareholder-meeting'];
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .filter(a => {{
+                        const t = a.textContent.trim().toLowerCase();
+                        const h = a.href.toLowerCase();
+                        return subnavKw.some(k => t.includes(k)) &&
+                               !h.endsWith('.pdf') &&
+                               !navBad.some(b => h.includes(b) || t.includes(b));
+                    }})
+                    .map(a => ({{ href: a.href, text: a.textContent.trim() }}))
+                    .slice(0, 6);
+            }})())""")
+            nav_links = json.loads(nav_raw) if nav_raw else []
+            logger.info(f"Sub-nav candidates: {[(r.get('text','')[:40], r.get('href','')[:60]) for r in nav_links]}")
 
-        patterns = []
-        for base in bases:
-            # .com TLD with ALL path patterns (most likely to work)
-            for path in ir_paths:
-                patterns.append(f"https://www.{base}.com{path}")
-                patterns.append(f"https://{base}.com{path}")
-            # Other TLDs with top 2 most common paths
-            for tld in [t for t in tlds[:5] if t != 'com']:
-                patterns.append(f"https://www.{base}.{tld}{ir_paths[0]}")
-                patterns.append(f"https://{base}.{tld}{ir_paths[0]}")
-            # ir subdomain
-            patterns.append(f"https://ir.{base}.com")
-            patterns.append(f"https://investors.{base}.com")
+            # LLM fallback: if keyword scan found nothing, collect all links → LLM picks section
+            if not nav_links:
+                all_raw = await tab.evaluate("""JSON.stringify(
+                    Array.from(document.querySelectorAll('a[href]'))
+                        .filter(a => a.href.startsWith('http') && !a.href.endsWith('.pdf'))
+                        .map(a => ({href: a.href, text: a.textContent.trim()}))
+                        .slice(0, 40)
+                )""")
+                all_links = json.loads(all_raw) if all_raw else []
+                company_hint = getattr(self, '_current_company', '')
+                llm_url = await self._llm.find_reports_section(all_links, company_hint, year)
+                if llm_url:
+                    nav_links = [{'href': llm_url, 'text': 'LLM-selected section'}]
 
-        return patterns
+            visited = {ir_url}
+            for nav in nav_links[:3]:
+                sub_url = nav.get('href', '')
+                if not sub_url or sub_url in visited:
+                    continue
+                visited.add(sub_url)
+                try:
+                    logger.info(f"Following sub-nav: '{nav.get('text','')[:50]}' → {sub_url[:80]}")
+                    await asyncio.wait_for(self.session.goto(sub_url), timeout=30)
+                    await self._wait_for_js_render(min_links=30)
+                    await asyncio.sleep(_human_delay(3, 5))
+                    await self._dismiss_cookie_popup()
+                    await self._take_screenshot(f"subnav-{len(visited)}")
+                    pdf = await self._scan_page_for_annual_report_pdf(year)
+                    if pdf:
+                        return pdf
+
+                    # Pass 3: one level deeper from sub-nav (e.g. legal notice redirect)
+                    tab2 = self.session.default_page
+                    if tab2:
+                        deep_raw = await tab2.evaluate(f"""JSON.stringify((() => {{
+                            const subnavKw = {subnav_kw};
+                            const navBad = ['half-year', 'interim', 'quarterly',
+                                            'sustainability', 'esg', 'governance'];
+                            return Array.from(document.querySelectorAll('a[href]'))
+                                .filter(a => {{
+                                    const t = a.textContent.trim().toLowerCase();
+                                    const h = a.href.toLowerCase();
+                                    return subnavKw.some(k => t.includes(k)) &&
+                                           !h.endsWith('.pdf') &&
+                                           !navBad.some(b => h.includes(b) || t.includes(b));
+                                }})
+                                .map(a => ({{ href: a.href, text: a.textContent.trim() }}))
+                                .slice(0, 4);
+                        }})())""")
+                        deep_links = json.loads(deep_raw) if deep_raw else []
+                        for deep in deep_links[:2]:
+                            deep_url = deep.get('href', '')
+                            if not deep_url or deep_url in visited:
+                                continue
+                            visited.add(deep_url)
+                            try:
+                                logger.info(f"Deep nav: '{deep.get('text','')[:40]}' → {deep_url[:80]}")
+                                await asyncio.wait_for(self.session.goto(deep_url), timeout=30)
+                                await self._wait_for_js_render(min_links=30)
+                                await asyncio.sleep(_human_delay(3, 5))
+                                await self._take_screenshot(f"deepnav-{len(visited)}")
+                                pdf = await self._scan_page_for_annual_report_pdf(year)
+                                if pdf:
+                                    return pdf
+                            except Exception as e2:
+                                logger.info(f"Deep nav failed {deep_url[:60]}: {e2}")
+                except Exception as e:
+                    logger.info(f"Sub-nav failed {sub_url[:60]}: {e}")
+
+        except Exception as e:
+            logger.info(f"IR page failed {ir_url[:80]}: {e}")
+
+        return None
+
+    async def _scan_page_for_annual_report_pdf(self, year: str) -> Optional[str]:
+        """
+        Scan current page for a link whose text says '{year} Annual Report'.
+        Link text must contain BOTH year AND annual keyword — no parent context.
+        Excludes half-year reports, statutory accounts, sustainability reports.
+        """
+        tab = self.session.default_page
+        if not tab:
+            return None
+
+        annual_kw = json.dumps(ANNUAL_KEYWORDS)
+        raw = await tab.evaluate(f"""JSON.stringify((() => {{
+            const year = '{year}';
+            const annualKw = {annual_kw};
+            const exclude = [
+                'half-year', 'half year', 'interim', 'quarterly',
+                'q1 ', 'q2 ', 'q3 ', 'q4 ',
+                'financial statements', 'statutory accounts',
+                'sustainability', 'esg report', 'proxy',
+                'ad hoc', 'ad-hoc', 'press release', 'remuneration'
+            ];
+
+            return Array.from(document.querySelectorAll('a[href]'))
+                .filter(a => {{
+                    const t = a.textContent.trim().toLowerCase();
+                    const h = a.href.toLowerCase();
+                    const hasYear = t.includes(year) || h.includes(year);
+                    const isAnnual = annualKw.some(k => t.includes(k));
+                    const isExcluded = exclude.some(e => t.includes(e));
+                    const isPdf = h.includes('.pdf') || h.includes('download') ||
+                                  !!a.getAttribute('download');
+                    return hasYear && isAnnual && !isExcluded && isPdf;
+                }})
+                .map(a => ({{ href: a.href, text: a.textContent.trim() }}))
+                .slice(0, 5);
+        }})())""")
+
+        results = json.loads(raw) if raw else []
+
+        # Fast path: single result — return it directly (no LLM needed)
+        if len(results) == 1:
+            href = results[0].get('href', '')
+            logger.info(f"PDF found (sole match): '{results[0].get('text','')[:70]}' → {href[:100]}")
+            return href
+
+        # Multiple results — LLM picks the right one
+        if len(results) > 1:
+            company_hint = getattr(self, '_current_company', '')
+            href = await self._llm.select_annual_report_link(results, company_hint, year)
+            if href:
+                return href
+            # LLM returned None — fall back to first .pdf link
+            for r in results:
+                if '.pdf' in r.get('href', '').lower():
+                    return r.get('href', '')
+
+        # No results from strict filter — broaden search and ask LLM
+        broad_raw = await tab.evaluate(f"""JSON.stringify((() => {{
+            return Array.from(document.querySelectorAll('a[href]'))
+                .filter(a => {{
+                    const h = a.href.toLowerCase();
+                    return h.includes('.pdf') || h.includes('download') ||
+                           !!a.getAttribute('download');
+                }})
+                .map(a => ({{ href: a.href, text: a.textContent.trim() }}))
+                .slice(0, 20);
+        }})())""")
+        broad = json.loads(broad_raw) if broad_raw else []
+        if broad:
+            company_hint = getattr(self, '_current_company', '')
+            href = await self._llm.select_annual_report_link(broad, company_hint, year)
+            if href:
+                logger.info(f"PDF found via LLM broad scan → {href[:100]}")
+                return href
+
+        return None
+
 
     # --- STEP 2: Download PDF ---
 
@@ -613,32 +881,72 @@ class BrowserPipeline:
         for page in pdf:
             text += page.get_text()
         pdf.close()
+        # Normalize thousand separators so regex patterns work across locales:
+        #     = narrow no-break space  (Swedish, French: "202 454")
+        #     = non-breaking space     (some PDFs)
+        #     = thin space             (some typeset PDFs)
+        # Replace numeric-context spaces with comma so "202 454" → "202,454"
+        import re as _re
+        text = _re.sub(r'(\d)[     ](\d{3})(?!\d)', r'\1,\2', text)
+        text = _re.sub(r'(\d)[     ](\d{3})(?!\d)', r'\1,\2', text)  # 2nd pass for 1 234 567
+        # Also normalise em-dash used as minus in some Nordic reports
+        text = text.replace('−', '-')
         doc.total_chars = len(text)
         return text
 
     def is_annual_report(self, doc: FilingDocument, text: str = None) -> bool:
-        """
-        Validate that the downloaded PDF is actually an annual report.
-        Checks: page count, presence of financial statement keywords, IFRS/GAAP indicators.
-        Returns True if it looks like an annual report, False if it's a press release/small doc.
-        """
-        # Annual reports are typically 50+ pages
-        if doc.total_pages < 40:
-            return False
+        """Alias kept for backwards compatibility — calls is_valid_filing."""
+        return self.is_valid_filing(doc, text)
 
+    def is_valid_filing(self, doc: FilingDocument, text: str = None) -> bool:
+        """
+        Validate the PDF contains a balance sheet (annual OR quarterly/interim).
+        Annual reports: 40+ pages.
+        Quarterly/interim reports: 8+ pages (earnings releases are short but have BS).
+        Rejects: press releases with no financials, marketing PDFs, sustainability-only.
+        """
         if text is None:
             text = self.extract_text(doc)
+        tl = text.lower()
 
-        # Must contain multiple financial statement indicators
-        indicators = [
-            'balance sheet', 'income statement', 'cash flow',
-            'statement of financial position', 'profit or loss',
-            'consolidated financial', 'notes to the financial',
-            'auditor', 'independent auditor',
-            'annual report', 'jaarverslag', 'geschäftsbericht',
-        ]
-        matches = sum(1 for ind in indicators if ind in text.lower())
-        return matches >= 2  # At least 2 indicators = likely annual report
+        # Must have a balance sheet — the minimum for EV bridge
+        has_balance_sheet = any(kw in tl for kw in [
+            'balance sheet', 'statement of financial position',
+            'total assets', 'total equity', 'balansräkning',   # Swedish
+            'bilanz', 'bilanzsumme',                            # German
+            'bilan',                                            # French
+        ])
+        if not has_balance_sheet:
+            return False
+
+        # Annual / full-year reports need more pages
+        is_quarterly_or_interim = any(kw in tl for kw in [
+            'interim report', 'quarterly report', 'half-year report',
+            'half year report', 'q1 ', 'q2 ', 'q3 ', 'first quarter',
+            'second quarter', 'third quarter', 'six months',
+            'delårsrapport', 'kvartalsrapport',    # Swedish
+            'zwischenbericht', 'quartalsbericht',  # German
+        ])
+
+        min_pages = 8 if is_quarterly_or_interim else 40
+        if doc.total_pages < min_pages:
+            return False
+
+        return True
+
+    def filing_type(self, text: str) -> str:
+        """Classify filing as 'annual', 'quarterly', 'semi-annual', or 'unknown'."""
+        tl = text.lower()
+        if any(k in tl for k in ['annual report', 'full year', 'full-year', 'geschäftsbericht',
+                                  'årsredovisning', 'jaarverslag', 'rapport annuel']):
+            return 'annual'
+        if any(k in tl for k in ['q1 ', 'q3 ', 'first quarter', 'third quarter',
+                                  'nine months', 'kvartalsrapport', 'quartalsbericht']):
+            return 'quarterly'
+        if any(k in tl for k in ['half-year', 'half year', 'six months', 'interim report',
+                                  'h1 ', 'delårsrapport', 'zwischenbericht']):
+            return 'semi-annual'
+        return 'unknown'
 
     # --- STEP 4: Extract financial data ---
 
@@ -654,9 +962,13 @@ class BrowserPipeline:
             fin.accounting_standard = "US GAAP"
 
         # Detect currency
-        for curr, symbols in [("EUR", ["€", "EUR", "euro"]),
+        for curr, symbols in [("SEK", ["MSEK", "BSEK", "SEK", "Swedish krona", "kronor"]),
+                              ("EUR", ["€", "EUR", "euro", "MEUR"]),
                               ("USD", ["$", "USD", "dollar"]),
                               ("GBP", ["£", "GBP", "sterling"]),
+                              ("DKK", ["MDKK", "DKK", "Danish krone"]),
+                              ("NOK", ["MNOK", "NOK", "Norwegian krone"]),
+                              ("CHF", ["MCHF", "CHF", "Swiss franc"]),
                               ("INR", ["₹", "INR", "rupee"])]:
             if any(s in text[:10000] for s in symbols):
                 fin.currency = curr
@@ -666,85 +978,165 @@ class BrowserPipeline:
         # Strategy: find the consolidated income statement and balance sheet,
         # then pull numbers using regex patterns
 
-        # Revenue — income statement format: "Revenue  6  7,039,900  6,454,951" (label note# value prior_year)
-        # AFTER the income statement header to avoid matching other "revenue" mentions
-        is_start = text.find("Consolidated income statement")
-        if is_start == -1:
-            is_start = text.find("Income statement")
-        fs_text = text[is_start:] if is_start > 0 else text
 
-        fin.revenue = self._extract_amount(fs_text[:50000], [
-            r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)\s+\d{1,3}(?:,\d{3})+',  # Note format
-            r'Revenue\s+(\d{1,3}(?:,\d{3}){2,})\s+\d{1,3}(?:,\d{3}){2,}',   # No note, has prior year
+        # Find section anchors — search within bounded sections to avoid parent-company contamination
+        # Use "TOTAL ASSETS" as the anchor for the balance sheet — it's never in the TOC
+        # then search BACKWARDS for the section header from that point.
+        _ta_pos = max(text.find("TOTAL ASSETS"), text.find("Total assets"))
+        if _ta_pos > 0:
+            bs_start = max(
+                text.rfind("Consolidated balance sheet", 0, _ta_pos),
+                text.rfind("Balance sheet", 0, _ta_pos),
+            )
+        else:
+            bs_start = max(
+                text.find("Consolidated balance sheet"),
+                text.find("Balance sheet"),
+            )
+
+        # Income statement anchor: "Revenues\n<note#>\n<value>" distinguishes actual IS
+        # from summary tables which have "Revenues\n<value>" directly (no note#).
+        _rev_note_m = re.search(r'Revenues?\n\d{1,3}\n\d{1,3}(?:,\d{3})+', text)
+        if _rev_note_m:
+            _anchor = _rev_note_m.start()
+            is_start = max(
+                text.rfind("Consolidated income statement", 0, _anchor + 500),
+                text.rfind("Income statement", 0, _anchor + 500),
+            )
+            if is_start < 0:
+                is_start = max(0, _anchor - 3000)
+        else:
+            # Fallback: inline format "Revenue  note#  value  prior" — find the rightmost match
+            # (latest in doc = actual IS, not TOC/summary)
+            _rev_inline = list(re.finditer(r'Revenue\s+\d+\s+\d{1,3}(?:,\d{3})+', text))
+            if _rev_inline:
+                _anchor = _rev_inline[-1].start()
+                is_start = max(
+                    text.rfind("Consolidated income statement", 0, _anchor + 500),
+                    text.rfind("Income statement", 0, _anchor + 500),
+                )
+                if is_start < 0:
+                    is_start = max(0, _anchor - 3000)
+            else:
+                is_start = max(
+                    text.find("Consolidated income statement"),
+                    text.find("Income statement"),
+                    0,
+                )
+        if is_start < 0:
+            is_start = 0
+
+        is_end = bs_start if (bs_start > is_start > 0) else is_start + 30000
+        bs_end_markers = ["Consolidated statement of changes in equity", "Statement of changes in equity",
+                          "Parent company", "PARENT COMPANY", "Financial statements (Parent)"]
+        bs_end = len(text)
+        for m in bs_end_markers:
+            pos = text.find(m, bs_start + 100) if bs_start > 0 else -1
+            if 0 < pos < bs_end:
+                bs_end = pos + 5000  # slight buffer to capture trailing totals
+
+        fs_text = text[is_start:is_end] if is_start > 0 else text[:30000]
+        bs_text = text[bs_start:bs_end] if bs_start > 0 else text
+
+
+        # Revenue — patterns handle both note-format and newline-format
+        # "Revenues\n3\n168,343" or "Revenue  6  7,039,900"
+        fin.revenue = self._extract_amount(fs_text, [
+            r'Revenues?\n\d+\n(\d{1,3}(?:,\d{3})+)',                        # Nordic/newline format
+            r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)',                        # Inline with note
+            r'Revenues?\s+(\d{1,3}(?:,\d{3}){2,})\s+\d{1,3}(?:,\d{3}){2,}',  # No note
+            r'(?:Net\s+)?[Rr]evenue[s]?\s+(\d{1,3}(?:,\d{3}){2,})',        # Simple line
         ], 'income_statement')
-        # Fallback: search full text
         if not fin.revenue:
             fin.revenue = self._extract_amount(text, [
-                r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)\s+\d{1,3}(?:,\d{3})+',
+                r'Revenues?\n\d+\n(\d{1,3}(?:,\d{3})+)',
+                r'Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)',
             ], 'income_statement')
 
         # Operating income / EBIT
-        fin.operating_income = self._extract_amount(text, [
+        fin.operating_income = self._extract_amount(fs_text, [
+            r'Operating\s+profit\n[^\n]+\n(\d{1,3}(?:,\d{3})+)',            # Nordic: note line then value
+            r'Operating\s+profit\n\s*\n(\d{1,3}(?:,\d{3})+)',               # Nordic: blank then value
+            r'Operating\s+profit\s{2,}[\d,\s]+?(\d{1,3}(?:,\d{3})+)',       # Inline, ≥2 spaces separator
+            r'(?:Operating|Trading)\s+result\n[^\n]+\n(\d{1,3}(?:,\d{3})+)',
             r'(?:Operating|Trading)\s+result\s+.*?(\d{1,3}(?:,\d{3})+)',
+            r'Operating\s+income\n[^\n]+\n(\d{1,3}(?:,\d{3})+)',
             r'Operating\s+income\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'Result\s+from\s+operations?\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'EBIT\s+.*?(\d{1,3}(?:,\d{3})+)',
         ], 'income_statement')
 
         # Net income
-        fin.net_income = self._extract_amount(text, [
+        fin.net_income = self._extract_amount(fs_text, [
+            r'Profit\s+for\s+the\s+year\n\s*\n(\d{1,3}(?:,\d{3})+)',        # Nordic newline
+            r'Profit\s+for\s+the\s+(?:financial\s+)?year\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'Net\s+result\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'Net\s+income\s+.*?(\d{1,3}(?:,\d{3})+)',
-            r'Profit\s+for\s+the\s+(?:financial\s+)?year\s+.*?(\d{1,3}(?:,\d{3})+)',
+            r'Net\s+profit\s+(?:for\s+the\s+year\s+)?.*?(\d{1,3}(?:,\d{3})+)',
         ], 'income_statement')
 
-        # Total assets
-        fin.total_assets = self._extract_amount(text, [
-            r'Total\s+assets\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Total assets — from consolidated BS
+        fin.total_assets = self._extract_amount(bs_text, [
+            r'TOTAL\s+ASSETS\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'Total\s+assets\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
-        # Total equity
-        fin.total_equity = self._extract_amount(text, [
-            r'(?:Group\s+)?(?:Total\s+)?[Ee]quity\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Total equity — from consolidated BS (matches "TOTAL EQUITY" not parent lines)
+        fin.total_equity = self._extract_amount(bs_text, [
+            r'TOTAL\s+EQUITY\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'Total\s+equity\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'(?:Group\s+)?(?:Total\s+)?[Ee]quity\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
-        # Cash
-        fin.cash = self._extract_amount(text, [
-            r'Cash\s+and\s+cash\s+equivalents\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Cash — require commas to avoid matching small note numbers
+        # "Cash and cash equivalents\n18\n15,523" — note number is pure digits, value has commas
+        fin.cash = self._extract_amount(bs_text, [
+            r'Cash\s+and\s+cash\s+equivalents\n\d*\n(\d{1,3}(?:,\d{3})+)',  # Nordic newline
+            r'Cash\s+and\s+cash\s+equivalents\s+\d*\s+(\d{1,3}(?:,\d{3})+)',  # Inline note
+            r'Cash\s+and\s+cash\s+equivalents\s+(\d{1,3}(?:,\d{3})+)',      # No note
         ], 'balance_sheet')
 
-        # Total debt — from balance sheet or debt footnote
-        fin.total_debt = self._extract_amount(text, [
-            r'(?:Total\s+)?[Ff]inancial\s+(?:debt|liabilities|indebtedness)\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'(?:Total\s+)?[Bb]orrowings\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'[Ll]oans\s+and\s+borrowings\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'[Nn]otes\s+(?:payable|outstanding)\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'[Ll]ong[-\s]term\s+debt.{0,40}?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'(?:^|\n)\s*(?:Total\s+)?[Dd]ebt\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Total debt — prefer explicit totals; fallback to non-current borrowings line
+        fin.total_debt = self._extract_amount(bs_text, [
+            r'(?:Total\s+)?[Ff]inancial\s+(?:debt|indebtedness)\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'[Tt]otal\s+(?:interest[\s-]bearing\s+)?[Bb]orrowings\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'[Tt]otal\s+[Dd]ebt\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'[Ll]oans\s+and\s+borrowings\s+.*?(\d{1,3}(?:,\d{3})+)',
+            r'[Ii]nterest[-\s]bearing\s+(?:debt|liabilities)\s+.*?(\d{1,3}(?:,\d{3})+)',
+            # Fallback: first "Borrowings" line in BS — note may have leading space (\s*)
+            r'Borrowings\n\s*\d+\s*\n(\d{1,3}(?:,\d{3})+)',
+            r'Borrowings\s+\d+\s+(\d{1,3}(?:,\d{3})+)',
+            r'[Ll]ong[-\s]term\s+debt.{0,40}?(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
-        # Goodwill — from balance sheet
-        fin.goodwill = self._extract_amount(text, [
-            r'Goodwill\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Goodwill — from consolidated BS (avoid matching notes/TOC)
+        fin.goodwill = self._extract_amount(bs_text, [
+            r'Goodwill\n\d+\n(\d{1,3}(?:,\d{3})+)',          # Nordic newline
+            r'Goodwill\s+\d+\s+(\d{1,3}(?:,\d{3})+)',        # Inline note
+            r'Goodwill\s+(\d{1,3}(?:,\d{3})+)',              # No note
         ], 'balance_sheet')
 
         # Short-term investments
-        fin.short_term_investments = self._extract_amount(text, [
-            r'[Ss]hort[-\s]term\s+investments\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'[Mm]arketable\s+securities\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        fin.short_term_investments = self._extract_amount(bs_text, [
+            r'[Ss]hort[-\s]term\s+investments\s+.*?(\d{1,3}(?:,\d{3})+)',
+            r'[Mm]arketable\s+securities\s+.*?(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
         # Adjusted EBITDA (Tier 1 — company-reported, one-offs removed)
-        # Try "Total Group" segment table first: "Total Group  7,040  400.3  6,455  333.3"
+        # "Total Group" segment table: "Total Group  7,040  400.3  6,455  333.3"
+        # Only valid for Siemens Energy format: decimal margin column (e.g. 400.3) between revenue and prior
+        # Group 1=revenue(EUR M), Group 2=adj-EBITDA-margin-or-value(decimal), Group 3=prior-revenue
         tg_match = re.search(
-            r'Total\s+Group[\s\S]{0,200}?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s+(\d+\.?\d*)\s+(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+            r'Total\s+Group[\s\S]{0,200}?(\d{1,3}(?:,\d{3})+)\s+(\d{1,3}(?:,\d{3})*\.\d+)\s+(\d{1,3}(?:,\d{3})+)',
             text[:200000], re.IGNORECASE
         )
         if tg_match:
             tg_adj_ebitda = float(tg_match.group(2).replace(',', ''))
-            # Total Group table in EUR millions, convert to thousands
-            if tg_adj_ebitda > 10 and tg_adj_ebitda < 100000:
-                fin.adjusted_ebitda = tg_adj_ebitda * 1_000  # millions -> thousands
+            # Siemens Energy Total Group table: col2 is Adj.EBITDA value in EUR millions
+            # Only accept plausible EBITDA range (100M–10,000M) for this heuristic
+            if 100 < tg_adj_ebitda < 10000:
+                fin.adjusted_ebitda = tg_adj_ebitda * 1_000  # EUR millions -> thousands
+    
 
         if not fin.adjusted_ebitda:
             fin.adjusted_ebitda = self._extract_amount(text, [
@@ -754,10 +1146,11 @@ class BrowserPipeline:
             ], 'adjusted_ebitda')
 
         # Reported EBITDA (Tier 2 — company-reported)
-        # Look for standalone EBITDA line in financial tables
+        # Use [^\n] not .* to avoid spanning pages with re.DOTALL
         fin.reported_ebitda = self._extract_amount(text, [
-            r'(?:^|\n)\s*EBITDA\s+.*?(\d{1,3}(?:,\d{3})+)',
-            r'[Rr]eported\s+EBITDA.{0,30}?(\d{1,3}(?:,\d{3})+)',
+            r'(?:^|\n)\s*EBITDA\s+[^\n]*?(\d{1,3}(?:,\d{3})+)',
+            r'[Rr]eported\s+EBITDA[^\n]{0,30}?(\d{1,3}(?:,\d{3})+)',
+            r'EBITDA\n[^\n]+\n(\d{1,3}(?:,\d{3})+)',                        # Nordic newline
         ], 'reported_ebitda')
 
         # Sanity checks: if extracted EBITDA is way off expected range (based on EBIT),
@@ -775,21 +1168,26 @@ class BrowserPipeline:
             elif fin.reported_ebitda > fin.operating_income * 5:
                 fin.reported_ebitda = None
 
-        # D&A total — matches "Depreciation and amortisation  (157,791)" format
+        # D&A total — from cash flow statement (most reliable source)
+        # Formats:
+        #   "Depreciation, amortization and impairment\n11, 12, 22\n9,529"  (Nordic)
+        #   "Depreciation and amortisation  (157,791)"
         fin.depreciation_total = self._extract_amount(text, [
-            r'Depreciation\s+and\s+amorti[sz]ation\s*\(?\s*(\d{1,3}(?:,\d{3})+)',
-            r'Depreciation,?\s*amorti[sz]ation\s*\(?\s*(\d{1,3}(?:,\d{3})+)',
-            r'Depreciation\s+and\s+amorti[sz]ation\s+.*?(\d{1,3}(?:,\d{3}){2,})',
+            r'Depreciation,\s*amorti[sz]ation\s+and\s+impairment\n[^\n]+\n(\d{1,3}(?:,\d{3})+)',
+            r'Depreciation\s+and\s+amorti[sz]ation\n[^\n]*\n(\d{1,3}(?:,\d{3})+)',
+            r'Depreciation\s+and\s+amorti[sz]ation\s+\(?\s*(\d{1,3}(?:,\d{3})+)\s*\)?',
+            r'Depreciation,\s*amorti[sz]ation\s+\(?\s*(\d{1,3}(?:,\d{3})+)\s*\)?',
         ], 'income_statement')
 
         # --- EV bridge balance sheet items ---
 
-        # Minority interest / Non-controlling interest
-        fin.minority_interest = self._extract_amount(text, [
-            r'[Nn]on[-\s]controlling\s+(?:interest|equity)\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        # Minority interest / Non-controlling interest (NCI can be < 1000 — use 'nci' section)
+        fin.minority_interest = self._extract_amount(bs_text, [
+            r'[Nn]on[-\s]controlling\s+interests?\n\s*\n(\d{1,3}(?:,\d{3})*)',  # Nordic newline
+            r'[Nn]on[-\s]controlling\s+interests?\s+\n?\s*(\d{1,3}(?:,\d{3})*)',
             r'[Mm]inority\s+(?:interest|equity)\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-            r'[Nn]on[-\s]controlling\s+.*?interest.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
-        ], 'balance_sheet')
+            r'[Nn]on[-\s]controlling\s+interests?\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        ], 'nci')
 
         # Preferred stock
         fin.preferred_stock = self._extract_amount(text, [
@@ -900,8 +1298,10 @@ class BrowserPipeline:
         ], 'lease_note')
 
         fin.lease_interest = self._extract_amount(text, [
-            r'Interest\s+expense\s+on\s+lease\s+liabilities\s+.*?(\d{1,3}(?:,\d{3})+)',
-            r'[Ii]nterest.{0,30}lease\s+liabilit.{0,30}?(\d{1,3}(?:,\d{3})+)',
+            # Match next non-negative number on same/next line (values may lack comma, e.g. "263")
+            r'Interest\s+expense\s+on\s+lease\s+liabilities[^\n]*\n[^\n\d]*(\d{1,3}(?:,\d{3})*)',
+            r'Interest\s+expense\s+on\s+lease\s+liabilities[^\n]*?(\d{1,3}(?:,\d{3})+)',
+            r'[Ii]nterest.{0,30}lease\s+liabilit[^\n]*\n[^\n\d]*(\d{1,3}(?:,\d{3})*)',
         ], 'finance_note')
 
         fin.short_term_rent = self._extract_amount(text, [
@@ -909,16 +1309,19 @@ class BrowserPipeline:
             r'[Ss]hort[-\s]term\s+lease.{0,80}?(\d{1,3}(?:,\d{3}){2,})',
         ], 'lease_note')
 
-        fin.lease_liabilities_current = self._extract_amount(text, [
-            r'[Ll]ease\s+liabilities?\s+.*?(?:[Cc]urrent|short[-\s]term).{0,50}?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        fin.lease_liabilities_current = self._extract_amount(bs_text, [
+            r'[Ll]ease\s+liabilities?\n\d*\n(\d{1,3}(?:,\d{3})+)',           # BS current section
+            r'[Cc]urrent\s+lease\s+liabilities?\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
-        fin.lease_liabilities_noncurrent = self._extract_amount(text, [
-            r'[Ll]ease\s+liabilities?\s+.*?(?:[Nn]on[-\s]current|long[-\s]term).{0,50}?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        fin.lease_liabilities_noncurrent = self._extract_amount(bs_text, [
+            r'[Nn]on[-\s]current\s+lease\s+liabilities?\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
-        fin.rou_assets = self._extract_amount(text, [
-            r'Right[-\s]of[-\s]use\s+assets?\s+.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+        fin.rou_assets = self._extract_amount(bs_text, [
+            r'Right[-\s]of[-\s]use\s+assets?\n\d+\s*\n(\d{1,3}(?:,\d{3})+)',   # Nordic (note may have trailing space)
+            r'Right[-\s]of[-\s]use\s+assets?\s+\d+\s+(\d{1,3}(?:,\d{3})+)', # Inline note
+            r'Right[-\s]of[-\s]use\s+assets?\s+(\d{1,3}(?:,\d{3})+)',
         ], 'balance_sheet')
 
         return fin
@@ -952,6 +1355,9 @@ class BrowserPipeline:
                             if val >= 100 and '.' not in str(raw):
                                 return val * 1_000
                             return val
+                    elif section == 'nci':
+                        if val >= 0:  # NCI can be zero or very small (0-1B MSEK)
+                            return val
                     elif section in ('lease_note', 'finance_note'):
                         if val > 10:  # Lease note items can be smaller
                             return val
@@ -965,104 +1371,96 @@ class BrowserPipeline:
 
     async def run_full_pipeline(self, company: str, year: str = "2025",
                                 country: str = "", ticker: str = "") -> tuple[FilingDocument, ExtractedFinancials]:
-        """Run full automated pipeline: find -> download -> validate -> extract.
-        Retries with next Google candidate if validation fails."""
-        logger.info(f"Finding annual report for {company} {year}...")
+        """
+        Find → download → validate → extract annual report.
 
-        tried_urls = set()
-        last_doc = None
-        last_text = None
-        google_idx = 0
-        ir_fallback_urls = []
-        ir_fallback_idx = 0
+        Strategy 1: Exchange/regulator database (BSE, HKEX, ASX, etc.)
+          — authoritative source, legally required filings.
+        Strategy 2: Company's own IR page found via Google
+          — navigate to actual IR page, text-match 'Annual Report {year}'.
+        No URL guessing. No PDF scoring.
+        """
+        await self._ensure_browser()
+        jurisdiction = _detect_jurisdiction(ticker, company)
+        logger.info(f"Pipeline: {company} {year} | jurisdiction: {jurisdiction['country']}")
+        self._current_company = company  # expose to _scan_page_for_annual_report_pdf + sub-nav
 
-        # Step 1: Google search to discover candidates
-        await self.find_annual_report(company, year, country, ticker=ticker)
-        google_candidates = getattr(self, '_google_candidates', [])
-        if not google_candidates:
-            logger.info("No Google candidates, going straight to IR URL patterns")
-            ir_fallback_urls = self._get_ir_patterns(company)
-        logger.info(f"Pipeline: {len(google_candidates)} Google candidates + IR fallback available")
+        last_doc = last_text = None
 
-        while True:
-            pdf_url = None
-
-            # Phase 1: Try Google candidates
-            if google_idx < len(google_candidates):
-                pdf_url = google_candidates[google_idx]
-                google_idx += 1
-            elif ir_fallback_idx == 0:
-                # Phase 2: Google exhausted — initialize IR URL pattern fallback
-                logger.info(f"All {len(google_candidates)} Google candidates tried. Starting IR URL pattern fallback.")
-                ir_fallback_urls = self._get_ir_patterns(company)
-
-            if ir_fallback_idx < len(ir_fallback_urls) and not pdf_url:
-                # Phase 2: Try next IR pattern
-                url = ir_fallback_urls[ir_fallback_idx]
-                ir_fallback_idx += 1
-                if url not in tried_urls:
-                    # Limit IR patterns tried (first 20 most likely)
-                    if ir_fallback_idx > 20:
-                        logger.info(f"IR pattern limit reached, stopping fallback")
-                        break
-                    try:
-                        logger.info(f"IR fallback: {url[:100]}")
-                        await self.session.goto(url)
-                        await asyncio.sleep(_human_delay(1.5, 3))
-                        await self._dismiss_cookie_popup()
-                        found = await self._find_pdf_link_on_page(year)
-                        if found:
-                            pdf_url = found
-                            logger.info(f"IR pattern found PDF: {found[:120]}")
-                    except Exception:
-                        continue
-
+        async def _try(pdf_url: Optional[str]) -> Optional[tuple]:
+            nonlocal last_doc, last_text
             if not pdf_url:
-                if ir_fallback_idx >= len(ir_fallback_urls) and google_idx >= len(google_candidates):
-                    break
-                continue
-
-            if pdf_url in tried_urls:
-                logger.warning(f"Already tried URL, trying next candidate")
-                continue
-            tried_urls.add(pdf_url)
-
-            # Step 2: Download
+                return None
+            logger.info(f"  PDF URL: {pdf_url}")
             try:
                 doc = self.download_pdf(pdf_url, company, year)
+                text = self.extract_text(doc)
+                logger.info(f"Downloaded: {doc.total_pages}p, {doc.total_chars:,}c | local={doc.pdf_path}")
+
+                # Stage 1: fast heuristic (page count + keywords)
+                if not self.is_valid_filing(doc, text):
+                    last_doc, last_text = doc, text
+                    logger.warning(f"Heuristic rejected ({doc.total_pages}p) — no balance sheet found")
+                    return None
+
+                # Stage 2: LLM verifies correct company + correct filing type
+                first_page = text[:700]
+                correct, reason = await self._llm.verify_document(first_page, company, year)
+                if not correct:
+                    last_doc, last_text = doc, text
+                    logger.warning(f"LLM rejected document: {reason}")
+                    return None
+
+                ftype = self.filing_type(text)
+                doc.source = ftype
+                logger.info(f"Filing type: {ftype}")
+                return doc, self.extract_financials(text, company, year)
             except Exception as e:
-                logger.warning(f"Download failed for {pdf_url}: {e}")
-                continue
+                logger.warning(f"Download failed: {e}")
+            return None
 
-            # Step 3: Extract text
-            text = self.extract_text(doc)
-            attempt_num = len(tried_urls)
-            logger.info(f"Attempt {attempt_num}: {doc.total_pages} pages, {doc.total_chars:,} chars")
+        # Strategy 0: Latest quarterly/interim report (freshest balance sheet)
+        # Search for most recent quarterly or semi-annual report first — balance sheet
+        # items must come from the LATEST available filing, not always the annual report.
+        logger.info("Strategy 0: latest quarterly/interim report (freshest balance sheet)")
+        url = await self._find_latest_interim(company, year, jurisdiction)
+        interim_result = await _try(url)
+        # Don't return yet — keep as candidate, still want annual for full financial data
 
-            # Step 4: Validate it's an annual report
-            if not self.is_annual_report(doc, text):
-                logger.warning(
-                    f"URL returned {doc.total_pages}-page document — "
-                    f"likely not full annual report. Trying next candidate..."
-                )
-                last_doc = doc
-                last_text = text
-                continue
-
-            # Success
-            logger.info(f"Valid annual report: {doc.total_pages} pages")
-            self._google_candidates = []  # Clear for next run
-            fin = self.extract_financials(text, company, year)
-            logger.info(f"Extracted financials for {company}")
+        # Strategy 1: Exchange/regulator database (annual report)
+        logger.info("Strategy 1: exchange/regulator database")
+        url = await self._find_via_regulator(company, year, jurisdiction)
+        annual_result = await _try(url)
+        if annual_result:
+            doc, fin = annual_result
+            # Overlay fresh balance sheet from interim if available
+            if interim_result:
+                fin = self._overlay_interim_bs(fin, interim_result[1])
+                logger.info("Balance sheet overlaid with latest interim report data")
             return doc, fin
 
-        # All attempts exhausted — return best available
-        if last_doc and last_text:
-            logger.warning("All attempts returned non-annual-report files. Using best available.")
-            fin = self.extract_financials(last_text, company, year)
-            return last_doc, fin
+        # Strategy 2: Company IR page via Google (annual report)
+        logger.info("Strategy 2: company IR page via Google")
+        url = await self._find_via_ir_page(company, year)
+        annual_result = await _try(url)
+        if annual_result:
+            doc, fin = annual_result
+            if interim_result:
+                fin = self._overlay_interim_bs(fin, interim_result[1])
+                logger.info("Balance sheet overlaid with latest interim report data")
+            return doc, fin
 
-        raise FileNotFoundError(f"Could not find valid annual report for {company} {year}")
+        # If only interim found (annual unavailable), use interim for everything
+        if interim_result:
+            logger.info("Only interim report found — using for all fields")
+            return interim_result
+
+        # Return best available if all strategies found documents but validation failed
+        if last_doc and last_text:
+            logger.warning("All strategies failed validation. Using best available.")
+            return last_doc, self.extract_financials(last_text, company, year)
+
+        raise FileNotFoundError(f"Could not find any financial filing for {company} {year}")
 
 
 # --- Convenience function ---

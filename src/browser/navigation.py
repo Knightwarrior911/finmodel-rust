@@ -1,7 +1,6 @@
-"""
-Browser navigation for IB research.
+"""Browser navigation for IB research.
 Google search, company IR, Bloomberg, cookie handling.
-Uses Playwright via BrowserSession (real Chrome profile).
+Uses nodriver Tab via BrowserSession.
 """
 
 import asyncio
@@ -15,26 +14,23 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserNav:
-    """High-level navigation on BrowserSession (Playwright-backed)."""
+    """High-level navigation on BrowserSession (nodriver-backed)."""
 
     def __init__(self, session: BrowserSession):
         self.session = session
 
     async def google_search(self, query: str) -> str:
-        """Search Google, return page text. Handles consent redirects + cookies."""
+        """Search Google, return page text. Handles consent redirects."""
         url = f"https://www.google.com/search?q={quote(query)}"
         try:
-            page = await self.session.goto(url)
+            tab = await self.session.goto(url)
         except Exception:
-            # Navigation interrupted by consent/region redirect — recover current page
             await asyncio.sleep(2)
-            page = self.session.default_page
-        if page:
-            await self.handle_cookies(page)
+            tab = self.session.default_page
+        if tab:
+            await self.handle_cookies(tab)
         await asyncio.sleep(1)
-        if not page:
-            page = self.session.default_page
-        return await self.session.get_text(page) if page else ""
+        return await self.session.get_text(tab) if tab else ""
 
     async def google_search_operators(
         self, query: str, site: str = None, date_range: str = None,
@@ -58,7 +54,6 @@ class BrowserNav:
         text = await self.google_search(
             f'"{company_name}" investor relations annual report'
         )
-        # Parse text for IR URLs (ir.company.com, company.com/investors)
         for line in text.split("\n"):
             if "investor" in line.lower() and (".com" in line or "http" in line):
                 return line.strip()
@@ -67,7 +62,7 @@ class BrowserNav:
     # --- SEC EDGAR ---
 
     async def open_sec_filing_list(self, cik: str, form_type: str = "10-K") -> str:
-        """Open SEC EDGAR legacy CGI filing list. Returns page text."""
+        """Open SEC EDGAR filing list. Returns page text."""
         cik_stripped = cik.lstrip("0")
         url = (
             f"https://www.sec.gov/cgi-bin/browse-edgar"
@@ -80,60 +75,65 @@ class BrowserNav:
     # --- Bloomberg ---
 
     async def search_bloomberg(self, query: str) -> str:
-        """
-        Search Bloomberg using their own search page.
-        CRITICAL: Never Google site:bloomberg.com — direct URLs 404.
-        """
+        """Search Bloomberg. CRITICAL: Never Google site:bloomberg.com — direct URLs 404."""
         url = f"https://www.bloomberg.com/search?query={quote(query)}"
-        page = await self.session.goto(url)
-        await asyncio.sleep(2)  # Bloomberg is JS-heavy
-        return await self.session.get_text(page)
+        tab = await self.session.goto(url)
+        await asyncio.sleep(2)
+        return await self.session.get_text(tab)
 
     # --- Company IR Navigation ---
 
     async def navigate_ir_site(self, ir_url: str) -> str:
         """Navigate to company IR page, handle cookies, return text."""
-        page = await self.session.goto(ir_url)
-        await self.handle_cookies(page)
+        tab = await self.session.goto(ir_url)
+        await self.handle_cookies(tab)
         await asyncio.sleep(1)
-        return await self.session.get_text(page)
+        return await self.session.get_text(tab)
 
     # --- Cookie Handling ---
 
     async def handle_cookies(self, page=None) -> bool:
-        """Detect and dismiss cookie popups."""
-        pg = page or self.session.default_page
-        if not pg:
+        """Detect and dismiss cookie popups via JS (works with nodriver Tab)."""
+        tab = page or self.session.default_page
+        if not tab:
             return False
 
-        cookie_texts = [
-            "Accept All", "Accept All Cookies", "Accept Cookies",
-            "Accept", "Accept and Continue", "I Accept",
-            "Allow All", "Allow Cookies",
-        ]
-
         try:
-            for text in cookie_texts:
-                btn = pg.locator(f"button:has-text('{text}')")
-                if await btn.count() > 0:
-                    await btn.first.click()
-                    await asyncio.sleep(0.5)
-                    logger.info(f"Cookie accepted: '{text}'")
-                    return True
+            result = await tab.evaluate("""(() => {
+                const labels = [
+                    'Accept All', 'Accept All Cookies', 'Accept Cookies',
+                    'Accept and Continue', 'Accept & Continue', 'I Accept',
+                    'Allow All', 'Allow Cookies', 'Accept', 'Agree',
+                    'Akzeptieren', 'Accepter', 'Aceptar', 'Accetta'
+                ];
 
-            # Try common cookie accept selectors
-            selectors = [
-                "#onetrust-accept-btn-handler",
-                '[aria-label="Accept all cookies"]',
-                '[aria-label="Accept Cookies"]',
-                ".cookie-consent-accept",
-            ]
-            for sel in selectors:
-                el = pg.locator(sel)
-                if await el.count() > 0:
-                    await el.first.click()
-                    await asyncio.sleep(0.5)
-                    return True
+                // OneTrust button (most common)
+                const ot = document.getElementById('onetrust-accept-btn-handler');
+                if (ot && ot.offsetParent !== null) { ot.click(); return 'onetrust'; }
+
+                // Common aria labels
+                const ariaLabels = ['Accept all cookies', 'Accept Cookies'];
+                for (const label of ariaLabels) {
+                    const el = document.querySelector(`[aria-label="${label}"]`);
+                    if (el && el.offsetParent !== null) { el.click(); return label; }
+                }
+
+                // Buttons/links by text content
+                const clickable = Array.from(
+                    document.querySelectorAll('button, a[role="button"], a[class*="cookie"], a[class*="consent"]')
+                );
+                for (const el of clickable) {
+                    const t = el.textContent.trim();
+                    if (labels.some(l => t === l || t.startsWith(l))) {
+                        if (el.offsetParent !== null) { el.click(); return t; }
+                    }
+                }
+                return null;
+            })()""")
+            if result:
+                logger.info(f"Cookie accepted: {result}")
+                await asyncio.sleep(0.5)
+                return True
         except Exception:
             pass
 

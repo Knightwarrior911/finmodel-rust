@@ -479,10 +479,12 @@ class ResearchAgent:
         )
 
         # Write Excel
+        self._last_xl_path = None
         try:
             writer = ResearchExcelWriter()
             xl_path = writer.write_ev_bridge(ev)
             logger.info(f"EV bridge Excel: {xl_path}")
+            self._last_xl_path = xl_path
         except Exception as e:
             logger.warning(f"Excel write failed: {e}")
 
@@ -651,15 +653,19 @@ def ifrs_analyze_sync(company: str, year: str = "2025", country: str = "",
     return asyncio.run(_run())
 
 
-def ev_bridge_sync(ticker: str):
-    """Synchronous EV bridge entry point."""
+def ev_bridge_sync(ticker: str) -> str:
+    """Synchronous EV bridge entry point. Prints Excel path if written."""
     async def _run():
         agent = ResearchAgent()
         bridge = await agent.ev_bridge_analyze(ticker)
+        xl = getattr(agent, "_last_xl_path", None)
         await agent.close()
-        return bridge
+        return bridge, xl
 
-    return asyncio.run(_run())
+    result, xl_path = asyncio.run(_run())
+    if xl_path:
+        print(f"\nExcel: {xl_path}")
+    return result
 
 
 def print_result(result: ResearchResult):
