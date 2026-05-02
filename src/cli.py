@@ -1,14 +1,35 @@
 """
 Usage:
-  python model.py --ticker AAPL
-  python model.py --ticker AAPL --periods-historical 5 --periods-projected 5
-  python model.py --ticker AAPL --force
+  python -m src.cli --ticker AAPL
+  python -m src.cli --ticker AAPL --periods-historical 5 --periods-projected 5
+  python -m src.cli --ticker AAPL --force
+  python -m src.cli --ask "What is Apple's revenue and net income?"
+  python -m src.cli --ask "Run a DCF on MSFT" --ticker MSFT
 
 Orchestrator-mode: no API key required. Pipeline runs from EDGAR/yfinance.
-Peer selection uses curated lookup tables (managed by Claude as orchestrator).
+LLM-orchestrator mode: use --ask to route any natural-language query through the
+top-level VirtualAnalystOrchestrator (requires ANTHROPIC_API_KEY).
 """
 import os
 import sys
+
+# Load .env before any key checks
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
+except ImportError:
+    pass
+
+# Dev mock: stub LLM calls before any module imports anthropic
+from src.dev_mock import is_active as _mock_active, patch_anthropic as _patch_anthropic
+if _mock_active():
+    _patch_anthropic()
+
+
+def _claude_cli_available() -> bool:
+    """True if the `claude` CLI is on PATH and responds to --version."""
+    import shutil
+    return shutil.which("claude") is not None
 
 
 def main():
@@ -16,8 +37,11 @@ def main():
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
     import argparse
-    parser = argparse.ArgumentParser(description="Build a 3-statement financial model from company filings")
-    parser.add_argument("--ticker", required=True, help="Company ticker or name (e.g. AAPL, Toyota)")
+    parser = argparse.ArgumentParser(description="Virtual Financial Analyst — model builder and research orchestrator")
+    parser.add_argument("--ask", default=None, help="Natural-language query routed through the LLM orchestrator")
+    parser.add_argument("--tool", default=None, help="Call a single orchestrator tool directly (no API key needed). E.g. search_sec_edgar, search_web, fetch_page, run_dcf, run_ev_bridge, run_public_comps")
+    parser.add_argument("--tool-args", default=None, help='JSON args for --tool. E.g. \'{"ticker":"AAPL"}\'')
+    parser.add_argument("--ticker", default=None, help="Company ticker or name (e.g. AAPL, Toyota)")
     parser.add_argument("--periods-historical", type=int, default=3)
     parser.add_argument("--periods-projected", type=int, default=5)
     parser.add_argument("--filing", default=None, help="Path to annual report PDF (overrides fetched data)")
@@ -27,7 +51,34 @@ def main():
     parser.add_argument("--no-dcf",   action="store_true", help="Skip DCF valuation tab")
     parser.add_argument("--no-comps", action="store_true", help="Skip trading comps tab")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
+    parser.add_argument("--deck", action="store_true", help="Also build a PowerPoint summary deck alongside the Excel model")
     args = parser.parse_args()
+
+    # Direct tool invocation — no API key needed, calls one tool and prints result
+    if args.tool:
+        import asyncio, json as _json
+        from src.orchestrator import _execute_tool
+        tool_args = _json.loads(args.tool_args) if args.tool_args else {}
+        # Convenience: inject --ticker into args if not in tool_args
+        if args.ticker and "ticker" not in tool_args:
+            tool_args["ticker"] = args.ticker
+        result = asyncio.run(_execute_tool(args.tool, tool_args))
+        print(result)
+        return
+
+    # LLM orchestrator mode — routes any natural-language query through the top-level brain
+    if args.ask:
+        from src.orchestrator import run_sync
+        result = run_sync(
+            query=args.ask,
+            ticker=args.ticker or "",
+            company="",
+        )
+        print(result)
+        return
+
+    if not args.ticker:
+        parser.error("--ticker is required when not using --ask")
 
     out_path = args.output or f"{args.ticker.replace('.', '_')}_model.xlsx"
 
@@ -41,7 +92,12 @@ def main():
     print(_hdr(f"Pre-flight: resolving {args.ticker}..."))
     # Orchestrator mode: always direct (no LLM required). API-driven preflight is opt-in via --llm.
     from src.preflight import run_preflight_direct, run_preflight
-    use_llm = bool(os.environ.get("ANTHROPIC_API_KEY")) and not args.direct
+    _has_llm_key = (
+        bool(os.environ.get("ANTHROPIC_API_KEY"))
+        or bool(os.environ.get("DEEPSEEK_API_KEY"))
+        or _claude_cli_available()
+    )
+    use_llm = (_has_llm_key or _mock_active()) and not args.direct
     preflight_fn = (run_preflight if use_llm else run_preflight_direct)
     try:
         cfg = preflight_fn(
@@ -397,6 +453,169 @@ def main():
             print(f"      ⚠ Verification loop passed with unverifiable flags")
     except Exception as e:
         print(f"      ⚠ Verification loop error: {e}")
+
+    if args.deck:
+        total += 1
+        deck_path = out_path.replace(".xlsx", "_Summary.pptx")
+        print(_hdr(f"Building PowerPoint summary deck → {deck_path}..."))
+        try:
+            _build_summary_deck(
+                company_name=cfg.company_name,
+                ticker=cfg.ticker,
+                currency=reconciled.currency or "USD",
+                model_output=model_output,
+                dcf_output=dcf_output,
+                public_comps_output=public_comps_output,
+                assumptions=assumptions,
+                deck_path=deck_path,
+            )
+            print(f"      ✓ Saved: {deck_path}")
+        except Exception as e:
+            print(f"      ⚠ Deck build failed: {e}")
+
+
+def _build_summary_deck(
+    company_name: str,
+    ticker: str,
+    currency: str,
+    model_output,
+    dcf_output,
+    public_comps_output,
+    assumptions,
+    deck_path: str,
+) -> None:
+    """Build a 4-6 slide PowerPoint summary deck from model outputs."""
+    import os
+    from src.research.pptx_writer import PPTXDeckWriter, ScorecardTile, verify
+
+    output_dir = os.path.dirname(os.path.abspath(deck_path))
+    filename = os.path.splitext(os.path.basename(deck_path))[0]
+
+    deck = PPTXDeckWriter(
+        firm="Virtual Analyst",
+        project=f"{company_name} — Financial Model",
+        output_dir=output_dir,
+    )
+
+    deck.add_cover(
+        f"{company_name} ({ticker}) — Financial Model Summary",
+        subtitle=f"{currency} | Virtual Analyst",
+    )
+
+    # Revenue & EBITDA line chart
+    periods = model_output.periods
+    rev_vals = model_output.income_statement.get("revenue") or []
+    ebit_vals = model_output.income_statement.get("ebit") or []
+    da_vals = model_output.income_statement.get("da") or []
+    ebitda_vals = [
+        (e or 0) + (d or 0)
+        for e, d in zip(ebit_vals, da_vals)
+    ]
+
+    if rev_vals and len(rev_vals) == len(periods):
+        # Scale to billions if large
+        scale = 1e9 if max((v or 0) for v in rev_vals) > 1e9 else 1e6
+        unit = "B" if scale == 1e9 else "M"
+        series = [{"label": "Revenue", "values": [round((v or 0) / scale, 2) for v in rev_vals]}]
+        if ebitda_vals and any(ebitda_vals):
+            series.append({"label": "EBITDA", "values": [round((v or 0) / scale, 2) for v in ebitda_vals]})
+        # Mark projected periods (suffix 'E') as dashed via target_series = first hist period label
+        hist_periods = [p for p in periods if p.endswith("A")]
+        deck.add_line_chart(
+            action_title=f"{company_name} revenue trend ({periods[0]}–{periods[-1]})",
+            x_labels=periods,
+            series=series,
+            target_series="Revenue",
+            y_format="{:." + ("1" if scale == 1e9 else "0") + "f}" + unit,
+            y_label=f"{currency} ({unit})",
+            source="SEC EDGAR / company filings + Virtual Analyst projections",
+        )
+
+    # Football field — only if at least one valuation method ran
+    ff_methods = []
+    current_price = assumptions.current_share_price if assumptions else None
+
+    if dcf_output:
+        # DCF range from sensitivity grid
+        if dcf_output.sensitivity_ebitda:
+            all_vals = [v for row in dcf_output.sensitivity_ebitda for v in row if v]
+            dcf_lo = min(all_vals)
+            dcf_hi = max(all_vals)
+        else:
+            mid = dcf_output.implied_price
+            dcf_lo = mid * 0.85
+            dcf_hi = mid * 1.15
+        ff_methods.append({
+            "label": "DCF (EBITDA mult)",
+            "low": round(dcf_lo, 2),
+            "high": round(dcf_hi, 2),
+            "mid": round(dcf_output.implied_price, 2),
+        })
+
+    if public_comps_output and public_comps_output.implied_price_high > 0:
+        ff_methods.append({
+            "label": "Public Comps",
+            "low": round(public_comps_output.implied_price_low, 2),
+            "high": round(public_comps_output.implied_price_high, 2),
+            "mid": round(public_comps_output.implied_price_median, 2),
+        })
+
+    if ff_methods:
+        deck.add_football_field(
+            action_title=f"{company_name} implied share price by methodology",
+            methods=ff_methods,
+            target_value=round(current_price, 2) if current_price else None,
+            target_label="Current Price",
+            value_format="${:,.2f}",
+            source="Virtual Analyst DCF + public comps",
+        )
+
+    # Comps comparison matrix — top 5 tier-1 peers
+    if public_comps_output and public_comps_output.peers:
+        tier1 = [p for p in public_comps_output.peers if p.tier == 1][:5]
+        if tier1:
+            def _mult(v):
+                return f"{v:.1f}x" if v else "NM"
+
+            entities = [p.name or p.ticker for p in tier1] + [company_name]
+            metrics = ["EV/EBITDA (LTM)", "EV/Revenue (LTM)", "P/E (LTM)"]
+            target_ebitda = public_comps_output.target_ebitda
+            target_revenue = public_comps_output.target_revenue
+            target_ni = public_comps_output.target_net_income
+            # Compute target EV from dcf_output or comps implied median
+            tgt_ev = (dcf_output.enterprise_value if dcf_output else None)
+
+            def _tgt_mult(numerator, denominator):
+                if tgt_ev and denominator and denominator > 0:
+                    return _mult(tgt_ev / denominator)
+                return "NM"
+
+            peer_rows = [
+                [_mult(p.ev_ebitda_ltm), _mult(p.ev_rev_ltm), _mult(p.pe_ltm)]
+                for p in tier1
+            ]
+            target_row = [
+                _tgt_mult(tgt_ev, target_ebitda),
+                _tgt_mult(tgt_ev, target_revenue),
+                "NM",
+            ]
+            values = peer_rows + [target_row]
+
+            deck.add_comparison_matrix(
+                action_title=f"{company_name} trades at a discount to peers on EV/EBITDA",
+                entities=entities,
+                metrics=metrics,
+                values=values,
+                target_label=company_name,
+                source="Bloomberg, yfinance",
+                summary_stats=True,
+            )
+
+    path = deck.save(filename)
+    qa = verify(path)
+    if qa["critical"]:
+        for c in qa["critical"]:
+            print(f"      ⚠ Deck QA: {c}")
 
 
 if __name__ == "__main__":

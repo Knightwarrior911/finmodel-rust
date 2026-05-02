@@ -34,6 +34,7 @@ from src.research.deal_synthesis import synthesize_deal as _synthesize_deal
 from kb.sectors import detect_sector
 from kb.ev_bridge import EVBridgeInput, format_ev_bridge
 from src.research.output_writer import ResearchExcelWriter
+from src.research.pptx_output import ResearchPPTXWriter
 
 logger = logging.getLogger(__name__)
 
@@ -567,7 +568,7 @@ class ResearchAgent:
             field_urls=field_urls,
         )
 
-        # Write Excel
+        # Write Excel + PPT
         self._last_xl_path = None
         try:
             writer = ResearchExcelWriter()
@@ -576,6 +577,11 @@ class ResearchAgent:
             self._last_xl_path = xl_path
         except Exception as e:
             logger.warning(f"Excel write failed: {e}")
+        try:
+            pptx_writer = ResearchPPTXWriter()
+            pptx_writer.write_ev_bridge_deck(ev)
+        except Exception as e:
+            logger.warning(f"PPT deck write failed: {e}")
 
         return format_ev_bridge(ev)
 
@@ -595,7 +601,8 @@ class ResearchAgent:
 
         # --- PATH A: US Company (ticker provided, not international suffix) ---
         intl_suffixes = ('.NS', '.BO', '.DE', '.PA', '.AS', '.L', '.SW',
-                        '.MI', '.MC', '.IR', '.CO', '.T', '.HK')
+                        '.MI', '.MC', '.IR', '.CO', '.T', '.HK',
+                        '.ST', '.OL', '.HE', '.CPH')
         is_intl = ticker and any(ticker.endswith(s) for s in intl_suffixes)
 
         if ticker and not is_intl:
@@ -644,13 +651,21 @@ class ResearchAgent:
                                 period=f"FY{year}",
                                 notes_ref=notes)
 
-            # Write Excel
+            # Write Excel + PPT
             try:
                 writer = ResearchExcelWriter()
                 writer.write_ifrs_bridge(inputs, out, sec_company.name or company,
                                         f"FY{year}", revenue=revenue or 0, notes=notes)
             except Exception as e:
                 logger.warning(f"Excel write failed: {e}")
+            try:
+                pptx_writer = ResearchPPTXWriter()
+                pptx_writer.write_ifrs_bridge_deck(
+                    inputs, out, sec_company.name or company,
+                    f"FY{year}", revenue=revenue or 0,
+                )
+            except Exception as e:
+                logger.warning(f"PPT deck write failed: {e}")
 
             return bridge_text
 
@@ -660,7 +675,34 @@ class ResearchAgent:
             logger.info(f"IFRS analysis (browser): {company} {year}")
             doc, fin = await pipeline.run_full_pipeline(company, year, country, ticker=ticker)
 
-            if not fin.rou_depreciation or not fin.lease_interest:
+            # Overlay extraction cache for P&L fields the browser pipeline may miss
+            if ticker:
+                try:
+                    import json as _json, os as _os
+                    _cache_path = _os.path.join("extraction_cache", f"{ticker.replace('.', '_')}.json")
+                    if _os.path.exists(_cache_path):
+                        _c = _json.load(open(_cache_path))
+                        _is = _c.get("income_statement", {})
+                        _n  = len(_is.get("revenue", []))
+                        def _last(key):
+                            vals = _is.get(key, [])
+                            return next((v for v in reversed(vals) if v is not None), None)
+                        if not fin.operating_income: fin.operating_income = _last("ebit")
+                        if not fin.revenue:          fin.revenue          = _last("revenue")
+                        if not fin.depreciation_total: fin.depreciation_total = _last("da")
+                        if not fin.ebita:            fin.ebita            = _last("ebita")
+                        # Always prefer cache for IFRS lease items — regex picks wrong year column
+                        _li = _last("lease_interest");   fin.lease_interest   = _li if _li is not None else fin.lease_interest
+                        _rd = _last("rou_depreciation"); fin.rou_depreciation = _rd if _rd is not None else fin.rou_depreciation
+                        if not fin.reported_ebitda:
+                            _ebit = _last("ebit"); _da = _last("da")
+                            if _ebit and _da: fin.reported_ebitda = _ebit + _da
+                        logger.info(f"Cache overlay: EBIT={fin.operating_income}, DA={fin.depreciation_total}, "
+                                    f"ROU={fin.rou_depreciation}, LeaseInt={fin.lease_interest}")
+                except Exception as _e:
+                    logger.warning(f"Cache overlay failed: {_e}")
+
+            if not fin.rou_depreciation and not fin.lease_interest:
                 return (f"Could not extract lease data for {company} {year}. "
                         f"ROU depr: {fin.rou_depreciation}, Lease int: {fin.lease_interest}")
 
@@ -673,16 +715,22 @@ class ResearchAgent:
                 ebitda = fin.reported_ebitda
                 ebitda_source = "Reported EBITDA (from annual report)"
             else:
-                ebitda = (fin.operating_income or 0) + da_total
-                ebitda_source = f"Computed: EBIT ({fin.operating_income:,.0f}) + D&A ({da_total:,.0f})"
+                ebit_v = fin.operating_income or 0
+                ebitda = ebit_v + da_total
+                ebitda_source = f"Computed: EBIT ({ebit_v:,.0f}) + D&A ({da_total:,.0f})"
 
+            ebit_v    = fin.operating_income or 0
+            rou_depr  = fin.rou_depreciation or 0
+            lease_int = fin.lease_interest   or 0
+            short_r   = fin.short_term_rent  or 0
+            ebita     = fin.ebita or ebit_v
             inputs = IFRSAdjustmentInput(
-                rou_depreciation=fin.rou_depreciation or 0,
-                lease_interest=fin.lease_interest or 0,
-                short_term_rent=fin.short_term_rent or 0,
-                reported_ebit=fin.operating_income or 0,
+                rou_depreciation=rou_depr,
+                lease_interest=lease_int,
+                short_term_rent=short_r,
+                reported_ebit=ebit_v,
                 reported_ebitda=ebitda,
-                reported_ebita=fin.operating_income or 0,
+                reported_ebita=ebita,
                 standard_depreciation=da_total,
                 accounting_standard=fin.accounting_standard or "IFRS",
             )
@@ -690,26 +738,34 @@ class ResearchAgent:
             out = convert_ifrs_to_us_gaap(inputs, revenue=fin.revenue or 0)
 
             notes = {
-                'ebit_src': f'Annual Report p.164 — Operating Result = {fin.operating_income:,.0f}',
-                'da_src': f'Annual Report p.164 — Depreciation & Amortisation = {da_total:,.0f}',
+                'ebit_src': f'Annual Report — Operating Result = {ebit_v:,.0f}',
+                'da_src': f'Annual Report — Depreciation & Amortisation = {da_total:,.0f}',
                 'ebitda_src': ebitda_source,
-                'rou_depr': f'Annual Report Note 15.3, p.192 — ROU Depreciation = {fin.rou_depreciation:,.0f}',
-                'lease_int': f'Annual Report Note 10, p.183 — Interest on Lease Liabilities = {fin.lease_interest:,.0f}',
-                'short_term': f'Annual Report Note 15.3 — Short-term rent = {fin.short_term_rent:,.0f} (excluded)',
-                'revenue_src': f'Annual Report p.164 — Revenue = {fin.revenue:,.0f}',
+                'rou_depr': f'Annual Report — ROU Depreciation = {rou_depr:,.0f}',
+                'lease_int': f'Annual Report — Interest on Lease Liabilities = {lease_int:,.0f}',
+                'short_term': f'Annual Report — Short-term rent = {short_r:,.0f} (excluded)',
+                'revenue_src': f'Annual Report — Revenue = {fin.revenue or 0:,.0f}',
             }
 
             bridge_text = format_bridge(inputs, out, revenue=fin.revenue or 0,
                                 company=company, period=f"FY{year}",
                                 notes_ref=notes)
 
-            # Write Excel
+            # Write Excel + PPT
             try:
                 writer = ResearchExcelWriter()
                 writer.write_ifrs_bridge(inputs, out, company, f"FY{year}",
-                                        revenue=fin.revenue or 0, notes=notes)
+                                        revenue=fin.revenue or 0, notes=notes,
+                                        pdf_url=doc.pdf_url or "")
             except Exception as e:
                 logger.warning(f"Excel write failed: {e}")
+            try:
+                pptx_writer = ResearchPPTXWriter()
+                pptx_writer.write_ifrs_bridge_deck(
+                    inputs, out, company, f"FY{year}", revenue=fin.revenue or 0,
+                )
+            except Exception as e:
+                logger.warning(f"PPT deck write failed: {e}")
 
             return bridge_text
 
