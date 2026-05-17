@@ -408,8 +408,18 @@ def extract_financials_from_pdf(
             raw = raw[4:]
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Financials extractor returned invalid JSON: {e}\nRaw: {raw[:300]}") from e
+    except json.JSONDecodeError:
+        # The model sometimes wraps the JSON in narrative prose ("Consolidated
+        # only. Primary statements ...\n{ ... }"). Salvage the outermost JSON
+        # object before failing — otherwise the whole company is dropped.
+        a, b = raw.find("{"), raw.rfind("}")
+        try:
+            data = json.loads(raw[a:b + 1]) if a != -1 and b > a else None
+        except json.JSONDecodeError:
+            data = None
+        if data is None:
+            raise ValueError(
+                f"Financials extractor returned invalid JSON\nRaw: {raw[:300]}")
 
     is_dict     = data.get("income_statement", {})
     bs_dict     = data.get("balance_sheet", {})
