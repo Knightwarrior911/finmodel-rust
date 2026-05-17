@@ -67,7 +67,9 @@ def _looks_like_company(url: str, company: str) -> bool:
 
 
 def _download(url: str, dest):
-    r = requests.get(url, headers=_UA, timeout=90, stream=True)
+    pu = urlparse(url)
+    headers = {**_UA, "Referer": f"{pu.scheme}://{pu.netloc}/"}
+    r = requests.get(url, headers=headers, timeout=90, stream=True)
     r.raise_for_status()
     head = next(r.iter_content(1024), b"")
     if not head.startswith(b"%PDF"):

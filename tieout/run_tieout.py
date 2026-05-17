@@ -150,6 +150,13 @@ def run(only=None, retries=2, quiet=False):
                 continue
             gt = build_ground_truth(tk, row["company"], row["currency"],
                                     str(pdf))
+            if gt["coverage"]["trusted"] == 0:
+                # Ground truth could not be established (e.g. unusual report
+                # layout). Skip rather than emit a meaningless 0/0 — it must
+                # not poison the aggregate or crash the summary.
+                summary["skipped"][tk] = "ground truth empty (0 trusted cells)"
+                print(f"[skip] {tk}: ground truth empty", file=sys.stderr)
+                continue
             model, cached = _model_extract(tk, str(pdf), gt["years"], fp,
                                            retries)
             pct, denom, matched, per_stmt, rows = _compare(gt, model)
@@ -192,7 +199,8 @@ def run(only=None, retries=2, quiet=False):
 
     if not quiet:
         for tk, c in summary["companies"].items():
-            print(f"  {tk:12s} {c['pct']:6}%  {c['matched']}/{c['trusted']}",
+            pv = c["pct"] if c["pct"] is not None else 0.0
+            print(f"  {tk:12s} {pv:6.2f}%  {c['matched']}/{c['trusted']}",
                   file=sys.stderr)
         for tk, why in summary["skipped"].items():
             print(f"  {tk:12s} SKIPPED  {why}", file=sys.stderr)
