@@ -1,0 +1,130 @@
+{
+  "ticker": "ATCO-B.ST",
+  "company": "Atlas Copco AB",
+  "currency_expected": "SEK",
+  "currency_reported": "SEK",
+  "years": [
+    2022,
+    2023
+  ],
+  "header_column_order": [
+    2023,
+    2022
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2022": 141325,
+        "2023": 172664
+      },
+      "cogs": {
+        "2022": 81941,
+        "2023": 97547
+      },
+      "gross_profit": {
+        "2022": 59384,
+        "2023": 75117
+      },
+      "rd": {
+        "2022": 5389,
+        "2023": 6693
+      },
+      "da": {
+        "2022": 6333,
+        "2023": 7761
+      },
+      "ebit": {
+        "2022": 30216,
+        "2023": 37091
+      },
+      "income_tax": {
+        "2022": 6562,
+        "2023": 8390
+      },
+      "net_income": {
+        "2022": 23482,
+        "2023": 28052
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2022": 11254,
+        "2023": 10887
+      },
+      "accounts_receivable": {
+        "2022": 29910,
+        "2023": 32680
+      },
+      "inventory": {
+        "2022": 27219,
+        "2023": 29283
+      },
+      "total_current_assets": {
+        "2022": 80212,
+        "2023": 86207
+      },
+      "ppe_net": {
+        "2022": 12720,
+        "2023": 14358
+      },
+      "intangibles_net": {
+        "2022": 67067,
+        "2023": 67501
+      },
+      "total_assets": {
+        "2022": 172301,
+        "2023": 182684
+      },
+      "accounts_payable": {
+        "2022": 19145,
+        "2023": 17792
+      },
+      "long_term_debt": {
+        "2022": 23770,
+        "2023": 29967
+      },
+      "total_equity": {
+        "2022": 80026,
+        "2023": 91500
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2022": 21377,
+        "2023": 28084
+      },
+      "capex": {
+        "2022": 3660,
+        "2023": 3987
+      },
+      "cfi": {
+        "2022": -15503,
+        "2023": -9388
+      },
+      "dividends_paid": {
+        "2022": 9250,
+        "2023": 11203
+      },
+      "cff": {
+        "2022": -14651,
+        "2023": -18276
+      },
+      "net_change_cash": {
+        "2022": -8777,
+        "2023": 420
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 85,
+    "balance_sheet": 86,
+    "cash_flow_statement": 88
+  },
+  "coverage": {
+    "trusted": 48,
+    "unverifiable": 0
+  },
+  "passes_disagreed": [],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\ATCO-B.ST\\annual_report.pdf",
+  "face_start_page": 87
+}

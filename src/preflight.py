@@ -11,17 +11,59 @@ SYSTEM_PROMPT = """You are a financial analyst tool. Given a company name or tic
   "company_name": "full legal company name",
   "domicile": "US" or "non-US",
   "currency": "reporting currency ISO code",
-  "fiscal_year_end": "month abbreviation e.g. Dec, Sep, Mar",
+  "fiscal_year_end": "MM-DD format e.g. 12-31 for December, 09-30 for September, 03-31 for March",
   "periods_historical": 3,
   "periods_projected": 5,
   "ambiguity": null or "clarification question if ticker is ambiguous"
 }
-Return ONLY valid JSON. No prose."""
+Return ONLY valid JSON. No prose.
+
+Exchange suffix rules — use EXACTLY as given:
+- .ST = Stockholm (Nasdaq Stockholm), e.g. ATCO-B.ST = Atlas Copco B-share
+- .L  = London Stock Exchange
+- .DE = Xetra (Frankfurt)
+- .PA = Euronext Paris
+- .T  = Tokyo Stock Exchange
+- No suffix = US (NYSE/NASDAQ)
+
+IMPORTANT: The ticker suffix tells you the exchange. ATCO-B.ST is NOT AstraZeneca (AZN). Respect the suffix."""
 
 _MONTH_ABR = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
     7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
 }
+
+_MONTH_TO_NUM = {v.lower(): k for k, v in _MONTH_ABR.items()}
+_MONTH_TO_LAST_DAY = {1:31,2:28,3:31,4:30,5:31,6:30,7:31,8:31,9:30,10:31,11:30,12:31}
+
+
+def _normalize_fy_end(raw: str) -> str:
+    """Coerce any fiscal_year_end format to MM-DD.
+
+    Accepts: '12-31', 'Dec-31', 'Dec', 'december', '12/31'
+    """
+    if not raw:
+        return "12-31"
+    raw = raw.strip().replace("/", "-")
+    # Already MM-DD
+    parts = raw.split("-")
+    if len(parts) == 2:
+        try:
+            m, d = int(parts[0]), int(parts[1])
+            return f"{m:02d}-{d:02d}"
+        except ValueError:
+            # e.g. 'Dec-31'
+            m_num = _MONTH_TO_NUM.get(parts[0].lower()[:3])
+            if m_num:
+                try:
+                    return f"{m_num:02d}-{int(parts[1]):02d}"
+                except ValueError:
+                    return f"{m_num:02d}-{_MONTH_TO_LAST_DAY[m_num]:02d}"
+    # Just a month name e.g. 'Dec'
+    m_num = _MONTH_TO_NUM.get(raw.lower()[:3])
+    if m_num:
+        return f"{m_num:02d}-{_MONTH_TO_LAST_DAY[m_num]:02d}"
+    return "12-31"
 
 
 def _edgar_preflight(ticker: str) -> tuple[str, str] | None:
@@ -125,14 +167,8 @@ def run_preflight(
     filing_override: str | None = None,
     force: bool = False,
 ) -> ModelConfig:
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=512,
-        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": f"Company or ticker: {user_input}"}],
-    )
-    raw = response.content[0].text.strip()
+    from src.extractor import _llm_complete
+    raw = _llm_complete(SYSTEM_PROMPT, f"Company or ticker: {user_input}", max_tokens=512)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -146,7 +182,7 @@ def run_preflight(
         company_name=data["company_name"],
         domicile=data["domicile"],
         currency=data["currency"],
-        fiscal_year_end=data["fiscal_year_end"],
+        fiscal_year_end=_normalize_fy_end(data.get("fiscal_year_end", "12-31")),
         periods_historical=periods_historical,
         periods_projected=periods_projected,
         filing_override=filing_override,

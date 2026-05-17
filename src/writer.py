@@ -62,28 +62,30 @@ IS_R: dict[str, int] = {
     # spacer 17
     "ebit": 18,     "ebit_margin": 19,   # EBIT before EBITDA (standard order)
     # spacer 20
-    "da": 21,
-    "ebitda": 22,   "ebitda_margin": 23, # EBITDA = EBIT + D&A add-back
-    # spacer 24
-    "int_exp": 25,  "int_inc": 26,
-    "ebt": 27,
-    "tax": 28,      "tax_rate": 29,
-    # spacer 30
-    "net_income": 31, "net_margin": 32,
-    "nci_income": 33,      # Less: Net Income to NCI
-    "ni_common": 34,       # Net Income to Common Stockholders
-    "ni_common_margin": 35,
-    # spacer 36
-    "eps_diluted": 37, "eps_basic": 38,
-    "shares_diluted": 39, "shares_basic": 40,
-    # spacer 41
-    "drv_header": 42,
-    "case_input": 43,  # active scenario selector (blue input)
-    "case_label": 44,  # CHOOSE formula display
-    "drv_rev_g": 45, "drv_gm": 46,
-    "drv_sga": 47,   "drv_rd": 48,
-    "drv_da": 49,    "drv_tax": 50,
-    "drv_int": 51,   "drv_shares": 52,
+    "ebita": 21,    "ebita_margin": 22,  # EBIT + amortisation of intangibles
+    # spacer 23
+    "da": 24,
+    "ebitda": 25,   "ebitda_margin": 26, # EBITDA = EBIT + D&A add-back
+    # spacer 27
+    "int_exp": 28,  "int_inc": 29,
+    "ebt": 30,
+    "tax": 31,      "tax_rate": 32,
+    # spacer 33
+    "net_income": 34, "net_margin": 35,
+    "nci_income": 36,      # Less: Net Income to NCI
+    "ni_common": 37,       # Net Income to Common Stockholders
+    "ni_common_margin": 38,
+    # spacer 39
+    "eps_diluted": 40, "eps_basic": 41,
+    "shares_diluted": 42, "shares_basic": 43,
+    # spacer 44
+    "drv_header": 45,
+    "case_input": 46,  # active scenario selector (blue input)
+    "case_label": 47,  # CHOOSE formula display
+    "drv_rev_g": 48, "drv_gm": 49,
+    "drv_sga": 50,   "drv_rd": 51,
+    "drv_da": 52,    "drv_tax": 53,
+    "drv_int": 54,   "drv_shares": 55,
 }
 
 BS_R: dict[str, int] = {
@@ -442,13 +444,21 @@ class _Fmt:
     _PX = "$#,##0.00_);($#,##0.00);\"-\";@"  # share prices — 2 decimals
     _BL = "\"-\";;\"-\""                # always shows "–" (for check rows)
 
-    def __init__(self, wb: xlsxwriter.Workbook, font: str = "Arial", sz: int = 10):
+    def __init__(self, wb: xlsxwriter.Workbook, font: str = "Arial", sz: int = 10,
+                 currency: str = "USD"):
         def mk(**kw):
             return wb.add_format({"font_name": font, "font_size": sz,
                                    "valign": "vcenter", **kw})
 
         B, Bk, G, N = self.BLUE, self.BLACK, self.GREEN, self.NAVY
-        D, P, Pl, M = self._D, self._P, self._N, self._M
+        if currency == "USD":
+            D = "$#,##0_);($#,##0);\"-\";@"
+            self._PX = "$#,##0.00_);($#,##0.00);\"-\";@"
+        else:
+            D = "#,##0_);(#,##0);\"-\";@"
+            self._PX = "#,##0.00_);(#,##0.00);\"-\";@"
+        self._D = D
+        P, Pl, M = self._P, self._N, self._M
         HS = {"right": 2, "right_color": self.SGRAY}   # hist | proj separator
 
         # ── labels ─────────────────────────────────────────────────────────
@@ -590,7 +600,7 @@ class ExcelWriter:
     def write(self) -> None:
         wb = xlsxwriter.Workbook(self.path)
         wb.set_calc_mode("auto")
-        fmt = _Fmt(wb)
+        fmt = _Fmt(wb, currency=self.ccy)
         tabs = [
             ("Cover",       "#255BE3"),
             ("Assumptions", "#FAEFD3"),
@@ -674,7 +684,7 @@ class ExcelWriter:
         last_col = self._col(self.n - 1)
         self._span(ws, 2, LABEL, last_col, title, fmt.hbar)
         ws.write(4, LABEL, subtitle, fmt.hsub)
-        ws.write(5, LABEL, f"({self.ccy} $ in millions, unless noted)", fmt.hunit)
+        ws.write(5, LABEL, f"({self.ccy} in millions, unless noted)", fmt.hunit)
         # Active case display (row 9) — green link to Assumptions tab
         ws.write(8, LABEL, "Active Case:", fmt.lbl_b)
         ws.write_formula(8, DATA0, "=Assumptions!$D$10", fmt.xt)
@@ -785,7 +795,7 @@ class ExcelWriter:
         ws.set_row(R["title"], 36)
         self._span(ws, R["title"], LABEL, ASSUMP_DATA0 + 4, f"{self.co} — Valuation Model", fmt.hbar)
         ws.write(R["subtitle"], LABEL, "3-Statement + DCF Valuation", fmt.hsub)
-        ws.write(R["as_of"], LABEL, f"As of {date.today().isoformat()}  |  ({self.ccy} $ in millions)", fmt.hunit)
+        ws.write(R["as_of"], LABEL, f"As of {date.today().isoformat()}  |  ({self.ccy} in millions)", fmt.hunit)
 
         # Summary block
         ws.set_row(R["summary_hdr"], 18)
@@ -1193,7 +1203,7 @@ class ExcelWriter:
 
         elif key == "ebitda":
             ebit_r = rm.get("ebit", IS_R.get("ebit", 18))
-            da_r   = rm.get("da",   IS_R.get("da",   21))
+            da_r   = rm.get("da",   IS_R.get("da",   24))
             ebit_c = self._cell(ebit_r, j); da_c = self._cell(da_r, j)
             all_e = self._av(is_d, "ebit"); all_d = self._av(is_d, "da")
             cache = ((all_e[j] or 0) + (all_d[j] or 0)) if j < len(all_e) else None
@@ -1338,9 +1348,23 @@ class ExcelWriter:
             prev_c = self._cell(rm[key], ci - 1)
             return f"={prev_c}"
 
+        elif key == "ebita":
+            ebit_r = rm.get("ebit", IS_R.get("ebit", 18))
+            # Amortisation of intangibles = last hist EBITA − last hist EBIT (held flat)
+            all_ebita = self._av(self.o.income_statement, "ebita")
+            all_ebit  = self._av(self.o.income_statement, "ebit")
+            last_ebita_v = next((v for v in reversed(all_ebita[:n_h]) if v is not None), None)
+            last_ebit_v  = next((v for v in reversed(all_ebit[:n_h]) if v is not None), None)
+            amort_int = 0
+            if last_ebita_v is not None and last_ebit_v is not None:
+                amort_int = round(last_ebita_v - last_ebit_v)
+            if amort_int == 0:
+                return f"={cell(ebit_r)}"
+            return f"={cell(ebit_r)}+{amort_int}"
+
         elif key == "ebitda":
             ebit_r = rm.get("ebit", IS_R.get("ebit", 18))
-            da_r   = rm.get("da",   IS_R.get("da",   21))
+            da_r   = rm.get("da",   IS_R.get("da",   24))
             return f"={cell(ebit_r)}+{cell(da_r)}"
 
         elif key == "interest_expense":
@@ -1386,7 +1410,7 @@ class ExcelWriter:
         return None
 
     _IS_BLUE_HIST: frozenset = frozenset({
-        "revenue", "cogs", "sga", "rd", "da", "ebit", "net_income",
+        "revenue", "cogs", "sga", "rd", "da", "ebit", "ebita", "net_income",
         "interest_expense", "interest_income", "income_tax", "nci_income_loss",
         "eps_diluted", "eps_basic", "shares_diluted", "shares_basic",
         "utility_om", "utility_taxes_other",
@@ -2125,7 +2149,10 @@ class ExcelWriter:
         h_ni   = self._hv(o.income_statement,    "net_income")
         # D&A add-back: read from CFS first (authoritative total); IS is fallback for companies
         # where the CFS tag wasn't populated (both should have same value after fetcher override).
-        h_da   = self._hv(o.cash_flow_statement, "da") or self._hv(o.income_statement, "da")
+        # Use any() check — a list of Nones is truthy in Python, so plain `or` would short-circuit
+        # before reaching the IS fallback, producing [None,...] that zeroes out DA in wc_other.
+        _cfs_h_da = self._hv(o.cash_flow_statement, "da")
+        h_da = _cfs_h_da if any(v is not None for v in _cfs_h_da) else self._hv(o.income_statement, "da")
         h_cap  = self._hv(o.cash_flow_statement, "capex")
         h_cfi  = self._hv(o.cash_flow_statement, "cfi")
         h_div  = self._hv(o.cash_flow_statement, "dividends_paid")
@@ -2188,7 +2215,8 @@ class ExcelWriter:
         # Both tabs share the same authoritative CFS value after fetcher override.
         r = R["da"]
         ws.write(r, LABEL, "  D&A (add-back)", fmt.lbl)
-        all_da = self._av(o.cash_flow_statement, "da") or self._av(o.income_statement, "da")
+        _cfs_all_da = self._av(o.cash_flow_statement, "da")
+        all_da = _cfs_all_da if any(v is not None for v in _cfs_all_da) else self._av(o.income_statement, "da")
         for j in range(self.n):
             f = fmt.xt_hs if self._hs(j) else fmt.xt
             self._fmla(ws, r, j, _xr("IS", self._isr("da"), self._col(j)), f, all_da[j])
@@ -2491,17 +2519,17 @@ class ExcelWriter:
                                    "valign": "vcenter", **kw})
         factor_f = _mk(font_color=_Fmt.BLACK, align="right", num_format="0.0000")
         price_f  = _mk(font_color=_Fmt.BLACK, align="right",
-                        num_format=_Fmt._PX, bold=True, top=2)
+                        num_format=fmt._PX, bold=True, top=2)
         price_xt = _mk(font_color=_Fmt.GREEN, align="right",
-                        num_format=_Fmt._PX, bold=True, top=2)
+                        num_format=fmt._PX, bold=True, top=2)
         # Sensitivity: base cell (highlighted), base row, normal cell
         # DCF inline tables use SAME-sheet refs → black font per spec
         sens_base_f = _mk(font_color="#FFFFFF",    align="right",
-                           num_format=_Fmt._PX, bold=True, bg_color=_Fmt.NAVY)
+                           num_format=fmt._PX, bold=True, bg_color=_Fmt.NAVY)
         sens_hi_f   = _mk(font_color=_Fmt.BLACK,   align="right",
-                           num_format=_Fmt._PX, bg_color="#DEEAF1")  # black, light blue row
+                           num_format=fmt._PX, bg_color="#DEEAF1")  # black, light blue row
         sens_norm_f = _mk(font_color=_Fmt.BLACK,   align="right",
-                           num_format=_Fmt._PX)   # black: same-sheet formula per spec
+                           num_format=fmt._PX)   # black: same-sheet formula per spec
 
         # ── header ───────────────────────────────────────────────────────────
         ws.set_row(0, 4); ws.set_row(1, 4); ws.set_row(2, 26)
@@ -2509,7 +2537,7 @@ class ExcelWriter:
         last_c = VC + max(n_proj - 1, 4)
         self._span(ws, 2, LABEL, last_c, f"{self.co} — DCF Valuation", fmt.hbar)
         ws.write(4, LABEL, "Discounted Cash Flow Analysis", fmt.hsub)
-        ws.write(5, LABEL, f"({self.ccy} $ in millions, unless noted)", fmt.hunit)
+        ws.write(5, LABEL, f"({self.ccy} in millions, unless noted)", fmt.hunit)
 
         # ── WACC build-up ─────────────────────────────────────────────────────
         ws.set_row(R["wacc_hdr"], 16)
@@ -2959,7 +2987,7 @@ class ExcelWriter:
         f_mult     = _mk(font_color=_Fmt.BLACK, align="right", num_format='0.0"x"')
         f_dol      = _mk(font_color=_Fmt.BLACK, align="right", num_format="$#,##0")
         f_pct      = _mk(font_color=_Fmt.BLACK, align="right", num_format="0.0%")
-        f_eps      = _mk(font_color=_Fmt.BLACK, align="right", num_format=_Fmt._PX)
+        f_eps      = _mk(font_color=_Fmt.BLACK, align="right", num_format=fmt._PX)
         f_target_l = _mk(font_color="#FFFFFF", bold=True, bg_color=_Fmt.NAVY, align="left")
         f_target_d = _mk(font_color="#FFFFFF", bold=True, bg_color=_Fmt.NAVY,
                           align="right", num_format="$#,##0")
@@ -2973,7 +3001,7 @@ class ExcelWriter:
         f_agg_p    = _mk(font_color=_Fmt.BLACK, bold=True, bg_color=_Fmt.LGRAY,
                           align="right", num_format="0.0%")
         f_imp      = _mk(font_color=_Fmt.BLACK, bold=True, align="right",
-                          num_format=_Fmt._PX)
+                          num_format=fmt._PX)
 
         # ── header bar ───────────────────────────────────────────────────────
         ws.set_row(0, 4); ws.set_row(1, 4); ws.set_row(2, 26)
@@ -3275,7 +3303,7 @@ class ExcelWriter:
         def _mk_price(**kw):
             return wb.add_format({"font_name": "Arial", "font_size": 10,
                                    "valign": "vcenter", "align": "right",
-                                   "num_format": "$#,##0.00", **kw})
+                                   "num_format": fmt._PX, **kw})
         sens_base_f = _mk_price(font_color="#FFFFFF",  bold=True, bg_color=_Fmt.NAVY)
         sens_hi_f   = _mk_price(font_color=_Fmt.GREEN, bg_color="#DEEAF1")
         sens_norm_f = _mk_price(font_color=_Fmt.GREEN)   # green: cross-sheet per spec

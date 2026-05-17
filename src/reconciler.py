@@ -78,14 +78,8 @@ def reconcile(data: ReconciledFinancialData) -> tuple[ReconciledFinancialData, D
         "notes": data.notes,
     }
 
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=[{"type": "text", "text": RECONCILE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": json.dumps(context, default=str)}],
-    )
-    raw = response.content[0].text.strip()
+    from src.extractor import _llm_complete
+    raw = _llm_complete(RECONCILE_SYSTEM, json.dumps(context, default=str), max_tokens=4096)
     try:
         result_json = json.loads(raw)
     except json.JSONDecodeError as e:

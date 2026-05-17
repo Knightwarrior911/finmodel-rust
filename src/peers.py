@@ -105,24 +105,23 @@ def _llm_propose_peers(target_ticker: str, company_name: str,
     tk = (target_ticker or "").upper()
     if tk in _CURATED_PEERS:
         return _CURATED_PEERS[tk], "orchestrator-curated peer set"
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    _has_key = (
+        os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or __import__("shutil").which("claude")
+    )
+    if not _has_key:
         raise RuntimeError(
-            f"No curated peer set for {tk} and no ANTHROPIC_API_KEY. "
-            f"Add {tk} to _CURATED_PEERS in src/peers.py or set the API key."
+            f"No curated peer set for {tk} and no LLM available. "
+            f"Add {tk} to _CURATED_PEERS in src/peers.py or set ANTHROPIC_API_KEY / DEEPSEEK_API_KEY."
         )
-    import anthropic
-    client = anthropic.Anthropic()
+    from src.extractor import _llm_complete
     user_msg = f"Target: {company_name} ({target_ticker})"
     if sector:
         user_msg += f"  |  Sector: {sector}"
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=[{"type": "text", "text": _PEER_SYSTEM_PROMPT,
-                 "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": user_msg}],
-    )
-    raw = response.content[0].text.strip()
+    raw = _llm_complete(_PEER_SYSTEM_PROMPT, user_msg, max_tokens=1024)
+    if raw.startswith("```"):
+        raw = raw.strip("`").lstrip("json").strip()
     if raw.startswith("```"):
         raw = raw.strip("`").lstrip("json").strip()
     data = json.loads(raw)

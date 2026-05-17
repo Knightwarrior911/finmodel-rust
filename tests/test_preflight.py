@@ -1,6 +1,6 @@
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.preflight import run_preflight, run_preflight_direct
 from schemas.financial_data import ModelConfig
 
@@ -17,16 +17,8 @@ MOCK_LLM_RESPONSE = json.dumps({
 })
 
 
-def make_mock_client(content: str):
-    mock_msg = MagicMock()
-    mock_msg.content = [MagicMock(text=content)]
-    mock_client = MagicMock()
-    mock_client.messages.create.return_value = mock_msg
-    return mock_client
-
-
 def test_preflight_returns_model_config():
-    with patch("src.preflight.anthropic.Anthropic", return_value=make_mock_client(MOCK_LLM_RESPONSE)):
+    with patch("src.extractor._llm_complete", return_value=MOCK_LLM_RESPONSE):
         cfg = run_preflight("AAPL")
     assert isinstance(cfg, ModelConfig)
     assert cfg.ticker == "AAPL"
@@ -40,13 +32,14 @@ def test_preflight_non_us():
         "domicile": "non-US", "currency": "JPY", "fiscal_year_end": "Mar",
         "periods_historical": 5, "periods_projected": 5, "ambiguity": None
     })
-    with patch("src.preflight.anthropic.Anthropic", return_value=make_mock_client(resp)):
+    with patch("src.extractor._llm_complete", return_value=resp):
         cfg = run_preflight("Toyota")
     assert cfg.domicile == "non-US"
     assert cfg.currency == "JPY"
 
 
 def mock_requests_get(url, **kwargs):
+    from unittest.mock import MagicMock
     mock_resp = MagicMock()
     mock_resp.raise_for_status = MagicMock()
     if "company_tickers" in url:
@@ -87,6 +80,6 @@ def test_preflight_raises_on_ambiguity():
         "periods_historical": 5, "periods_projected": 5,
         "ambiguity": "Did you mean HSBC London (HSBA.L) or HSBC HK (0005.HK)?"
     })
-    with patch("src.preflight.anthropic.Anthropic", return_value=make_mock_client(resp)):
+    with patch("src.extractor._llm_complete", return_value=resp):
         with pytest.raises(ValueError, match="Ambiguous"):
             run_preflight("HSBC")

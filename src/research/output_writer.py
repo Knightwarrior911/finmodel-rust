@@ -1,8 +1,9 @@
 """
 Excel output writer for research agent results.
 Follows valuation_kit formatting standards:
-  SPEC_excel_formatting.md   — layout, colors, number formats
-  SPEC_spreadsheet_engineering.md — formula colors, cell comments, formulas over hardcodes
+  SPEC_excel_formatting.md         — layout, colors, number formats
+  SPEC_spreadsheet_engineering.md  — formula colors, cell comments, formulas over hardcodes
+  SPEC_excel_layout_decisions.md   — ad-hoc layout decision tree (AdHocExcelWriter)
 
 Key rules:
 - Hardcoded numbers → Blue #0000FF + cell comment citing source
@@ -10,11 +11,17 @@ Key rules:
 - Cross-sheet formulas → Green #008000
 - Every blue cell MUST have a comment with source citation
 - Computed values ALWAYS use Excel formulas, never pre-calculated numbers
+
+Writers exposed:
+- ResearchExcelWriter — fixed-template writers (write_ifrs_bridge, write_company_profile, ...)
+- AdHocExcelWriter    — ad-hoc research output, picks layout per SPEC_excel_layout_decisions
 """
 
 import os
+import statistics
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name, xl_rowcol_to_cell
@@ -356,6 +363,29 @@ class ResearchExcelWriter:
         self._formula("Adjusted EBIT", ebit_formula, bold=True)
         self._spacer()
 
+        # === EBITA BRIDGE ===
+        if inputs.reported_ebita and inputs.reported_ebita != inputs.reported_ebit:
+            self._section("EBITA Bridge")
+            r_ebita = self._row
+            self._input("Reported EBITA (EBIT + amortisation of intangibles)", inputs.reported_ebita,
+                        comment="Source: Annual report — EBITA (EBIT + amortisation of acquired intangibles)",
+                        url=pdf_url)
+            r_ebita_int = self._row
+            self._input(f"  {arrow} Interest on Lease Liabilities", inputs.lease_interest,
+                        comment=f"Source: {notes.get('lease_int', 'Finance expense note')}",
+                        url=pdf_url)
+            self._divider()
+            ebita_formula = f"={_c(r_ebita,DATA_START)}{op}{_c(r_ebita_int,DATA_START)}"
+            self._formula("Adjusted EBITA", ebita_formula, bold=True)
+            if revenue > 0 and r_rev is not None:
+                self._formula("  EBITA Margin (Post-IFRS)",
+                              f"={_c(r_ebita,DATA_START)}/{_c(r_rev,DATA_START)}",
+                              fmt_key="fm_pct", indent=True)
+                self._formula("  EBITA Margin (Pre-IFRS)",
+                              f"={_c(self._row - 1,DATA_START)}/{_c(r_rev,DATA_START)}",
+                              fmt_key="fm_pct", indent=True)
+            self._spacer()
+
         # === SOURCES ===
         if pdf_url:
             self._section("Sources")
@@ -577,3 +607,400 @@ class ResearchExcelWriter:
         self._footer()
         self.wb.close()
         return path
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Ad-Hoc Excel Layout — per SPEC_excel_layout_decisions.md
+# ══════════════════════════════════════════════════════════════════════
+
+LAYOUT_WIDE        = "wide"         # Section 3.1 — one row per company
+LAYOUT_LONG        = "long"         # Section 3.2 — one row per data point
+LAYOUT_TIME_SERIES = "time_series"  # Section 3.3 — one row per period
+LAYOUT_EVENT_LOG   = "event_log"    # Section 3.4 — one row per event
+LAYOUT_DASHBOARD   = "dashboard"    # Section 3.5 — multi-tab
+
+_GRAIN_TO_LAYOUT = {
+    "company":    LAYOUT_WIDE,
+    "data_point": LAYOUT_LONG,
+    "period":     LAYOUT_TIME_SERIES,
+    "event":      LAYOUT_EVENT_LOG,
+    "mixed":      LAYOUT_DASHBOARD,
+}
+
+
+@dataclass
+class LayoutDecision:
+    """Output of pick_adhoc_layout() — encodes Q1-Q5 answers from Section 1."""
+    layout: str
+    multi_tab: bool
+    freeze_first_col: bool
+    use_autofilter: bool
+    summary_stats: bool
+    section_dividers: bool
+    qualitative_handling: str
+    rationale: list = field(default_factory=list)
+
+
+def pick_adhoc_layout(
+    *,
+    grain: str,
+    n_metrics: int,
+    n_entities: int,
+    qualitative_max_chars: int = 0,
+    needs_sort_filter: bool = False,
+    is_comparative: bool = False,
+) -> LayoutDecision:
+    """
+    Apply Section 1 decision tree to pick a layout.
+    Returns LayoutDecision with rationale strings explaining each Q.
+    """
+    rationale = []
+    layout = _GRAIN_TO_LAYOUT.get(grain, LAYOUT_LONG)
+    rationale.append(f"Q1 grain={grain} -> {layout}")
+
+    if n_metrics >= 20 and layout != LAYOUT_LONG:
+        layout = LAYOUT_DASHBOARD
+        rationale.append(f"Q2 metrics={n_metrics} >=20 -> escalate to multi-tab")
+    freeze_first_col = 9 <= n_metrics <= 20
+    if freeze_first_col:
+        rationale.append(f"Q2 metrics={n_metrics} in [9,20] -> freeze first col")
+
+    if qualitative_max_chars == 0:
+        qual = "none"
+    elif qualitative_max_chars < 50:
+        qual = "in_cell"
+    elif qualitative_max_chars < 200:
+        qual = "in_comment"
+    else:
+        qual = "separate_column"
+    rationale.append(f"Q3 max_text={qualitative_max_chars} -> {qual}")
+
+    section_dividers = 15 < n_entities <= 50
+    if n_entities > 50 and layout == LAYOUT_WIDE:
+        layout = LAYOUT_DASHBOARD
+        rationale.append(f"Q4 entities={n_entities} >50 -> split to multi-tab")
+
+    use_autofilter = needs_sort_filter
+    if use_autofilter:
+        rationale.append("Q5 -> AutoFilter on")
+
+    summary_stats = is_comparative and layout in (LAYOUT_WIDE, LAYOUT_TIME_SERIES)
+    if summary_stats:
+        rationale.append("S7 comparative -> summary stats row")
+
+    return LayoutDecision(
+        layout=layout,
+        multi_tab=(layout == LAYOUT_DASHBOARD),
+        freeze_first_col=freeze_first_col,
+        use_autofilter=use_autofilter,
+        summary_stats=summary_stats,
+        section_dividers=section_dividers,
+        qualitative_handling=qual,
+        rationale=rationale,
+    )
+
+
+_KIND_TO_HC_FMT = {
+    "number":   "hc_plain",
+    "dollar":   "hc",
+    "percent":  "hc_pct",
+    "multiple": "hc_plain",
+    "price":    "hc_price",
+    "shares":   "hc_shares",
+}
+_KIND_TO_NF = {
+    "number":   NF_PLAIN,
+    "dollar":   NF_DOLLAR,
+    "percent":  NF_PCT,
+    "multiple": NF_MULT,
+    "price":    NF_PRICE,
+    "shares":   NF_SHARES,
+}
+
+
+@dataclass
+class ColumnSpec:
+    """One column in an ad-hoc Excel table."""
+    key: str
+    header: str
+    kind: str = "text"        # "text"|"number"|"dollar"|"percent"|"multiple"|"price"|"shares"|"date"|"url"
+    width: int = 13
+    units: str = ""
+    group: str = ""
+    definition: str = ""
+    is_label: bool = False
+
+
+class AdHocExcelWriter(ResearchExcelWriter):
+    """
+    Writes ad-hoc research output to Excel by picking layout via SPEC_excel_layout_decisions.
+
+    Usage:
+        rows = [{"ticker": "AAPL", "revenue": 383285, "ebitda_margin": 0.32, ...}, ...]
+        cols = [
+            ColumnSpec("ticker", "Ticker", "text", width=10, is_label=True),
+            ColumnSpec("revenue", "Revenue", "dollar", width=14, units="USD millions",
+                       group="Financial Metrics"),
+            ColumnSpec("ebitda_margin", "EBITDA Margin", "percent", width=12,
+                       group="Financial Metrics"),
+        ]
+        path = AdHocExcelWriter().write_research(
+            title="Industrials Peers - Margin Comparison",
+            rows=rows, columns=cols,
+            grain="company", is_comparative=True,
+            sources={("AAPL", "revenue"): "AAPL 10-K FY2024 p.31"},
+        )
+    """
+
+    def write_research(
+        self,
+        title: str,
+        rows: list,
+        columns: list,
+        *,
+        grain: str = "company",
+        units: str = "",
+        is_comparative: bool = False,
+        needs_sort_filter: bool = True,
+        sources: Optional[dict] = None,
+        layout_override: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> str:
+        """
+        Build a research Excel file. Layout chosen per SPEC_excel_layout_decisions.
+
+        Args:
+            rows: list[dict]; one per entity/data-point/period/event.
+            columns: list[ColumnSpec] in display order. Exactly one with is_label=True.
+            grain: what each row represents (Q1 of decision tree).
+            sources: dict keyed by (row_label_value, column_key) -> citation string.
+            layout_override: skip auto-pick and force a layout.
+            filename: defaults to '{title}.xlsx' under self.output_dir.
+        """
+        if not rows:
+            raise ValueError("rows must be non-empty")
+        if sum(1 for c in columns if c.is_label) != 1:
+            raise ValueError("exactly one ColumnSpec must have is_label=True")
+
+        sources = sources or {}
+        n_metrics = sum(1 for c in columns if not c.is_label)
+
+        max_text = 0
+        for r in rows:
+            for c in columns:
+                if c.kind == "text":
+                    v = r.get(c.key)
+                    if v is not None:
+                        max_text = max(max_text, len(str(v)))
+
+        decision = pick_adhoc_layout(
+            grain=grain,
+            n_metrics=n_metrics,
+            n_entities=len(rows),
+            qualitative_max_chars=max_text,
+            needs_sort_filter=needs_sort_filter,
+            is_comparative=is_comparative,
+        )
+        if layout_override:
+            decision.layout = layout_override
+            decision.rationale.append(f"override -> {layout_override}")
+
+        # Multi-tab DASHBOARD not yet implemented — fall back
+        if decision.layout == LAYOUT_DASHBOARD:
+            decision.layout = LAYOUT_LONG if grain == "data_point" else LAYOUT_WIDE
+            decision.rationale.append(
+                "DASHBOARD not yet implemented - falling back to single-tab"
+            )
+
+        fname = filename or f"{title.replace(' ', '_').replace('/', '_')}.xlsx"
+        path = os.path.join(self.output_dir, fname)
+        self.wb = xlsxwriter.Workbook(path)
+        self._build_formats()
+        self._build_adhoc_formats()
+
+        sheet_name = {
+            LAYOUT_WIDE: "Comparison",
+            LAYOUT_LONG: "Findings",
+            LAYOUT_TIME_SERIES: "Time Series",
+            LAYOUT_EVENT_LOG: "Events",
+        }[decision.layout]
+        self._setup_table(sheet_name, title,
+                          units or self._default_units(decision), columns)
+        self._render_table(rows, columns, decision, sources)
+        self._render_decision_footer(decision)
+        self.wb.close()
+        return path
+
+    def _build_adhoc_formats(self):
+        """Add formats specific to ad-hoc layouts."""
+        wb = self.wb
+        def mk(**kw): return wb.add_format(kw)
+
+        self.fmt["adhoc_header"] = mk(
+            font_color=WHITE, bg_color=INK, bold=True, font_size=10,
+            align="center", valign="vcenter", border=1, border_color=MID_GRAY,
+        )
+        self.fmt["adhoc_group"] = mk(
+            font_color=INK, bg_color=SAND, bold=True, font_size=10,
+            align="center", valign="vcenter", italic=True,
+        )
+        self.fmt["adhoc_label"] = mk(font_color=INK, font_size=10,
+                                     align="left", valign="top")
+        self.fmt["adhoc_text"]  = mk(font_color=INK, font_size=10,
+                                     align="left", valign="top", text_wrap=True)
+        self.fmt["adhoc_date"]  = mk(font_color=BLUE_INPUT, font_size=10,
+                                     align="center", num_format="yyyy-mm-dd")
+        self.fmt["adhoc_url"]   = mk(font_color=BRAND_BLUE, underline=True,
+                                     font_size=9, align="left")
+        self.fmt["adhoc_summary_lbl"] = mk(font_color=INK, bg_color=LIGHT_GRAY,
+                                           bold=True, font_size=10, align="left",
+                                           italic=True, top=1)
+
+    @staticmethod
+    def _default_units(decision: LayoutDecision) -> str:
+        if decision.layout == LAYOUT_WIDE:
+            return "(comparable peers - units per column header)"
+        if decision.layout == LAYOUT_TIME_SERIES:
+            return "(per-period values - units per column header)"
+        if decision.layout == LAYOUT_EVENT_LOG:
+            return "(events sorted by date - most recent first)"
+        return "(research findings - one row per data point)"
+
+    def _setup_table(self, sheet_name: str, title: str, units: str,
+                     columns: list):
+        self.ws = self.wb.add_worksheet(sheet_name)
+        self.ws.hide_gridlines(2)
+        self.ws.set_column(MARGIN_A, MARGIN_A, 3)
+        self.ws.set_column(MARGIN_B, MARGIN_B, 3)
+        for i, col in enumerate(columns):
+            self.ws.set_column(LABEL_COL + i, LABEL_COL + i, col.width)
+        last_col = LABEL_COL + len(columns) - 1
+        self.ws.set_row(0, 8); self.ws.set_row(1, 8)
+        self.ws.merge_range(2, LABEL_COL, 2, last_col, title, self.fmt["title"])
+        self.ws.set_row(2, 24)
+        self.ws.set_row(3, 8)
+        self.ws.write(5, LABEL_COL, units, self.fmt["units"])
+        self.ws.set_row(6, 8)
+        self._row = 7
+
+    def _render_table(self, rows: list, columns: list,
+                      decision: LayoutDecision, sources: dict):
+        if any(c.group for c in columns):
+            self._render_group_banner(columns)
+
+        header_row = self._row
+        for i, col in enumerate(columns):
+            self.ws.write(header_row, LABEL_COL + i, col.header,
+                          self.fmt["adhoc_header"])
+            comment_parts = []
+            if col.definition:
+                comment_parts.append(col.definition)
+            if col.units:
+                comment_parts.append(f"Units: {col.units}")
+            if comment_parts:
+                self.ws.write_comment(header_row, LABEL_COL + i,
+                                      "\n".join(comment_parts),
+                                      {"width": COMMENT_W, "height": COMMENT_H})
+        self.ws.set_row(header_row, 22)
+        self._row += 1
+        data_start_row = self._row
+
+        label_offset = next(i for i, c in enumerate(columns) if c.is_label)
+
+        for r in rows:
+            label_value = r.get(columns[label_offset].key)
+            for i, col in enumerate(columns):
+                v = r.get(col.key)
+                src = sources.get((label_value, col.key))
+                self._write_value_cell(self._row, LABEL_COL + i, v, col, src)
+            self._row += 1
+        data_end_row = self._row - 1
+
+        if decision.use_autofilter and data_end_row >= data_start_row:
+            self.ws.autofilter(header_row, LABEL_COL,
+                               data_end_row, LABEL_COL + len(columns) - 1)
+        if decision.freeze_first_col:
+            self.ws.freeze_panes(data_start_row, LABEL_COL + 1)
+
+        if decision.summary_stats and data_end_row >= data_start_row:
+            self._render_summary_stats(columns, data_start_row,
+                                       data_end_row, label_offset)
+
+    def _render_group_banner(self, columns: list):
+        row = self._row
+        i = 0
+        while i < len(columns):
+            grp = columns[i].group
+            j = i
+            while j < len(columns) and columns[j].group == grp:
+                j += 1
+            if grp and (j - i) > 1:
+                self.ws.merge_range(row, LABEL_COL + i, row, LABEL_COL + j - 1,
+                                    grp.upper(), self.fmt["adhoc_group"])
+            elif grp:
+                self.ws.write(row, LABEL_COL + i, grp.upper(), self.fmt["adhoc_group"])
+            i = j
+        self._row += 1
+
+    def _write_value_cell(self, row: int, col: int, value, spec: ColumnSpec,
+                          source: Optional[str]):
+        if value is None or (isinstance(value, str) and not value):
+            self.ws.write_blank(row, col, None, self.fmt["adhoc_text"])
+            return
+
+        if spec.is_label:
+            self.ws.write(row, col, value, self.fmt["adhoc_label"])
+            return
+
+        if spec.kind == "url":
+            self.ws.write_url(row, col, str(value), self.fmt["adhoc_url"], "link")
+            return
+
+        if spec.kind == "date":
+            self.ws.write(row, col, value, self.fmt["adhoc_date"])
+            if source: self._add_source_comment(row, col, source)
+            return
+
+        if spec.kind == "text":
+            self.ws.write(row, col, str(value), self.fmt["adhoc_text"])
+            if source: self._add_source_comment(row, col, source)
+            return
+
+        fmt_key = _KIND_TO_HC_FMT.get(spec.kind, "hc_plain")
+        self.ws.write(row, col, value, self.fmt[fmt_key])
+        if source: self._add_source_comment(row, col, source)
+
+    def _add_source_comment(self, row: int, col: int, source: str):
+        self.ws.write_comment(row, col, f"Source: {source}",
+                              {"width": COMMENT_W, "height": COMMENT_H})
+
+    def _render_summary_stats(self, columns: list,
+                              data_start: int, data_end: int, label_offset: int):
+        self._row += 1
+        for stat_label, fn in (("Median", "MEDIAN"), ("Mean", "AVERAGE"),
+                               ("Min", "MIN"), ("Max", "MAX")):
+            stat_row = self._row
+            self.ws.write(stat_row, LABEL_COL + label_offset, stat_label,
+                          self.fmt["adhoc_summary_lbl"])
+            for i, col in enumerate(columns):
+                if col.is_label or col.kind in ("text", "url", "date"):
+                    continue
+                cell_col = LABEL_COL + i
+                rng = f"{_c(data_start, cell_col)}:{_c(data_end, cell_col)}"
+                fmt = self.wb.add_format({
+                    "font_color": INK, "bg_color": LIGHT_GRAY, "bold": True,
+                    "font_size": 10, "align": "right", "top": 1,
+                    "num_format": _KIND_TO_NF.get(col.kind, NF_PLAIN),
+                })
+                self.ws.write_formula(stat_row, cell_col, f"={fn}({rng})", fmt)
+            self._row += 1
+
+    def _render_decision_footer(self, decision: LayoutDecision):
+        self._row += 2
+        self.ws.write(self._row, LABEL_COL, f"Layout: {decision.layout}",
+                      self.fmt["footer"])
+        self._row += 1
+        for line in decision.rationale:
+            self.ws.write(self._row, LABEL_COL, f"  - {line}", self.fmt["footer"])
+            self._row += 1
+        self._footer()

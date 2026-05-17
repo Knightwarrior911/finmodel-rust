@@ -1,5 +1,6 @@
 # financial_model/src/fetcher.py
 import logging
+import re
 import tempfile
 import requests
 from schemas.financial_data import ReconciledFinancialData, SourceCitation
@@ -1272,25 +1273,259 @@ def fetch_us_filing(cfg) -> ReconciledFinancialData:
     return raw
 
 
-def fetch_non_us_filing(cfg, ir_url: str | None = None) -> ReconciledFinancialData:
-    from src.extractor import scrape_ir_page_for_pdfs, extract_notes_from_pdf
+def _latest_complete_fy_year(fiscal_year_end: str) -> int:
+    """Return the most recently completed fiscal year (allowing 90 days for report publication)."""
+    import datetime as _dt
+    today = _dt.date.today()
+    month, day = int(fiscal_year_end[:2]), int(fiscal_year_end[3:])
+    fy_end = _dt.date(today.year, month, day)
+    if today >= fy_end + _dt.timedelta(days=90):
+        return today.year
+    return today.year - 1
 
-    pdf_urls = scrape_ir_page_for_pdfs(cfg.ticker, cfg.company_name, ir_url=ir_url)
-    if not pdf_urls:
-        raise ValueError(f"No annual report PDFs found for {cfg.company_name}")
+
+def _report_years_needed(latest_fy: int, periods_historical: int) -> list[int]:
+    """Return report years to fetch, oldest first.
+
+    Each annual report covers 2 fiscal years (primary + comparative).
+    E.g. latest_fy=2025, periods=3 → [2023, 2025]
+         (2025 AR covers 2024+2025, 2023 AR covers 2022+2023 → union = 2022..2025 → take last 3)
+    """
+    import math as _math
+    n = _math.ceil(periods_historical / 2)
+    years = [latest_fy - 2 * i for i in range(n)]
+    return list(reversed(years))  # oldest first
+
+
+_LEGAL_SUFFIXES = re.compile(
+    r"\b(ab|ag|sa|nv|bv|plc|ltd|limited|inc|corp|corporation|group|holding|holdings|se|oy|as|asa)\b",
+    re.IGNORECASE,
+)
+
+
+def _company_domain_tokens(company_name: str) -> list[str]:
+    """Return lowercase tokens from company name usable for domain matching.
+
+    'Atlas Copco AB' → ['atlas', 'copco', 'atlascopco']
+    'Siemens Energy AG' → ['siemens', 'energy', 'siemensenergy']
+    """
+    cleaned = _LEGAL_SUFFIXES.sub("", company_name)
+    tokens = [t.lower() for t in re.split(r"[\s\-_&,\.]+", cleaned) if len(t) >= 3]
+    if len(tokens) >= 2:
+        tokens.append("".join(tokens))  # joined form e.g. atlascopco
+    return tokens
+
+
+def _url_matches_company(url: str, company_name: str) -> bool:
+    """True if any company name token appears in the URL domain."""
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc.lower().replace("www.", "")
+    return any(tok in domain for tok in _company_domain_tokens(company_name))
+
+
+def _find_annual_report_pdf_url(company_name: str, ticker: str, year: int | None = None) -> str | None:
+    """DDG search cascade to find the annual report PDF URL for the given fiscal year.
+
+    Validates that returned URLs belong to the target company's domain — prevents
+    lookalike tickers (e.g. ATCO Ltd.) from poisoning Atlas Copco AB searches.
+    """
+    from bs4 import BeautifulSoup as _BS
+    import datetime
+    if year is None:
+        year = datetime.date.today().year - 1
+    queries = [
+        f"{company_name} annual report {year} filetype:pdf",
+        f"{company_name} {ticker} annual report {year} PDF",
+        f"{company_name} annual report {year} PDF investor relations",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    skip = {"duckduckgo.com", "google.com", "bing.com", "youtube.com", "facebook.com"}
+
+    fallback_pdf: str | None = None  # best non-matching PDF if no match found
+
+    for query in queries:
+        try:
+            resp = requests.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": query, "kl": "us-en"},
+                headers=headers, timeout=15,
+            )
+            soup = _BS(resp.text, "lxml")
+            # First pass: direct PDF links — prefer company-domain match
+            direct_pdfs: list[str] = []
+            for a in soup.select("a.result__a"):
+                href = a.get("href", "")
+                if href.lower().endswith(".pdf") and href.startswith("http"):
+                    if not any(s in href for s in skip):
+                        direct_pdfs.append(href)
+            for href in direct_pdfs:
+                if _url_matches_company(href, company_name):
+                    return href
+            if direct_pdfs and fallback_pdf is None:
+                fallback_pdf = direct_pdfs[0]
+
+            # Second pass: fetch IR page from top result and scan for PDF links
+            for a in soup.select("a.result__a"):
+                href = a.get("href", "")
+                if not href.startswith("http") or any(s in href for s in skip):
+                    continue
+                # Prefer IR pages on company domain
+                if not _url_matches_company(href, company_name):
+                    continue
+                try:
+                    ir_resp = requests.get(href, headers={"User-Agent": headers["User-Agent"]}, timeout=10)
+                    ir_soup = _BS(ir_resp.text, "lxml")
+                    for link in ir_soup.find_all("a", href=True):
+                        lhref = link["href"]
+                        if not lhref.startswith("http"):
+                            from urllib.parse import urljoin
+                            lhref = urljoin(href, lhref)
+                        ltext = link.get_text(strip=True).lower()
+                        if lhref.lower().endswith(".pdf") and any(
+                            kw in ltext for kw in ["annual", "report", "20-f", "results"]
+                        ):
+                            return lhref
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    return fallback_pdf  # last resort: best non-matching PDF (may be wrong company)
+
+
+def _download_pdf_to_tmpfile(url: str) -> str:
+    """Download PDF from URL to a temp file; return the temp path."""
+    import os as _os
+    resp = requests.get(
+        url,
+        headers={"User-Agent": "FinancialModelBot vinit.paul@gmail.com"},
+        timeout=90,
+    )
+    resp.raise_for_status()
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(resp.content)
+        return f.name
+
+
+def fetch_non_us_filing(cfg, ir_url: str | None = None) -> ReconciledFinancialData:
+    """Fetch IS/BS/CF for a non-US company by downloading and extracting annual report PDFs.
+
+    Dynamically figures out how many reports are needed:
+      - Each IFRS annual report covers 2 fiscal years (primary + comparative)
+      - ceil(periods_historical / 2) reports are fetched, stepping back 2 years each time
+      - Data from all reports is merged, oldest-first, then trimmed to periods_historical
+    """
+    import os as _os
+    from src.extractor import extract_financials_from_pdf, save_extraction_cache, _load_cache
 
     periods = compute_historical_periods(cfg.fiscal_year_end, cfg.periods_historical)
 
-    all_notes: dict = {}
-    for url in pdf_urls:
-        resp = requests.get(
-            url, headers={"User-Agent": "FinancialModelBot vinit.paul@gmail.com"}, timeout=30
+    # Cache hit -- skip all network calls
+    cached = _load_cache(cfg.ticker)
+    if cached is not None:
+        is_dict, bs_dict, cfs_dict, notes, _ = cached
+        logger.info("[extraction cache] loaded %s", cfg.ticker)
+        print(f"[extraction cache] loaded {cfg.ticker}")
+        return ReconciledFinancialData(
+            ticker=cfg.ticker,
+            company_name=cfg.company_name,
+            currency=cfg.currency,
+            fiscal_year_end=cfg.fiscal_year_end,
+            periods=periods,
+            income_statement=is_dict,
+            balance_sheet=bs_dict,
+            cash_flow_statement=cfs_dict,
+            notes=notes,
+            sources={"extraction_cache": "local"},
+            flags=["Non-US company -- data loaded from extraction cache"],
         )
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
-            f.write(resp.content)
-            tmp_path = f.name
-        notes = extract_notes_from_pdf(tmp_path, periods)
-        all_notes.update(notes)
+
+    # Determine which report years to fetch
+    latest_fy = _latest_complete_fy_year(cfg.fiscal_year_end)
+    report_years = _report_years_needed(latest_fy, cfg.periods_historical)
+    target_years = [int(p[:4]) for p in periods]
+
+    logger.info("Multi-report fetch: %d periods -> reports %s", cfg.periods_historical, report_years)
+    print(f"[multi-report] fetching {len(report_years)} reports for years {report_years}")
+
+    # Accumulate per-year data from each report
+    is_by_year:   dict[int, dict] = {}
+    bs_by_year:   dict[int, dict] = {}
+    cfs_by_year:  dict[int, dict] = {}
+    merged_notes: dict = {}
+    pdf_sources:  dict[int, str] = {}
+
+    for i, report_year in enumerate(report_years):
+        # The latest report may have an ir_url override
+        url = (
+            (ir_url if i == len(report_years) - 1 else None)
+            or _find_annual_report_pdf_url(cfg.company_name, cfg.ticker, report_year)
+        )
+        if not url:
+            logger.warning("No PDF found for %s %d AR -- skipping", cfg.company_name, report_year)
+            print(f"[multi-report] WARNING: no PDF found for {report_year} AR -- skipping")
+            continue
+
+        print(f"[multi-report] downloading {report_year} AR: {url[:80]}...")
+        tmp_path = _download_pdf_to_tmpfile(url)
+        try:
+            # Extract only the 2 years this report covers
+            report_periods = [f"{report_year - 1}A", f"{report_year}A"]
+            is_d, bs_d, cfs_d, notes, years_found = extract_financials_from_pdf(
+                tmp_path, report_periods, ticker=""  # no cache key -- we manage cache here
+            )
+        finally:
+            _os.unlink(tmp_path)
+
+        # Map each extracted value to its fiscal year
+        report_yrs = [int(y) for y in years_found] if years_found else [report_year - 1, report_year]
+        for stmt, by_year in [(is_d, is_by_year), (bs_d, bs_by_year), (cfs_d, cfs_by_year)]:
+            for key, values in stmt.items():
+                if isinstance(values, list):
+                    for yr, val in zip(report_yrs, values):
+                        by_year.setdefault(yr, {})[key] = val
+
+        if not merged_notes:
+            merged_notes = notes
+        pdf_sources[report_year] = url
+
+    if not is_by_year:
+        raise ValueError(f"No data extracted for {cfg.company_name} -- all report fetches failed")
+
+    # Build final arrays aligned to target_years
+    def _build_arrays(by_year: dict[int, dict]) -> dict:
+        all_keys = {k for d in by_year.values() for k in d}
+        result = {}
+        for key in all_keys:
+            vals = [by_year[yr][key] for yr in target_years if yr in by_year and key in by_year[yr]]
+            if len(vals) == len(target_years):
+                result[key] = vals
+        return result
+
+    is_dict  = _build_arrays(is_by_year)
+    bs_dict  = _build_arrays(bs_by_year)
+    cfs_dict = _build_arrays(cfs_by_year)
+
+    # Trim periods if some years could not be fetched
+    actual_n = max((len(v) for v in is_dict.values() if isinstance(v, list)), default=0)
+    if actual_n < len(periods):
+        periods = periods[-actual_n:]
+
+    # Save merged result to cache so future runs skip all downloads
+    save_extraction_cache(cfg.ticker, {
+        "currency": cfg.currency,
+        "years_found": [str(y) for y in target_years],
+        "income_statement": is_dict,
+        "balance_sheet": bs_dict,
+        "cash_flow_statement": cfs_dict,
+        "notes": merged_notes,
+        "confidence": 0.85,
+        "discrepancies": [f"Auto-merged from {len(pdf_sources)} annual reports: {list(pdf_sources)}"],
+    })
 
     return ReconciledFinancialData(
         ticker=cfg.ticker,
@@ -1298,10 +1533,11 @@ def fetch_non_us_filing(cfg, ir_url: str | None = None) -> ReconciledFinancialDa
         currency=cfg.currency,
         fiscal_year_end=cfg.fiscal_year_end,
         periods=periods,
-        income_statement={},
-        balance_sheet={},
-        cash_flow_statement={},
-        notes=all_notes,
-        sources={},
-        flags=["Non-US company — data sourced from IR page PDFs"],
+        income_statement=is_dict,
+        balance_sheet=bs_dict,
+        cash_flow_statement=cfs_dict,
+        notes=merged_notes,
+        sources=pdf_sources,
+        flags=[f"Non-US company -- data merged from {len(pdf_sources)} annual reports"],
     )
+

@@ -30,14 +30,14 @@ def make_mock_client(content: str):
 
 
 def test_extract_notes_from_text_returns_dict():
-    with patch("src.extractor.anthropic.Anthropic", return_value=make_mock_client(MOCK_LLM_NOTES)):
+    with patch("src.extractor._llm_complete", return_value=MOCK_LLM_NOTES):
         result = extract_notes_from_text(EXCERPT, periods=["2022A", "2023A"])
     assert "da" in result
     assert result["da"]["values"]["2023A"] == 11519
 
 
 def test_extract_notes_confidence_field():
-    with patch("src.extractor.anthropic.Anthropic", return_value=make_mock_client(MOCK_LLM_NOTES)):
+    with patch("src.extractor._llm_complete", return_value=MOCK_LLM_NOTES):
         result = extract_notes_from_text(EXCERPT, periods=["2022A", "2023A"])
     assert result["confidence"] == pytest.approx(0.95)
 
@@ -53,7 +53,7 @@ def test_extract_notes_from_pdf_low_confidence_adds_flag(tmp_path):
     fake_pdf.write_bytes(b"%PDF-1.4 fake")
 
     with patch("src.extractor.pdfplumber.open") as mock_pdf, \
-         patch("src.extractor.anthropic.Anthropic", return_value=make_mock_client(LOW_CONFIDENCE_NOTES)):
+         patch("src.extractor._llm_complete", return_value=LOW_CONFIDENCE_NOTES):
         mock_pdf.return_value.__enter__.return_value.pages = [MagicMock(extract_text=lambda: "some text")]
         result = extract_notes_from_pdf(str(fake_pdf), periods=["2023A"])
 

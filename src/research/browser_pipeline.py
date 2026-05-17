@@ -182,9 +182,10 @@ class ExtractedFinancials:
     goodwill: Optional[float] = None
     short_term_investments: Optional[float] = None
 
-    # EBITDA hierarchy (preference order)
+    # EBITDA / EBITA hierarchy (preference order)
     adjusted_ebitda: Optional[float] = None   # Tier 1: Company-reported adjusted (one-offs removed)
     reported_ebitda: Optional[float] = None   # Tier 2: Company-reported EBITDA
+    ebita: Optional[float] = None             # EBIT + amortisation of intangibles (IFRS KPI)
     # If neither, compute: EBIT + D&A
 
     # IFRS 16 lease data
@@ -1086,6 +1087,13 @@ class BrowserPipeline:
             r'EBIT\s+.*?(\d{1,3}(?:,\d{3})+)',
         ], 'income_statement')
 
+        # EBITA (EBIT + amortisation of acquired intangibles — reported IFRS KPI)
+        fin.ebita = self._extract_amount(fs_text, [
+            r'EBITA\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+            r'EBITA\s{2,}.*?(\d{1,3}(?:,\d{3})+)',
+            r'Adjusted\s+EBITA\s+\n?\s*(\d{1,3}(?:,\d{3})+)',
+        ], 'income_statement')
+
         # Net income
         fin.net_income = self._extract_amount(fs_text, [
             r'Profit\s+for\s+the\s+year\n\s*\n(\d{1,3}(?:,\d{3})+)',        # Nordic newline
@@ -1328,6 +1336,13 @@ class BrowserPipeline:
         fin.rou_depreciation = self._extract_amount(text, [
             r'Depreciation\s+expense\s+of\s+right[-\s]of[-\s]use\s+assets?\s+.*?(\d{1,3}(?:,\d{3})+)',
             r'[Dd]epreciation.{0,30}right[-\s]of[-\s]use.{0,30}?(\d{1,3}(?:,\d{3})+)',
+            # Nordic newline format: label then note number then value
+            r'[Dd]epreciation.{0,50}right[-\s]of[-\s]use.{0,100}\n[^\n\d]*(\d{1,3}(?:,\d{3})+)',
+            # Alternative: "ROU assets" depreciation line
+            r'[Rr]ight[-\s]of[-\s]use\s+assets?\s+(?:depreciation|amortisation).{0,80}?(\d{1,3}(?:,\d{3})+)',
+            # Nordic: "Depreciation, right-of-use assets" with surrounding whitespace
+            r'[Dd]epreciation,?\s+right[-\s]of[-\s]use\s+assets?\s+(\d{1,3}(?:,\d{3})+)',
+            r'[Dd]epreciation\s+of\s+right[-\s]of[-\s]use\s+assets?\s+(\d{1,3}(?:,\d{3})+)',
         ], 'lease_note')
 
         fin.lease_interest = self._extract_amount(text, [
@@ -1565,53 +1580,28 @@ class BrowserPipeline:
                 pass
         return None
 
-    async def _phase3_browser_use(self, company: str, year: str) -> Optional[tuple]:
-        """
-        Phase 3: browser-use LLM Agent — nuclear option.
-        Full LLM-driven navigation handles arbitrary page structures.
-        """
-        try:
-            import os as _os
-            from browser_use import Agent
-            from browser_use.llm.anthropic.chat import ChatAnthropic as BUChatAnthropic
-
-            _api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
-            if not _api_key:
-                logger.info("browser-use phase 3: ANTHROPIC_API_KEY not set, skipping")
-                return None
-            llm = BUChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0,
-                                  api_key=_api_key)
-            task = (
-                f"Find the {year} annual report PDF for {company}.\n"
-                f"1. Search Google: {company} annual report {year} filetype:pdf\n"
-                f"2. If no direct PDF, navigate to the company's official investor relations page.\n"
-                f"3. Return ONLY the direct PDF URL on its own line, nothing else."
-            )
-
-            agent = Agent(task=task, llm=llm, use_vision=False, max_failures=3,
-                          max_actions_per_step=5)
-            history = await agent.run(max_steps=15)
-            final = history.final_result() if history else None
-
-            if final:
-                pdf_re = re.compile(r'https?://[^\s"\'<>]+\.pdf(?:\?[^\s"\'<>]*)?', re.IGNORECASE)
-                for url in pdf_re.findall(final):
-                    result = await self._try_pdf(url, company, year)
-                    if result:
-                        return result
-        except Exception as e:
-            logger.warning(f"browser-use phase 3 failed: {e}")
-        return None
-
     async def run_full_pipeline(self, company: str, year: str = "2025",
                                 country: str = "", ticker: str = "") -> tuple[FilingDocument, ExtractedFinancials]:
         """
-        4-phase pipeline: nodriver parallel → Actionbook anti-bot → browser-use LLM → fallback.
+        3-phase pipeline: nodriver parallel → Actionbook anti-bot → fallback.
         """
         await self._ensure_browser()
         jurisdiction = _detect_jurisdiction(ticker, company)
         logger.info(f"Pipeline: {company} {year} | jurisdiction: {jurisdiction['country']}")
         self._current_company = company
+
+        # Phase 0: DDG direct PDF search (no browser needed, fastest)
+        logger.info("Phase 0: DDG PDF search (fetcher)")
+        try:
+            from src.fetcher import _find_annual_report_pdf_url
+            pdf_url = _find_annual_report_pdf_url(company, ticker or "", int(year))
+            if pdf_url:
+                logger.info(f"Phase 0 found: {pdf_url[:80]}")
+                result = await self._try_pdf(pdf_url, company, year)
+                if result:
+                    return result
+        except Exception as e:
+            logger.warning(f"Phase 0 failed: {e}")
 
         # Phase 1: parallel nodriver — 3 concurrent tabs (fastest)
         logger.info("Phase 1: parallel nodriver (3 tabs)")
@@ -1625,12 +1615,6 @@ class BrowserPipeline:
         # Phase 2: Actionbook extension — real Chrome, anti-bot bypass
         logger.info("Phase 2: Actionbook parallel (real Chrome)")
         result = await self._phase2_actionbook_parallel(company, year, jurisdiction)
-        if result:
-            return result
-
-        # Phase 3: browser-use LLM — handles any page structure
-        logger.info("Phase 3: browser-use LLM navigation")
-        result = await self._phase3_browser_use(company, year)
         if result:
             return result
 

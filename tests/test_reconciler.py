@@ -1,6 +1,6 @@
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from schemas.financial_data import ReconciledFinancialData, DiscrepancyReport, SourceCitation
 from src.reconciler import reconcile, check_consistency
 
@@ -22,14 +22,6 @@ MOCK_RECONCILE_RESPONSE = json.dumps({
 })
 
 
-def make_mock_client(content: str):
-    mock_msg = MagicMock()
-    mock_msg.content = [MagicMock(text=content)]
-    mock_client = MagicMock()
-    mock_client.messages.create.return_value = mock_msg
-    return mock_client
-
-
 def test_check_consistency_bs_balances():
     errors = check_consistency(MOCK_RAW)
     assert errors == []
@@ -49,7 +41,7 @@ def test_check_consistency_bs_mismatch():
 
 
 def test_reconcile_returns_reconciled_data():
-    with patch("src.reconciler.anthropic.Anthropic", return_value=make_mock_client(MOCK_RECONCILE_RESPONSE)):
+    with patch("src.extractor._llm_complete", return_value=MOCK_RECONCILE_RESPONSE):
         result, report = reconcile(MOCK_RAW)
     assert isinstance(result, ReconciledFinancialData)
     assert isinstance(report, DiscrepancyReport)
@@ -57,6 +49,6 @@ def test_reconcile_returns_reconciled_data():
 
 
 def test_reconcile_notes_merged_into_income_statement():
-    with patch("src.reconciler.anthropic.Anthropic", return_value=make_mock_client(MOCK_RECONCILE_RESPONSE)):
+    with patch("src.extractor._llm_complete", return_value=MOCK_RECONCILE_RESPONSE):
         result, _ = reconcile(MOCK_RAW)
     assert "da" in result.income_statement

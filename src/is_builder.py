@@ -203,11 +203,14 @@ def _build_standard_is(has_cogs: bool, has_rd: bool, has_sga: bool,
                      hist_numer="sga", hist_denom="revenue"),
             ]
 
-    # ── EBIT / EBITDA / Non-op / Per share — common tail ────────────────
+    # ── EBIT / EBITA / EBITDA / Non-op / Per share — common tail ────────────────
     rows += [
         _sp(),
         _st("ebit", "Operating Income (EBIT)"),
         _mo("ebit_margin", "  EBIT Margin %", "ebit", "revenue"),
+        _sp(),
+        _st("ebita", "EBITA"),
+        _mo("ebita_margin", "  EBITA Margin %", "ebita", "revenue"),
         _sp(),
         _li("da", "  (+) Depreciation & Amortization", bold=False),
         _drv("D&A % of Revenue", "da_pct_rev",

@@ -388,6 +388,7 @@ class ProcessBox:
     """One box in a process diagram."""
     label: str
     sub_label: str = ""
+    icon_query: str = ""   # optional: Fluent UI icon search term
 
 
 @dataclass
@@ -405,6 +406,7 @@ class ScorecardTile:
     value: str              # "$2.4B"
     rating: int = 0         # 0-5 dot rating; 0 = no rating
     sub: str = ""           # optional small text
+    icon_query: str = ""    # optional: Fluent UI icon search term
 
 
 @dataclass
@@ -414,6 +416,7 @@ class FrameworkSection:
     bullets: list           # list of strings
     badge: str = ""         # "LARGELY COMPLETE" / "MAIN PRIORITIES FOR 2026"
     highlighted: bool = False  # column gets brand emphasis
+    icon_query: str = ""    # optional: Fluent UI icon search term
 
 
 @dataclass
@@ -753,7 +756,8 @@ class PPTXDeckWriter:
                  confidentiality: str = "CONFIDENTIAL",
                  logo_path: str = "",
                  headline_bold: bool = True,
-                 brand: Optional["BrandProfile"] = None):
+                 brand: Optional["BrandProfile"] = None,
+                 icon_searcher=None):
         """
         Args:
             firm: firm name (used in footer when confidentiality set).
@@ -789,6 +793,7 @@ class PPTXDeckWriter:
         self._slide_h_in = h_in
 
         self._page = 0  # 0 means cover not yet added
+        self._icon_searcher = icon_searcher  # optional FluentIconSearcher
 
     def _apply_brand(self, brand, logo_path: str, headline_bold: bool):
         """Resolve effective colors/fonts/sizes from brand profile or defaults."""
@@ -1204,9 +1209,18 @@ class PPTXDeckWriter:
         for i, b in enumerate(boxes):
             x, y, w, h = positions[i]
             shp = self._add_rounded_rect(x, y, w, h, self.brand_primary)
+            # Icon centered near top of box when query provided
+            icon_h_used = 0.0
+            if b.icon_query:
+                icon_sz = min(0.45, h * 0.35)
+                icon_x = x + (w - icon_sz) / 2
+                icon_y = y + 0.1
+                if self._embed_icon(slide, icon_x, icon_y, icon_sz,
+                                    b.icon_query, color="#FFFFFF"):
+                    icon_h_used = icon_sz + 0.05
             tf = shp.text_frame
             tf.word_wrap = True
-            tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+            tf.vertical_anchor = MSO_ANCHOR.MIDDLE if icon_h_used == 0 else MSO_ANCHOR.BOTTOM
             tf.text = b.label
             p = tf.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER
@@ -1344,13 +1358,23 @@ class PPTXDeckWriter:
         for i, sec in enumerate(sections):
             left = MARGIN_IN + i * (col_w + col_gap)
 
-            # Column header strip
-            header_h = 0.4
+            # Column header strip — taller when icon present
+            icon_sz = 0.3
+            has_col_icon = bool(sec.icon_query and self._icon_searcher
+                                and self._icon_searcher.is_available())
+            header_h = 0.75 if has_col_icon else 0.4
             header_color = self.brand_primary if sec.highlighted else INK
             self._add_rect(left, body_top, col_w, header_h,
                            header_color, no_line=True)
-            self._add_text(left + 0.05, body_top + 0.06,
-                           col_w - 0.1, header_h - 0.1,
+            # Icon centered top of header
+            if has_col_icon:
+                self._embed_icon(slide,
+                                 left + (col_w - icon_sz) / 2,
+                                 body_top + 0.06,
+                                 icon_sz, sec.icon_query, color="#FFFFFF")
+            text_top = body_top + (0.38 if has_col_icon else 0.06)
+            self._add_text(left + 0.05, text_top,
+                           col_w - 0.1, 0.3,
                            sec.title, font_size=11, bold=True,
                            color=WHITE, font=self.font_headline,
                            align=PP_ALIGN.CENTER)
@@ -3126,25 +3150,32 @@ class PPTXDeckWriter:
     def _add_rect(self, left, top, width, height, fill, line=None,
                   no_line=False):
         slide = self.prs.slides[-1]
-        shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+        shp = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
                                      Inches(left), Inches(top),
                                      Inches(width), Inches(height))
+        shp.adjustments[0] = 0.04
         shp.fill.solid()
         shp.fill.fore_color.rgb = fill
         if no_line:
             shp.line.fill.background()
         elif line is not None:
             shp.line.color.rgb = line
+        else:
+            shp.line.fill.background()
         return shp
 
-    def _add_rounded_rect(self, left, top, width, height, fill):
+    def _add_rounded_rect(self, left, top, width, height, fill, no_line=False):
         slide = self.prs.slides[-1]
         shp = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
                                      Inches(left), Inches(top),
                                      Inches(width), Inches(height))
+        shp.adjustments[0] = 0.04
         shp.fill.solid()
         shp.fill.fore_color.rgb = fill
-        shp.line.color.rgb = fill
+        if no_line:
+            shp.line.fill.background()
+        else:
+            shp.line.color.rgb = fill
         return shp
 
     def _add_oval(self, left, top, width, height, fill):
@@ -3202,12 +3233,49 @@ class PPTXDeckWriter:
             run.font.color.rgb = fg
             run.font.name = self.font_body
 
+    def _embed_icon(self, slide, x_in: float, y_in: float, size_in: float,
+                    query: str, color: str = None) -> bool:
+        """
+        Embed a Fluent UI icon PNG on the slide.
+        Returns True if an icon was found and embedded, False otherwise.
+        color defaults to brand_primary hex string.
+        """
+        if not query or self._icon_searcher is None:
+            return False
+        if not self._icon_searcher.is_available():
+            return False
+        if color is None:
+            bp = self.brand_primary
+            color = f"#{bp[0]:02X}{bp[1]:02X}{bp[2]:02X}"
+        px = max(64, int(size_in * 96))
+        png = self._icon_searcher.find_and_render(query, color=color, size=px)
+        if png is None or not png.exists():
+            return False
+        try:
+            slide.shapes.add_picture(
+                str(png),
+                Inches(x_in), Inches(y_in),
+                width=Inches(size_in), height=Inches(size_in),
+            )
+            return True
+        except Exception:
+            return False
+
     def _draw_tile(self, slide, left, top, w, h, tile: ScorecardTile):
         # Light card background
         bg = self._add_rect(left, top, w, h, LIGHT_GRAY,
                             line=BORDER_GRAY)
-        # Metric label
-        self._add_text(left + 0.15, top + 0.1, w - 0.3, 0.4,
+        # Icon (top-right corner, 0.35" square) when icon_query set
+        has_icon = False
+        if tile.icon_query:
+            icon_size = 0.35
+            icon_x = left + w - icon_size - 0.1
+            icon_y = top + 0.08
+            has_icon = self._embed_icon(slide, icon_x, icon_y, icon_size,
+                                        tile.icon_query)
+        # Metric label (shrink width when icon present)
+        label_w = (w - 0.55) if has_icon else (w - 0.3)
+        self._add_text(left + 0.15, top + 0.1, label_w, 0.4,
                        tile.metric, font_size=11, color=self.brand_dark,
                        bold=False)
         # Big value

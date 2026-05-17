@@ -26,21 +26,17 @@ RECONCILE_RESPONSE = json.dumps({
 
 
 def make_llm_sequence(*responses):
-    """Returns a mock Anthropic client that returns each response in order. Raises if called more times than responses provided."""
+    """Returns a side_effect for _llm_complete that returns each response in order."""
     call_count = [0]
-    def create(**kwargs):
+    def _side_effect(system_text, user_text, max_tokens):
         if call_count[0] >= len(responses):
             raise AssertionError(
                 f"LLM called {call_count[0] + 1} times but only {len(responses)} responses provided"
             )
         resp = responses[call_count[0]]
         call_count[0] += 1
-        mock_msg = MagicMock()
-        mock_msg.content = [MagicMock(text=resp)]
-        return mock_msg
-    mock_client = MagicMock()
-    mock_client.messages.create.side_effect = create
-    return mock_client
+        return resp
+    return _side_effect
 
 
 def mock_requests_get(url, headers=None, timeout=None):
@@ -60,13 +56,10 @@ def mock_requests_get(url, headers=None, timeout=None):
 
 
 def test_end_to_end_us_company():
-    mock_client = make_llm_sequence(PREFLIGHT_RESPONSE, RECONCILE_RESPONSE)
-
     with tempfile.TemporaryDirectory() as tmpdir:
         out_path = os.path.join(tmpdir, "AAPL_model.xlsx")
 
-        with patch("src.preflight.anthropic.Anthropic", return_value=mock_client), \
-             patch("src.reconciler.anthropic.Anthropic", return_value=mock_client), \
+        with patch("src.extractor._llm_complete", side_effect=make_llm_sequence(PREFLIGHT_RESPONSE, RECONCILE_RESPONSE)), \
              patch("src.fetcher.requests.get", side_effect=mock_requests_get):
 
             cfg = run_preflight("AAPL", periods_historical=2, periods_projected=2)
@@ -86,10 +79,7 @@ def test_end_to_end_us_company():
 
 
 def test_end_to_end_model_periods():
-    mock_client = make_llm_sequence(PREFLIGHT_RESPONSE, RECONCILE_RESPONSE)
-
-    with patch("src.preflight.anthropic.Anthropic", return_value=mock_client), \
-         patch("src.reconciler.anthropic.Anthropic", return_value=mock_client), \
+    with patch("src.extractor._llm_complete", side_effect=make_llm_sequence(PREFLIGHT_RESPONSE, RECONCILE_RESPONSE)), \
          patch("src.fetcher.requests.get", side_effect=mock_requests_get):
 
         cfg = run_preflight("AAPL", periods_historical=2, periods_projected=2)
