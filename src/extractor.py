@@ -1,6 +1,7 @@
 # financial_model/src/extractor.py
 import json
 import os
+import re
 import subprocess
 from urllib.parse import quote, urljoin
 
@@ -308,12 +309,29 @@ def _extract_financial_section(text_pages: list[str], notes_window: int = 30) ->
         "consolidated statement of cash flow",
     ]
 
+    # A real face statement page has an anchor phrase AND an actual revenue
+    # DATA row (revenue synonym followed by >=2 multi-digit figures, allowing
+    # European space/nbsp thousands). The contents/TOC page mentions the
+    # phrase but has no data row — anchoring there (the old behaviour) fed the
+    # LLM the table of contents instead of the statements for large reports.
+    _REV_ROW = re.compile(
+        r"(?:revenues?|net sales|net revenue|net turnover|turnover"
+        r"|total revenue|sales revenue|net sales revenue)\b"
+        r"[^\n]*?\d[\d   ]{2,}[^\n]*?\d[\d   ]{2,}", re.I)
+
     anchor_idx = None
     for i, page_text in enumerate(text_pages):
         t = page_text.lower()
-        if any(a in t for a in _ANCHORS):
+        if (any(a in t for a in _ANCHORS)
+                and _REV_ROW.search(page_text)
+                and len(re.findall(r"\b20\d\d\b", page_text)) >= 2):
             anchor_idx = i
             break
+    if anchor_idx is None:  # fallback: first bare anchor-phrase page
+        for i, page_text in enumerate(text_pages):
+            if any(a in page_text.lower() for a in _ANCHORS):
+                anchor_idx = i
+                break
 
     if anchor_idx is not None:
         selected = text_pages[anchor_idx: anchor_idx + notes_window]
