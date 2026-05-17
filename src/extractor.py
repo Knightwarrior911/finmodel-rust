@@ -200,6 +200,7 @@ IMPORTANT RULES:
     "Net cash from financing activities" / "Net cash used in financing activities" / "Cash flow from financing activities" → cff
     "Net change in cash and cash equivalents" / "Net increase (decrease) in cash" / "Change in cash and cash equivalents" → net_change_cash
 - da: take from the cash flow statement add-back line (most reliable source), NOT the income statement
+- net_income: the TOTAL "Profit for the year" / "Profit for the period" / "Net profit" for the whole group INCLUDING non-controlling interests — NEVER the "attributable to owners/shareholders of the parent" sub-line
 - shares_diluted: weighted average DILUTED shares in MILLIONS — NOT earnings per share
 - If gross profit not shown separately and cogs not shown: omit both cogs and gross_profit
 - Nordic/European numbers: "168 343" means 168,343 (space = thousands separator)
