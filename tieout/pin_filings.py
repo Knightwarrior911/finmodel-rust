@@ -15,7 +15,12 @@ import requests
 
 from tieout.config import ticker_filings_dir
 
-_UA = {"User-Agent": "Mozilla/5.0 (compatible; TieoutInstrument/1.0)"}
+_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0 Safari/537.36",
+    "Accept": "application/pdf,application/octet-stream,*/*",
+}
 
 
 def pinned_pdf_path(row: dict):
@@ -84,6 +89,22 @@ def ensure_pinned(row: dict):
 
     d = ticker_filings_dir(row["ticker"])
     dest = d / "annual_report.pdf"
+
+    # Curated direct filing URL — the reliable path. Search is only a fallback
+    # for an unattended overnight run (DDG HTML is bot-blocked).
+    curated = row.get("url")
+    if curated:
+        for attempt in range(3):
+            try:
+                print(f"  [pin] curated {curated[:90]}", file=sys.stderr)
+                _download(curated, dest)
+                print(f"  [pin] OK -> {dest}", file=sys.stderr)
+                return dest
+            except Exception as e:  # noqa: BLE001
+                print(f"  [pin] curated attempt {attempt+1} failed: {e}",
+                      file=sys.stderr)
+                time.sleep(4 * (attempt + 1))
+
     queries = [
         f"{row['search']} {y} filetype:pdf" for y in (2024, 2023)
     ] + [f"{row['company']} consolidated financial statements pdf"]

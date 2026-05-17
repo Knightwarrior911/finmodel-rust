@@ -34,6 +34,7 @@ BASKET = [
         "company": "Sandvik AB",
         "currency": "SEK",
         "pinned": None,
+        "url": "https://mb.cision.com/Main/208/4114009/3308864.pdf",
         "search": "Sandvik annual report",
     },
     {
@@ -41,6 +42,8 @@ BASKET = [
         "company": "ASML Holding NV",
         "currency": "EUR",
         "pinned": None,
+        # FY2025 IFRS-based annual report — covers fiscal 2024 & 2025.
+        "url": "https://ourbrand.asml.com/m/6ea363f69344ebd4/original/asml-2025-annual-report-based-on-ifrs.pdf",
         "search": "ASML annual report integrated report",
     },
     {
@@ -48,6 +51,7 @@ BASKET = [
         "company": "Nestle SA",
         "currency": "CHF",
         "pinned": None,
+        "url": "https://www.nestle.com/sites/default/files/2025-02/2024-financial-statements-en.pdf",
         "search": "Nestle annual report consolidated financial statements",
     },
     {
@@ -55,6 +59,9 @@ BASKET = [
         "company": "SAP SE",
         "currency": "EUR",
         "pinned": None,
+        # sap.com/docs bot-blocks scripted GET (403); srnav mirror serves the
+        # identical 2024 Integrated Report PDF. One-time immutable source.
+        "url": "https://db.srnav.com/storage/v1/object/public/document-pdfs/44f05cfd-12af-4e22-b9e3-34cffdf3faf1.pdf",
         "search": "SAP integrated report annual report",
     },
     {
@@ -62,6 +69,7 @@ BASKET = [
         "company": "Novo Nordisk A/S",
         "currency": "DKK",
         "pinned": None,
+        "url": "https://www.novonordisk.com/content/dam/nncorp/global/en/investors/irmaterial/annual_report/2025/novo-nordisk-annual-report-2024.pdf",
         "search": "Novo Nordisk annual report",
     },
     {
@@ -69,6 +77,7 @@ BASKET = [
         "company": "LVMH Moet Hennessy Louis Vuitton SE",
         "currency": "EUR",
         "pinned": None,
+        "url": "https://lvmh-com.cdn.prismic.io/lvmh-com/Z-PY3HdAxsiBv6wN_UniversalRegistrationDocument2024.pdf",
         "search": "LVMH annual report consolidated financial statements",
     },
 ]
