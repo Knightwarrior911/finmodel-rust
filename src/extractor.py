@@ -189,7 +189,7 @@ IMPORTANT RULES:
     "Revenue" / "Net revenue" / "Net sales" / "Revenues" → revenue
     "Cost of sales" / "Cost of revenue" / "Cost of goods sold" → cogs
     "Gross profit" → gross_profit
-    "Marketing expenses" + "Selling expenses" + "Administrative expenses" / "SG&A" → sga (SUM them if split)
+    "Marketing expenses" + "Selling expenses" + "Administrative expenses" / "SG&A" → sga (SUM them if split). EXCLUDE "Distribution expenses" / "Logistics" / "Fulfilment" — those are COGS-type, NOT sga
     "Research and development expenses" / "R&D expenses" → rd
     "Operating profit" / "Operating income" / "EBIT" → ebit
     "EBITA" / "Earnings before interest, taxes and amortisation" → ebita
