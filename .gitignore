@@ -15,3 +15,9 @@ extraction_cache/
 tieout/filings/
 tieout/results/
 autoresearch-results.tsv
+
+# non-code artifacts (keep repo clean)
+decks/
+experiments/
+screenshots/
+*.docx
