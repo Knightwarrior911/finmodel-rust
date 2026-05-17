@@ -319,27 +319,55 @@ def _extract_financial_section(text_pages: list[str], notes_window: int = 30) ->
         r"|total revenue|sales revenue|net sales revenue)\b"
         r"[^\n]*?\d[\d   ]{2,}[^\n]*?\d[\d   ]{2,}", re.I)
 
-    anchor_idx = None
-    for i, page_text in enumerate(text_pages):
-        t = page_text.lower()
-        if (any(a in t for a in _ANCHORS)
-                and _REV_ROW.search(page_text)
-                and len(re.findall(r"\b20\d\d\b", page_text)) >= 2):
-            anchor_idx = i
-            break
-    if anchor_idx is None:  # fallback: first bare anchor-phrase page
+    # The three face statements are often NOT contiguous (large reports
+    # interleave dozens of note pages between them, or the IS+notes alone
+    # exceed the char cap before the BS/CFS are reached). Locate EACH face
+    # independently by its own header + a numeric data row, then concatenate
+    # the focused slices so all three faces always reach the LLM.
+    _FACE = {
+        "is": (("consolidated income statement",
+                "consolidated statement of profit",
+                "consolidated statement of operations",
+                "income statement", "statement of profit or loss",
+                "profit and loss account"),
+               _REV_ROW),
+        "bs": (("consolidated balance sheet",
+                "consolidated statement of financial position",
+                "balance sheet", "statement of financial position"),
+               re.compile(r"total (?:assets|equity)\b[^\n]*?"
+                          r"\d[\d   ]{2,}", re.I)),
+        "cf": (("consolidated statement of cash flow",
+                "consolidated cash flow statement",
+                "statement of cash flows", "cash flow statement"),
+               re.compile(r"(?:operating activities|net cash)\b[^\n]*?"
+                          r"\d[\d   ]{2,}", re.I)),
+    }
+
+    slices: dict[int, str] = {}
+    for phrases, data_row in _FACE.values():
         for i, page_text in enumerate(text_pages):
-            if any(a in page_text.lower() for a in _ANCHORS):
-                anchor_idx = i
+            t = page_text.lower()
+            if (any(p in t for p in phrases)
+                    and data_row.search(page_text)
+                    and len(re.findall(r"\b20\d\d\b", page_text)) >= 2):
+                for j in range(i, min(i + 4, len(text_pages))):
+                    slices[j] = text_pages[j]
                 break
 
-    if anchor_idx is not None:
-        selected = text_pages[anchor_idx: anchor_idx + notes_window]
-        result = "\n".join(selected)
-        if len(result) >= 5_000:
-            return result[:150_000]
+    if slices:
+        ordered = "\n".join(slices[k] for k in sorted(slices))
+        if len(ordered) >= 3_000:
+            return ordered[:150_000]
 
-    # Fallback: head of full report
+    # Fallback 1: first bare anchor-phrase page + window
+    for i, page_text in enumerate(text_pages):
+        if any(a in page_text.lower() for a in _ANCHORS):
+            result = "\n".join(text_pages[i: i + notes_window])
+            if len(result) >= 5_000:
+                return result[:150_000]
+            break
+
+    # Fallback 2: head of full report
     return "\n".join(text_pages)[:150_000]
 
 
