@@ -1,8 +1,28 @@
 # finmodel
 
-Builds an integrated **3-statement financial model** (Income Statement, Balance Sheet, Cash Flow) plus DCF valuation and trading comps from a company's primary filings, and emits a formula-driven Excel workbook.
+A virtual financial analyst: turns a ticker or filing into institutional-grade modeling, valuation, research, and presentation output. It builds an integrated **3-statement model**, runs **valuation and IFRS adjustments**, performs **autonomous research**, and produces both **Excel workbooks and PowerPoint decks** — driven directly or through a natural-language orchestrator.
 
-Works for **US companies** (via SEC EDGAR) and **non-US / IFRS companies** (via annual-report PDF extraction — no EDGAR coverage required).
+Works for **US companies** (SEC EDGAR / XBRL) and **non-US / IFRS companies** (annual-report PDF extraction — no EDGAR coverage required).
+
+## Capabilities
+
+**Modeling & valuation**
+- Integrated 3-statement model (IS / BS / CFS), formula-driven Excel, colour-coded inputs vs formulas vs cross-refs
+- 3-scenario DCF, WACC build, trading comps, peer margin/trajectory comparisons
+- Enterprise-value bridge and **IFRS adjustment bridges** (e.g. IFRS-16 leases, US-GAAP↔IFRS reconciliation)
+- Quality layer: reconciliation, internal verifier, Excel validator, recalculation verification loop, value/format audits
+
+**Research (autonomous)**
+- SEC EDGAR + web + headed-browser pipeline for non-US filing discovery
+- Market data, news, and M&A **deal synthesis**
+- Ad-hoc research → structured Excel output (event logs, bridges, peer/trajectory sheets)
+
+**Presentation**
+- Generates PowerPoint decks from model/research output
+- Full programmatic deck editing — ~40 tools: text/image edits, slide management, theme recolor, shape move/resize/align/distribute, fills/lines, textboxes, table column/row swap & move, emphasis, footnotes, vision-inspect + render-reflect
+
+**Interfaces**
+- Direct CLI per stage, a single-tool mode (`--tool`), and a natural-language **orchestrator** (`--ask`) that plans and chains the ~40 registered tools
 
 ---
 
@@ -41,9 +61,20 @@ python -m src.cli --ticker ATCO-B.ST
 
 # Supply a local filing directly
 python -m src.cli --ticker NESN.SW --filing /path/to/report.pdf
+
+# Model + PowerPoint deck
+python -m src.cli --ticker ATCO-B.ST --deck
+
+# Natural-language orchestrator (plans + chains the ~40 tools)
+python -m src.cli --ask "Build a DCF on MSFT and a peer comp deck"
+
+# Invoke a single tool directly (no LLM/API key needed)
+python -m src.cli --tool run_public_comps --tool-args '{"ticker":"AAPL"}'
 ```
 
-Output: `{TICKER}_model.xlsx` in the working directory (`.` → `_`, e.g. `ATCO-B.ST` → `ATCO-B_ST_model.xlsx`).
+Output: `{TICKER}_model.xlsx` in the working directory (`.` → `_`, e.g. `ATCO-B.ST` → `ATCO-B_ST_model.xlsx`); decks and research sheets alongside it.
+
+Useful flags: `--periods-historical/-projected`, `--no-dcf`, `--no-comps`, `--ir-url` (non-US filing page), `--direct` (EDGAR-only, no LLM), `--llm`, `--output`.
 
 ### LLM provider
 
@@ -93,11 +124,16 @@ See `autoresearch-results.tsv` (local, gitignored) for the iteration ledger.
 ## Project layout
 
 ```
-src/            extraction, reconciliation, engine, writer, valuation, orchestrator
-tieout/         independent filing-accuracy harness (immutable measuring instrument)
-tests/          pytest suite (131 tests)
-config/         sector / assumption configuration
-docs/           design notes
+src/             extraction, reconciliation, engine, Excel writer, valuation
+                 (dcf/wacc/comps/peers), EV & IFRS bridges, quality layer,
+                 ~40-tool NL orchestrator
+src/research/    autonomous research: SEC EDGAR, browser pipeline, market
+                 data, news, M&A deal synthesis, IFRS/US-GAAP leases,
+                 ad-hoc Excel output, PPTX build / edit / inspect / render
+tieout/          independent filing-accuracy harness (immutable instrument)
+tests/           pytest suite (131 tests)
+config/          sector / assumption configuration
+docs/            design notes
 ```
 
 ## Tests
