@@ -1,0 +1,190 @@
+{
+  "ticker": "ATCO-B.ST",
+  "company": "Atlas Copco AB",
+  "currency": "SEK",
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\ATCO-B.ST\\annual_report.pdf",
+  "n_pages": 154,
+  "n_candidates": 21,
+  "n_trusted": 19,
+  "topics_covered": [
+    "capex_or_da_schedule",
+    "debt_maturities",
+    "geographic_split",
+    "mdna_narrative",
+    "pension_obligations",
+    "segment_revenue",
+    "tax_note"
+  ],
+  "items": [
+    {
+      "question": "In Atlas Copco Group's 2023 President and CEO report, by what amount (MSEK) did orders received increase to in 2023?",
+      "expected_answer": "MSEK 170 627",
+      "source_page": 5,
+      "anchor": "Orders received increased 8% to MSEK 170 627 (158 092).",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "MSEK 170 627"
+    },
+    {
+      "question": "How much did Atlas Copco Group state it invested in R&D in 2023, per the CEO report?",
+      "expected_answer": "MSEK 6 166",
+      "source_page": 5,
+      "anchor": "we invested 4% of our total revenues, or MSEK 6 166,",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "MSEK 6 166"
+    },
+    {
+      "question": "According to the Atlas Copco Group 2023 CEO report, how many companies did the Group acquire in 2023?",
+      "expected_answer": "17 companies",
+      "source_page": 6,
+      "anchor": "In 2023 alone, we acquired 17 companies,",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "17"
+    },
+    {
+      "question": "What is Atlas Copco Group's revenue growth target measured over a business cycle, per the Our targets section?",
+      "expected_answer": "8% per annum",
+      "source_page": 8,
+      "anchor": "Revenue growth measured over a business cycle Target: 8% per annum",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "8% per annum"
+    },
+    {
+      "question": "In the Atlas Copco Group share of revenues split, what percentage came from service versus equipment?",
+      "expected_answer": "Service, 35% Equipment, 65%",
+      "source_page": 9,
+      "anchor": "Service, 35% Equipment, 65%",
+      "topic": "segment_revenue",
+      "confirmed_answer": "Service, 35% Equipment, 65%"
+    },
+    {
+      "question": "In how many countries does Atlas Copco Group have sales, per the global reach description?",
+      "expected_answer": "more than 180 countries",
+      "source_page": 9,
+      "anchor": "with sales in more than 180 countries.",
+      "topic": "geographic_split",
+      "confirmed_answer": "more than 180 countries"
+    },
+    {
+      "question": "What was Atlas Copco Group's average employee count in 2023, per the value-creation overview?",
+      "expected_answer": "51 110",
+      "source_page": 13,
+      "anchor": "51 110 employees, on average",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "51 110 employees, on average"
+    },
+    {
+      "question": "What return on capital employed did Atlas Copco Group report for shareholders in the value-creation overview?",
+      "expected_answer": "30%",
+      "source_page": 13,
+      "anchor": "30% return on capital employed",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "30% return on capital employed"
+    },
+    {
+      "question": "Per Atlas Copco AB's dividend policy history, what share of earnings has the dividend policy targeted since 2011?",
+      "expected_answer": "about 50% of earnings",
+      "source_page": 15,
+      "anchor": "2011- about 50% of earnings",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "about 50% of earnings"
+    },
+    {
+      "question": "In Atlas Copco Group's 2023 depreciation, amortization and impairment schedule, what was the amount for right-of-use assets in 2023?",
+      "expected_answer": "1 639",
+      "source_page": 17,
+      "anchor": "Right-of-use assets 1 639 1 330",
+      "topic": "capex_or_da_schedule",
+      "confirmed_answer": "1 639"
+    },
+    {
+      "question": "What was Atlas Copco Group's effective tax rate in 2023 (with prior year in parentheses)?",
+      "expected_answer": "23.0% (21.8)",
+      "source_page": 17,
+      "anchor": "an effective tax rate of 23.0% (21.8)",
+      "topic": "tax_note",
+      "confirmed_answer": "23.0% (21.8)"
+    },
+    {
+      "question": "What average maturity did Atlas Copco Group report on its interest-bearing liabilities as of year-end 2023?",
+      "expected_answer": "5.7 years",
+      "source_page": 19,
+      "anchor": "an average maturity of 5.7 years on interest-bearing liabilities",
+      "topic": "debt_maturities",
+      "confirmed_answer": "5.7 years"
+    },
+    {
+      "question": "Of Atlas Copco Group's total interest-bearing debt at year-end 2023, how much was post-employment benefits (with prior year in parentheses)?",
+      "expected_answer": "MSEK 2 584 (2 380)",
+      "source_page": 19,
+      "anchor": "MSEK 2 584 (2 380) in post-employment benefits",
+      "topic": "pension_obligations",
+      "confirmed_answer": "MSEK 2 584 (2 380)"
+    },
+    {
+      "question": "At year-end 2023, what percentage of votes and capital in Atlas Copco AB did Investor AB hold?",
+      "expected_answer": "22.3% of the votes and 17.0% of the capital",
+      "source_page": 20,
+      "anchor": "representing 22.3% of the votes and 17.0% of the capital",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "22.3% of the votes and 17.0% of the capital"
+    },
+    {
+      "question": "In Atlas Copco's 2023 annual report, by what amount in MSEK did Vacuum Technique revenues increase to in 2023?",
+      "expected_answer": "42 812",
+      "source_page": 25,
+      "anchor": "Revenues increased 10% to MSEK 42 812",
+      "topic": "segment_revenue",
+      "confirmed_answer": "MSEK 42 812"
+    },
+    {
+      "question": "For Atlas Copco Vacuum Technique in 2023, what share of revenues came from the Asia/Oceania region?",
+      "expected_answer": "58%",
+      "source_page": 26,
+      "anchor": "Asia/Oceania, 58%",
+      "topic": "geographic_split",
+      "confirmed_answer": "58%"
+    },
+    {
+      "question": "For Atlas Copco Compressor Technique in 2023, what share of revenues came from the Asia/Oceania region?",
+      "expected_answer": "31%",
+      "source_page": 23,
+      "anchor": "Asia/Oceania, 31%",
+      "topic": "geographic_split",
+      "confirmed_answer": "31%"
+    },
+    {
+      "question": "For Atlas Copco Industrial Technique in 2023, what share of revenues came from the Asia/Oceania region?",
+      "expected_answer": "30%",
+      "source_page": 29,
+      "anchor": "Asia/Oceania, 30%",
+      "topic": "geographic_split",
+      "confirmed_answer": "30%"
+    },
+    {
+      "question": "How many employees did National Pump & Energy have when acquired by Atlas Copco Power Technique in 2023?",
+      "expected_answer": "420",
+      "source_page": 31,
+      "anchor": "with 420 employees.",
+      "topic": "mdna_narrative",
+      "confirmed_answer": "420 employees"
+    }
+  ],
+  "rejected": [
+    {
+      "question": "What share of Atlas Copco Group revenues came from the Power Technique business area, per the share of revenues by business area breakdown?",
+      "expected_answer": "16%",
+      "source_page": 9,
+      "anchor": "Power Technique, 16%",
+      "topic": "segment_revenue",
+      "reason": "disagree (B='Power Technique, 16%')"
+    },
+    {
+      "question": "In Atlas Copco Group's 2023 sales bridge, what was the organic change (%) for Vacuum Technique orders received?",
+      "expected_answer": "-20",
+      "source_page": 16,
+      "anchor": "Organic*, % +9 +18 -20 +3 +9 +19 -1 +18",
+      "topic": "segment_revenue",
+      "reason": "disagree (B='+3')"
+    }
+  ]
+}
