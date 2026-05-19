@@ -55,6 +55,8 @@ _INSURER_DATA_ROW = re.compile(
     r"|net premium earned|premiums? earned)\b[^\n]*?\d{3,}[^\n]*?\d{3,}",
     re.I)
 
+# SECTOR_DATA_ROW and HARD_ASSERTS are public (no underscore): they are the
+# sector contract surface imported by tests/test_tieout_sector.py.
 SECTOR_DATA_ROW = {
     "industrial": _REVENUE_DATA_ROW,
     "bank": _BANK_DATA_ROW,
@@ -67,6 +69,7 @@ _SECTOR_IS_ANCHORS = {
     "insurer": _IS_ANCHORS + ["insurance revenue", "premiums earned",
                               "gross written premium"],
 }
+
 
 def gt_path(ticker: str):
     return GT_DIR / f"{ticker.replace('/', '_').replace('.', '_')}.json"

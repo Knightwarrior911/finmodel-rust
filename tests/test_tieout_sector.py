@@ -83,3 +83,9 @@ def test_bank_income_data_row_matches_net_interest():
 def test_industrial_data_row_unchanged():
     rx = groundtruth.SECTOR_DATA_ROW["industrial"]
     assert rx.search("Net sales 172 664 141 325")
+
+
+def test_insurer_data_row_matches_premium():
+    rx = groundtruth.SECTOR_DATA_ROW["insurer"]
+    assert rx.search("Gross written premium 5 000 4 800")
+    assert not rx.search("Net sales 172 664 141 325")
