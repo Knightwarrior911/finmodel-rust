@@ -1,0 +1,143 @@
+{
+  "fingerprint": "77aa15bb59ac8979",
+  "companies": {
+    "ATCO-B.ST": {
+      "pct": 100.0,
+      "trusted": 48,
+      "matched": 48,
+      "years": [
+        2022,
+        2023
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 16,
+          "matched": 16,
+          "pct": 100.0
+        },
+        "balance_sheet": {
+          "trusted": 20,
+          "matched": 20,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 12,
+          "pct": 100.0
+        }
+      }
+    },
+    "SAND.ST": {
+      "pct": 100.0,
+      "trusted": 50,
+      "matched": 50,
+      "years": [
+        2023,
+        2024
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 16,
+          "matched": 16,
+          "pct": 100.0
+        },
+        "balance_sheet": {
+          "trusted": 22,
+          "matched": 22,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 12,
+          "pct": 100.0
+        }
+      }
+    },
+    "ASML.AS": {
+      "pct": 100.0,
+      "trusted": 56,
+      "matched": 56,
+      "years": [
+        2024,
+        2025
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 22,
+          "matched": 22,
+          "pct": 100.0
+        },
+        "balance_sheet": {
+          "trusted": 22,
+          "matched": 22,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 12,
+          "pct": 100.0
+        }
+      }
+    },
+    "NESN.SW": {
+      "pct": 100.0,
+      "trusted": 52,
+      "matched": 52,
+      "years": [
+        2023,
+        2024
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 16,
+          "matched": 16,
+          "pct": 100.0
+        },
+        "balance_sheet": {
+          "trusted": 24,
+          "matched": 24,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 12,
+          "pct": 100.0
+        }
+      }
+    },
+    "NOVO-B.CO": {
+      "pct": 100.0,
+      "trusted": 50,
+      "matched": 50,
+      "years": [
+        2023,
+        2024
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 16,
+          "matched": 16,
+          "pct": 100.0
+        },
+        "balance_sheet": {
+          "trusted": 22,
+          "matched": 22,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 12,
+          "pct": 100.0
+        }
+      }
+    }
+  },
+  "skipped": {
+    "SAP.DE": "ground truth empty (0 trusted cells)",
+    "MC.PA": "no pinned PDF (discovery failed)"
+  },
+  "total_trusted": 256,
+  "total_matched": 256,
+  "aggregate_pct": 100.0,
+  "measured_companies": 5
+}
