@@ -91,6 +91,12 @@ BASKET = [
 
 SECTORS = ("industrial", "bank", "insurer")
 
+# Canonical line-item universe, per sector. Each sector's keys MUST mirror
+# the keys produced by that sector's prompt in src.extractor
+# (FINANCIALS_SYSTEM_PROMPT and its bank/insurer variants) so model output
+# and ground truth stay directly comparable. The `industrial` schema is
+# value-identical to the pre-refactor flat CANONICAL and is pinned by
+# tests/test_tieout_sector.py::test_industrial_schema_value_identical.
 CANONICAL_BY_SECTOR = {
     "industrial": {
         "income_statement": [
