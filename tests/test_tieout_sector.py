@@ -1,5 +1,6 @@
 import inspect
 
+import src.extractor as ex
 from tieout import config
 from tieout import groundtruth
 from tieout import run_tieout
@@ -102,3 +103,24 @@ def test_compare_uses_sector_schema():
     model = {"income_statement": {"net_interest_income": [100, 110]}}
     pct, denom, matched, per_stmt, rows = run_tieout._compare(gt, model)
     assert denom == 2 and matched == 2 and pct == 100.0
+
+
+def test_detect_sector_bank():
+    pages = ["Consolidated income statement",
+             "Net interest income 12 345 11 200\n"
+             "Loans and advances to customers 998 877"]
+    assert ex.detect_sector(pages) == "bank"
+
+
+def test_detect_sector_insurer():
+    pages = ["Consolidated income statement",
+             "Gross written premium 5 000 4 800\n"
+             "Net claims incurred 3 100 2 900\n"
+             "Insurance contract liabilities 9 000"]
+    assert ex.detect_sector(pages) == "insurer"
+
+
+def test_detect_sector_industrial_default():
+    pages = ["Consolidated income statement",
+             "Net sales 172 664 141 325\nCost of goods sold 97 547"]
+    assert ex.detect_sector(pages) == "industrial"

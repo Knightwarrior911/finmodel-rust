@@ -261,6 +261,159 @@ Return ONLY valid JSON in this exact structure (no prose, no markdown):
 }"""
 
 
+_BANK_SYSTEM_PROMPT = """You are a senior financial analyst extracting structured financial data from annual report text.
+
+Extract main income statement, balance sheet, and cash flow statement line items for ALL years present in the report (typically 2-3 comparative years). Also extract key footnote detail.
+
+IMPORTANT RULES:
+- All monetary values in MILLIONS (same currency as the filing)
+- Arrays: oldest year first, newest year last — same length for every key
+- income_tax: positive number (absolute tax charge)
+- cfi: SIGNED total (negative = net outflow from investing; typical for industrial/manufacturing companies)
+- cff: SIGNED total (negative = net outflow from financing)
+- net_change_cash: SIGNED total (positive = increase in cash and equivalents)
+- USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
+- IFRS naming mappings (label in filing → JSON key):
+    "Interest income" / "Interest and similar income" / "Interest and similar revenue" → interest_income
+    "Interest expense" / "Interest and similar expense" / "Interest and similar charges" → interest_expense
+    "Net interest income" / "Net interest and similar income" → net_interest_income
+    "Fee and commission income" / "Net fee and commission income" / "Fees and commissions" → fee_commission_income
+    "Net trading income" / "Trading income" / "Net gains on financial instruments at fair value" → trading_income
+    "Total operating income" / "Total income" / "Operating income" → total_operating_income
+    "Loan loss provisions" / "Impairment losses on loans" / "Credit loss expense" / "Net impairment on financial assets" → loan_loss_provisions
+    "Operating expenses" / "Total operating expenses" / "General and administrative expenses" → operating_expenses
+    "Profit before tax" / "Profit before income tax" / "Pre-tax profit" → pretax_income
+    "Net cash from investing activities" / "Net cash used in investing activities" / "Cash flow from investment activities" → cfi
+    "Net cash from financing activities" / "Net cash used in financing activities" / "Cash flow from financing activities" → cff
+    "Net change in cash and cash equivalents" / "Net increase (decrease) in cash" / "Change in cash and cash equivalents" → net_change_cash
+- net_income: the TOTAL "Profit for the year" / "Profit for the period" / "Net profit" for the whole group INCLUDING non-controlling interests — NEVER the "attributable to owners/shareholders of the parent" sub-line
+- Nordic/European numbers: "168 343" means 168,343 (space = thousands separator)
+- If a line item is absent from the filing, omit its key entirely (do not include null or 0)
+
+Return ONLY valid JSON in this exact structure (no prose, no markdown):
+{
+  "currency": "<3-letter code e.g. SEK, EUR, GBP>",
+  "years_found": ["2022", "2023", "2024"],
+  "income_statement": {
+    "interest_income":         [<2022>, <2023>, <2024>],
+    "interest_expense":        [<2022>, <2023>, <2024>],
+    "net_interest_income":     [<2022>, <2023>, <2024>],
+    "fee_commission_income":   [<2022>, <2023>, <2024>],
+    "trading_income":          [<2022>, <2023>, <2024>],
+    "total_operating_income":  [<2022>, <2023>, <2024>],
+    "loan_loss_provisions":    [<2022>, <2023>, <2024>],
+    "operating_expenses":      [<2022>, <2023>, <2024>],
+    "pretax_income":           [<2022>, <2023>, <2024>],
+    "income_tax":              [<2022>, <2023>, <2024>],
+    "net_income":              [<2022>, <2023>, <2024>]
+  },
+  "balance_sheet": {
+    "cash_and_central_bank":  [<2022>, <2023>, <2024>],
+    "loans_to_customers":     [<2022>, <2023>, <2024>],
+    "investment_securities":  [<2022>, <2023>, <2024>],
+    "total_assets":           [<2022>, <2023>, <2024>],
+    "customer_deposits":      [<2022>, <2023>, <2024>],
+    "debt_securities_issued": [<2022>, <2023>, <2024>],
+    "total_liabilities":      [<2022>, <2023>, <2024>],
+    "total_equity":           [<2022>, <2023>, <2024>]
+  },
+  "cash_flow_statement": {
+    "cfo":             [<2022>, <2023>, <2024>],
+    "cfi":             [<2022>, <2023>, <2024>],
+    "cff":             [<2022>, <2023>, <2024>],
+    "net_change_cash": [<2022>, <2023>, <2024>]
+  },
+  "notes": {
+    "tax_rate":          {"values": {"2022A": <decimal>, "2023A": <decimal>, "2024A": <decimal>}},
+    "debt_maturities":   {"2025": <val>, "2026": <val>, "2027": <val>},
+    "sbc_expense":       {"values": {"2022A": <val>, "2023A": <val>, "2024A": <val>}},
+    "lease_obligations": {"operating": <val>, "finance": <val>},
+    "dso_days": <number or null>,
+    "dpo_days": <number or null>,
+    "dio_days": <number or null>
+  },
+  "confidence": <0.0 to 1.0>,
+  "discrepancies": ["description of any conflicts or missing items"]
+}"""
+
+
+_INSURER_SYSTEM_PROMPT = """You are a senior financial analyst extracting structured financial data from annual report text.
+
+Extract main income statement, balance sheet, and cash flow statement line items for ALL years present in the report (typically 2-3 comparative years). Also extract key footnote detail.
+
+IMPORTANT RULES:
+- All monetary values in MILLIONS (same currency as the filing)
+- Arrays: oldest year first, newest year last — same length for every key
+- income_tax: positive number (absolute tax charge)
+- cfi: SIGNED total (negative = net outflow from investing; typical for industrial/manufacturing companies)
+- cff: SIGNED total (negative = net outflow from financing)
+- net_change_cash: SIGNED total (positive = increase in cash and equivalents)
+- USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
+- IFRS naming mappings (label in filing → JSON key):
+    "Gross written premium" / "Gross written premiums" / "Gross premiums written" → gross_written_premium
+    "Net earned premium" / "Net earned premiums" / "Premiums earned, net" / "Net insurance revenue" → net_earned_premium
+    "Net investment income" / "Investment income" / "Investment result" → net_investment_income
+    "Net claims incurred" / "Claims incurred, net" / "Net insurance claims" / "Insurance service expense" → net_claims_incurred
+    "Acquisition expenses" / "Acquisition costs" / "Deferred acquisition costs amortisation" / "Commission expenses" → acquisition_expenses
+    "Operating expenses" / "Total operating expenses" / "Administrative expenses" → operating_expenses
+    "Profit before tax" / "Profit before income tax" / "Pre-tax profit" → pretax_income
+    "Net cash from investing activities" / "Net cash used in investing activities" / "Cash flow from investment activities" → cfi
+    "Net cash from financing activities" / "Net cash used in financing activities" / "Cash flow from financing activities" → cff
+    "Net change in cash and cash equivalents" / "Net increase (decrease) in cash" / "Change in cash and cash equivalents" → net_change_cash
+- net_income: the TOTAL "Profit for the year" / "Profit for the period" / "Net profit" for the whole group INCLUDING non-controlling interests — NEVER the "attributable to owners/shareholders of the parent" sub-line
+- Nordic/European numbers: "168 343" means 168,343 (space = thousands separator)
+- If a line item is absent from the filing, omit its key entirely (do not include null or 0)
+
+Return ONLY valid JSON in this exact structure (no prose, no markdown):
+{
+  "currency": "<3-letter code e.g. SEK, EUR, GBP>",
+  "years_found": ["2022", "2023", "2024"],
+  "income_statement": {
+    "gross_written_premium": [<2022>, <2023>, <2024>],
+    "net_earned_premium":    [<2022>, <2023>, <2024>],
+    "net_investment_income": [<2022>, <2023>, <2024>],
+    "net_claims_incurred":   [<2022>, <2023>, <2024>],
+    "acquisition_expenses":  [<2022>, <2023>, <2024>],
+    "operating_expenses":    [<2022>, <2023>, <2024>],
+    "pretax_income":         [<2022>, <2023>, <2024>],
+    "income_tax":            [<2022>, <2023>, <2024>],
+    "net_income":            [<2022>, <2023>, <2024>]
+  },
+  "balance_sheet": {
+    "investments":                    [<2022>, <2023>, <2024>],
+    "cash":                           [<2022>, <2023>, <2024>],
+    "total_assets":                   [<2022>, <2023>, <2024>],
+    "insurance_contract_liabilities": [<2022>, <2023>, <2024>],
+    "total_liabilities":              [<2022>, <2023>, <2024>],
+    "total_equity":                   [<2022>, <2023>, <2024>]
+  },
+  "cash_flow_statement": {
+    "cfo":             [<2022>, <2023>, <2024>],
+    "cfi":             [<2022>, <2023>, <2024>],
+    "cff":             [<2022>, <2023>, <2024>],
+    "net_change_cash": [<2022>, <2023>, <2024>]
+  },
+  "notes": {
+    "tax_rate":          {"values": {"2022A": <decimal>, "2023A": <decimal>, "2024A": <decimal>}},
+    "debt_maturities":   {"2025": <val>, "2026": <val>, "2027": <val>},
+    "sbc_expense":       {"values": {"2022A": <val>, "2023A": <val>, "2024A": <val>}},
+    "lease_obligations": {"operating": <val>, "finance": <val>},
+    "dso_days": <number or null>,
+    "dpo_days": <number or null>,
+    "dio_days": <number or null>
+  },
+  "confidence": <0.0 to 1.0>,
+  "discrepancies": ["description of any conflicts or missing items"]
+}"""
+
+
+_SYSTEM_PROMPT_BY_SECTOR = {
+    "industrial": FINANCIALS_SYSTEM_PROMPT,
+    "bank": _BANK_SYSTEM_PROMPT,
+    "insurer": _INSURER_SYSTEM_PROMPT,
+}
+
+
 _CACHE_DIR = Path(__file__).parent.parent / "extraction_cache"
 
 
@@ -372,6 +525,34 @@ def _extract_financial_section(text_pages: list[str], notes_window: int = 30) ->
     return "\n".join(text_pages)[:150_000]
 
 
+_BANK_SIGNATURES = (
+    "net interest income", "loans and advances to customers",
+    "due to customers", "interest and similar income",
+)
+_INSURER_SIGNATURES = (
+    "gross written premium", "net earned premium",
+    "insurance contract liabilities", "net claims incurred",
+    "premiums earned",
+)
+
+
+def detect_sector(text_pages: list[str]) -> str:
+    """Deterministic pre-LLM sector guess from filing face text.
+
+    bank/insurer require >=2 distinct sector signatures so a passing
+    mention in an industrial filing's notes does not misclassify it.
+    Default is 'industrial'.
+    """
+    blob = "\n".join(text_pages[:80]).lower()
+    bank_hits = sum(1 for s in _BANK_SIGNATURES if s in blob)
+    ins_hits = sum(1 for s in _INSURER_SIGNATURES if s in blob)
+    if ins_hits >= 2 and ins_hits >= bank_hits:
+        return "insurer"
+    if bank_hits >= 2:
+        return "bank"
+    return "industrial"
+
+
 def extract_financials_from_pdf(
     pdf_path: str, periods: list[str], ticker: str = ""
 ) -> tuple[dict, dict, dict, dict, list[str]]:
@@ -392,6 +573,9 @@ def extract_financials_from_pdf(
     with pdfplumber.open(pdf_path) as pdf:
         text_pages = [p.extract_text() or "" for p in pdf.pages]
 
+    sector = detect_sector(text_pages)
+    system_prompt = _SYSTEM_PROMPT_BY_SECTOR[sector]
+
     text_chunk = _extract_financial_section(text_pages)
 
     years = [p[:4] for p in periods]  # ["2023A","2024A"] → ["2023","2024"]
@@ -401,7 +585,7 @@ def extract_financials_from_pdf(
         f"Return arrays of length {len(years)} for every key.\n\n"
         f"Annual report text:\n{text_chunk}"
     )
-    raw = _llm_complete(FINANCIALS_SYSTEM_PROMPT, prompt, max_tokens=8192)
+    raw = _llm_complete(system_prompt, prompt, max_tokens=8192)
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
