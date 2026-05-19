@@ -89,3 +89,19 @@ def test_insurer_data_row_matches_premium():
     rx = groundtruth.SECTOR_DATA_ROW["insurer"]
     assert rx.search("Gross written premium 5 000 4 800")
     assert not rx.search("Net sales 172 664 141 325")
+
+
+from tieout import run_tieout
+
+
+def test_compare_uses_sector_schema():
+    gt = {
+        "years": [2022, 2023],
+        "sector": "bank",
+        "values": {"income_statement": {
+            "net_interest_income": {"2022": 100, "2023": 110}}},
+        "citations": {},
+    }
+    model = {"income_statement": {"net_interest_income": [100, 110]}}
+    pct, denom, matched, per_stmt, rows = run_tieout._compare(gt, model)
+    assert denom == 2 and matched == 2 and pct == 100.0
