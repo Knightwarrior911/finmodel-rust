@@ -56,3 +56,30 @@ def test_existing_seven_are_industrial():
     industrial = {r["ticker"] for r in config.BASKET
                   if r["sector"] == "industrial"}
     assert expected <= industrial
+
+
+import inspect
+from tieout import groundtruth
+
+
+def test_build_ground_truth_accepts_sector():
+    sig = inspect.signature(groundtruth.build_ground_truth)
+    assert "sector" in sig.parameters
+
+
+def test_hard_asserts_registry_has_atco():
+    assert "ATCO-B.ST" in groundtruth.HARD_ASSERTS
+    blk = groundtruth.HARD_ASSERTS["ATCO-B.ST"]["income_statement"]
+    assert blk["revenue"][2023] == 172664
+    assert blk["net_income"][2022] == 23482
+
+
+def test_bank_income_data_row_matches_net_interest():
+    rx = groundtruth.SECTOR_DATA_ROW["bank"]
+    assert rx.search("Net interest income 12 345 11 200")
+    assert not rx.search("Revenue 12 345 11 200")
+
+
+def test_industrial_data_row_unchanged():
+    rx = groundtruth.SECTOR_DATA_ROW["industrial"]
+    assert rx.search("Net sales 172 664 141 325")

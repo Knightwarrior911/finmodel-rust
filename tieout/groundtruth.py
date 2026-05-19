@@ -21,7 +21,8 @@ import sys
 
 import pdfplumber
 
-from tieout.config import CANONICAL, ABS_KEYS, EXCLUDE_KEYS, GT_DIR
+from tieout.config import (CANONICAL_BY_SECTOR, ABS_KEYS_BY_SECTOR,
+                           EXCLUDE_KEYS_BY_SECTOR, GT_DIR)
 from tieout.llm import complete
 from tieout.textnorm import normalize_minus, parse_money, find_years
 
@@ -45,6 +46,27 @@ _REVENUE_DATA_ROW = re.compile(
 _UNIT_HINT = re.compile(
     r"\b(MSEK|SEK ?m|EUR ?m|€ ?m|DKK ?m|CHF ?m|million|millions|mn\b"
     r"|amounts in|in millions)\b", re.I)
+
+_BANK_DATA_ROW = re.compile(
+    r"(?:net interest income|interest income|interest and similar income)"
+    r"\b[^\n]*?\d{3,}[^\n]*?\d{3,}", re.I)
+_INSURER_DATA_ROW = re.compile(
+    r"(?:gross written premium|net earned premium|gross premium"
+    r"|net premium earned|premiums? earned)\b[^\n]*?\d{3,}[^\n]*?\d{3,}",
+    re.I)
+
+SECTOR_DATA_ROW = {
+    "industrial": _REVENUE_DATA_ROW,
+    "bank": _BANK_DATA_ROW,
+    "insurer": _INSURER_DATA_ROW,
+}
+
+_SECTOR_IS_ANCHORS = {
+    "industrial": _IS_ANCHORS,
+    "bank": _IS_ANCHORS + ["interest income", "net interest income"],
+    "insurer": _IS_ANCHORS + ["insurance revenue", "premiums earned",
+                              "gross written premium"],
+}
 
 def gt_path(ticker: str):
     return GT_DIR / f"{ticker.replace('/', '_').replace('.', '_')}.json"
@@ -117,7 +139,7 @@ def _page_texts(pdf_path: str):
         return [_render_page(p) for p in pdf.pages]
 
 
-def _find_face_window(pages):
+def _find_face_window(pages, sector="industrial"):
     """Return (start_idx, joined_normalized_text, is_header_line).
 
     The real income-statement face page must contain a strong anchor phrase
@@ -125,11 +147,13 @@ def _find_face_window(pages):
     thousands normalization). Contents / governance pages mention the words
     but have no data row, so they are rejected.
     """
+    anchors = _SECTOR_IS_ANCHORS[sector]
+    data_row = SECTOR_DATA_ROW[sector]
     for i, norm in enumerate(pages):  # pages already column-split + minus-norm
         low = norm.lower()
-        if not any(a in low for a in _IS_ANCHORS):
+        if not any(a in low for a in anchors):
             continue
-        if not _REVENUE_DATA_ROW.search(norm):
+        if not data_row.search(norm):
             continue
         if len(re.findall(r"\b20[1-3]\d\b", norm)) < 2:
             continue
@@ -162,12 +186,14 @@ def _header_year_order(header_line: str, years):
     return out if len(out) == len(years) else sorted(years, reverse=True)
 
 
-def _build_prompt(face_text, years, currency_hint, variant):
-    keys_block = json.dumps(CANONICAL, indent=2)
+def _build_prompt(face_text, years, currency_hint, variant,
+                  sector="industrial"):
+    keys_block = json.dumps(CANONICAL_BY_SECTOR[sector], indent=2)
+    abs_keys = sorted(ABS_KEYS_BY_SECTOR[sector])
     sign_rule = (
         "SIGN CONVENTION (apply exactly):\n"
         f"  - These keys are POSITIVE magnitudes even though the filing prints "
-        f"them as negatives/outflows: {sorted(ABS_KEYS)}\n"
+        f"them as negatives/outflows: {abs_keys}\n"
         "  - All other keys: signed exactly as economically reported "
         "(losses/outflows negative).\n"
     )
@@ -219,13 +245,13 @@ def _parse_json(raw: str) -> dict:
     return json.loads(raw[a:b + 1])
 
 
-def _norm_cell(key, v):
+def _norm_cell(key, v, abs_keys):
     if v is None:
         return None
     f = parse_money(v) if isinstance(v, str) else float(v)
     if f is None:
         return None
-    if key in ABS_KEYS:
+    if key in abs_keys:
         f = abs(f)
     return round(f)
 
@@ -235,26 +261,30 @@ def _norm_cell(key, v):
 # two-up column boundary in this filing; it is intentionally NOT asserted —
 # it's protected instead by dual-pass agreement, since the model will also
 # struggle there and we don't want the answer key stricter than the test.)
-_ATCO_ASSERT = {
-    "income_statement": {
-        "revenue": {2023: 172664, 2022: 141325},
-        "gross_profit": {2023: 75117, 2022: 59384},
-        "ebit": {2023: 37091, 2022: 30216},
-        "rd": {2023: 6693, 2022: 5389},
-        "net_income": {2023: 28052, 2022: 23482},
+HARD_ASSERTS = {
+    "ATCO-B.ST": {
+        "income_statement": {
+            "revenue": {2023: 172664, 2022: 141325},
+            "gross_profit": {2023: 75117, 2022: 59384},
+            "ebit": {2023: 37091, 2022: 30216},
+            "rd": {2023: 6693, 2022: 5389},
+            "net_income": {2023: 28052, 2022: 23482},
+        },
     },
 }
 
 
 def build_ground_truth(ticker: str, company: str, currency: str,
-                       pdf_path: str, *, force: bool = False) -> dict:
+                       pdf_path: str, *, sector: str = "industrial",
+                       force: bool = False) -> dict:
     """Build (or load cached) immutable ground truth for one company."""
     out_path = gt_path(ticker)
     if out_path.exists() and not force:
         return json.loads(out_path.read_text(encoding="utf-8"))
 
+    abs_keys = ABS_KEYS_BY_SECTOR[sector]
     pages = _page_texts(pdf_path)
-    start, face_text, header_line = _find_face_window(pages)
+    start, face_text, header_line = _find_face_window(pages, sector)
     years = find_years(header_line) or find_years(face_text[:4000])
     if not years or len(years) != 2:
         raise ValueError(
@@ -262,26 +292,28 @@ def build_ground_truth(ticker: str, company: str, currency: str,
     col_order = _header_year_order(header_line, years)
 
     # Two decorrelated transcription passes.
-    pa = _parse_json(complete(_build_prompt(face_text, years, currency, "A"),
-                              "Transcribe now.", timeout=600))
-    pb = _parse_json(complete(_build_prompt(face_text, years, currency, "B"),
-                              "Transcribe now.", timeout=600))
+    pa = _parse_json(complete(
+        _build_prompt(face_text, years, currency, "A", sector),
+        "Transcribe now.", timeout=600))
+    pb = _parse_json(complete(
+        _build_prompt(face_text, years, currency, "B", sector),
+        "Transcribe now.", timeout=600))
 
     values, citations = {}, {}
     cov = {"trusted": 0, "unverifiable": 0}
     disagreed = []
-    for stmt, keys in CANONICAL.items():
+    for stmt, keys in CANONICAL_BY_SECTOR[sector].items():
         values[stmt] = {}
         for key in keys:
-            if key in EXCLUDE_KEYS:
+            if key in EXCLUDE_KEYS_BY_SECTOR[sector]:
                 continue
             av = (pa.get("values", {}).get(stmt, {}) or {}).get(key, {}) or {}
             bv = (pb.get("values", {}).get(stmt, {}) or {}).get(key, {}) or {}
             yr_vals = {}
             for y in years:
                 ys = str(y)
-                ca = _norm_cell(key, av.get(ys, av.get(y)))
-                cb = _norm_cell(key, bv.get(ys, bv.get(y)))
+                ca = _norm_cell(key, av.get(ys, av.get(y)), abs_keys)
+                cb = _norm_cell(key, bv.get(ys, bv.get(y)), abs_keys)
                 if ca is None and cb is None:
                     continue                              # not on face stmt
                 if ca is not None and cb is not None and ca == cb:
@@ -297,6 +329,7 @@ def build_ground_truth(ticker: str, company: str, currency: str,
 
     gt = {
         "ticker": ticker,
+        "sector": sector,
         "company": company,
         "currency_expected": currency,
         "currency_reported": pa.get("currency") or pb.get("currency"),
@@ -310,20 +343,22 @@ def build_ground_truth(ticker: str, company: str, currency: str,
         "face_start_page": start + 1,
     }
 
-    if ticker == "ATCO-B.ST":
-        _assert_atco(gt)
+    _assert_hard(gt, ticker)
 
     out_path.write_text(json.dumps(gt, indent=2, ensure_ascii=False),
                         encoding="utf-8")
     return gt
 
 
-def _assert_atco(gt: dict):
+def _assert_hard(gt: dict, ticker: str):
+    exp = HARD_ASSERTS.get(ticker)
+    if exp is None:
+        return
     bad = []
-    for stmt, keys in _ATCO_ASSERT.items():
-        for key, exp in keys.items():
+    for stmt, keys in exp.items():
+        for key, vals in keys.items():
             got = gt["values"].get(stmt, {}).get(key, {})
-            for y, ev in exp.items():
+            for y, ev in vals.items():
                 gv = got.get(str(y))
                 if gv != ev:
                     bad.append(f"{stmt}.{key}.{y}: expected {ev}, GT has {gv}")
@@ -341,6 +376,7 @@ if __name__ == "__main__":
     row = next(r for r in BASKET if r["ticker"] == tk)
     pdf = ticker_filings_dir(tk) / (row["pinned"] or "annual_report.pdf")
     g = build_ground_truth(tk, row["company"], row["currency"], str(pdf),
+                           sector=row.get("sector", "industrial"),
                            force="--force" in sys.argv)
     print(json.dumps(g["coverage"], indent=2))
     print("years", g["years"], "reported_ccy", g["currency_reported"])
