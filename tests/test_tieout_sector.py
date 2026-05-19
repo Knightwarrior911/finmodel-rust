@@ -1,4 +1,8 @@
+import inspect
+
 from tieout import config
+from tieout import groundtruth
+from tieout import run_tieout
 
 
 # The exact industrial schema as it existed before the refactor — frozen here
@@ -58,10 +62,6 @@ def test_existing_seven_are_industrial():
     assert expected <= industrial
 
 
-import inspect
-from tieout import groundtruth
-
-
 def test_build_ground_truth_accepts_sector():
     sig = inspect.signature(groundtruth.build_ground_truth)
     assert "sector" in sig.parameters
@@ -89,9 +89,6 @@ def test_insurer_data_row_matches_premium():
     rx = groundtruth.SECTOR_DATA_ROW["insurer"]
     assert rx.search("Gross written premium 5 000 4 800")
     assert not rx.search("Net sales 172 664 141 325")
-
-
-from tieout import run_tieout
 
 
 def test_compare_uses_sector_schema():
