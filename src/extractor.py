@@ -269,7 +269,7 @@ IMPORTANT RULES:
 - All monetary values in MILLIONS (same currency as the filing)
 - Arrays: oldest year first, newest year last — same length for every key
 - income_tax: positive number (absolute tax charge)
-- cfi: SIGNED total (negative = net outflow from investing; typical for industrial/manufacturing companies)
+- cfi: SIGNED total (negative = net outflow from investing)
 - cff: SIGNED total (negative = net outflow from financing)
 - net_change_cash: SIGNED total (positive = increase in cash and equivalents)
 - USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
@@ -345,7 +345,7 @@ IMPORTANT RULES:
 - All monetary values in MILLIONS (same currency as the filing)
 - Arrays: oldest year first, newest year last — same length for every key
 - income_tax: positive number (absolute tax charge)
-- cfi: SIGNED total (negative = net outflow from investing; typical for industrial/manufacturing companies)
+- cfi: SIGNED total (negative = net outflow from investing)
 - cff: SIGNED total (negative = net outflow from financing)
 - net_change_cash: SIGNED total (positive = increase in cash and equivalents)
 - USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
@@ -407,6 +407,9 @@ Return ONLY valid JSON in this exact structure (no prose, no markdown):
 }"""
 
 
+# INVARIANT: the JSON keys in the three prompts below MUST stay key-exact
+# (same names, same order) with tieout.config.CANONICAL_BY_SECTOR[sector].
+# Editing a sector schema there requires the matching prompt edit here.
 _SYSTEM_PROMPT_BY_SECTOR = {
     "industrial": FINANCIALS_SYSTEM_PROMPT,
     "bank": _BANK_SYSTEM_PROMPT,
@@ -543,7 +546,7 @@ def detect_sector(text_pages: list[str]) -> str:
     mention in an industrial filing's notes does not misclassify it.
     Default is 'industrial'.
     """
-    blob = "\n".join(text_pages[:80]).lower()
+    blob = "\n".join(text_pages[:80]).lower()  # primary statements live in the report front-half
     bank_hits = sum(1 for s in _BANK_SIGNATURES if s in blob)
     ins_hits = sum(1 for s in _INSURER_SIGNATURES if s in blob)
     if ins_hits >= 2 and ins_hits >= bank_hits:
