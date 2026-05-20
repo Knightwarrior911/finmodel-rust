@@ -52,6 +52,8 @@ def main():
     parser.add_argument("--no-comps", action="store_true", help="Skip trading comps tab")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
     parser.add_argument("--deck", action="store_true", help="Also build a PowerPoint summary deck alongside the Excel model")
+    parser.add_argument("--audit", action="store_true", help="After writing xlsx, render per-cell source-filing snapshots with yellow highlight and attach as hyperlinks (clickable audit trail)")
+    parser.add_argument("--audit-pdf", default=None, help="Path to source PDF used for --audit snapshots (auto-discovered from extraction_cache/ if omitted)")
     args = parser.parse_args()
 
     # Direct tool invocation — no API key needed, calls one tool and prints result
@@ -395,6 +397,27 @@ def main():
         print(f"ERROR writing Excel: {e}")
         sys.exit(1)
     print(f"      ✓ Saved: {out_path}")
+
+    # ── Audit-trail snapshots (opt-in via --audit) ────────────────────────
+    if args.audit:
+        total += 1
+        print(_hdr("Audit: rendering source-filing snapshots..."))
+        try:
+            from src.audit_pipeline import run_audit
+            res = run_audit(
+                cfg.ticker,
+                pdf_path=args.audit_pdf,
+                xlsx_path=out_path,
+            )
+            if res.get("ok"):
+                print(f"      ✓ values_located={res['values_located']}  "
+                      f"snapshots={res['snapshots_rendered']}  "
+                      f"annotated={res.get('annotated_cells', 0)}")
+                print(f"      → snapshots: {res['snapshots_dir']}")
+            else:
+                print(f"      ⚠ Audit skipped: {res.get('error')}")
+        except Exception as e:
+            print(f"      ⚠ Audit error: {e}")
 
     # ── Validator gate (per shared/SPEC_spreadsheet_engineering Section 6) ───
     print(_hdr(f"Validating {out_path}..."))
