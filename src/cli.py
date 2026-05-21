@@ -410,9 +410,16 @@ def main():
                 xlsx_path=out_path,
             )
             if res.get("ok"):
-                print(f"      ✓ values_located={res['values_located']}  "
-                      f"snapshots={res['snapshots_rendered']}  "
-                      f"annotated={res.get('annotated_cells', 0)}")
+                ann = res.get("annotated") or {}
+                print(f"      ✓ located={res['values_located']}/{res['values_total']} "
+                      f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}  "
+                      f"snapshots={res['snapshots_rendered']}")
+                print(f"      → linked cells: snapshot={ann.get('linked_snapshot', 0)} "
+                      f"pdf_fallback={ann.get('linked_pdf', 0)}")
+                if res.get("missing_period_pdfs"):
+                    print(f"      ⚠ no source PDF for periods: "
+                          f"{', '.join(res['missing_period_pdfs'])} "
+                          f"(those numbers cannot be linked)")
                 print(f"      → snapshots: {res['snapshots_dir']}")
             else:
                 print(f"      ⚠ Audit skipped: {res.get('error')}")

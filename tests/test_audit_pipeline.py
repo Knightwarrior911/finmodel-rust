@@ -83,7 +83,7 @@ def test_annotate_workbook_with_snapshots(tmp_path):
     wb.save(str(xlsx))
 
     annotated = annotate_workbook_with_snapshots(xlsx, snaps, cache_path=cache)
-    assert annotated >= 1
+    assert annotated["total"] >= 1
 
     wb2 = openpyxl.load_workbook(str(xlsx))
     cell = wb2.active["B1"]
