@@ -2,7 +2,8 @@
 
 For each numeric value extracted from a filing, we record the PDF page index
 and bbox where the raw value text appears. This lets downstream consumers
-render a snapshot of that page with the number highlighted (audit trail).
+build a file#page link to that page (audit trail); bbox is retained for a
+future viewer that highlights the exact number.
 
 Public API:
     CellProvenance       — dataclass for one cell's source location

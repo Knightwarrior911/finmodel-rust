@@ -1,18 +1,18 @@
-"""Audit pipeline — attach CellProvenance to an extraction cache, render snapshots,
-and post-process an existing 3-statement xlsx to add per-cell hyperlinks to those
-snapshots.
+"""Audit pipeline — attach CellProvenance to an extraction cache, then post-process
+an existing 3-statement xlsx to add a `file#page` source hyperlink on each numeric
+cell (click-to-source audit trail, no rendered images).
 
 Public API:
     attach_provenance_to_cache(cache_path, pdf_path) -> int
-    generate_snapshots_for_cache(cache_path, out_dir, ticker) -> dict
-    annotate_workbook_with_snapshots(xlsx_path, ticker, snap_index) -> int
-    run_audit(ticker, *, pdf_path=None, models_dir=Path("models"),
-              cache_dir=Path("extraction_cache"),
-              snapshots_dir=Path("snapshots")) -> dict
+    annotate_workbook_with_links(xlsx_path, *, cache_path) -> dict
+    run_audit(ticker, *, pdf_path=None, xlsx_path=None,
+              models_dir=Path("models"),
+              cache_dir=Path("extraction_cache")) -> dict
 
 The audit pass is non-invasive: writers and extractors are NOT modified. Provenance
 is computed by re-reading the source PDF with PyMuPDF and locating each cached
-numeric value via normalize_variants().
+numeric value via normalize_variants(). Located values link to their exact source
+page (#page=N); page-unlocated values with a known source doc link to the doc.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from .provenance import (
     locate_value_in_pdf,
     provenance_dict,
 )
-from .snapshot import render_snapshot
+from .audit_link import make_audit_link
 
 
 # Statement keys we instrument
@@ -144,39 +144,6 @@ def _humanize(key: str) -> str:
     return key.replace("_", " ").title()
 
 
-def generate_snapshots_for_cache(
-    cache_path: str | Path,
-    out_dir: str | Path,
-    ticker: str,
-) -> dict[tuple[str, str], Path]:
-    """For every CellProvenance with bbox in the cache, render a PNG snapshot.
-
-    Returns a map {(key, period): png_path}.
-    """
-    cache_path = Path(cache_path)
-    cache = json.loads(cache_path.read_text(encoding="utf-8"))
-    prov_block = cache.get("__provenance__") or {}
-
-    out: dict[tuple[str, str], Path] = {}
-    for full_key, bucket in prov_block.items():
-        if not isinstance(bucket, dict):
-            continue
-        for period, payload in bucket.items():
-            if not isinstance(payload, dict):
-                continue
-            if payload.get("low_confidence"):
-                continue
-            if payload.get("bbox") is None:
-                continue
-            prov = CellProvenance.from_json(payload)
-            try:
-                png = render_snapshot(prov, out_dir, ticker=ticker)
-            except FileNotFoundError:
-                continue
-            out[(full_key, period)] = png
-    return out
-
-
 # Cell-value matching for openpyxl post-pass
 _NUM_RE = re.compile(r"^-?\d{1,3}(?:[, ]\d{3})*(?:\.\d+)?$")
 
@@ -197,28 +164,26 @@ def _row_label(ws, cell) -> str:
     return label
 
 
-def annotate_workbook_with_snapshots(
+def annotate_workbook_with_links(
     xlsx_path: str | Path,
-    snap_index: dict[tuple[str, str], Path],
     *,
     cache_path: Optional[str | Path] = None,
 ) -> dict[str, int]:
     """Open an xlsx and, for each numeric cell whose value matches a filing-sourced
-    provenance value, attach a hyperlink to that number's source.
+    provenance value, attach a `file#page` hyperlink to that number's source.
 
     Matching is LABEL-AWARE: when a value collides across line items, the cell's
     row label is used to disambiguate (token overlap with the provenance label).
 
-    - Located value (bbox found) -> link to the highlighted snapshot PNG.
-    - Low-confidence value (no bbox) but source PDF exists -> link to the PDF
-      (page-level fallback) with a comment noting auto-location failed.
+    - Located value (page known)        -> link to file:///doc.pdf#page=N.
+    - Page-unlocated value but source PDF exists -> link to the PDF (page 1).
 
-    Returns {"linked_snapshot": n, "linked_pdf": n, "total": n}.
+    Returns {"linked_page": n, "linked_doc": n, "total": n}.
     """
     import openpyxl
 
     if cache_path is None:
-        return {"linked_snapshot": 0, "linked_pdf": 0, "total": 0}
+        return {"linked_page": 0, "linked_doc": 0, "total": 0}
     cache = json.loads(Path(cache_path).read_text(encoding="utf-8"))
     prov_block = cache.get("__provenance__") or {}
     years = _years(cache)
@@ -242,14 +207,14 @@ def annotate_workbook_with_snapshots(
             value_index.setdefault(float(val), []).append({
                 "full_key": full_key,
                 "period": period,
-                "png": snap_index.get((full_key, period)),
                 "pdf": payload.get("pdf_path") or "",
+                "page_index": payload.get("page_index"),
                 "label_tokens": _label_tokens(payload.get("label", "")),
                 "low_confidence": bool(payload.get("low_confidence")),
             })
 
     wb = openpyxl.load_workbook(str(xlsx_path))
-    linked_snap = linked_pdf = 0
+    linked_page = linked_doc = 0
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
@@ -269,27 +234,27 @@ def annotate_workbook_with_snapshots(
                 # avoid linking a coincidental value (e.g. a computed cell).
                 if len(cands) > 1 and not (best["label_tokens"] & row_tokens):
                     continue
-                png = best["png"]
-                if png is not None:
-                    cell.hyperlink = str(png)
-                    cell.comment = openpyxl.comments.Comment(
-                        f"Source: {best['full_key']} {best['period']}\n{Path(png).name}",
-                        "audit",
-                    )
-                    linked_snap += 1
-                elif best["pdf"] and Path(best["pdf"]).exists():
-                    cell.hyperlink = str(Path(best["pdf"]).resolve())
-                    cell.comment = openpyxl.comments.Comment(
-                        f"Source: {best['full_key']} {best['period']}\n"
-                        f"(number not auto-located — opens source PDF)",
-                        "audit",
-                    )
-                    linked_pdf += 1
+                if not best["pdf"] or not Path(best["pdf"]).exists():
+                    continue
+                page_idx = None if best["low_confidence"] else best["page_index"]
+                link = make_audit_link(best["pdf"], page_index=page_idx)
+                if not link:
+                    continue
+                cell.hyperlink = link
+                where = f"page {page_idx + 1}" if page_idx is not None else "source doc"
+                cell.comment = openpyxl.comments.Comment(
+                    f"Source: {best['full_key']} {best['period']} ({where})",
+                    "audit",
+                )
+                if page_idx is not None:
+                    linked_page += 1
+                else:
+                    linked_doc += 1
     wb.save(str(xlsx_path))
     return {
-        "linked_snapshot": linked_snap,
-        "linked_pdf": linked_pdf,
-        "total": linked_snap + linked_pdf,
+        "linked_page": linked_page,
+        "linked_doc": linked_doc,
+        "total": linked_page + linked_doc,
     }
 
 
@@ -300,20 +265,17 @@ def run_audit(
     xlsx_path: Optional[str | Path] = None,
     models_dir: str | Path = "models",
     cache_dir: str | Path = "extraction_cache",
-    snapshots_dir: str | Path = "snapshots",
 ) -> dict[str, Any]:
     """Full audit pass for a ticker.
 
     1. Locate cache JSON (extraction_cache/{TICKER}.json with dot->underscore)
     2. Discover source PDFs per period (year in filename) + a default PDF
     3. Attach provenance to cache (each period searched in its own report)
-    4. Render snapshots for located values
-    5. If xlsx_path provided, annotate workbook (label-aware)
-    6. Report honest coverage (located / low_confidence / per-period)
+    4. If xlsx_path provided, attach file#page source hyperlinks (label-aware)
+    5. Report honest coverage (located / low_confidence / per-period)
     """
     cache_dir = Path(cache_dir)
     models_dir = Path(models_dir)
-    snap_root = Path(snapshots_dir)
 
     cache_name = ticker.replace(".", "_").replace("-", "_") + ".json"
     cache_path = cache_dir / cache_name
@@ -356,7 +318,6 @@ def run_audit(
     n_located = attach_provenance_to_cache(
         cache_path, pdf_path, pdf_for_period=pdf_for_period,
     )
-    snap_index = generate_snapshots_for_cache(cache_path, snap_root, ticker)
 
     # Coverage stats
     cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -388,13 +349,11 @@ def run_audit(
         "coverage_pct": round(100.0 * n_located / total, 1) if total else 0.0,
         "located_by_period": per_period_located,
         "missing_period_pdfs": missing_period_pdfs,
-        "snapshots_rendered": len(snap_index),
-        "snapshots_dir": str(snap_root / ticker),
     }
 
     if xlsx_path:
-        result["annotated"] = annotate_workbook_with_snapshots(
-            xlsx_path, snap_index, cache_path=cache_path,
+        result["annotated"] = annotate_workbook_with_links(
+            xlsx_path, cache_path=cache_path,
         )
         result["xlsx_path"] = str(xlsx_path)
 

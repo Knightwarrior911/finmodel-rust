@@ -52,8 +52,8 @@ def main():
     parser.add_argument("--no-comps", action="store_true", help="Skip trading comps tab")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
     parser.add_argument("--deck", action="store_true", help="Also build a PowerPoint summary deck alongside the Excel model")
-    parser.add_argument("--audit", action="store_true", help="After writing xlsx, render per-cell source-filing snapshots with yellow highlight and attach as hyperlinks (clickable audit trail)")
-    parser.add_argument("--audit-pdf", default=None, help="Path to source PDF used for --audit snapshots (auto-discovered from extraction_cache/ if omitted)")
+    parser.add_argument("--audit", action="store_true", help="After writing xlsx, attach a file#page source hyperlink to each numeric cell (click a number to open its source filing at the right page)")
+    parser.add_argument("--audit-pdf", default=None, help="Path to source PDF for --audit (auto-discovered from extraction_cache/ if omitted)")
     args = parser.parse_args()
 
     # Direct tool invocation — no API key needed, calls one tool and prints result
@@ -398,10 +398,10 @@ def main():
         sys.exit(1)
     print(f"      ✓ Saved: {out_path}")
 
-    # ── Audit-trail snapshots (opt-in via --audit) ────────────────────────
+    # ── Audit-trail source links (opt-in via --audit) ─────────────────────
     if args.audit:
         total += 1
-        print(_hdr("Audit: rendering source-filing snapshots..."))
+        print(_hdr("Audit: linking source pages..."))
         try:
             from src.audit_pipeline import run_audit
             res = run_audit(
@@ -412,15 +412,13 @@ def main():
             if res.get("ok"):
                 ann = res.get("annotated") or {}
                 print(f"      ✓ located={res['values_located']}/{res['values_total']} "
-                      f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}  "
-                      f"snapshots={res['snapshots_rendered']}")
-                print(f"      → linked cells: snapshot={ann.get('linked_snapshot', 0)} "
-                      f"pdf_fallback={ann.get('linked_pdf', 0)}")
+                      f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}")
+                print(f"      → linked cells: page={ann.get('linked_page', 0)} "
+                      f"doc_only={ann.get('linked_doc', 0)}")
                 if res.get("missing_period_pdfs"):
                     print(f"      ⚠ no source PDF for periods: "
                           f"{', '.join(res['missing_period_pdfs'])} "
                           f"(those numbers cannot be linked)")
-                print(f"      → snapshots: {res['snapshots_dir']}")
             else:
                 print(f"      ⚠ Audit skipped: {res.get('error')}")
         except Exception as e:
