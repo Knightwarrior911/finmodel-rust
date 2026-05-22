@@ -404,17 +404,27 @@ def main():
         print(_hdr("Audit: linking source pages..."))
         try:
             from src.audit_pipeline import run_audit
+            from src.citations import collect_market_citations
+            market_cites = collect_market_citations(
+                public_comps=public_comps_output,
+                peer_set=peer_set,
+                wacc=wacc_output,
+                assumptions=assumptions,
+                target_ticker=cfg.ticker,
+            )
             res = run_audit(
                 cfg.ticker,
                 pdf_path=args.audit_pdf,
                 xlsx_path=out_path,
+                market_citations=market_cites,
             )
             if res.get("ok"):
                 ann = res.get("annotated") or {}
                 print(f"      ✓ located={res['values_located']}/{res['values_total']} "
                       f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}")
                 print(f"      → linked cells: page={ann.get('linked_page', 0)} "
-                      f"doc_only={ann.get('linked_doc', 0)}")
+                      f"doc_only={ann.get('linked_doc', 0)} "
+                      f"market={ann.get('linked_market', 0)}")
                 print(f"      → one-time setup so clicks open the page in Edge: "
                       f"python -m src.audit_open --install")
                 if res.get("missing_period_pdfs"):

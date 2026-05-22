@@ -27,6 +27,7 @@ from .provenance import (
     provenance_dict,
 )
 from .audit_open import build_uri
+from .citations import load_citations
 
 
 # Statement keys we instrument
@@ -175,14 +176,16 @@ def annotate_workbook_with_links(
     Matching is LABEL-AWARE: when a value collides across line items, the cell's
     row label is used to disambiguate (token overlap with the provenance label).
 
-    - Located value (page known)        -> finmodelaudit:page=N&path=<pdf>.
-    - Page-unlocated value but source PDF exists -> finmodelaudit page 1.
+    - Filing value, page known   -> finmodelaudit:page=N&path=<pdf>.
+    - Filing value, page unknown -> finmodelaudit page 1.
+    - Market-data value (cache __citations__) -> provider https URL.
 
-    The finmodelaudit: scheme is used (not a raw file#page link) because Excel
-    drops the #page fragment when the shell opens a local PDF; the registered
-    handler (src/audit_open.py) re-launches the browser directly at the page.
+    The finmodelaudit: scheme is used for filings (not a raw file#page link)
+    because Excel drops the #page fragment when the shell opens a local PDF; the
+    registered handler (src/audit_open.py) re-launches the browser at the page.
+    Market-data links are plain https (Excel opens them in the browser directly).
 
-    Returns {"linked_page": n, "linked_doc": n, "total": n}.
+    Returns {"linked_page", "linked_doc", "linked_market", "total"}.
     """
     import openpyxl
 
@@ -217,47 +220,70 @@ def annotate_workbook_with_links(
                 "low_confidence": bool(payload.get("low_confidence")),
             })
 
+    # Market-data citations (yfinance/EDGAR) -> provider URL. These cover comps,
+    # peer betas, market cap, risk-free rate — numbers with no filing PDF page.
+    market_index: dict[float, list[dict[str, Any]]] = {}
+    for mc in load_citations(cache.get("__citations__")):
+        market_index.setdefault(round(float(mc.value), 6), []).append({
+            "url": mc.url, "label": mc.label, "source": mc.source,
+            "as_of": mc.as_of, "label_tokens": _label_tokens(mc.label),
+        })
+
     wb = openpyxl.load_workbook(str(xlsx_path))
-    linked_page = linked_doc = 0
+    linked_page = linked_doc = linked_market = 0
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
                 v = cell.value
                 if not isinstance(v, (int, float)) or isinstance(v, bool):
                     continue
-                cands = value_index.get(float(v))
-                if not cands:
-                    continue
-                # Disambiguate by row-label token overlap
+                fv = float(v)
                 row_tokens = _label_tokens(_row_label(ws, cell))
-                best = max(
-                    cands,
-                    key=lambda c: len(c["label_tokens"] & row_tokens),
-                )
-                # Require a label match when multiple candidates collide, to
-                # avoid linking a coincidental value (e.g. a computed cell).
-                if len(cands) > 1 and not (best["label_tokens"] & row_tokens):
+
+                # 1) Filing provenance (PDF page) takes priority.
+                cands = value_index.get(fv)
+                if cands:
+                    best = max(cands, key=lambda c: len(c["label_tokens"] & row_tokens))
+                    # Require a label match when multiple candidates collide, to
+                    # avoid linking a coincidental value (e.g. a computed cell).
+                    if len(cands) > 1 and not (best["label_tokens"] & row_tokens):
+                        continue
+                    if not best["pdf"] or not Path(best["pdf"]).exists():
+                        continue
+                    page_idx = None if best["low_confidence"] else best["page_index"]
+                    page_1based = (page_idx + 1) if page_idx is not None else None
+                    cell.hyperlink = build_uri(best["pdf"], page_1based)
+                    where = f"page {page_idx + 1}" if page_idx is not None else "source doc"
+                    cell.comment = openpyxl.comments.Comment(
+                        f"Source: {best['full_key']} {best['period']} ({where})",
+                        "audit",
+                    )
+                    if page_idx is not None:
+                        linked_page += 1
+                    else:
+                        linked_doc += 1
                     continue
-                if not best["pdf"] or not Path(best["pdf"]).exists():
+
+                # 2) Market-data citation (provider URL, opens in browser).
+                mcands = market_index.get(round(fv, 6))
+                if not mcands:
                     continue
-                page_idx = None if best["low_confidence"] else best["page_index"]
-                page_1based = (page_idx + 1) if page_idx is not None else None
-                link = build_uri(best["pdf"], page_1based)
-                cell.hyperlink = link
-                where = f"page {page_idx + 1}" if page_idx is not None else "source doc"
+                mbest = max(mcands, key=lambda c: len(c["label_tokens"] & row_tokens))
+                if len(mcands) > 1 and not (mbest["label_tokens"] & row_tokens):
+                    continue
+                cell.hyperlink = mbest["url"]
                 cell.comment = openpyxl.comments.Comment(
-                    f"Source: {best['full_key']} {best['period']} ({where})",
+                    f"Source: {mbest['label']} via {mbest['source']} "
+                    f"(as of {mbest['as_of']})",
                     "audit",
                 )
-                if page_idx is not None:
-                    linked_page += 1
-                else:
-                    linked_doc += 1
+                linked_market += 1
     wb.save(str(xlsx_path))
     return {
         "linked_page": linked_page,
         "linked_doc": linked_doc,
-        "total": linked_page + linked_doc,
+        "linked_market": linked_market,
+        "total": linked_page + linked_doc + linked_market,
     }
 
 
@@ -266,6 +292,7 @@ def run_audit(
     *,
     pdf_path: Optional[str | Path] = None,
     xlsx_path: Optional[str | Path] = None,
+    market_citations: Optional[list] = None,
     models_dir: str | Path = "models",
     cache_dir: str | Path = "extraction_cache",
 ) -> dict[str, Any]:
@@ -274,8 +301,9 @@ def run_audit(
     1. Locate cache JSON (extraction_cache/{TICKER}.json with dot->underscore)
     2. Discover source PDFs per period (year in filename) + a default PDF
     3. Attach provenance to cache (each period searched in its own report)
-    4. If xlsx_path provided, attach file#page source hyperlinks (label-aware)
-    5. Report honest coverage (located / low_confidence / per-period)
+    4. Persist any market-data citations (yfinance/EDGAR) into the cache
+    5. If xlsx_path provided, attach source hyperlinks (filing pages + market URLs)
+    6. Report honest coverage (located / low_confidence / per-period)
     """
     cache_dir = Path(cache_dir)
     models_dir = Path(models_dir)
@@ -321,6 +349,10 @@ def run_audit(
     n_located = attach_provenance_to_cache(
         cache_path, pdf_path, pdf_for_period=pdf_for_period,
     )
+
+    if market_citations:
+        from .citations import persist_citations
+        persist_citations(cache_path, market_citations)
 
     # Coverage stats
     cache = json.loads(cache_path.read_text(encoding="utf-8"))
