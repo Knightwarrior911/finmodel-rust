@@ -415,6 +415,8 @@ def main():
                       f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}")
                 print(f"      → linked cells: page={ann.get('linked_page', 0)} "
                       f"doc_only={ann.get('linked_doc', 0)}")
+                print(f"      → one-time setup so clicks open the page in Edge: "
+                      f"python -m src.audit_open --install")
                 if res.get("missing_period_pdfs"):
                     print(f"      ⚠ no source PDF for periods: "
                           f"{', '.join(res['missing_period_pdfs'])} "

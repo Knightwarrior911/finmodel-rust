@@ -69,8 +69,9 @@ def test_annotate_workbook_with_links(tmp_path):
     cell = wb2.active["B1"]
     assert cell.hyperlink is not None
     target = cell.hyperlink.target
-    assert target.startswith("file:///")
-    assert "#page=" in target
+    assert target.startswith("finmodelaudit:")
+    assert "#" not in target          # Excel drops '#'; the handler adds the page
+    assert "page=" in target
 
 
 def test_run_audit_end_to_end(tmp_path):

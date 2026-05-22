@@ -4,6 +4,12 @@
 **Status:** Approved (shape), pending spec review
 **Supersedes:** the `--audit` snapshot/PNG pass (`src/snapshot.py`, pre-rendered `snapshots/` pile)
 
+## UPDATE 2026-05-22 — Excel drops `#page`; a one-time launcher is required
+
+Empirically verified on Win11 + Edge: a plain `file:///doc.pdf#page=N` hyperlink does **not** jump to the page when clicked in Excel. Excel parses the link into Address (bare PDF) + SubAddress (`page=N`) and the Windows shell **discards the fragment** when launching the default PDF app, so the PDF always opens at page 1. Edge honours `#page=N` **only** when launched directly with the URL as an argument (`msedge.exe "file:///…#page=N"` → correct page, confirmed). `?query` strings die the same way through the shell.
+
+Therefore the local "exact page" requirement cannot be met by a pure hyperlink. Resolution: a custom **`finmodelaudit:` protocol** handler (`src/audit_open.py`), registered once under HKCU (no admin, nothing running in background). Excel cells link to `finmodelaudit:page=N&path=<percent-encoded-abs-path>` — no `#`, so Excel keeps the whole string. Click → shell runs the handler → handler launches the browser directly at `file:///…#page=N`. The earlier "no install" non-goal is revised: a one-time per-machine registration is now required for page-accurate clicks. Adobe Reader as the default PDF app is an alternative for some users but the target environment is Edge.
+
 ---
 
 ## Problem

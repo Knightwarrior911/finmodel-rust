@@ -26,7 +26,7 @@ from .provenance import (
     locate_value_in_pdf,
     provenance_dict,
 )
-from .audit_link import make_audit_link
+from .audit_open import build_uri
 
 
 # Statement keys we instrument
@@ -175,8 +175,12 @@ def annotate_workbook_with_links(
     Matching is LABEL-AWARE: when a value collides across line items, the cell's
     row label is used to disambiguate (token overlap with the provenance label).
 
-    - Located value (page known)        -> link to file:///doc.pdf#page=N.
-    - Page-unlocated value but source PDF exists -> link to the PDF (page 1).
+    - Located value (page known)        -> finmodelaudit:page=N&path=<pdf>.
+    - Page-unlocated value but source PDF exists -> finmodelaudit page 1.
+
+    The finmodelaudit: scheme is used (not a raw file#page link) because Excel
+    drops the #page fragment when the shell opens a local PDF; the registered
+    handler (src/audit_open.py) re-launches the browser directly at the page.
 
     Returns {"linked_page": n, "linked_doc": n, "total": n}.
     """
@@ -237,9 +241,8 @@ def annotate_workbook_with_links(
                 if not best["pdf"] or not Path(best["pdf"]).exists():
                     continue
                 page_idx = None if best["low_confidence"] else best["page_index"]
-                link = make_audit_link(best["pdf"], page_index=page_idx)
-                if not link:
-                    continue
+                page_1based = (page_idx + 1) if page_idx is not None else None
+                link = build_uri(best["pdf"], page_1based)
                 cell.hyperlink = link
                 where = f"page {page_idx + 1}" if page_idx is not None else "source doc"
                 cell.comment = openpyxl.comments.Comment(
