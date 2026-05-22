@@ -510,6 +510,23 @@ def main():
                 deck_path=deck_path,
             )
             print(f"      ✓ Saved: {deck_path}")
+            # Attach source links to deck numbers (requires --audit to have run,
+            # which populates the cache provenance + market citations).
+            if args.audit:
+                try:
+                    from pathlib import Path
+                    from src.audit_pptx import annotate_pptx_with_links
+                    # Match run_audit's cache resolution (dash may be preserved).
+                    cdir = Path("extraction_cache")
+                    cache_p = cdir / (cfg.ticker.replace(".", "_").replace("-", "_") + ".json")
+                    if not cache_p.exists():
+                        cache_p = cdir / (cfg.ticker.replace(".", "_") + ".json")
+                    if cache_p.exists():
+                        dl = annotate_pptx_with_links(deck_path, cache_path=cache_p)
+                        print(f"      → deck source links: page={dl['linked_page']} "
+                              f"doc_only={dl['linked_doc']} market={dl['linked_market']}")
+                except Exception as e:
+                    print(f"      ⚠ Deck audit-link failed: {e}")
         except Exception as e:
             print(f"      ⚠ Deck build failed: {e}")
 
@@ -639,7 +656,11 @@ def _build_summary_deck(
                 _tgt_mult(tgt_ev, target_revenue),
                 "NM",
             ]
-            values = peer_rows + [target_row]
+            # add_comparison_matrix wants metric-major values (len == len(metrics),
+            # each row == len(entities)); build entity-major then transpose.
+            entity_rows = peer_rows + [target_row]
+            values = [[entity_rows[e][m] for e in range(len(entity_rows))]
+                      for m in range(len(metrics))]
 
             deck.add_comparison_matrix(
                 action_title=f"{company_name} trades at a discount to peers on EV/EBITDA",

@@ -165,6 +165,54 @@ def _row_label(ws, cell) -> str:
     return label
 
 
+def build_link_indexes(
+    cache: dict[str, Any],
+) -> tuple[dict[float, list[dict[str, Any]]], dict[float, list[dict[str, Any]]]]:
+    """Build the two value->candidates indexes used by every audit post-pass
+    (Excel and PPTX): a filing-provenance index and a market-citation index.
+
+    Returns (value_index, market_index):
+      value_index[float(value)]      -> filing candidates {full_key, period, pdf,
+                                        page_index, label_tokens, low_confidence}
+      market_index[round(value, 6)]  -> market candidates {url, label, source,
+                                        as_of, label_tokens}
+    """
+    prov_block = cache.get("__provenance__") or {}
+    years = _years(cache)
+
+    value_index: dict[float, list[dict[str, Any]]] = {}
+    for full_key, bucket in prov_block.items():
+        if not isinstance(bucket, dict):
+            continue
+        stmt, _, key = full_key.partition(".")
+        for period, payload in bucket.items():
+            if not isinstance(payload, dict):
+                continue
+            arr = cache.get(stmt, {}).get(key, [])
+            try:
+                val = arr[years.index(period)] if period in years else arr[int(period)]
+            except Exception:
+                val = None
+            if val is None:
+                continue
+            value_index.setdefault(float(val), []).append({
+                "full_key": full_key,
+                "period": period,
+                "pdf": payload.get("pdf_path") or "",
+                "page_index": payload.get("page_index"),
+                "label_tokens": _label_tokens(payload.get("label", "")),
+                "low_confidence": bool(payload.get("low_confidence")),
+            })
+
+    market_index: dict[float, list[dict[str, Any]]] = {}
+    for mc in load_citations(cache.get("__citations__")):
+        market_index.setdefault(round(float(mc.value), 6), []).append({
+            "url": mc.url, "label": mc.label, "source": mc.source,
+            "as_of": mc.as_of, "label_tokens": _label_tokens(mc.label),
+        })
+    return value_index, market_index
+
+
 def annotate_workbook_with_links(
     xlsx_path: str | Path,
     *,
@@ -190,44 +238,9 @@ def annotate_workbook_with_links(
     import openpyxl
 
     if cache_path is None:
-        return {"linked_page": 0, "linked_doc": 0, "total": 0}
+        return {"linked_page": 0, "linked_doc": 0, "linked_market": 0, "total": 0}
     cache = json.loads(Path(cache_path).read_text(encoding="utf-8"))
-    prov_block = cache.get("__provenance__") or {}
-    years = _years(cache)
-
-    # value -> list of candidate dicts
-    value_index: dict[float, list[dict[str, Any]]] = {}
-    for full_key, bucket in prov_block.items():
-        if not isinstance(bucket, dict):
-            continue
-        stmt, _, key = full_key.partition(".")
-        for period, payload in bucket.items():
-            if not isinstance(payload, dict):
-                continue
-            arr = cache.get(stmt, {}).get(key, [])
-            try:
-                val = arr[years.index(period)] if period in years else arr[int(period)]
-            except Exception:
-                val = None
-            if val is None:
-                continue
-            value_index.setdefault(float(val), []).append({
-                "full_key": full_key,
-                "period": period,
-                "pdf": payload.get("pdf_path") or "",
-                "page_index": payload.get("page_index"),
-                "label_tokens": _label_tokens(payload.get("label", "")),
-                "low_confidence": bool(payload.get("low_confidence")),
-            })
-
-    # Market-data citations (yfinance/EDGAR) -> provider URL. These cover comps,
-    # peer betas, market cap, risk-free rate — numbers with no filing PDF page.
-    market_index: dict[float, list[dict[str, Any]]] = {}
-    for mc in load_citations(cache.get("__citations__")):
-        market_index.setdefault(round(float(mc.value), 6), []).append({
-            "url": mc.url, "label": mc.label, "source": mc.source,
-            "as_of": mc.as_of, "label_tokens": _label_tokens(mc.label),
-        })
+    value_index, market_index = build_link_indexes(cache)
 
     wb = openpyxl.load_workbook(str(xlsx_path))
     linked_page = linked_doc = linked_market = 0

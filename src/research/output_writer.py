@@ -76,6 +76,30 @@ class ResearchExcelWriter:
         self.ws = None
         self.fmt: dict = {}
         self._row: int = 0
+        self._source_pdf: str = ""   # local filing PDF for page-accurate links
+        self._source_doc = None      # lazily-opened fitz doc
+
+    def _audit_url(self, value) -> str:
+        """If a local source PDF is set, return a finmodelaudit page link for
+        `value` (page-accurate when locatable, else doc-level). Else "".
+
+        Lets bridge inputs open the filing at the exact page via the same handler
+        as the main model, instead of a plain whole-document URL.
+        """
+        pdf = self._source_pdf
+        if not pdf or not os.path.exists(pdf) or value in (None, 0):
+            return ""
+        try:
+            import fitz
+            from ..audit_open import build_uri
+            from ..provenance import locate_value_in_pdf
+            if self._source_doc is None:
+                self._source_doc = fitz.open(pdf)
+            page_idx, _bbox, _raw = locate_value_in_pdf(self._source_doc, value)
+            page = (page_idx + 1) if page_idx is not None else None
+            return build_uri(pdf, page)
+        except Exception:
+            return ""
 
     # ── format builders ──────────────────────────────────────────────
 
@@ -183,9 +207,10 @@ class ResearchExcelWriter:
                                  {"width": COMMENT_W, "height": COMMENT_H,
                                   "x_scale": 2, "y_scale": 2})
 
-        if url:
-            self.ws.write_url(self._row, SOURCE_COL, url,
-                              self.fmt["source_link"], "Annual Report")
+        link = self._audit_url(value) or url
+        if link:
+            self.ws.write_url(self._row, SOURCE_COL, link,
+                              self.fmt["source_link"], "Source")
         self._row += 1
 
     def _formula(self, label: str, formula: str, fmt_key: str = "fm",
@@ -231,14 +256,20 @@ class ResearchExcelWriter:
 
     def write_ifrs_bridge(self, inputs, output, company: str, period: str,
                           revenue: float = 0, notes: dict = None,
-                          pdf_url: str = "", filename: str = None) -> str:
+                          pdf_url: str = "", filename: str = None,
+                          source_pdf: str = "") -> str:
         """
         Write IFRS 16 conversion bridge to Excel.
         Hardcoded inputs (blue) for ROU Depr + Lease Int.
         Formula (black) for Pre-IFRS EBITDA = Reported - Depr - Int.
         Formula (black) for margins.
+
+        source_pdf: optional local filing PDF; when set, blue inputs link to the
+        exact page via finmodelaudit: (else they fall back to pdf_url).
         """
         notes = notes or {}
+        self._source_pdf = source_pdf
+        self._source_doc = None
         fname = filename or f"{company.replace(' ', '_')}_IFRS_Bridge.xlsx"
         path = os.path.join(self.output_dir, fname)
 
@@ -422,6 +453,8 @@ class ResearchExcelWriter:
         Formulas (black) for Market Cap, EV, multiples.
         """
         from kb.ev_bridge import EVBridgeInput
+        self._source_pdf = ""   # EV bridge inputs are market data, not filing pages
+        self._source_doc = None
         name = ev_input.company or "Company"
         fname = filename or f"{name.replace(' ', '_')}_EV_Bridge.xlsx"
         path = os.path.join(self.output_dir, fname)
