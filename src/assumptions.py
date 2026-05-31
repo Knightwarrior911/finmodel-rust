@@ -9,6 +9,8 @@ Downside: -200bp revenue growth, -100bp gross margin, +100bp capex pct.
 from schemas.financial_data import (
     AssumptionsBlock, ScenarioInputs, ModelOutput
 )
+from src import derivations as _d
+from src.assumption_registry import resolve as _resolve_assumption
 
 
 def _flat(value: float, n: int) -> list[float]:
@@ -38,6 +40,48 @@ def _build_scenario(name: str, base_assumptions: dict, n_proj: int,
         terminal_growth_rate=terminal_g,
         exit_ebitda_multiple=exit_mult,
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_input — derive-first -> registry assumption -> UNVERIFIED cascade
+# ---------------------------------------------------------------------------
+
+def _derive_for(key, is_, bs):
+    if key == "tax_rate_pct":
+        return _d.effective_tax_rate(is_)
+    if key == "interest_rate_pct":
+        return _d.cost_of_debt(is_, bs)
+    if key == "da_pct_rev":
+        return _d.da_pct(is_)
+    if key == "dso_days":
+        return _d.wc_days(is_, bs)["dso"]
+    if key == "dio_days":
+        return _d.wc_days(is_, bs)["dio"]
+    if key == "dpo_days":
+        return _d.wc_days(is_, bs)["dpo"]
+    return None, None
+
+
+def resolve_input(key, is_, bs, *, sector="standard", ledger=None, period=None):
+    """Derive-first -> registry assumption -> UNVERIFIED. Records tier when a
+    ledger is given. Returns the resolved value (or None if wholly unknown)."""
+    value, lineage = _derive_for(key, is_ or {}, bs or {})
+    if value is not None:
+        if ledger is not None:
+            formula, inputs = lineage
+            ledger.record_derived("assumptions", key, period, value=round(value, 6),
+                                  formula=formula, inputs=inputs)
+        return value
+    a = _resolve_assumption(key, sector=sector)
+    if a is not None:
+        if ledger is not None:
+            ledger.record_assumption("assumptions", key, period, value=a.value,
+                                     rationale=a.rationale, basis=a.basis)
+        return a.value
+    if ledger is not None:
+        ledger.record_unverified("assumptions", key, period,
+                                 reason=f"no derivation and no declared assumption for '{key}'")
+    return None
 
 
 def _fetch_market_inputs(ticker: str) -> dict:
