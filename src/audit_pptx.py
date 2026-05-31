@@ -130,3 +130,28 @@ def annotate_pptx_with_links(
     prs.save(str(pptx_path))
     counts["total"] = counts["linked_page"] + counts["linked_doc"] + counts["linked_market"]
     return counts
+
+
+def annotate_pptx_with_sources(pptx_path, *, cache_path=None) -> dict:
+    """Append a Sources & Assumptions block to the deck's first-slide speaker
+    notes when the cache has a ledger. Returns {"notes_added": int}. Never
+    raises on a normal empty/missing input."""
+    out = {"notes_added": 0}
+    if cache_path is None:
+        return out
+    cache = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+    if not (cache.get("__ledger__", {}) or {}).get("entries"):
+        return out
+    from src.sources_report import build_sources_report
+    from pptx import Presentation
+    report = build_sources_report(cache)
+    prs = Presentation(str(pptx_path))
+    slides = list(prs.slides)
+    if not slides:
+        return out
+    notes_tf = slides[0].notes_slide.notes_text_frame
+    existing = notes_tf.text
+    notes_tf.text = (existing + "\n\n" + report) if existing else report
+    prs.save(str(pptx_path))
+    out["notes_added"] = 1
+    return out
