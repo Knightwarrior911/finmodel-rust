@@ -52,6 +52,8 @@ def main():
     parser.add_argument("--no-comps", action="store_true", help="Skip trading comps tab")
     parser.add_argument("--output", default=None, help="Output .xlsx path (default: <ticker>_model.xlsx)")
     parser.add_argument("--deck", action="store_true", help="Also build a PowerPoint summary deck alongside the Excel model")
+    parser.add_argument("--audit", action="store_true", help="After writing xlsx, attach a file#page source hyperlink to each numeric cell (click a number to open its source filing at the right page)")
+    parser.add_argument("--audit-pdf", default=None, help="Path to source PDF for --audit (auto-discovered from extraction_cache/ if omitted)")
     args = parser.parse_args()
 
     # Direct tool invocation — no API key needed, calls one tool and prints result
@@ -396,6 +398,44 @@ def main():
         sys.exit(1)
     print(f"      ✓ Saved: {out_path}")
 
+    # ── Audit-trail source links (opt-in via --audit) ─────────────────────
+    if args.audit:
+        total += 1
+        print(_hdr("Audit: linking source pages..."))
+        try:
+            from src.audit_pipeline import run_audit
+            from src.citations import collect_market_citations
+            market_cites = collect_market_citations(
+                public_comps=public_comps_output,
+                peer_set=peer_set,
+                wacc=wacc_output,
+                assumptions=assumptions,
+                target_ticker=cfg.ticker,
+            )
+            res = run_audit(
+                cfg.ticker,
+                pdf_path=args.audit_pdf,
+                xlsx_path=out_path,
+                market_citations=market_cites,
+            )
+            if res.get("ok"):
+                ann = res.get("annotated") or {}
+                print(f"      ✓ located={res['values_located']}/{res['values_total']} "
+                      f"({res['coverage_pct']}%)  low_conf={res['values_low_confidence']}")
+                print(f"      → linked cells: page={ann.get('linked_page', 0)} "
+                      f"doc_only={ann.get('linked_doc', 0)} "
+                      f"market={ann.get('linked_market', 0)}")
+                print(f"      → one-time setup so clicks open the page in Edge: "
+                      f"python -m src.audit_open --install")
+                if res.get("missing_period_pdfs"):
+                    print(f"      ⚠ no source PDF for periods: "
+                          f"{', '.join(res['missing_period_pdfs'])} "
+                          f"(those numbers cannot be linked)")
+            else:
+                print(f"      ⚠ Audit skipped: {res.get('error')}")
+        except Exception as e:
+            print(f"      ⚠ Audit error: {e}")
+
     # ── Validator gate (per shared/SPEC_spreadsheet_engineering Section 6) ───
     print(_hdr(f"Validating {out_path}..."))
     try:
@@ -470,6 +510,23 @@ def main():
                 deck_path=deck_path,
             )
             print(f"      ✓ Saved: {deck_path}")
+            # Attach source links to deck numbers (requires --audit to have run,
+            # which populates the cache provenance + market citations).
+            if args.audit:
+                try:
+                    from pathlib import Path
+                    from src.audit_pptx import annotate_pptx_with_links
+                    # Match run_audit's cache resolution (dash may be preserved).
+                    cdir = Path("extraction_cache")
+                    cache_p = cdir / (cfg.ticker.replace(".", "_").replace("-", "_") + ".json")
+                    if not cache_p.exists():
+                        cache_p = cdir / (cfg.ticker.replace(".", "_") + ".json")
+                    if cache_p.exists():
+                        dl = annotate_pptx_with_links(deck_path, cache_path=cache_p)
+                        print(f"      → deck source links: page={dl['linked_page']} "
+                              f"doc_only={dl['linked_doc']} market={dl['linked_market']}")
+                except Exception as e:
+                    print(f"      ⚠ Deck audit-link failed: {e}")
         except Exception as e:
             print(f"      ⚠ Deck build failed: {e}")
 
@@ -599,7 +656,11 @@ def _build_summary_deck(
                 _tgt_mult(tgt_ev, target_revenue),
                 "NM",
             ]
-            values = peer_rows + [target_row]
+            # add_comparison_matrix wants metric-major values (len == len(metrics),
+            # each row == len(entities)); build entity-major then transpose.
+            entity_rows = peer_rows + [target_row]
+            values = [[entity_rows[e][m] for e in range(len(entity_rows))]
+                      for m in range(len(metrics))]
 
             deck.add_comparison_matrix(
                 action_title=f"{company_name} trades at a discount to peers on EV/EBITDA",

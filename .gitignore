@@ -20,4 +20,5 @@ autoresearch-results.tsv
 decks/
 experiments/
 screenshots/
+snapshots/
 *.docx
