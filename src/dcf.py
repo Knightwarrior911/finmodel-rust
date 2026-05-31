@@ -16,12 +16,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def flag_ev_bridge_gaps(ledger, *, preferred: float, investments: float) -> None:
+    """Record EV-bridge items hardcoded to 0 because they are not in the
+    extraction schema, so the audit pass renders them UNVERIFIED instead of
+    silently trusting a zero."""
+    if ledger is None:
+        return
+    ledger.record_unverified("dcf", "preferred_stock", None, value=preferred,
+                             reason="preferred stock not in extraction schema (assumed 0)")
+    ledger.record_unverified("dcf", "investments", None, value=investments,
+                             reason="short-term investments not in extraction schema (assumed 0)")
+
+
 def compute_dcf(
     output,                          # ModelOutput
     ticker: str,
     wacc_output,                     # WACCOutput
     assumptions_block,               # AssumptionsBlock
     tv_method: int = 1,              # 1 = EBITDA Multiple primary, 2 = Gordon primary
+    ledger=None,                     # SourceLedger | None
 ):
     from schemas.financial_data import DCFOutput
 
@@ -105,6 +118,7 @@ def compute_dcf(
     preferred = 0.0
     nci_balance = (output.balance_sheet.get("redeemable_nci") or [0.0])[-1] or 0.0
     investments = 0.0  # short-term investments — not in current schema
+    flag_ev_bridge_gaps(ledger, preferred=preferred, investments=investments)
 
     enterprise_value = round(pv_fcfs + pv_tv, 2)
     net_debt = last_debt - last_cash + preferred + nci_balance - investments

@@ -9,6 +9,8 @@ Downside: -200bp revenue growth, -100bp gross margin, +100bp capex pct.
 from schemas.financial_data import (
     AssumptionsBlock, ScenarioInputs, ModelOutput
 )
+from src import derivations as _d
+from src.assumption_registry import resolve as _resolve_assumption
 
 
 def _flat(value: float, n: int) -> list[float]:
@@ -38,6 +40,48 @@ def _build_scenario(name: str, base_assumptions: dict, n_proj: int,
         terminal_growth_rate=terminal_g,
         exit_ebitda_multiple=exit_mult,
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_input — derive-first -> registry assumption -> UNVERIFIED cascade
+# ---------------------------------------------------------------------------
+
+def _derive_for(key, is_, bs):
+    if key == "tax_rate_pct":
+        return _d.effective_tax_rate(is_)
+    if key == "interest_rate_pct":
+        return _d.cost_of_debt(is_, bs)
+    if key == "da_pct_rev":
+        return _d.da_pct(is_)
+    if key == "dso_days":
+        return _d.wc_days(is_, bs)["dso"]
+    if key == "dio_days":
+        return _d.wc_days(is_, bs)["dio"]
+    if key == "dpo_days":
+        return _d.wc_days(is_, bs)["dpo"]
+    return None, None
+
+
+def resolve_input(key, is_, bs, *, sector="standard", ledger=None, period=None):
+    """Derive-first -> registry assumption -> UNVERIFIED. Records tier when a
+    ledger is given. Returns the resolved value (or None if wholly unknown)."""
+    value, lineage = _derive_for(key, is_ or {}, bs or {})
+    if value is not None:
+        if ledger is not None:
+            formula, inputs = lineage
+            ledger.record_derived("assumptions", key, period, value=round(value, 6),
+                                  formula=formula, inputs=inputs)
+        return value
+    a = _resolve_assumption(key, sector=sector)
+    if a is not None:
+        if ledger is not None:
+            ledger.record_assumption("assumptions", key, period, value=a.value,
+                                     rationale=a.rationale, basis=a.basis)
+        return a.value
+    if ledger is not None:
+        ledger.record_unverified("assumptions", key, period,
+                                 reason=f"no derivation and no declared assumption for '{key}'")
+    return None
 
 
 def _fetch_market_inputs(ticker: str) -> dict:
@@ -70,10 +114,49 @@ def build_assumptions_block(
     equity_risk_premium: float = 0.055,
     target_de_ratio: float = 0.30,
     sector: str = "standard",
+    reconciled=None,
+    ledger=None,
 ) -> AssumptionsBlock:
     proj_periods = [p for p in model_output.periods if p.endswith("E")]
     n_proj = len(proj_periods)
     a = model_output.assumptions
+
+    if reconciled is not None and ledger is not None:
+        is_ = getattr(reconciled, "income_statement", None) or {}
+        bs = getattr(reconciled, "balance_sheet", None) or {}
+        a = dict(a)  # don't mutate caller's dict
+        for _drv in ("tax_rate_pct", "interest_rate_pct", "da_pct_rev",
+                     "dso_days", "dio_days", "dpo_days"):
+            _v = resolve_input(_drv, is_, bs, sector=sector, ledger=ledger, period=None)
+            if _v is not None:
+                a[_drv] = _v
+    elif ledger is not None:
+        # No reconciled statements available: still declare the forward inputs
+        # as assumptions so the ledger is populated (no silent defaults).
+        for _drv in ("tax_rate_pct", "interest_rate_pct", "da_pct_rev",
+                     "dso_days", "dio_days", "dpo_days", "terminal_growth_rate",
+                     "equity_risk_premium", "target_de_ratio"):
+            resolve_input(_drv, {}, {}, sector=sector, ledger=ledger, period=None)
+
+    if ledger is not None:
+        # Declare the non-derivable forward drivers (engine historical averages)
+        # so they're recorded amber-declared, not caught red as silent defaults.
+        for _fwd in ("revenue_growth_pct", "gross_margin_pct", "sga_pct_rev",
+                     "rd_pct_rev", "capex_pct_rev", "dividend_per_share"):
+            _av = a.get(_fwd)
+            if _av is not None:
+                ledger.record_derived("assumptions", _fwd, None, value=round(float(_av), 6),
+                                      formula="historical average (engine)", inputs=[])
+            else:
+                resolve_input(_fwd, {}, {}, sector=sector, ledger=ledger, period=None)
+        _sd = a.get("shares_diluted")
+        if _sd:
+            ledger.record_derived("assumptions", "shares_diluted", None,
+                                  value=round(float(_sd), 6),
+                                  formula="last historical period (engine)", inputs=[])
+        else:
+            ledger.record_unverified("assumptions", "shares_diluted", None,
+                                     reason="shares diluted unavailable (assumed 0)")
 
     # For utilities/banks/REITs the gross_margin_pct slot holds EBIT margin.
     # Upside/downside deltas are applied to whatever is in that slot (EBIT margin ± 100bp).

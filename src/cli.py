@@ -231,6 +231,8 @@ def main():
             print(f"        - {d}")
 
     print(_hdr("Deriving assumptions and building scenarios..."))
+    from src.source_ledger import SourceLedger
+    ledger = SourceLedger()
     try:
         from src.engine import ModelEngine
         from src.assumptions import build_assumptions_block
@@ -250,7 +252,8 @@ def main():
         class _Stub:
             assumptions = hist_assumptions
             periods = hist_periods + proj_periods
-        assumptions = build_assumptions_block(_Stub(), cfg.ticker, sector=cfg.sector)
+        assumptions = build_assumptions_block(_Stub(), cfg.ticker, sector=cfg.sector,
+                                              reconciled=reconciled, ledger=ledger)
         if revenue_segments:
             assumptions.revenue_segments = revenue_segments
         print(f"      → 3 scenarios | active={assumptions.active_case} | "
@@ -298,7 +301,8 @@ def main():
         try:
             from src.peers import build_peer_set
             peer_set = build_peer_set(cfg.ticker, cfg.company_name,
-                                      target_de_ratio=assumptions.target_de_ratio)
+                                      target_de_ratio=assumptions.target_de_ratio,
+                                      ledger=ledger)
             print(f"      → {len(peer_set.peers)} peers ({peer_set.source}): "
                   f"{', '.join(p.ticker for p in peer_set.peers) if peer_set.peers else '—'}")
         except Exception as e:
@@ -317,7 +321,10 @@ def main():
             # Unlever it here using target D/E so compute_wacc receives an unlevered beta.
             own_levered_beta = _fetch_target_beta(cfg.ticker)
             target_de = assumptions.target_de_ratio or 0.30
-            own_unlevered_beta = own_levered_beta / (1 + (1 - 0.21) * target_de)
+            _tax = (assumptions.base.tax_rate_pct[0]
+                    if getattr(assumptions, "base", None) and assumptions.base.tax_rate_pct
+                    else 0.21)
+            own_unlevered_beta = own_levered_beta / (1 + (1 - _tax) * target_de)
             wacc_output = compute_wacc(
                 peer_set=peer_set,
                 target_market_cap=peer_set.target_market_cap or 0,
@@ -327,6 +334,8 @@ def main():
                 cost_of_debt_pretax=assumptions.cost_of_debt_pretax,
                 target_de_ratio=assumptions.target_de_ratio,
                 fallback_beta=own_unlevered_beta,
+                sector=cfg.sector,
+                ledger=ledger,
             )
             print(f"      → median Bu={wacc_output.median_unlevered_beta:.2f}  "
                   f"Be_target={wacc_output.target_levered_beta:.2f}  "
@@ -338,7 +347,7 @@ def main():
             print(_hdr("Computing DCF valuation..."))
             try:
                 from src.dcf import compute_dcf
-                dcf_output = compute_dcf(model_output, cfg.ticker, wacc_output, assumptions)
+                dcf_output = compute_dcf(model_output, cfg.ticker, wacc_output, assumptions, ledger=ledger)
                 print(f"      → Implied Price: ${dcf_output.implied_price:.2f}  |  "
                       f"EV: ${dcf_output.enterprise_value:,.0f}M  |  "
                       f"Upside: {dcf_output.upside_downside_pct:+.1%}")
@@ -397,6 +406,26 @@ def main():
         print(f"ERROR writing Excel: {e}")
         sys.exit(1)
     print(f"      ✓ Saved: {out_path}")
+
+    # ── Persist the source ledger into the extraction cache ───────────────
+    # Done unconditionally (independent of --audit) so __ledger__ is always
+    # available for the Excel audit pass / downstream tooling. Matches
+    # run_audit's cache-path resolution (dot- and dash-to-underscore fallbacks).
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _cdir = _Path("extraction_cache")
+        _cache_p = _cdir / (cfg.ticker.replace(".", "_").replace("-", "_") + ".json")
+        if not _cache_p.exists():
+            _cache_p = _cdir / (cfg.ticker.replace(".", "_") + ".json")
+        if _cache_p.exists():
+            _cache = _json.loads(_cache_p.read_text(encoding="utf-8"))
+            _cache["__ledger__"] = ledger.to_json()
+            _cache_p.write_text(_json.dumps(_cache, indent=2), encoding="utf-8")
+            print(f"      → ledger persisted to {_cache_p} "
+                  f"({len(ledger.entries())} entries)")
+    except Exception as e:
+        print(f"      ⚠ Ledger persist skipped: {e}")
 
     # ── Audit-trail source links (opt-in via --audit) ─────────────────────
     if args.audit:

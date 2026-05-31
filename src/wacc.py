@@ -36,6 +36,8 @@ def compute_wacc(
     target_tax_rate: float = 0.21,
     target_de_ratio: float | None = None,
     fallback_beta: float = 1.0,
+    sector: str = "standard",
+    ledger=None,
 ):
     """
     Returns WACCOutput with full peer-set unlever/relever + CAPM build-up.
@@ -44,16 +46,33 @@ def compute_wacc(
     """
     from schemas.financial_data import WACCOutput
 
+    from src.assumption_registry import resolve as _resolve
+
     if peer_set.peers:
         unlevered_betas = [
             _unlever_beta(p.levered_beta, p.de_ratio, p.tax_rate)
             for p in peer_set.peers
         ]
         median_bu = statistics.median(unlevered_betas)
+        if ledger is not None:
+            ledger.record_derived(
+                "wacc", "median_unlevered_beta", None, value=round(median_bu, 4),
+                formula="median(unlever(peer.beta))",
+                inputs=[("peers", p.ticker, None) for p in peer_set.peers],
+            )
     else:
-        # Fallback: assume target's own beta is already unlevered
-        median_bu = fallback_beta
-        logger.warning("No peers in set — using fallback unlevered beta %.2f", median_bu)
+        a = _resolve("sector_beta", sector=sector)
+        median_bu = a.value if a else fallback_beta
+        logger.warning("No peers in set — using sector-median beta %.2f", median_bu)
+        if ledger is not None:
+            if a:
+                ledger.record_assumption("wacc", "median_unlevered_beta", None,
+                                         value=round(median_bu, 4),
+                                         rationale=a.rationale, basis=a.basis)
+            else:
+                ledger.record_unverified("wacc", "median_unlevered_beta", None,
+                                         value=round(median_bu, 4),
+                                         reason="no peers and no sector beta declared")
 
     de = target_de_ratio if target_de_ratio is not None else peer_set.target_de_ratio
     target_levered_beta = _relever_beta(median_bu, de, target_tax_rate)
@@ -77,6 +96,13 @@ def compute_wacc(
     wacc = equity_weight * cost_of_equity + debt_weight * after_tax_kd
     # Sanity clamp
     wacc = max(0.05, min(wacc, 0.30))
+
+    if ledger is not None:
+        ledger.record_derived(
+            "wacc", "wacc", None, value=round(wacc, 4),
+            formula="We*Ke + Wd*Kd*(1-t)",
+            inputs=[("wacc", "cost_of_equity", None), ("wacc", "after_tax_cost_of_debt", None)],
+        )
 
     return WACCOutput(
         peers=peer_set.peers,

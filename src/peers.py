@@ -172,6 +172,16 @@ def _de_and_tax(ticker: str) -> tuple[float, float]:
         return 0.30, 0.21
 
 
+def _de_and_tax_tagged(ticker: str) -> tuple[float, float, bool]:
+    """Like _de_and_tax but also returns tax_is_default: True when 0.21 was
+    substituted because no effective rate was available (always True today,
+    since yfinance does not expose an effective tax rate). Lets the ledger
+    record the per-peer tax tier without changing any numeric result."""
+    de, tax = _de_and_tax(ticker)
+    tax_is_default = (tax == 0.21)
+    return de, tax, tax_is_default
+
+
 def _filter_peers(target_mc: float, candidates: list[str],
                   target_ticker: str) -> tuple[list[str], list[tuple[str, str]]]:
     """Apply size / listing filters. Returns (kept, excluded_with_reason).
@@ -213,7 +223,8 @@ def _filter_peers(target_mc: float, candidates: list[str],
 
 def build_peer_set(target_ticker: str, company_name: str,
                    target_de_ratio: float = 0.30,
-                   sector: str | None = None) -> "PeerSet":
+                   sector: str | None = None,
+                   ledger=None) -> "PeerSet":
     """Build peer set with LLM proposal + size filter + per-peer market data."""
     from schemas.financial_data import PeerSet, Peer
     target_mc = _market_cap(target_ticker)
@@ -228,14 +239,19 @@ def build_peer_set(target_ticker: str, company_name: str,
 
     peers: list[Peer] = []
     for tk in kept:
+        de, tax, tax_is_default = _de_and_tax_tagged(tk)
+        if ledger is not None and tax_is_default:
+            ledger.record_assumption("peers", f"tax_rate:{tk}", None, value=tax,
+                                     rationale="US statutory fallback (yfinance exposes no effective tax rate)",
+                                     basis="fallback")
         peers.append(Peer(
             ticker=tk,
             name=tk,                     # full name lookup deferred (yfinance .info shortName)
             market_cap=_market_cap(tk),
             enterprise_value=0.0,
             levered_beta=_beta(tk),
-            de_ratio=_de_and_tax(tk)[0],
-            tax_rate=_de_and_tax(tk)[1],
+            de_ratio=de,
+            tax_rate=tax,
             rationale="",
         ))
 
