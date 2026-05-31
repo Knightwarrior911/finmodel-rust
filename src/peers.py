@@ -172,6 +172,16 @@ def _de_and_tax(ticker: str) -> tuple[float, float]:
         return 0.30, 0.21
 
 
+def _de_and_tax_tagged(ticker: str) -> tuple[float, float, bool]:
+    """Like _de_and_tax but also returns tax_is_default: True when 0.21 was
+    substituted because no effective rate was available (always True today,
+    since yfinance does not expose an effective tax rate). Lets the ledger
+    record the per-peer tax tier without changing any numeric result."""
+    de, tax = _de_and_tax(ticker)
+    tax_is_default = (tax == 0.21)
+    return de, tax, tax_is_default
+
+
 def _filter_peers(target_mc: float, candidates: list[str],
                   target_ticker: str) -> tuple[list[str], list[tuple[str, str]]]:
     """Apply size / listing filters. Returns (kept, excluded_with_reason).
