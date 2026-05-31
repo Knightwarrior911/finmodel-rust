@@ -16,16 +16,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def flag_ev_bridge_gaps(ledger, *, preferred: float, investments: float) -> None:
-    """Record EV-bridge items hardcoded to 0 because they are not in the
-    extraction schema, so the audit pass renders them UNVERIFIED instead of
-    silently trusting a zero."""
+def flag_ev_bridge_gaps(ledger, *, preferred: float, investments: float,
+                        preferred_from_filing: bool = False,
+                        investments_from_filing: bool = False) -> None:
+    """Record EV-bridge items. When a value came from the balance sheet, tag it
+    FILING; otherwise it is a schema gap assumed 0 -> UNVERIFIED (so the audit
+    pass flags it red)."""
     if ledger is None:
         return
-    ledger.record_unverified("dcf", "preferred_stock", None, value=preferred,
-                             reason="preferred stock not in extraction schema (assumed 0)")
-    ledger.record_unverified("dcf", "investments", None, value=investments,
-                             reason="short-term investments not in extraction schema (assumed 0)")
+    if preferred_from_filing:
+        ledger.record_filing("dcf", "preferred_stock", None, value=preferred,
+                             provenance={"note": "balance sheet"})
+    else:
+        ledger.record_unverified("dcf", "preferred_stock", None, value=preferred,
+                                 reason="preferred stock not in extraction schema (assumed 0)")
+    if investments_from_filing:
+        ledger.record_filing("dcf", "investments", None, value=investments,
+                             provenance={"note": "balance sheet"})
+    else:
+        ledger.record_unverified("dcf", "investments", None, value=investments,
+                                 reason="short-term investments not in extraction schema (assumed 0)")
 
 
 def compute_dcf(
@@ -114,11 +124,15 @@ def compute_dcf(
     ltd_all  = _get(output.balance_sheet, "long_term_debt")
     last_cash = cash_all[-1] or 0.0
     last_debt = ltd_all[-1] or 0.0
-    # Preferred + NCI not in current schema — default 0
-    preferred = 0.0
+    # Preferred + NCI: consume from BS when present, else default 0
+    pref_arr = output.balance_sheet.get("preferred_stock")
+    preferred = (pref_arr or [0.0])[-1] or 0.0
     nci_balance = (output.balance_sheet.get("redeemable_nci") or [0.0])[-1] or 0.0
-    investments = 0.0  # short-term investments — not in current schema
-    flag_ev_bridge_gaps(ledger, preferred=preferred, investments=investments)
+    inv_arr = output.balance_sheet.get("short_term_investments")
+    investments = (inv_arr or [0.0])[-1] or 0.0
+    flag_ev_bridge_gaps(ledger, preferred=preferred, investments=investments,
+                        preferred_from_filing=pref_arr is not None,
+                        investments_from_filing=inv_arr is not None)
 
     enterprise_value = round(pv_fcfs + pv_tv, 2)
     net_debt = last_debt - last_cash + preferred + nci_balance - investments
