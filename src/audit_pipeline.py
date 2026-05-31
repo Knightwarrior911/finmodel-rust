@@ -165,6 +165,52 @@ def _row_label(ws, cell) -> str:
     return label
 
 
+# Trust-tier font colours (RGB hex) for the ledger-aware Excel render pass.
+_TIER_COLOR = {
+    "filing": "0000FF", "market": "0000FF", "derived": "595959",
+    "assumption": "C55A11", "unverified": "C00000",
+}
+
+
+def _comment_for(tier: str, ref: dict, value: Any) -> Optional[str]:
+    """Per-tier cell-comment text. Returns None for tiers (filing/market) whose
+    comment is already produced by the existing provenance/citation branches."""
+    if tier == "derived":
+        return f"Derived: {ref.get('formula','')} = {value}"
+    if tier == "assumption":
+        return f"Assumption: {ref.get('rationale','')} (basis: {ref.get('basis','')})"
+    if tier == "unverified":
+        return f"⚠ Unverified: {ref.get('reason','')}"
+    return None
+
+
+def _mark_unverified(cell, openpyxl) -> None:
+    """Red catch-all: a numeric cell that matched no ledger/filing/market source.
+    Colours the font red and attaches a generic 'no source' comment."""
+    old = cell.font
+    cell.font = openpyxl.styles.Font(
+        name=old.name, size=old.size, bold=old.bold, italic=old.italic,
+        color=_TIER_COLOR["unverified"],
+    )
+    cell.comment = openpyxl.comments.Comment("⚠ Unverified: no source", "ledger")
+
+
+def build_ledger_index(cache: dict[str, Any]) -> dict[float, list[dict[str, Any]]]:
+    """value(float) -> list of {group, field, period, tier, ref, label_tokens}."""
+    from .source_ledger import SourceLedger
+    led = SourceLedger.from_json(cache.get("__ledger__"))
+    idx: dict[float, list[dict[str, Any]]] = {}
+    for e in led.entries():
+        if e.value is None:
+            continue
+        idx.setdefault(round(float(e.value), 6), []).append({
+            "group": e.group, "field": e.field, "period": e.period,
+            "tier": e.tier.value, "ref": e.ref,
+            "label_tokens": _label_tokens(e.field.replace("_", " ")),
+        })
+    return idx
+
+
 def build_link_indexes(
     cache: dict[str, Any],
 ) -> tuple[dict[float, list[dict[str, Any]]], dict[float, list[dict[str, Any]]]]:
@@ -233,7 +279,13 @@ def annotate_workbook_with_links(
     registered handler (src/audit_open.py) re-launches the browser at the page.
     Market-data links are plain https (Excel opens them in the browser directly).
 
-    Returns {"linked_page", "linked_doc", "linked_market", "total"}.
+    Returns {"linked_page", "linked_doc", "linked_market", "total"}. When the
+    cache carries a non-empty "__ledger__", a ledger-aware tier pass also runs
+    (font colour + tier comment per cell, a red "unverified" catch-all for
+    unmatched numeric inputs, and an "Assumptions & Flags" block on a Sources
+    sheet) and the return dict additionally carries per-tier counts
+    {"filing", "market", "derived", "assumption", "unverified"}. With no ledger
+    present this behaviour is fully disabled and the result is unchanged.
     """
     import openpyxl
 
@@ -242,8 +294,16 @@ def annotate_workbook_with_links(
     cache = json.loads(Path(cache_path).read_text(encoding="utf-8"))
     value_index, market_index = build_link_indexes(cache)
 
+    # Ledger-aware tier rendering is fully gated: when the cache carries no
+    # non-empty "__ledger__", none of the new behaviour (tier colouring, red
+    # catch-all, Sources summary) runs and the function is byte-identical to its
+    # pre-ledger form.
+    ledger_present = bool(cache.get("__ledger__", {}).get("entries"))
+    ledger_index = build_ledger_index(cache) if ledger_present else {}
+
     wb = openpyxl.load_workbook(str(xlsx_path))
     linked_page = linked_doc = linked_market = 0
+    derived = assumption = filing = market = unverified = 0
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
@@ -253,6 +313,40 @@ def annotate_workbook_with_links(
                 fv = float(v)
                 row_tokens = _label_tokens(_row_label(ws, cell))
 
+                # 0) Ledger tier match (gated) takes priority over filing/market.
+                if ledger_present:
+                    lcands = ledger_index.get(round(fv, 6))
+                    if lcands:
+                        lbest = max(
+                            lcands,
+                            key=lambda c: len(c["label_tokens"] & row_tokens),
+                        )
+                        # When multiple ledger entries collide on the same value
+                        # and none matches the row label, defer to filing/market.
+                        if not (len(lcands) > 1 and not (lbest["label_tokens"] & row_tokens)):
+                            tier = lbest["tier"]
+                            color = _TIER_COLOR.get(tier)
+                            if color:
+                                old = cell.font
+                                cell.font = openpyxl.styles.Font(
+                                    name=old.name, size=old.size, bold=old.bold,
+                                    italic=old.italic, color=color,
+                                )
+                            ctext = _comment_for(tier, lbest["ref"], cell.value)
+                            if ctext is not None:
+                                cell.comment = openpyxl.comments.Comment(ctext, "ledger")
+                            if tier == "derived":
+                                derived += 1
+                            elif tier == "assumption":
+                                assumption += 1
+                            elif tier == "filing":
+                                filing += 1
+                            elif tier == "market":
+                                market += 1
+                            elif tier == "unverified":
+                                unverified += 1
+                            continue
+
                 # 1) Filing provenance (PDF page) takes priority.
                 cands = value_index.get(fv)
                 if cands:
@@ -260,8 +354,14 @@ def annotate_workbook_with_links(
                     # Require a label match when multiple candidates collide, to
                     # avoid linking a coincidental value (e.g. a computed cell).
                     if len(cands) > 1 and not (best["label_tokens"] & row_tokens):
+                        if ledger_present:
+                            _mark_unverified(cell, openpyxl)
+                            unverified += 1
                         continue
                     if not best["pdf"] or not Path(best["pdf"]).exists():
+                        if ledger_present:
+                            _mark_unverified(cell, openpyxl)
+                            unverified += 1
                         continue
                     page_idx = None if best["low_confidence"] else best["page_index"]
                     page_1based = (page_idx + 1) if page_idx is not None else None
@@ -275,14 +375,21 @@ def annotate_workbook_with_links(
                         linked_page += 1
                     else:
                         linked_doc += 1
+                    filing += 1
                     continue
 
                 # 2) Market-data citation (provider URL, opens in browser).
                 mcands = market_index.get(round(fv, 6))
                 if not mcands:
+                    if ledger_present:
+                        _mark_unverified(cell, openpyxl)
+                        unverified += 1
                     continue
                 mbest = max(mcands, key=lambda c: len(c["label_tokens"] & row_tokens))
                 if len(mcands) > 1 and not (mbest["label_tokens"] & row_tokens):
+                    if ledger_present:
+                        _mark_unverified(cell, openpyxl)
+                        unverified += 1
                     continue
                 cell.hyperlink = mbest["url"]
                 cell.comment = openpyxl.comments.Comment(
@@ -291,11 +398,29 @@ def annotate_workbook_with_links(
                     "audit",
                 )
                 linked_market += 1
+                market += 1
+
+    # Assumptions & Flags summary block on a `Sources` sheet (gated).
+    if ledger_present:
+        from .source_ledger import SourceLedger, Tier
+        ws_src = wb["Sources"] if "Sources" in wb.sheetnames else wb.create_sheet("Sources")
+        ws_src.append(["Assumptions & Flags"])
+        ws_src.append(["Field", "Tier", "Value", "Rationale / Reason"])
+        led = SourceLedger.from_json(cache.get("__ledger__"))
+        for e in led.entries_by_tier(Tier.ASSUMPTION, Tier.UNVERIFIED):
+            note = e.ref.get("rationale") or e.ref.get("reason") or ""
+            ws_src.append([e.field, e.tier.value, e.value, note])
+
     wb.save(str(xlsx_path))
     return {
         "linked_page": linked_page,
         "linked_doc": linked_doc,
         "linked_market": linked_market,
+        "filing": filing,
+        "market": market,
+        "derived": derived,
+        "assumption": assumption,
+        "unverified": unverified,
         "total": linked_page + linked_doc + linked_market,
     }
 
