@@ -30,8 +30,9 @@ import sys
 import traceback
 from pathlib import Path
 
-from tieout.config import (BASKET, CANONICAL, ABS_KEYS, EXCLUDE_KEYS,
-                           RESULTS_DIR, ticker_filings_dir)
+from tieout.config import (BASKET, CANONICAL_BY_SECTOR, ABS_KEYS_BY_SECTOR,
+                           EXCLUDE_KEYS_BY_SECTOR, RESULTS_DIR,
+                           ticker_filings_dir)
 from tieout.groundtruth import build_ground_truth
 from tieout.pin_filings import ensure_pinned
 from tieout.llm import LLMStall
@@ -80,28 +81,32 @@ def _model_extract(ticker: str, pdf_path: str, years, fp: str, retries: int):
     raise LLMStall(f"model extraction failed: {last}")
 
 
-def _norm(key, v):
+def _norm(key, v, abs_keys):
     if v is None:
         return None
     try:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    if key in ABS_KEYS:
+    if key in abs_keys:
         f = abs(f)
     return round(f)
 
 
 def _compare(gt: dict, model: dict):
     years = gt["years"]
+    sector = gt.get("sector", "industrial")
+    canonical = CANONICAL_BY_SECTOR[sector]
+    abs_keys = ABS_KEYS_BY_SECTOR[sector]
+    exclude_keys = EXCLUDE_KEYS_BY_SECTOR[sector]
     rows, denom, matched = [], 0, 0
     per_stmt = {}
-    for stmt, keys in CANONICAL.items():
+    for stmt, keys in canonical.items():
         s_d = s_m = 0
         gvals = gt["values"].get(stmt, {})
         mvals = model.get(stmt, {}) or {}
         for key in keys:
-            if key in EXCLUDE_KEYS:
+            if key in exclude_keys:
                 continue
             gk = gvals.get(key, {})
             if not gk:
@@ -117,7 +122,7 @@ def _compare(gt: dict, model: dict):
                 if isinstance(mlist, list):
                     idx = years.index(y)
                     if idx < len(mlist):
-                        mv = _norm(key, mlist[idx])
+                        mv = _norm(key, mlist[idx], abs_keys)
                 ok = (mv is not None and mv == int(gv))
                 if ok:
                     matched += 1
@@ -149,7 +154,7 @@ def run(only=None, retries=2, quiet=False):
                 print(f"[skip] {tk}: no pinned PDF", file=sys.stderr)
                 continue
             gt = build_ground_truth(tk, row["company"], row["currency"],
-                                    str(pdf))
+                                    str(pdf), sector=row.get("sector", "industrial"))
             if gt["coverage"]["trusted"] == 0:
                 # Ground truth could not be established (e.g. unusual report
                 # layout). Skip rather than emit a meaningless 0/0 — it must
