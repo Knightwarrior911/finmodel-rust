@@ -301,7 +301,8 @@ def main():
         try:
             from src.peers import build_peer_set
             peer_set = build_peer_set(cfg.ticker, cfg.company_name,
-                                      target_de_ratio=assumptions.target_de_ratio)
+                                      target_de_ratio=assumptions.target_de_ratio,
+                                      ledger=ledger)
             print(f"      → {len(peer_set.peers)} peers ({peer_set.source}): "
                   f"{', '.join(p.ticker for p in peer_set.peers) if peer_set.peers else '—'}")
         except Exception as e:
@@ -320,7 +321,10 @@ def main():
             # Unlever it here using target D/E so compute_wacc receives an unlevered beta.
             own_levered_beta = _fetch_target_beta(cfg.ticker)
             target_de = assumptions.target_de_ratio or 0.30
-            own_unlevered_beta = own_levered_beta / (1 + (1 - 0.21) * target_de)
+            _tax = (assumptions.base.tax_rate_pct[0]
+                    if getattr(assumptions, "base", None) and assumptions.base.tax_rate_pct
+                    else 0.21)
+            own_unlevered_beta = own_levered_beta / (1 + (1 - _tax) * target_de)
             wacc_output = compute_wacc(
                 peer_set=peer_set,
                 target_market_cap=peer_set.target_market_cap or 0,
@@ -343,7 +347,7 @@ def main():
             print(_hdr("Computing DCF valuation..."))
             try:
                 from src.dcf import compute_dcf
-                dcf_output = compute_dcf(model_output, cfg.ticker, wacc_output, assumptions)
+                dcf_output = compute_dcf(model_output, cfg.ticker, wacc_output, assumptions, ledger=ledger)
                 print(f"      → Implied Price: ${dcf_output.implied_price:.2f}  |  "
                       f"EV: ${dcf_output.enterprise_value:,.0f}M  |  "
                       f"Upside: {dcf_output.upside_downside_pct:+.1%}")

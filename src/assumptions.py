@@ -138,6 +138,26 @@ def build_assumptions_block(
                      "equity_risk_premium", "target_de_ratio"):
             resolve_input(_drv, {}, {}, sector=sector, ledger=ledger, period=None)
 
+    if ledger is not None:
+        # Declare the non-derivable forward drivers (engine historical averages)
+        # so they're recorded amber-declared, not caught red as silent defaults.
+        for _fwd in ("revenue_growth_pct", "gross_margin_pct", "sga_pct_rev",
+                     "rd_pct_rev", "capex_pct_rev", "dividend_per_share"):
+            _av = a.get(_fwd)
+            if _av is not None:
+                ledger.record_derived("assumptions", _fwd, None, value=round(float(_av), 6),
+                                      formula="historical average (engine)", inputs=[])
+            else:
+                resolve_input(_fwd, {}, {}, sector=sector, ledger=ledger, period=None)
+        _sd = a.get("shares_diluted")
+        if _sd:
+            ledger.record_derived("assumptions", "shares_diluted", None,
+                                  value=round(float(_sd), 6),
+                                  formula="last historical period (engine)", inputs=[])
+        else:
+            ledger.record_unverified("assumptions", "shares_diluted", None,
+                                     reason="shares diluted unavailable (assumed 0)")
+
     # For utilities/banks/REITs the gross_margin_pct slot holds EBIT margin.
     # Upside/downside deltas are applied to whatever is in that slot (EBIT margin ± 100bp).
     is_utility = sector in ('utility', 'bank', 'reit', 'insurance')
