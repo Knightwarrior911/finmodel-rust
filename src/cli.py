@@ -351,6 +351,19 @@ def main():
                 print(f"      → Implied Price: ${dcf_output.implied_price:.2f}  |  "
                       f"EV: ${dcf_output.enterprise_value:,.0f}M  |  "
                       f"Upside: {dcf_output.upside_downside_pct:+.1%}")
+                from src.valuation_invariants import check_valuation
+                try:
+                    vc = check_valuation(wacc_output, dcf_output, sector=cfg.sector)
+                    if vc.critical:
+                        print(f"      ⚠ Valuation invariants: {len(vc.critical)} CRITICAL")
+                        for _v in vc.critical:
+                            print(f"          ✗ {_v}")
+                    elif vc.warnings:
+                        print(f"      → Valuation invariants OK ({len(vc.warnings)} warning(s))")
+                    else:
+                        print("      → Valuation invariants: all pass")
+                except Exception as _e:
+                    print(f"      ⚠ Valuation invariant check skipped: {_e}")
             except Exception as e:
                 print(f"      ⚠ DCF failed ({e}) — skipping DCF tab")
 
