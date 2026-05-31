@@ -231,6 +231,8 @@ def main():
             print(f"        - {d}")
 
     print(_hdr("Deriving assumptions and building scenarios..."))
+    from src.source_ledger import SourceLedger
+    ledger = SourceLedger()
     try:
         from src.engine import ModelEngine
         from src.assumptions import build_assumptions_block
@@ -250,7 +252,8 @@ def main():
         class _Stub:
             assumptions = hist_assumptions
             periods = hist_periods + proj_periods
-        assumptions = build_assumptions_block(_Stub(), cfg.ticker, sector=cfg.sector)
+        assumptions = build_assumptions_block(_Stub(), cfg.ticker, sector=cfg.sector,
+                                              reconciled=reconciled, ledger=ledger)
         if revenue_segments:
             assumptions.revenue_segments = revenue_segments
         print(f"      → 3 scenarios | active={assumptions.active_case} | "
@@ -327,6 +330,8 @@ def main():
                 cost_of_debt_pretax=assumptions.cost_of_debt_pretax,
                 target_de_ratio=assumptions.target_de_ratio,
                 fallback_beta=own_unlevered_beta,
+                sector=cfg.sector,
+                ledger=ledger,
             )
             print(f"      → median Bu={wacc_output.median_unlevered_beta:.2f}  "
                   f"Be_target={wacc_output.target_levered_beta:.2f}  "
@@ -397,6 +402,26 @@ def main():
         print(f"ERROR writing Excel: {e}")
         sys.exit(1)
     print(f"      ✓ Saved: {out_path}")
+
+    # ── Persist the source ledger into the extraction cache ───────────────
+    # Done unconditionally (independent of --audit) so __ledger__ is always
+    # available for the Excel audit pass / downstream tooling. Matches
+    # run_audit's cache-path resolution (dot- and dash-to-underscore fallbacks).
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _cdir = _Path("extraction_cache")
+        _cache_p = _cdir / (cfg.ticker.replace(".", "_").replace("-", "_") + ".json")
+        if not _cache_p.exists():
+            _cache_p = _cdir / (cfg.ticker.replace(".", "_") + ".json")
+        if _cache_p.exists():
+            _cache = _json.loads(_cache_p.read_text(encoding="utf-8"))
+            _cache["__ledger__"] = ledger.to_json()
+            _cache_p.write_text(_json.dumps(_cache, indent=2), encoding="utf-8")
+            print(f"      → ledger persisted to {_cache_p} "
+                  f"({len(ledger.entries())} entries)")
+    except Exception as e:
+        print(f"      ⚠ Ledger persist skipped: {e}")
 
     # ── Audit-trail source links (opt-in via --audit) ─────────────────────
     if args.audit:

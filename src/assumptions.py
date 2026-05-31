@@ -114,10 +114,29 @@ def build_assumptions_block(
     equity_risk_premium: float = 0.055,
     target_de_ratio: float = 0.30,
     sector: str = "standard",
+    reconciled=None,
+    ledger=None,
 ) -> AssumptionsBlock:
     proj_periods = [p for p in model_output.periods if p.endswith("E")]
     n_proj = len(proj_periods)
     a = model_output.assumptions
+
+    if reconciled is not None and ledger is not None:
+        is_ = getattr(reconciled, "income_statement", None) or {}
+        bs = getattr(reconciled, "balance_sheet", None) or {}
+        a = dict(a)  # don't mutate caller's dict
+        for _drv in ("tax_rate_pct", "interest_rate_pct", "da_pct_rev",
+                     "dso_days", "dio_days", "dpo_days"):
+            _v = resolve_input(_drv, is_, bs, sector=sector, ledger=ledger, period=None)
+            if _v is not None:
+                a[_drv] = _v
+    elif ledger is not None:
+        # No reconciled statements available: still declare the forward inputs
+        # as assumptions so the ledger is populated (no silent defaults).
+        for _drv in ("tax_rate_pct", "interest_rate_pct", "da_pct_rev",
+                     "dso_days", "dio_days", "dpo_days", "terminal_growth_rate",
+                     "equity_risk_premium", "target_de_ratio"):
+            resolve_input(_drv, {}, {}, sector=sector, ledger=ledger, period=None)
 
     # For utilities/banks/REITs the gross_margin_pct slot holds EBIT margin.
     # Upside/downside deltas are applied to whatever is in that slot (EBIT margin ± 100bp).
