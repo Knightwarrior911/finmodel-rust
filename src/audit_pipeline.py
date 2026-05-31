@@ -165,6 +165,40 @@ def _row_label(ws, cell) -> str:
     return label
 
 
+_CELL_REF = re.compile(
+    r"(?:(?:'(?P<q>[^']+)'|(?P<s>[A-Za-z_][A-Za-z0-9_]*))!)?\$?(?P<col>[A-Z]{1,3})\$?(?P<row>\d+)"
+)
+
+
+def _formula_refs(formula: str):
+    """Yield (sheet_name_or_None, 'COLROW') for each cell ref in a formula."""
+    for m in _CELL_REF.finditer(formula or ""):
+        sheet = m.group("q") or m.group("s")
+        yield sheet, f"{m.group('col')}{m.group('row')}"
+
+
+def _formula_lineage_labels(wb, ws, formula, limit=6):
+    """Resolve a formula's cell refs to unique precedent row-labels."""
+    labels = []
+    for sheet, coord in _formula_refs(formula):
+        target_ws = ws
+        if sheet:
+            try:
+                target_ws = wb[sheet]
+            except KeyError:
+                continue
+        try:
+            ref_cell = target_ws[coord]
+        except (ValueError, KeyError):
+            continue
+        lbl = _row_label(target_ws, ref_cell)
+        if lbl and lbl not in labels:
+            labels.append(lbl)
+        if len(labels) >= limit:
+            break
+    return labels
+
+
 # Trust-tier font colours (RGB hex) for the ledger-aware Excel render pass.
 _TIER_COLOR = {
     "filing": "0000FF", "market": "0000FF", "derived": "595959",
@@ -304,6 +338,7 @@ def annotate_workbook_with_links(
     wb = openpyxl.load_workbook(str(xlsx_path))
     linked_page = linked_doc = linked_market = 0
     derived = assumption = filing = market = unverified = 0
+    derived_formula = 0
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
@@ -400,6 +435,24 @@ def annotate_workbook_with_links(
                 linked_market += 1
                 market += 1
 
+    # Formula-cell lineage comments (gated): annotate each formula cell with the
+    # row-labels of its precedents so a computed number is traceable to its inputs.
+    if ledger_present:
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    v = cell.value
+                    if not (isinstance(v, str) and v.startswith("=")):
+                        continue
+                    if cell.comment is not None:
+                        continue
+                    labels = _formula_lineage_labels(wb, ws, v)
+                    txt = f"Computed: {v}"
+                    if labels:
+                        txt += "\nfrom: " + ", ".join(labels)
+                    cell.comment = openpyxl.comments.Comment(txt, "audit")
+                    derived_formula += 1
+
     # Assumptions & Flags summary block on a `Sources` sheet (gated).
     if ledger_present:
         from .source_ledger import SourceLedger, Tier
@@ -412,6 +465,9 @@ def annotate_workbook_with_links(
             ws_src.append([e.field, e.tier.value, e.value, note])
 
     wb.save(str(xlsx_path))
+    covered = (linked_page + linked_doc + linked_market + derived
+               + assumption + derived_formula)
+    denom = covered + unverified
     return {
         "linked_page": linked_page,
         "linked_doc": linked_doc,
@@ -421,6 +477,8 @@ def annotate_workbook_with_links(
         "derived": derived,
         "assumption": assumption,
         "unverified": unverified,
+        "derived_formula": derived_formula,
+        "covered_pct": round(100.0 * covered / denom, 1) if denom else 100.0,
         "total": linked_page + linked_doc + linked_market,
     }
 

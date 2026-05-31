@@ -2038,10 +2038,11 @@ class VirtualAnalystOrchestrator:
             )
 
             if response.stop_reason == "end_turn":
-                return next(
+                answer = next(
                     (b.text for b in response.content if b.type == "text"),
                     "Analysis complete.",
                 )
+                return self._finalize(answer, ticker)
 
             if response.stop_reason != "tool_use":
                 break
@@ -2096,8 +2097,33 @@ class VirtualAnalystOrchestrator:
         # Fallback: return last text block if loop exits without end_turn
         for block in reversed(response.content):
             if block.type == "text":
-                return block.text
-        return "Analysis complete."
+                return self._finalize(block.text, ticker)
+        return self._finalize("Analysis complete.", ticker)
+
+    def _finalize(self, answer: str, ticker: str) -> str:
+        """Append a Sources & Assumptions provenance appendix when a ticker
+        cache with a ledger exists. Never raises — returns answer unchanged on
+        any failure or when there is nothing to cite."""
+        if not ticker:
+            return answer
+        try:
+            import json
+            from pathlib import Path
+            from src.sources_report import build_sources_report
+            cdir = Path("extraction_cache")
+            cpath = cdir / (ticker.replace(".", "_").replace("-", "_") + ".json")
+            if not cpath.exists():
+                cpath = cdir / (ticker.replace(".", "_") + ".json")
+            if not cpath.exists():
+                cpath = cdir / (ticker + ".json")
+            if not cpath.exists():
+                return answer
+            cache = json.loads(cpath.read_text(encoding="utf-8"))
+            if not (cache.get("__ledger__", {}) or {}).get("entries"):
+                return answer
+            return answer + "\n\n---\n" + build_sources_report(cache)
+        except Exception:
+            return answer
 
 
 # ---------------------------------------------------------------------------
