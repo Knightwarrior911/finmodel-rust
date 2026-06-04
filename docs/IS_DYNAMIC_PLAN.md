@@ -7,7 +7,7 @@
 
 ---
 
-## Phase 1 — Dynamic Revenue Segments [NEXT]
+## Phase 1 — Dynamic Revenue Segments [DONE]
 
 **Why:** SPEC_methodology §3.1 requires `[Segment lines reproducing company's actual disclosure]`.
 AAPL must show Products + Services rows, not a single Revenue line.
