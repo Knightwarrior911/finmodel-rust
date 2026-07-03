@@ -41,6 +41,33 @@ selling are parked until then.** Effect on this plan:
 - Rough build-track total: ~55–75 agent sessions (≈ 5–8 months part-time, faster
   full-time).
 
+## Rust amendment (👤 approved 2026-07-03)
+
+The founder's directive: **the shipped app is pure Tauri/Rust — no Python inside the
+product.** Effect on this plan:
+
+- A new **Phase R (Rust port)** is inserted after Phase 0: the Python pipeline is ported
+  to a Rust engine, module by module, with one non-negotiable gate — **the Rust engine
+  must reproduce the committed accuracy baseline exactly (256/256 cells)** before it is
+  called done. The existing Python code stays in the repo as the *reference
+  implementation* and dev-side "answer key"; it never ships and the customer never sees
+  it.
+- Phase 1's sector waves (banks, insurers, held-out set) execute **on the Rust engine**
+  after parity — so the expensive accuracy work is done once, in the language that ships.
+- Phase 0 shrinks: the writer-monolith split (old Workstream 0.4) is **dropped** —
+  pointless to refactor Python code that is being ported; the port itself produces the
+  modular structure. Baseline verification, CI, and failure-honesty stay (they guard the
+  reference implementation the port is measured against).
+- Phase 3 simplifies substantially: no Python sidecar, no PyInstaller, no packaging
+  spike — the riskiest items in the old Phase 3 disappear. One Rust binary, same
+  architecture as the founder's four shipped apps.
+- Assets reused from the founder's other repos: PDF text extraction (PDF Panda /
+  pdfium), PowerPoint automation (Decko's native COM approach, Windows-first), licensing
+  + updater (Snitch), `rust_xlsxwriter` for formula-driven Excel.
+- Revised build-track total: ~75–105 agent sessions (≈ 7–10 months part-time). The port
+  adds upfront work but removes the sidecar-packaging risk entirely and avoids
+  maintaining two engines forever.
+
 ## The one-paragraph strategy
 
 Finish the engine's accuracy story so it is provably right across sectors (that *is* the
@@ -119,18 +146,18 @@ Known structural weak points:
 ## Phase map and dependencies
 
 ```
-Phase 0: Safety Net ──► Phase 1: Accuracy Claim ──► Phase 3: Desktop v1 ──► Phase 4: First 10 Seats ──► Phase 5: Deepen (evidence-gated)
-(engineering foundation)   (the moat)               ▲  (the sellable thing)    (go-to-market)
-                                 │                  │
-                                 ▼ (parallel)       │ learnings feed in
-                           Phase 2: Dogfood + Services ┘
-                           (starts once Wave 1 lands; runs alongside everything after)
+Phase 0: Safety Net ──► Phase R: Rust Port ──► Phase 1: Accuracy Claim ──► Phase 3: Desktop v1 ──► Phase 4: Seats (PARKED) ──► Phase 5 (PARKED)
+(guards the answer key)  (parity gate:          (waves run on the      ▲   (pure Rust/Tauri)
+                          256/256 vs baseline)   Rust engine)          │
+                                 │                    │                │ learnings feed in
+                                 └────────────────────▼ (parallel)     │
+                                          Phase 2: Dogfood (+ Services PARKED) ┘
 ```
 
 - Phase 0 blocks everything (no safe changes without CI running the guards).
-- Phase 2 (you selling engagements) starts as soon as the engine is trustworthy on the
-  companies *you* work with — it does not wait for Phase 1 to fully finish, and its
-  learnings feed Phase 3's scope.
+- Phase R blocks Phase 1: sector waves are built once, on the engine that ships.
+- Phase 2 dogfooding starts as soon as the Rust engine passes parity + Wave 1; its
+  learnings feed Phase 3's scope. (Selling half parked per build-first amendment.)
 - Phase 3 depends on Phase 1 because the desktop app's whole pitch is the accuracy story.
 - Phase 5 items are **forbidden** until Phase 4 produces customer evidence.
 
@@ -143,8 +170,9 @@ accuracy claim regression-proof *automatically*.
 **Why first:** every later phase edits core files. The baseline and its pytest guard
 exist, but nothing runs them automatically — an agent could quietly break extraction
 accuracy and nobody would know until a client sees a wrong number. For a product whose
-entire pitch is "provably correct," that is fatal.
-**Total effort:** ~10–14 sessions (≈ 3–5 weeks part-time).
+entire pitch is "provably correct," that is fatal. Post-Rust-amendment, Phase 0's job is
+narrower: lock down the *reference implementation* the port will be measured against.
+**Total effort:** ~5–8 sessions (≈ 1.5–2.5 weeks part-time).
 
 ### Workstream 0.1 — Verify and harden the accuracy baseline (P0, 1 session)
 
@@ -174,56 +202,107 @@ broken can merge unnoticed. A "pull request" (PR) is a proposed change awaiting 
 | 0.3.1 | Add `pyproject.toml` (name, version 0.1.0, dependencies from `requirements.txt`, console entry point `finmodel`). | `pip install -e .` works in a fresh virtual environment; `finmodel --help` runs. |
 | 0.3.2 | Start `CHANGELOG.md`; tag current state `v0.1.0`. | Tag visible on GitHub. |
 
-### Workstream 0.4 — Split the writer monolith (P0, 4–6 sessions)
+### Workstream 0.4 — ~~Split the writer monolith~~ (DROPPED — Rust amendment)
 
-*The single riskiest file. Split before anything else builds on it.*
+*Refactoring Python code that Phase R replaces is wasted work. The characterization
+snapshot idea survives, repurposed: it becomes the Excel-output parity fixture for the
+Rust port (see R.5).*
 
-**Important:** the tie-out harness does **not** test Excel output (it checks extracted
-data against ground truth, and its cache fingerprint only watches `extractor.py`,
-`reconciler.py`, `fetcher.py`). The guard for this workstream is therefore the
-**characterization snapshot** below — the tie-out is a belt-and-braces re-run at the end,
-not the per-step check.
+### Workstream 0.5 — Characterization snapshots as port fixtures (P0, 1–2 sessions)
 
 | # | Task | Acceptance |
 |---|---|---|
-| 0.4.1 | Characterization snapshot: generate models for 2–3 cached companies, record every sheet's cell values + formulas to a snapshot file (a "before photo" of the Excel output). | Snapshot committed under `tests/snapshots/`; a snapshot-compare test added to pytest. |
-| 0.4.2–0.4.6 | Extract per-tab modules one at a time — `writer_is.py`, `writer_bs.py`, `writer_cf.py`, `writer_dcf.py`, `writer_comps.py`, shared helpers in `writer_common.py` — keeping `writer.py` as a thin coordinator. One module per session. | After each split: snapshot-compare test passes (output byte-identical — the agent shows you the comparison result), full pytest green. After the final split: one full tie-out re-run matches baseline. |
-
-### Workstream 0.5 — Extend the deterministic reconciliation floor (P1, 2 sessions)
-
-*`check_consistency()` already enforces assets = liabilities + equity and a D&A
-cross-check in plain code. Extend it so the LLM is never the only line of defense.*
-
-| # | Task | Acceptance |
-|---|---|---|
-| 0.5.1 | Add plain-code checks: net income flows to equity; CFO ≈ NI + D&A + working-capital change; cash roll-forward ties (opening + net change = closing). Tolerance configurable, default matching the existing 2%. | New `tests/test_reconciler_deterministic.py` passes; each identity catches a seeded error in a fixture. |
-| 0.5.2 | LLM reconciliation remains a *second* opinion layered on top; disagreements are logged with tier UNVERIFIED, never silently accepted. | Log line + ledger entry visible in a forced-disagreement test. |
+| 0.5.1 | Generate models for the 5 baseline companies + 1 US ticker from cached data; record every sheet's cell values + formulas + tier colors + hyperlinks to snapshot files (the "answer key" the Rust writer must reproduce). | Snapshots committed under `tests/snapshots/`; a compare script exists that diffs any new .xlsx against them cell-by-cell. |
 
 ### Workstream 0.6 — Extraction failure honesty (P1, 1–2 sessions)
+
+*Built in the Python reference first because Phase 2 dogfooding may run on it while the
+port is in flight; the behavior spec carries into the Rust extractor (R.2).*
 
 | # | Task | Acceptance |
 |---|---|---|
 | 0.6.1 | Distinguish three outcomes end-to-end: extraction **succeeded**, **succeeded with low confidence** (< 0.75 → currently flagged but still used), and **failed** (garbage/empty LLM output → currently can slip through). Failed runs must stop the pipeline with a clear message, not produce a model. | Tests simulate each outcome; a "failed" extraction never reaches the Excel writer. |
 
 **PHASE 0 GATE (you can check this yourself):** open the GitHub repo page — the Actions
-tab shows green check-marks on recent commits; on your machine, paste the two commands
-the agent gives you (`pip install -e .` then a model build on one of the baseline
-companies, e.g. `finmodel --ticker ATCO-B.ST`, plus one US name like AAPL) and confirm
-the Excel files open and look unchanged from before the writer split.
+tab shows green check-marks on recent commits; the snapshot "answer key" files exist in
+the repo; the baseline verification log says PASS.
 
-**Risks:** the writer split is the dangerous one — mitigated by one-module-per-session +
-snapshot after every step. If a split step fails its snapshot, the agent reverts that
-step, never "fixes forward."
+**Revised Phase 0 total: ~5–8 sessions (≈ 1.5–2.5 weeks part-time).**
 
 ---
 
-# PHASE 1 — MAKE THE ACCURACY CLAIM REAL
+# PHASE R — RUST PORT (parity-gated)
+
+**Objective:** a Rust engine (`finmodel-core`) that reproduces the Python reference
+implementation's outputs **exactly** — proven by the same tie-out baseline and Excel
+snapshots — so everything after this phase is built once, in the language that ships.
+**Why Rust (founder decision):** single fast binary, no bundled Python, same stack as
+the four shipped apps (PDF Panda, Snitch, Decko, Pluck). Honest speed note: the slowest
+step in a model build is the LLM call + filing download (network), which Rust does not
+speed up — what Rust buys is instant app startup, a snappy UI, a small installer, and
+the death of the Python-packaging risk. CPU-side steps (PDF parsing, Excel writing) do
+get genuinely faster.
+**Depends on:** Phase 0 (verified baseline + snapshots = the port's acceptance tests).
+**Total effort:** ~30–45 sessions (≈ 2.5–4 months part-time). The big rock. Sequenced so
+each module proves parity before the next starts.
+
+### Architecture
+
+- Cargo workspace `finmodel-core` inside this repo (or sibling dir 👤): crates mirroring
+  the Python modules — `fm-fetch` (EDGAR XBRL + filing download), `fm-extract` (PDF text
+  via pdfium, LLM extraction), `fm-recon` (deterministic identities + LLM second
+  opinion), `fm-engine` (projections), `fm-ledger` (5-tier trust + derivation cascade),
+  `fm-value` (DCF/WACC/comps + sanity invariants), `fm-excel` (rust_xlsxwriter,
+  formula-driven, tier colors, source hyperlinks), `fm-cli` (thin CLI for testing).
+- **LLM provider abstraction from day one** (one trait, DeepSeek + Anthropic + local
+  implementations) — absorbs old Phase 3 task 3.1.
+- **Prompts are ported verbatim.** The extraction prompts and the 350+ XBRL tag map are
+  the crown jewels; they copy across unchanged. The port re-implements plumbing, not
+  judgment.
+- **PPTX decks:** not re-implemented in Rust in this phase. Deck generation reuses the
+  Decko approach (native COM automation of PowerPoint, Windows) as a later Phase 3
+  workstream; the Python pptx code stays reference-only.
+- **Orchestrator (`--ask`, 40 tools):** NOT ported in v1 — the desktop app's four screens
+  drive the pipeline directly. The NL orchestrator moves to the Phase 5 menu.
+- **Python's ongoing role:** reference implementation + tie-out instrument, dev-only.
+  The tie-out harness gets an adapter to score any engine that emits the standard
+  extraction JSON (R.1), so Python and Rust are graded by the same examiner.
+
+### Workstreams (each gate = parity, not "looks right")
+
+| # | Workstream | Effort | Parity gate |
+|---|---|---|---|
+| R.1 | Tie-out adapter: harness scores an external engine via JSON output; wire Python reference through it first (proves the adapter itself). | 2–3 | Python-via-adapter reproduces the committed baseline 256/256. |
+| R.2 | `fm-fetch` + `fm-extract`: EDGAR XBRL pull, PDF text (pdfium), LLM extraction with ported prompts, failure-honesty semantics from 0.6. | 8–12 | Rust extraction JSON matches Python's on all baseline companies + cached US tickers, cell-for-cell. |
+| R.3 | `fm-recon` + `fm-engine` + `fm-ledger`: identities, projections, derive-first cascade, assumption registry. | 6–9 | Projected statements + ledger tiers match Python reference outputs on fixtures. |
+| R.4 | `fm-value`: DCF, WACC, comps, EV bridge, all 11 sanity invariants. | 5–7 | Valuation outputs match Python to the cent on fixtures; invariants fire on the same seeded errors. |
+| R.5 | `fm-excel`: formula-driven workbook via rust_xlsxwriter — formulas, tier colors, source hyperlinks, sources appendix. | 7–10 | Cell-by-cell diff vs the Phase 0.5 snapshots: values + formulas + links identical (formatting may differ only where 👤 approves). |
+| R.6 | Full-pipeline parity run + CI: `fm-cli` builds every baseline company end-to-end; tie-out (via R.1 adapter) + snapshot diff run in CI for the Rust engine. | 2–4 | **THE GATE: Rust engine scores 256/256 on the committed baseline and passes all snapshot diffs, in CI.** |
+
+**PHASE R GATE (you can check this yourself):** the agent hands you two Excel files for
+the same company — one from the old Python pipeline, one from the Rust engine. You open
+both; every number, formula, color, and click-to-filing link behaves identically. CI
+shows the Rust parity job green.
+
+**Risks:** (a) rust_xlsxwriter feature gaps vs Python xlsxwriter (both by the same
+author; formulas are supported — but any gap found becomes a 👤 formatting-compromise
+decision, never a silent change). (b) PDF text extraction differences (pdfplumber vs
+pdfium) can shift extraction inputs — R.2's cell-for-cell gate catches this early.
+(c) Scope temptation: porting the orchestrator or pptx tools "while we're at it" is
+forbidden — parity scope is frozen to what the baseline measures.
+
+---
+
+# PHASE 1 — MAKE THE ACCURACY CLAIM REAL (on the Rust engine)
 
 **Objective:** turn "100% on 5 European industrials" into a **published, reproducible
 accuracy table across ≥15 companies in ≥3 sectors, including companies the system has
 never seen**. This is the product. Boutiques buy trust; this phase manufactures it.
-**Depends on:** Phase 0 complete.
-**Total effort:** ~21–30 sessions (≈ 2–3.5 months part-time). Largest phase —
+**Rust amendment:** all wave work (extraction fixes, engine modes, writer layouts)
+happens in the Rust engine; the Python reference is consulted, not extended. Ground
+truth building (`groundtruth.py`) stays Python — it is instrument, not product.
+**Depends on:** Phase R parity gate.
+**Total effort:** ~21–30 sessions (≈ 2–3.5 months part-time). Second-largest phase —
 deliberately, because you chose quality-first.
 
 ### Workstream 1.1 — Tie-out Wave 1: fix the skips + industrial diversity (P0, 4–6 sessions)
@@ -340,32 +419,28 @@ for copyrighted filings).
 # PHASE 3 — FINMODEL DESKTOP v1
 
 **Objective:** a Windows installer a boutique analyst can download, activate, and use
-without you. The engine stays Python; the shell is Tauri 2 (the desktop toolkit you have
-shipped four apps with — installers, signing, auto-update, and Dodo licensing patterns
+without you. **Pure Tauri 2 / Rust** — the app links the `finmodel-core` crates from
+Phase R directly. No Python, no sidecar, no bundled interpreter. Same architecture as
+your four shipped apps (installers, signing, auto-update, and Dodo licensing patterns
 all exist in your other repos).
-**Honest caveat:** your four Tauri apps are Rust-native; none bundles a Python engine.
-The *shell* is a proven path for you; the *Python sidecar* part is new — which is why
-this phase starts with a 1-session spike (a quick throwaway prototype to prove the risky
-part works before committing to the full build).
 **Depends on:** Phase 1 gate (the accuracy story is the sales pitch), Phase 2 learnings
 (what analysts actually touch).
-**Effort:** ~21–30 sessions (≈ 2–3.5 months part-time).
+**Effort:** ~16–23 sessions (≈ 1.5–2.5 months part-time — the Rust amendment removed
+the sidecar, packaging spike, and provider-abstraction work from this phase).
 
-### Architecture (locked unless the spike finds a blocker)
+### Architecture
 
-- **Engine process:** the Python pipeline packaged with PyInstaller into a standalone
-  folder (bundles Python itself — the user installs nothing extra), spawned by the app
-  as a *sidecar* (a background helper process the app starts and stops). Communication
-  is JSON lines over stdin/stdout (plain text request/response between the two
-  programs) — no network server involved.
-- **Packaging boundary:** the browser-research modules (`nodriver` — which drives a real
-  Chrome browser and cannot be bundled) are **excluded** from the packaged engine. v1
-  desktop ships the US/EDGAR path + local-PDF path. Non-US *auto-discovery* of filings
-  stays a CLI/beta feature; desktop users supply the PDF themselves (drag-and-drop),
-  which is what an analyst with a filing in hand does anyway.
-- **App shell:** Tauri 2 + the same frontend stack as PDF Panda. Rust side owns:
-  process lifecycle, licensing, key storage (Windows Credential Manager via keyring —
-  same pattern as Snitch), auto-update.
+- **Engine:** `finmodel-core` crates compiled into the app. Long pipeline runs execute
+  on background threads (tokio) with progress events streamed to the UI — the standard
+  Tauri pattern from PDF Panda.
+- **Scope boundary:** v1 ships the US/EDGAR path + local-PDF path (drag-and-drop a
+  filing — what an analyst with a PDF in hand does anyway). Non-US filing
+  *auto-discovery* (the Python browser pipeline) is not ported; it lives on as a
+  dev-side research tool and a Phase 5 menu item.
+- **Deck generation:** Decko-pattern native PowerPoint COM automation (Windows), reusing
+  that repo's approach; if PowerPoint isn't installed, the app produces Excel only and
+  says so plainly.
+- **Key storage:** Windows Credential Manager via keyring — same pattern as Snitch.
 - **Data location:** everything under the user's `Documents/Finmodel/` — models, caches,
   filings. Nothing leaves the machine except calls to the LLM provider *the user
   configured with their own key*, and license checks to Dodo.
@@ -386,26 +461,22 @@ part works before committing to the full build).
 
 | # | Workstream | Effort | Key acceptance |
 |---|---|---|---|
-| 3.0 | **Spike: sidecar proof** (P0, do first): PyInstaller-package a trivial slice of the engine, spawn it from a bare Tauri window, exchange JSON lines, stream fake progress events. Throwaway code; its only job is to expose blockers early. | 1 session | Spike demo works on your machine, or a written pivot decision (e.g. slim wrapper redesign) before further Phase 3 spend. |
-| 3.1 | **LLM provider abstraction** (P0): one interface (e.g. `call_model(prompt, …)`) with Anthropic + DeepSeek implementations behind it, replacing the hardcoded `anthropic` imports in extractor/orchestrator/preflight/browser modules. Blocks the Settings screen and clean packaging. | 2–3 sessions | All LLM calls route through the interface; pytest + tie-out green; provider chosen by config, not code. |
-| 3.2 | **Engine JSON interface** (P0): a `finmodel serve-json` mode — pipeline capabilities invocable via JSON-lines over stdin/stdout: request `{"cmd": "build", "args": {...}, "id": 1}` → progress events `{"type": "progress", "step": 3, "label": "Fetching filings…", "id": 1}` → result `{"type": "result", "data": {...}, "id": 1}`. Versioned schema; contract tests. | 3–4 sessions | Contract test suite green; a scripted client runs a full model build headlessly through the protocol. |
-| 3.3 | **PyInstaller packaging** (P0): one-folder build of the engine incl. pdfplumber/openpyxl/python-pptx, with browser modules excluded via import-chain audit + `--exclude-module`; smoke test on a clean Windows VM (a fresh virtual machine — the agent sets this up and records the run for you to watch). | 3–4 sessions | Fresh VM with no Python installed runs a full US-ticker build AND a local-PDF build from the packaged engine. |
-| 3.4 | **Tauri shell + 4 screens** (P0), including the `.finmodel` export/import bundle. | 7–9 sessions | All four screens + bundle round-trip work against the sidecar on a dev machine. |
-| 3.5 | **Licensing + trial via Dodo** (P0): 14-day trial, per-seat subscription, offline-tolerant license cache (7-day grace), reuse Snitch's Dodo patterns and India-MoR setup. 👤 you create the product entries in the Dodo dashboard (agent gives you a click-by-click guide). | 3–4 sessions | Buy → activate → revoke → grace-period flows all tested in Dodo test mode. |
-| 3.6 | **Installer, signing, auto-update** (P0): NSIS installer + updater (Snitch/PDF Panda pattern), signed; releases via GitHub. | 2–3 sessions | Install → auto-update from v0.9→v1.0 works on the VM. |
-| 3.7 | **First-run experience** (P1): guided setup (key, first model on a suggested ticker), sample model bundled so the app demos even before a key exists. | 1–2 sessions | 👤 you watch one finance friend complete first-run without you speaking. |
-| 3.8 | **Crash/error reporting, local logs** (P1): errors readable by non-engineers, "copy diagnostic" button that packages recent logs + app state (no client documents) into a single file the user can email you (no auto-telemetry in v1 — privacy is the pitch). | 1 session | Simulated engine crash produces a friendly message + diagnostic file. |
+| 3.1 | **Tauri shell + 4 screens** (P0): app skeleton, engine wired on background threads with streamed progress, all four screens, `.finmodel` export/import bundle. | 8–10 sessions | All four screens + bundle round-trip work end-to-end on a dev machine (real ticker → real Excel). |
+| 3.2 | **Deck generation via COM** (P1): port the Decko-pattern PowerPoint automation for the summary deck; graceful Excel-only fallback when PowerPoint absent. | 2–3 sessions | Deck generated on a machine with Office; clean fallback message without. |
+| 3.3 | **Licensing + trial via Dodo** (P0): 14-day trial, per-seat subscription, offline-tolerant license cache (7-day grace), reuse Snitch's Dodo patterns and India-MoR setup. 👤 you create the product entries in the Dodo dashboard (agent gives you a click-by-click guide). | 3–4 sessions | Buy → activate → revoke → grace-period flows all tested in Dodo test mode. |
+| 3.4 | **Installer, signing, auto-update** (P0): NSIS installer + updater (Snitch/PDF Panda pattern), signed; releases via GitHub. Smoke test on a clean Windows VM (a fresh virtual machine — the agent sets it up and records the run for you to watch). | 2–3 sessions | Fresh VM: install → build a model → auto-update v0.9→v1.0 works. |
+| 3.5 | **First-run experience** (P1): guided setup (key, first model on a suggested ticker), sample model bundled so the app demos even before a key exists. | 1–2 sessions | 👤 you watch one finance friend complete first-run without you speaking. |
+| 3.6 | **Crash/error reporting, local logs** (P1): errors readable by non-engineers, "copy diagnostic" button that packages recent logs + app state (no client documents) into a single file the user can email you (no auto-telemetry in v1 — privacy is the pitch). | 1 session | Simulated engine crash produces a friendly message + diagnostic file. |
 
 **PHASE 3 GATE (the only gate that matters):** someone who is not you — ideally a
 Phase 2 client or finance friend — downloads the installer, activates a trial, adds
 their own key, builds a model of a company they choose, and opens the Excel. **Zero
 founder assistance.** Repeat with 3 people; 2 of 3 must succeed unaided.
 
-**Risks:** (a) The sidecar spike (3.0) is the early-warning system for the packaging
-risk; if it fails, the fallback direction is decided *before* the shell is built.
-(b) Antivirus false positives on new binaries — mitigated by code signing (pattern known
-from Snitch). (c) Scope creep on screens — the four-screen list is a hard wall; anything
-else goes to the Phase 5 menu.
+**Risks:** (a) Antivirus false positives on new binaries — mitigated by code signing
+(pattern known from Snitch). (b) Scope creep on screens — the four-screen list is a hard
+wall; anything else goes to the Phase 5 menu. (c) COM/PowerPoint fragility — contained
+by the Excel-only fallback; the deck is P1, not gating.
 
 ---
 
@@ -529,15 +600,17 @@ because building any of these on speculation is how the old prompt doc went wron
 |---|---|---|---|
 | Accuracy regression slips into a client deliverable | Med | Fatal to the trust pitch | Phase 0 CI guard + Phase 2 QA checklist; held-out honesty in ACCURACY.md |
 | Bank/insurer extraction much harder than budgeted | Med-High | Schedule stretch | Quality-first pace absorbs it; ship desktop with "industrials + banks; insurers beta" if needed 👤 |
-| Python sidecar packaging fails | Med | Phase 3 redesign | Spike (3.0) surfaces it in 1 session, before the shell exists; browser deps pre-excluded |
+| Rust port drifts from Python reference (subtle number changes) | Med | Fatal to trust pitch | Parity gates per module (R.2–R.6): same tie-out examiner, cell-for-cell Excel diffs; no module "done" without parity |
+| rust_xlsxwriter / pdfium feature gaps vs Python libs | Med | Formatting compromises or extra sessions | Gaps surface in R.2/R.5 gates; every compromise is a 👤 decision, never silent |
 | Nobody pays (wrong wedge) | Med | Business risk | Phase 2 pre-order probe tests product WTP *before* Phase 3's build cost; outside-network qualifier in Phase 4 gate keeps evidence honest |
 | Founder time drained by services | Med | Product stall | Hard cap: 3 engagements pre-launch |
 | Legal exposure from model outputs | Low-Med | High | Disclaimers everywhere, ToS review before first sale, no "investment advice" language anywhere |
 
 ## Success metrics per phase (one line each)
 
-- **P0:** CI green with tie-out guard wired in + writer split with byte-identical output.
-- **P1:** public accuracy table: ≥15 companies, ≥3 sectors, honest held-out number.
+- **P0:** CI green with tie-out guard wired in + Excel snapshot "answer key" committed.
+- **PR:** Rust engine scores 256/256 on the committed baseline + passes all snapshot diffs, in CI.
+- **P1:** public accuracy table: ≥15 companies, ≥3 sectors, honest held-out number — all on the Rust engine.
 - **P2:** ≥2 paid engagements + pre-order responses recorded.
 - **P3:** 2 of 3 strangers install→activate→build unaided.
 - **P4:** 10 paid seats / 3 team deals, ≥3 from outside the network, ≥half retained past day 60.
@@ -552,9 +625,10 @@ and the 17-piece infra stack, Bloomberg/FactSet/CapIQ/PitchBook/LSEG connectors,
 market data, RBAC/SSO/collaboration servers, and the browser-based model editor. Each
 has a written revival trigger; none is "never."
 
-## Immediate next actions (the first week)
+## Immediate next actions (execution starts on 👤 "go" — plan approved 2026-07-03, execution deliberately not started)
 
-1. 👤 Read this plan + the design spec; veto or adjust the locked decisions (§1 of the spec).
-2. Agent session: Task 0.1.1 — verify the committed baseline still holds on today's code.
-3. Agent session: Task 0.2.1 — CI on pull requests, tie-out guard included.
-4. 👤 Start thinking about Wave 1 company picks (1.1.1) — names you know cold.
+1. Agent session: Task 0.1.1 — verify the committed baseline still holds on today's code.
+2. Agent session: Task 0.2.1 — CI on pull requests, tie-out guard included.
+3. Agent session: Task 0.5.1 — Excel snapshot answer key.
+4. Agent session: R.1 — tie-out adapter (unblocks the whole port).
+5. 👤 Start thinking about Wave 1 company picks (1.1.1) — names you know cold.

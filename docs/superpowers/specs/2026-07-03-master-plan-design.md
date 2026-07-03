@@ -18,7 +18,7 @@ something real to aim at.
 |---|---|
 | Goal | Paid product (a business, not a portfolio piece) |
 | First buyer | Boutique finance firms and consultants (valuation shops, small IB/M&A advisory, fractional CFOs, independent equity analysts) |
-| Product shape | **Desktop app** (Tauri 2 shell around the existing Python engine), data stays on the user's machine |
+| Product shape | **Desktop app, pure Tauri 2 / Rust** — the Python pipeline is ported to a Rust engine (`finmodel-core`) under a strict parity gate (must reproduce the committed accuracy baseline 256/256 before anything builds on it); Python remains dev-only as reference implementation + tie-out instrument. Data stays on the user's machine. (👤 amended 2026-07-03: founder wants the PDF Panda / Snitch feel — no bundled Python. See MASTER_PLAN "Rust amendment" + Phase R.) |
 | Revenue bridge | Founder sells model-building **services** to boutiques while the product matures (founder works in finance — credibility and warm access exist) |
 | Deferred | Hosted SaaS / web UI — revisit only after ≥10 paying desktop seats ask for it |
 | Budget ceiling | < $50/month pre-revenue. No servers, no paid data feeds. BYO LLM key (customer pays own pennies-per-model API cost) |
