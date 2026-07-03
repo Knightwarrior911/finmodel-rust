@@ -3,7 +3,7 @@
 **Goal:** Full compliance with `valuation_kit/3statement/CLAUDE.md` rule:
 > "Replicate the company's actual reported line item structure. Do not impose a generic template."
 
-**Status:** All 4 phases complete. Dynamic IS now uses company-actual XBRL disclosure line items with actual filing labels.
+**Status:** All 4 phases complete (Phases 2–4 shipped in commit `9174435`: `_detect_opex_items` in fetcher.py, `_build_bank_is`/`_build_insurance_is`/`_build_reit_is` + `_apply_filing_labels` in is_builder.py). Dynamic IS now uses company-actual XBRL disclosure line items with actual filing labels. **Exception:** §7.4 SaaS metrics template was NOT built — deferred to `docs/MASTER_PLAN.md` Phase 5 (evidence-gated). Phase bodies below are the original specs, retained as implementation reference.
 
 ---
 
