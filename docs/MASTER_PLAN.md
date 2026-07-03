@@ -26,6 +26,21 @@ that is fine; the plan is sequenced by dependency, not by dates.
 
 ---
 
+## Build-first amendment (👤 approved 2026-07-03)
+
+The founder's directive: **build the product to fully-functional first; distribution and
+selling are parked until then.** Effect on this plan:
+
+- **Build track (active now):** Phase 0 → Phase 1 → Phase 2E (deliverable-polish
+  engineering only) → Phase 3. "Functionally ready" = all four of those gates passed —
+  ending with 2 of 3 strangers able to install, activate, and build a model unaided.
+- **Parked (needs 👤 "go"):** Phase 2S (selling engagements), Phase 4 (seats, pricing,
+  landing page, LinkedIn), Phase 5 (everything). The Dodo licensing work inside Phase 3
+  still gets built — an activation system is product functionality — but no product goes
+  on sale until the founder unparks selling.
+- Rough build-track total: ~55–75 agent sessions (≈ 5–8 months part-time, faster
+  full-time).
+
 ## The one-paragraph strategy
 
 Finish the engine's accuracy story so it is provably right across sectors (that *is* the
@@ -279,13 +294,18 @@ not as a blocker.
 
 # PHASE 2 — DOGFOOD + SERVICES BRIDGE (parallel track)
 
-**Objective:** real revenue and real defect data before the product exists, using the
-asset you already have: **you work in finance**.
-**Starts:** as soon as Wave 1 (1.1) passes — do not wait for banks/insurers unless your
-clients are banks/insurers.
+**Build-first amendment:** this phase is split. **2E (engineering, Workstream 2.1) stays
+in the build track** — client-ready output quality is product functionality regardless of
+who sells anything. **2S (selling, Workstream 2.2) is PARKED** until 👤 unparks it; the
+dogfooding half of 2.2 (you using the tool on your own work and logging defects) is
+encouraged any time — it is the cheapest test lab available.
+
+**Objective:** real deliverable quality and real defect data, using the asset you
+already have: **you work in finance**.
+**Starts:** as soon as Wave 1 (1.1) passes.
 **Effort:** ~2–3 engineering sessions + 👤 your ongoing professional time.
 
-### Workstream 2.1 — Engagement-grade output (P0, 2–3 sessions)
+### Workstream 2.1 (2E) — Engagement-grade output (P0, 2–3 sessions)
 
 | # | Task | Acceptance |
 |---|---|---|
@@ -293,7 +313,7 @@ clients are banks/insurers.
 | 2.1.2 | One-command engagement flow: ticker/PDF in → branded Excel + deck + sources appendix in a dated client folder. | Single command produces the full folder on a test name. |
 | 2.1.3 | Disclaimer baseline: "not investment advice / no warranty" text embedded in Excel cover sheet and deck footer; agent drafts a short ToS from a reputable template. ⚠️ Before the first paid engagement, have the ToS/disclaimer reviewed by a lawyer or a reputable legal-template service — liability for financial outputs is a real business risk, and this plan does not constitute legal advice. | Disclaimers render in outputs; reviewed ToS exists. |
 
-### Workstream 2.2 — 👤 Sell 2–3 engagements (P0, your time)
+### Workstream 2.2 (2S) — 👤 Sell 2–3 engagements (PARKED until 👤 unparks selling)
 
 - Offer: "institutional-grade 3-statement model + DCF + deck for [company], every number
   source-linked" at a fixed fee you consider fair for your market.
@@ -389,7 +409,10 @@ else goes to the Phase 5 menu.
 
 ---
 
-# PHASE 4 — FIRST 10 BOUTIQUE SEATS
+# PHASE 4 — FIRST 10 BOUTIQUE SEATS (PARKED — build-first amendment)
+
+*Entire phase waits for 👤 "go" after the product is functionally ready. Kept in full so
+nothing has to be re-planned when selling unparks.*
 
 **Objective:** 10 paying seats (or 3 boutique team deals) **with real retention**.
 Everything here is evidence-gathering for Phase 5.
