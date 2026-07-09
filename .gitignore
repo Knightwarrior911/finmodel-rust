@@ -13,8 +13,10 @@ venv/
 .env
 extraction_cache/
 tieout/filings/
-tieout/results/
-autoresearch-results.tsv
+tieout/results/*
+!tieout/results/_baseline_wave0.json
+!tieout/results/_summary.json
+!tieout/results/_report.md
 
 # non-code artifacts (keep repo clean)
 decks/

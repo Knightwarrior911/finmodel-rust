@@ -198,9 +198,15 @@ def run(only=None, retries=2, quiet=False):
     summary["aggregate_pct"] = agg
     summary["measured_companies"] = len(summary["companies"])
 
-    (RESULTS_DIR / "_summary.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Don't overwrite _summary.json when zero companies were measured — a
+    # failed run (e.g. missing LLM key) must not clobber the good summary that
+    # the no-regression guard test relies on.
+    # Only clobber _summary.json when we actually measured something.
+    if summary["measured_companies"] > 0:
+        (RESULTS_DIR / "_summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     _write_report(summary)
+
 
     if not quiet:
         for tk, c in summary["companies"].items():
