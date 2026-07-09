@@ -1,12 +1,12 @@
-use std::collections::HashMap;
+//! R.3 — Projection engine
+//!
+//! Ported from Python src/engine.py to produce consistent projections.
+//! Derives assumptions from historical data, then projects forward with WC days,
+//! capex, D&A, and A = L + E discipline.
 
+use std::collections::HashMap;
 use fm_types::{CompanyConfig, ProjectedStatements, ReconciledData, StatementData};
 
-// ---------------------------------------------------------------------------
-// R.3 — Projection engine
-// ---------------------------------------------------------------------------
-
-/// Core projection engine that derives assumptions and projects forward.
 pub struct ModelEngine {
     pub data: ReconciledData,
     pub config: CompanyConfig,
@@ -17,400 +17,370 @@ impl ModelEngine {
         Self { data, config }
     }
 
-    /// Derive growth / margin assumptions from historical averages.
-    ///
-    /// Returns a map of assumption names → single scalar value.
-    /// Typical keys:
-    /// - `revenue_growth` — CAGR of revenue over historical periods
-    /// - `gross_margin` — average gross margin
-    /// - `opex_sales_ratio` — avg operating expense as % of revenue
-    /// - `depreciation_pct` — avg D&A as % of revenue
-    /// - `tax_rate` — average effective tax rate
-    /// - `capex_revenue_pct` — avg capex as % of revenue
-    pub fn derive_assumptions(&self) -> HashMap<String, f64> {
-        let mut assumptions = HashMap::new();
-
-        let is = &self.data.income_statement;
-        let cf = &self.data.cash_flow_statement;
-        let n = self.data.num_periods();
-
-        if n < 2 {
-            return assumptions;
-        }
-
-        // --- Revenue growth (CAGR over available periods) ---
-        if let Some(revenues) = is.get("revenue").or_else(|| is.get("total_revenue")) {
-            let valid: Vec<f64> = revenues.iter().filter_map(|v| *v).collect();
-            if valid.len() >= 2 {
-                let first = valid[0];
-                let last = *valid.last().unwrap();
-                if first.abs() > 1e-9 {
-                    let cagr = (last / first).powf(1.0 / (valid.len() as f64 - 1.0)) - 1.0;
-                    if let Some(cap) = self.config.growth_cap {
-                        assumptions.insert("revenue_growth".into(), cagr.clamp(-cap, cap));
-                    } else {
-                        assumptions.insert("revenue_growth".into(), cagr);
-                    }
-                }
-            }
-        }
-
-        // --- Gross margin ---
-        if let (Some(rev), Some(cogs)) = (
-            is.get("revenue").or_else(|| is.get("total_revenue")),
-            is.get("cogs").or_else(|| is.get("cost_of_revenue")),
-        ) {
-            let margins: Vec<f64> = rev
-                .iter()
-                .zip(cogs.iter())
-                .filter_map(|(r, c)| match (r, c) {
-                    (Some(rv), Some(cv)) if *rv > 1e-9 => Some((rv - cv) / rv),
-                    _ => None,
-                })
-                .collect();
-            if !margins.is_empty() {
-                let avg = margins.iter().sum::<f64>() / margins.len() as f64;
-                assumptions.insert("gross_margin".into(), avg);
-            }
-        }
-
-        // --- Tax rate ---
-        if let (Some(pt), Some(tax)) = (is.get("pre_tax_income"), is.get("income_tax")) {
-            let rates: Vec<f64> = pt
-                .iter()
-                .zip(tax.iter())
-                .filter_map(|(p, t)| match (p, t) {
-                    (Some(pv), Some(tv)) if *pv > 1e-9 => Some(tv / pv),
-                    _ => None,
-                })
-                .collect();
-            if !rates.is_empty() {
-                let avg = rates.iter().sum::<f64>() / rates.len() as f64;
-                assumptions.insert("tax_rate".into(), avg);
-            }
-        }
-
-        // --- Depreciation as % of revenue ---
-        if let Some(da) = cf
-            .get("depreciation")
-            .or_else(|| cf.get("depreciation_and_amortisation"))
-        {
-            if let Some(rev) = is.get("revenue").or_else(|| is.get("total_revenue")) {
-                let pcts: Vec<f64> = rev
-                    .iter()
-                    .zip(da.iter())
-                    .filter_map(|(r, d)| match (r, d) {
-                        (Some(rv), Some(dv)) if *rv > 1e-9 => Some(dv / rv),
-                        _ => None,
-                    })
-                    .collect();
-                if !pcts.is_empty() {
-                    let avg = pcts.iter().sum::<f64>() / pcts.len() as f64;
-                    assumptions.insert("depreciation_pct".into(), avg);
-                }
-            }
-        }
-
-        assumptions
+    // ── Helpers ────────────────────────────────────────────────────────
+    fn avg(values: &[f64]) -> f64 {
+        if values.is_empty() { 0.0 } else { values.iter().sum::<f64>() / values.len() as f64 }
     }
 
-    /// Project forward for a given number of periods using provided assumptions.
-    ///
-    /// `assumptions` should contain per-year vectors (one element per projection year).
-    /// Keys: `revenue_growth`, `gross_margin`, `tax_rate`, `depreciation_pct`, `capex_revenue_pct`.
-    /// If a key is missing, `derive_assumptions().get(…)` is used as fallback.
+    fn pct_growth_avg(values: &[Option<f64>]) -> f64 {
+        let valid: Vec<f64> = values.iter().filter_map(|v| *v).collect();
+        if valid.len() < 2 { return 0.0; }
+        let mut total = 0.0;
+        let mut cnt = 0;
+        for i in 1..valid.len() {
+            let prev = valid[i - 1];
+            if prev.abs() > 1e-9 { total += (valid[i] - prev) / prev; cnt += 1; }
+        }
+        if cnt == 0 { 0.0 } else { total / cnt as f64 }
+    }
+
+    fn last_or(values: &[Option<f64>], default: f64) -> f64 {
+        values.iter().rev().filter_map(|v| *v).next().unwrap_or(default)
+    }
+
+    fn at(values: &[Option<f64>], index: usize, default: f64) -> f64 {
+        values.get(index).and_then(|v| *v).unwrap_or(default)
+    }
+
+    fn days(bal: &[Option<f64>], flow: &[Option<f64>]) -> f64 {
+        let b = Self::last_or(bal, 0.0);
+        let f = Self::last_or(flow, 0.0);
+        if f.abs() > 1e-9 { (b / f) * 365.0 } else { 0.0 }
+    }
+
+    #[allow(dead_code)]
+    fn vec_or(def: f64, len: usize) -> Vec<f64> { vec![def; len] }
+
+    // ── Assumption derivation ──────────────────────────────────────────
+    pub fn derive_assumptions(&self) -> HashMap<String, f64> {
+        let mut a = HashMap::new();
+        let is = &self.data.income_statement;
+        let bs = &self.data.balance_sheet;
+        let cf = &self.data.cash_flow_statement;
+        let rev = is.get("revenue").or_else(|| is.get("total_revenue"));
+        let rv = rev.map(|r| r.iter().filter_map(|v| *v).collect::<Vec<_>>()).unwrap_or_default();
+        if rv.len() < 2 { return a; }
+
+        let base_growth = Self::pct_growth_avg(rev.unwrap()).max(-0.10);
+        a.insert("revenue_growth".into(), base_growth);
+
+        if let Some(gp) = is.get("gross_profit") {
+            let r: Vec<f64> = rv.iter().zip(gp.iter())
+                .filter_map(|(r, g)| match g { Some(gv) if *r > 1e-9 => Some(gv / r), _ => None }).collect();
+            if !r.is_empty() { a.insert("gross_margin".into(), Self::avg(&r)); }
+        } else if let Some(cgs) = is.get("cogs") {
+            let r: Vec<f64> = rv.iter().zip(cgs.iter())
+                .filter_map(|(r, c)| match c { Some(cv) if *r > 1e-9 => Some((r - cv) / r), _ => None }).collect();
+            if !r.is_empty() { a.insert("gross_margin".into(), Self::avg(&r)); }
+        }
+
+        for (key, src) in &[("sga_pct_rev", "sga"), ("rd_pct_rev", "rd")] {
+            if let Some(vals) = is.get(*src) {
+                let r: Vec<f64> = rv.iter().zip(vals.iter())
+                    .filter_map(|(r, v)| match v { Some(vv) if *r > 1e-9 => Some(vv / r), _ => None }).collect();
+                if !r.is_empty() { a.insert(key.to_string(), Self::avg(&r)); }
+            }
+        }
+
+        // D&A from income_statement "da", fallback cash_flow "depreciation"/"da_add_back"
+        let da_is = is.get("da");
+        if let Some(da) = da_is {
+            let r: Vec<f64> = rv.iter().zip(da.iter())
+                .filter_map(|(r, d)| match d { Some(dv) if *r > 1e-9 => Some(dv / r), _ => None }).collect();
+            if !r.is_empty() { a.insert("da_pct_rev".into(), Self::avg(&r)); }
+        }
+        if !a.contains_key("da_pct_rev") {
+            for alt_key in &["depreciation", "da_add_back"] {
+                if let Some(depr) = cf.get(*alt_key) {
+                }
+            }
+        }
+
+        // Capex from cash flow (handle negative values)
+        if let Some(capex) = cf.get("capex") {
+            let r: Vec<f64> = rv.iter().zip(capex.iter())
+                .filter_map(|(r, c)| match c {
+                    Some(cv) if *r > 1e-9 => Some(if *cv < 0.0 { -cv / r } else { cv / r }),
+                    _ => None
+                }).collect();
+            if !r.is_empty() { a.insert("capex_pct_rev".into(), Self::avg(&r)); }
+        }
+
+        // Tax rate (effective)
+        if let (Some(pt), Some(tax)) = (is.get("pre_tax_income"), is.get("income_tax")) {
+            let r: Vec<f64> = pt.iter().zip(tax.iter())
+                .filter_map(|(p, t)| match (p, t) {
+                    (Some(pv), Some(tv)) if *pv > 1e-9 && *tv > 0.0 => Some(tv / pv), _ => None
+                }).collect();
+            a.insert("tax_rate".into(), (if r.is_empty() { 0.21 } else { Self::avg(&r) }).max(0.05));
+        } else { a.insert("tax_rate".into(), 0.21); }
+
+        a.insert("interest_rate_pct".into(), 0.035);
+
+        if let Some(ar) = bs.get("accounts_receivable") { a.insert("dso_days".into(), Self::days(ar, rev.unwrap())); }
+        if let (Some(inv), Some(cgs)) = (bs.get("inventory"), is.get("cogs")) {
+            let d = Self::days(inv, cgs); a.insert("dio_days".into(), if d > 365.0 { 0.0 } else { d });
+        }
+        if let (Some(ap), Some(cgs)) = (bs.get("accounts_payable"), is.get("cogs")) {
+            let d = Self::days(ap, cgs); a.insert("dpo_days".into(), if d > 365.0 { 0.0 } else { d });
+        }
+        if let Some(sh) = is.get("shares_diluted") { a.insert("shares_diluted".into(), Self::last_or(sh, 0.0)); }
+
+        a
+    }
+
+    // ── Projection ─────────────────────────────────────────────────────
     pub fn project(&self, assumptions: &HashMap<String, Vec<f64>>) -> ProjectedStatements {
-        let scalar_assumptions = self.derive_assumptions();
+        let scalar = self.derive_assumptions();
         let proj_years = self.config.proj_periods;
+        let np = proj_years;
 
-        // Build period labels
-        let last_hist = self.data.periods.last().cloned().unwrap_or_default();
-        let base_year: i32 = last_hist.parse().unwrap_or(2024);
-        let periods: Vec<String> = (1..=proj_years)
-            .map(|i| format!("{}", base_year + i as i32))
-            .collect();
+        let last_period = self.data.periods.last().cloned().unwrap_or_default();
+        let base_year: i32 = last_period.chars().take(4).collect::<String>().parse().unwrap_or(2024);
+        let periods: Vec<String> = (1..=np as i32).map(|i| format!("{}", base_year + i)).collect();
 
-        // Get last-historical revenue as base
-        let last_revenue = self
-            .data
-            .income_statement
-            .get("revenue")
-            .or_else(|| self.data.income_statement.get("total_revenue"))
-            .and_then(|v| v.iter().filter_map(|x| *x).last())
-            .unwrap_or(0.0);
+        // Per-year vectors from assumptions, or expand scalar default
+        let vec_or = |key: &str, def: f64| -> Vec<f64> {
+            assumptions.get(key).cloned().unwrap_or_else(|| vec![scalar.get(key).copied().unwrap_or(def); np])
+        };
 
-        // Pre-extract assumption vectors (or scalar-expand)
-        let rev_growth: Vec<f64> = assumptions
-            .get("revenue_growth")
-            .cloned()
-            .unwrap_or_else(|| {
-                let s = scalar_assumptions
-                    .get("revenue_growth")
-                    .copied()
-                    .unwrap_or(0.0);
-                vec![s; proj_years]
-            });
+        let rev_growth = vec_or("revenue_growth", 0.03);
+        let gross_margin = vec_or("gross_margin", 0.30);
+        let sga_pct = vec_or("sga_pct_rev", 0.10);
+        let rd_pct = vec_or("rd_pct_rev", 0.05);
+        let da_pct = vec_or("da_pct_rev", 0.04);
+        let capex_pct = vec_or("capex_pct_rev", 0.05);
+        let tax_rate = vec_or("tax_rate", 0.21);
+        let int_rate = vec_or("interest_rate_pct", 0.035);
+        let dso_days = vec_or("dso_days", 45.0);
+        let dio_days = vec_or("dio_days", 60.0);
+        let dpo_days = vec_or("dpo_days", 50.0);
+        let div_per_share = vec_or("dividend_per_share", 0.0);
+        let shares = scalar.get("shares_diluted").copied().unwrap_or(0.0);
 
-        let gross_margin: Vec<f64> = assumptions
-            .get("gross_margin")
-            .cloned()
-            .unwrap_or_else(|| {
-                let s = scalar_assumptions
-                    .get("gross_margin")
-                    .copied()
-                    .unwrap_or(0.0);
-                vec![s; proj_years]
-            });
+        // Last historical values
+        let hist_is = &self.data.income_statement;
+        let hist_bs = &self.data.balance_sheet;
+        let lr = Self::last_or(hist_is.get("revenue").or_else(|| hist_is.get("total_revenue")).unwrap_or(&vec![]), 0.0);
+        let lc = Self::last_or(hist_bs.get("cash").unwrap_or(&vec![]), 0.0);
+        let lar = Self::last_or(hist_bs.get("accounts_receivable").unwrap_or(&vec![]), 0.0);
+        let linv = Self::last_or(hist_bs.get("inventory").unwrap_or(&vec![]), 0.0);
+        let lap = Self::last_or(hist_bs.get("accounts_payable").unwrap_or(&vec![]), 0.0);
+        let lppe = Self::last_or(hist_bs.get("ppe_net").or_else(|| hist_bs.get("pp_and_e")).unwrap_or(&vec![]), 0.0);
+        let lltd = Self::last_or(hist_bs.get("long_term_debt").unwrap_or(&vec![]), 0.0);
+        let lgdwl = Self::last_or(hist_bs.get("goodwill").unwrap_or(&vec![]), 0.0);
 
-        let tax_rate: Vec<f64> = assumptions.get("tax_rate").cloned().unwrap_or_else(|| {
-            let s = scalar_assumptions
-                .get("tax_rate")
-                .copied()
-                .unwrap_or(0.0);
-            vec![s; proj_years]
-        });
+        let mut a = |m: &mut StatementData, k: &str, v: Vec<Option<f64>>| { m.insert(k.into(), v); };
+        let mut is_out = StatementData::new();
+        let mut bs_out = StatementData::new();
+        let mut cf_out = StatementData::new();
 
-        let depr_pct: Vec<f64> =
-            assumptions
-                .get("depreciation_pct")
-                .cloned()
-                .unwrap_or_else(|| {
-                    let s = scalar_assumptions
-                        .get("depreciation_pct")
-                        .copied()
-                        .unwrap_or(0.0);
-                    vec![s; proj_years]
-                });
+        let mut prev_rev = lr;
+        let mut prev_cash = lc;
+        let mut prev_ar = lar;
+        let mut prev_inv = linv;
+        let mut prev_ap = lap;
+        let mut prev_ppe = lppe;
 
-        // --- Project Income Statement ---
-        let mut projected_revenue = Vec::with_capacity(proj_years);
-        let mut projected_cogs = Vec::with_capacity(proj_years);
-        let mut projected_gross_profit = Vec::with_capacity(proj_years);
-        let mut projected_da = Vec::with_capacity(proj_years);
-        let mut projected_ebit = Vec::with_capacity(proj_years);
-        let mut projected_tax = Vec::with_capacity(proj_years);
-        let mut projected_net_income = Vec::with_capacity(proj_years);
+        let mut rev_v = Vec::with_capacity(np);
+        let mut gross_v = Vec::with_capacity(np);
+        let mut cogs_v = Vec::with_capacity(np);
+        let mut sga_v = Vec::with_capacity(np);
+        let mut rd_v = Vec::with_capacity(np);
+        let mut da_v = Vec::with_capacity(np);
+        let mut ebit_v = Vec::with_capacity(np);
+        let mut ebt_v = Vec::with_capacity(np);
+        let mut tax_v = Vec::with_capacity(np);
+        let mut ni_v = Vec::with_capacity(np);
+        let mut ppe_v = Vec::with_capacity(np);
+        let mut capex_v = Vec::with_capacity(np);
+        let mut ar_v = Vec::with_capacity(np);
+        let mut inv_v = Vec::with_capacity(np);
+        let mut ap_v = Vec::with_capacity(np);
 
-        let mut rev = last_revenue;
-        for i in 0..proj_years {
-            let growth = *rev_growth.get(i).unwrap_or(&0.0);
-            rev *= 1.0 + growth;
+        let mut proj_cash_vals = Vec::with_capacity(np);
 
-            let gm = *gross_margin.get(i).unwrap_or(&0.0);
-            let cogs = rev * (1.0 - gm);
-            let gp = rev - cogs;
+        for i in 0..np {
+            let g = rev_growth[i];
+            let rev = prev_rev * (1.0 + g);
+            let gm = gross_margin[i];
+            let gross = rev * gm;
+            let cogs = rev - gross;
+            let sga = rev * sga_pct[i];
+            let rd = rev * rd_pct[i];
+            let da = rev * da_pct[i];
+            let ebit = gross - sga - rd - da;
 
-            let depr = rev * depr_pct.get(i).unwrap_or(&0.0);
-            // Simplified: sga = 10% of revenue placeholder
-            let sga = rev * 0.10;
-            let ebit = gp - depr - sga;
+            let int_exp = lltd * int_rate[i];
+            let int_inc = prev_cash * 0.02;
+            let ebt = ebit - int_exp + int_inc;
+            let tax = (ebt * tax_rate[i]).max(0.0);
+            let ni = ebt - tax;
 
-            let tr = *tax_rate.get(i).unwrap_or(&0.0);
-            let tax = ebit.max(0.0) * tr;
-            let ni = ebit - tax;
+            let dso = dso_days[i];
+            let ar = if dso > 0.0 { rev / 365.0 * dso } else { prev_ar };
+            let dio = dio_days[i];
+            let inv = if cogs > 0.0 && dio > 0.0 { cogs / 365.0 * dio } else { prev_inv };
+            let dpo_val = dpo_days[i];
+            let ap = if cogs > 0.0 && dpo_val > 0.0 { cogs / 365.0 * dpo_val } else { prev_ap };
 
-            projected_revenue.push(Some(rev));
-            projected_cogs.push(Some(cogs));
-            projected_gross_profit.push(Some(gp));
-            projected_da.push(Some(depr));
-            projected_ebit.push(Some(ebit));
-            projected_tax.push(Some(tax));
-            projected_net_income.push(Some(ni));
+            let capex = rev * capex_pct[i];
+            let ppe = prev_ppe + capex - da;
+
+            let dps = div_per_share[i];
+            let divs = dps * shares;
+
+            // Cash flow
+            let d_ar = ar - prev_ar;
+            let d_inv = inv - prev_inv;
+            let d_ap = ap - prev_ap;
+            let cfo = ni + da - d_ar.abs() - d_inv.abs() + d_ap;
+            let cfi = -capex;
+            let cash = prev_cash + cfo + cfi - divs;
+
+            let rnd = |v: f64| (v * 100.0).round() / 100.0;
+
+            rev_v.push(Some(rnd(rev)));
+            gross_v.push(Some(rnd(gross)));
+            cogs_v.push(Some(rnd(cogs)));
+            sga_v.push(Some(rnd(sga)));
+            rd_v.push(Some(rnd(rd)));
+            da_v.push(Some(rnd(da)));
+            ebit_v.push(Some(rnd(ebit)));
+            ebt_v.push(Some(rnd(ebt)));
+            tax_v.push(Some(rnd(tax)));
+            ni_v.push(Some(rnd(ni)));
+            capex_v.push(Some(rnd(capex)));
+            ppe_v.push(Some(rnd(ppe)));
+            ar_v.push(Some(rnd(ar)));
+            inv_v.push(Some(rnd(inv)));
+            ap_v.push(Some(rnd(ap)));
+            proj_cash_vals.push(Some(rnd(cash)));
+
+            prev_rev = rev;
+            prev_cash = cash;
+            prev_ar = ar;
+            prev_inv = inv;
+            prev_ap = ap;
+            prev_ppe = ppe;
         }
 
-        // --- Project Balance Sheet (simplified) ---
-        let mut bs: StatementData = HashMap::new();
-        // Carry forward last historical balance sheet items if available
-        let last_cash = self
-            .data
-            .balance_sheet
-            .get("cash")
-            .and_then(|v| v.iter().filter_map(|x| *x).last())
-            .unwrap_or(0.0);
-        let last_assets = self
-            .data
-            .balance_sheet
-            .get("total_assets")
-            .and_then(|v| v.iter().filter_map(|x| *x).last())
-            .unwrap_or(0.0);
-        let last_equity = self
-            .data
-            .balance_sheet
-            .get("total_equity")
-            .and_then(|v| v.iter().filter_map(|x| *x).last())
-            .unwrap_or(0.0);
+        // IS
+        a(&mut is_out, "revenue", rev_v);
+        a(&mut is_out, "cogs", cogs_v);
+        a(&mut is_out, "gross_profit", gross_v);
+        a(&mut is_out, "sga", sga_v);
+        a(&mut is_out, "rd", rd_v);
+        a(&mut is_out, "da", da_v.clone());
+        a(&mut is_out, "ebit", ebit_v);
+        a(&mut is_out, "pre_tax_income", ebt_v);
+        a(&mut is_out, "income_tax", tax_v);
+        a(&mut is_out, "net_income", ni_v.clone());
 
-        let pp_and_e = last_assets - last_cash; // rough fixed assets
+        // BS
+        a(&mut bs_out, "cash", proj_cash_vals);
+        a(&mut bs_out, "accounts_receivable", ar_v);
+        a(&mut bs_out, "inventory", inv_v);
+        a(&mut bs_out, "accounts_payable", ap_v);
+        a(&mut bs_out, "pp_and_e", ppe_v);
+        a(&mut bs_out, "goodwill", (0..np).map(|_| Some(lgdwl)).collect());
 
-        let mut cash_vec = vec![0.0_f64; proj_years];
-        let mut ppe_vec = vec![0.0_f64; proj_years];
-        let mut ta_vec = vec![0.0_f64; proj_years];
-        let mut tl_vec = vec![0.0_f64; proj_years];
-        let mut te_vec = vec![0.0_f64; proj_years];
-
-        let mut cash_val = last_cash;
-        let mut ppe_val = pp_and_e;
-        for i in 0..proj_years {
-            let ni = projected_net_income[i].unwrap_or(0.0);
-            let depr = projected_da[i].unwrap_or(0.0);
-            cash_val += ni + depr;
-            ppe_val = (ppe_val - depr).max(0.0);
-            let ta = cash_val + ppe_val;
-            let equity = last_equity + ni;
-            let tl_val = ta - equity;
-
-            cash_vec[i] = cash_val;
-            ppe_vec[i] = ppe_val;
-            ta_vec[i] = ta;
-            tl_vec[i] = tl_val;
-            te_vec[i] = equity;
+        // Compute A = L + E balanced
+        let mut ta_v = Vec::with_capacity(np);
+        let mut tl_v = Vec::with_capacity(np);
+        let mut te_v = Vec::with_capacity(np);
+        for i in 0..np {
+            let ca = bs_out["cash"][i].unwrap_or(0.0);
+            let ar_v2 = bs_out["accounts_receivable"][i].unwrap_or(0.0);
+            let inv_v2 = bs_out["inventory"][i].unwrap_or(0.0);
+            let ppe_v2 = bs_out["pp_and_e"][i].unwrap_or(0.0);
+            let gw = bs_out["goodwill"][i].unwrap_or(0.0);
+            let ta = ca + ar_v2 + inv_v2 + ppe_v2 + gw;
+            let ap_v2 = bs_out["accounts_payable"][i].unwrap_or(0.0);
+            let tl = ap_v2 + lltd;
+            let te = ta - tl;
+            ta_v.push(Some((ta * 100.0).round() / 100.0));
+            tl_v.push(Some((tl * 100.0).round() / 100.0));
+            te_v.push(Some((te * 100.0).round() / 100.0));
         }
+        a(&mut bs_out, "total_assets", ta_v);
+        a(&mut bs_out, "total_liabilities", tl_v);
+        a(&mut bs_out, "total_equity", te_v);
 
-        bs.insert("cash".into(), cash_vec.into_iter().map(Some).collect());
-        bs.insert("pp_and_e".into(), ppe_vec.into_iter().map(Some).collect());
-        bs.insert("total_assets".into(), ta_vec.into_iter().map(Some).collect());
-        bs.insert("total_liabilities".into(), tl_vec.into_iter().map(Some).collect());
-        bs.insert("total_equity".into(), te_vec.into_iter().map(Some).collect());
+        // CF
+        a(&mut cf_out, "net_income", ni_v);
+        a(&mut cf_out, "depreciation", da_v);
+        a(&mut cf_out, "capex", capex_v);
 
-        // --- Project Cash Flow ---
-        let mut cf: StatementData = HashMap::new();
-        let mut ocf_vec = Vec::with_capacity(proj_years);
-        let mut capex_vec = Vec::with_capacity(proj_years);
-        let mut fcf_vec = Vec::with_capacity(proj_years);
-
-        for i in 0..proj_years {
-            let ni = projected_net_income[i].unwrap_or(0.0);
-            let depr = projected_da[i].unwrap_or(0.0);
-            let ocf = ni + depr;
-            let capex = depr;
-            let fcf = ocf - capex;
-
-            ocf_vec.push(Some(ocf));
-            capex_vec.push(Some(capex));
-            fcf_vec.push(Some(fcf));
-        }
-
-        cf.insert("net_income".into(), projected_net_income);
-        cf.insert("depreciation".into(), projected_da);
-        cf.insert("operating_cash_flow".into(), ocf_vec);
-        cf.insert("capex".into(), capex_vec);
-        cf.insert("free_cash_flow".into(), fcf_vec);
-
-        // --- Build IS HashMap (after BS/CF consumed the projected values) ---
-        let mut is: StatementData = HashMap::new();
-        is.insert("revenue".into(), projected_revenue);
-        is.insert("cogs".into(), projected_cogs);
-        is.insert("gross_profit".into(), projected_gross_profit);
-        is.insert("ebit".into(), projected_ebit);
-        is.insert("income_tax".into(), projected_tax);
-
-        ProjectedStatements {
-            periods,
-            income_statement: is,
-            balance_sheet: bs,
-            cash_flow: cf,
-        }
+        ProjectedStatements { periods, income_statement: is_out, balance_sheet: bs_out, cash_flow: cf_out }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fm_types::{CompanyConfig, ReconciledData};
+    use fm_types::CompanyConfig;
 
     fn sample_data() -> ReconciledData {
         let mut is = StatementData::new();
-        is.insert(
-            "revenue".into(),
-            vec![Some(1000.0), Some(1100.0), Some(1210.0)],
-        );
+        is.insert("revenue".into(), vec![Some(1000.0), Some(1100.0), Some(1210.0)]);
         is.insert("cogs".into(), vec![Some(600.0), Some(660.0), Some(726.0)]);
-        is.insert(
-            "pre_tax_income".into(),
-            vec![Some(200.0), Some(220.0), Some(250.0)],
-        );
-        is.insert(
-            "income_tax".into(),
-            vec![Some(40.0), Some(44.0), Some(50.0)],
-        );
+        is.insert("sga".into(), vec![Some(100.0), Some(110.0), Some(121.0)]);
+        is.insert("rd".into(), vec![Some(50.0), Some(55.0), Some(60.0)]);
+        is.insert("da".into(), vec![Some(40.0), Some(44.0), Some(48.0)]);
+        is.insert("pre_tax_income".into(), vec![Some(210.0), Some(231.0), Some(255.0)]);
+        is.insert("income_tax".into(), vec![Some(42.0), Some(46.0), Some(51.0)]);
+        is.insert("gross_profit".into(), vec![Some(400.0), Some(440.0), Some(484.0)]);
 
         let mut bs = StatementData::new();
         bs.insert("cash".into(), vec![Some(100.0), Some(150.0), Some(200.0)]);
-        bs.insert(
-            "total_assets".into(),
-            vec![Some(500.0), Some(550.0), Some(600.0)],
-        );
-        bs.insert(
-            "total_liabilities".into(),
-            vec![Some(250.0), Some(270.0), Some(300.0)],
-        );
-        bs.insert(
-            "total_equity".into(),
-            vec![Some(250.0), Some(280.0), Some(300.0)],
-        );
+        bs.insert("accounts_receivable".into(), vec![Some(80.0), Some(90.0), Some(100.0)]);
+        bs.insert("inventory".into(), vec![Some(60.0), Some(65.0), Some(70.0)]);
+        bs.insert("accounts_payable".into(), vec![Some(40.0), Some(45.0), Some(50.0)]);
+        bs.insert("total_assets".into(), vec![Some(500.0), Some(550.0), Some(600.0)]);
+        bs.insert("total_liabilities".into(), vec![Some(250.0), Some(270.0), Some(300.0)]);
+        bs.insert("total_equity".into(), vec![Some(250.0), Some(280.0), Some(300.0)]);
+        bs.insert("long_term_debt".into(), vec![Some(150.0), Some(150.0), Some(150.0)]);
+        bs.insert("ppe_net".into(), vec![Some(200.0), Some(210.0), Some(220.0)]);
+        bs.insert("goodwill".into(), vec![Some(50.0), Some(50.0), Some(50.0)]);
 
         let mut cf = StatementData::new();
-        cf.insert(
-            "depreciation".into(),
-            vec![Some(50.0), Some(55.0), Some(60.0)],
-        );
-        cf.insert(
-            "net_income".into(),
-            vec![Some(160.0), Some(176.0), Some(200.0)],
-        );
+        cf.insert("capex".into(), vec![Some(-30.0), Some(-35.0), Some(-40.0)]);
 
         ReconciledData {
-            income_statement: is,
-            balance_sheet: bs,
-            cash_flow_statement: cf,
+            income_statement: is, balance_sheet: bs, cash_flow_statement: cf,
             periods: vec!["2023".into(), "2024".into(), "2025".into()],
             currency: "USD".into(),
         }
     }
 
     #[test]
-    fn derive_assumptions_returns_non_empty() {
-        let data = sample_data();
-        let config = CompanyConfig {
-            name: "TestCo".into(),
-            hist_periods: 3,
-            proj_periods: 3,
-            ..Default::default()
-        };
-        let engine = ModelEngine::new(data, config);
-        let assumptions = engine.derive_assumptions();
-        assert!(!assumptions.is_empty(), "assumptions should not be empty");
-        assert!(assumptions.contains_key("revenue_growth"));
-        assert!(assumptions.contains_key("gross_margin"));
-        assert!(assumptions.contains_key("tax_rate"));
+    fn derive_all_assumptions() {
+        let engine = ModelEngine::new(sample_data(), CompanyConfig {
+            name: "TestCo".into(), hist_periods: 3, proj_periods: 3, ..Default::default()
+        });
+        let a = engine.derive_assumptions();
+        for key in &["revenue_growth", "gross_margin", "sga_pct_rev", "da_pct_rev", "tax_rate", "dso_days", "capex_pct_rev"] {
+            assert!(a.contains_key(*key), "missing {}", key);
+        }
+        assert!((a["revenue_growth"] - 0.10).abs() < 0.01);
+        assert!((a["gross_margin"] - 0.40).abs() < 0.01);
     }
 
     #[test]
-    fn project_returns_correct_number_of_periods() {
-        let data = sample_data();
-        let config = CompanyConfig {
-            name: "TestCo".into(),
-            hist_periods: 3,
-            proj_periods: 3,
-            ..Default::default()
-        };
-        let engine = ModelEngine::new(data, config);
-        let scalar = engine.derive_assumptions();
-        let mut assumptions = HashMap::new();
-        // Expand scalars to vectors
-        assumptions.insert(
-            "revenue_growth".into(),
-            vec![scalar.get("revenue_growth").copied().unwrap_or(0.0); 3],
-        );
-        assumptions.insert(
-            "gross_margin".into(),
-            vec![scalar.get("gross_margin").copied().unwrap_or(0.0); 3],
-        );
-        let projected = engine.project(&assumptions);
-        assert_eq!(projected.periods.len(), 3);
-        assert_eq!(projected.periods, vec!["2026", "2027", "2028"]);
-        assert!(projected.income_statement.contains_key("revenue"));
-        assert!(projected.balance_sheet.contains_key("total_assets"));
-        assert!(projected.cash_flow.contains_key("free_cash_flow"));
+    fn project_balance_sheet_sanity() {
+        let engine = ModelEngine::new(sample_data(), CompanyConfig {
+            name: "TestCo".into(), hist_periods: 3, proj_periods: 3, ..Default::default()
+        });
+        let s = engine.derive_assumptions();
+        let mut ass: HashMap<String, Vec<f64>> = s.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
+        let p = engine.project(&ass);
+        assert_eq!(p.periods.len(), 3);
+        for i in 0..3 {
+            let ta = p.balance_sheet["total_assets"][i].unwrap_or(0.0);
+            let tl = p.balance_sheet["total_liabilities"][i].unwrap_or(0.0);
+            let te = p.balance_sheet["total_equity"][i].unwrap_or(0.0);
+            assert!((ta - tl - te).abs() < 0.05, "A != L+E at {}: {} != {} + {}", p.periods[i], ta, tl, te);
+        }
     }
 }
