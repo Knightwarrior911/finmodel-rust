@@ -37,9 +37,8 @@ fn default_sector() -> String {
 // Model Output  — what the engine extracted
 // ---------------------------------------------------------------------------
 
-/// Values inside a model-output statement block.
-/// key → array of optional numbers, aligned with `years_found`.
-pub type ModelStatement = HashMap<String, Vec<Option<f64>>>;
+/// Re-export of fm-types' shared statement-data type (key → period-aligned array).
+pub use fm_types::StatementData as ModelStatement;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelOutput {

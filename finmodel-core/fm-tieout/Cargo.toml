@@ -7,6 +7,7 @@ description = "R.1 tie-out adapter: cell-by-cell scoring of model extraction vs 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+fm-types = { path = "../fm-types" }
 
 [dev-dependencies]
 serde_json = "1"
