@@ -1,0 +1,10 @@
+[package]
+name = "fm-value"
+version = "0.1.0"
+edition = "2024"
+description = "R.4 valuation crate: WACC, DCF, comps, and valuation sanity invariants"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+fm-types = { path = "../fm-types" }

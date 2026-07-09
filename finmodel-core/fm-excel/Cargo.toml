@@ -1,0 +1,11 @@
+[package]
+name = "fm-excel"
+version = "0.1.0"
+edition = "2024"
+description = "R.5 Excel writer crate — rust_xlsxwriter, formulas, tier colors, snapshot comparison"
+
+[dependencies]
+fm-types = { path = "../fm-types" }
+rust_xlsxwriter = "0.96"
+serde_json = "1"
+thiserror = "2"

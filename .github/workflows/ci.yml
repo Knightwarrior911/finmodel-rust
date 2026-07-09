@@ -34,3 +34,15 @@ jobs:
         run: pip install ruff
       - name: Check formatting
         run: ruff check --output-format=github
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: finmodel-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build
+        run: cargo build --workspace
+      - name: Test
+        run: cargo test --workspace
