@@ -16,7 +16,7 @@ Baseline `_baseline_wave0.json` **re-frozen 2026-07-10** (Wave 1 task 1.1.0 + ha
 - Guard test: `tests/test_tieout_no_regression.py` exists
 - Dynamic IS Phases 1-4 implemented (commit 9174435); only SaaS template unbuilt
 - `engine.py` lacks insurance/REIT projection modes (layouts exist)
-- No CI, no pyproject.toml, no packaging, no payments code
+- CI GREEN on GitHub (Actions: ruff + pytest-mock + cargo build/test --workspace); `pyproject.toml` + `requirements.txt` present. No desktop packaging/installer yet, no payments code.
 - `writer.py` is 3615-line monolith; hardcoded `anthropic` imports in 5+ files
 
 ## Cross-Ref Patterns to Reuse
