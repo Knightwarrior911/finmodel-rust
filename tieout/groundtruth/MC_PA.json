@@ -1,0 +1,104 @@
+{
+  "ticker": "MC.PA",
+  "sector": "industrial",
+  "company": "LVMH Moet Hennessy Louis Vuitton SE",
+  "currency_expected": "EUR",
+  "currency_reported": "EUR",
+  "years": [
+    2023,
+    2024
+  ],
+  "header_column_order": [
+    2024,
+    2023
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2023": 86153,
+        "2024": 84683
+      },
+      "cogs": {
+        "2023": 26876,
+        "2024": 27918
+      },
+      "gross_profit": {
+        "2023": 59277,
+        "2024": 56765
+      },
+      "ebit": {
+        "2023": 22560,
+        "2024": 18907
+      },
+      "income_tax": {
+        "2023": 5673,
+        "2024": 5157
+      },
+      "net_income": {
+        "2023": 15174,
+        "2024": 12550
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2023": 7774,
+        "2024": 9631
+      },
+      "inventory": {
+        "2023": 22952,
+        "2024": 23669
+      },
+      "total_current_assets": {
+        "2023": 43710,
+        "2024": 47471
+      },
+      "ppe_net": {
+        "2023": 27331,
+        "2024": 29886
+      },
+      "intangibles_net": {
+        "2023": 49611,
+        "2024": 46587
+      },
+      "total_assets": {
+        "2023": 143694,
+        "2024": 149190
+      },
+      "long_term_debt": {
+        "2023": 11227,
+        "2024": 12091
+      },
+      "total_equity": {
+        "2023": 62701,
+        "2024": 69287
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2023": 18400,
+        "2024": 18924
+      },
+      "capex": {
+        "2023": 7478,
+        "2024": 5531
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 315,
+    "balance_sheet": 318,
+    "cash_flow_statement": 319
+  },
+  "coverage": {
+    "trusted": 32,
+    "unverifiable": 4
+  },
+  "passes_disagreed": [
+    "income_statement.sga.2023 (A=None B=5714)",
+    "income_statement.sga.2024 (A=None B=6220)",
+    "cash_flow_statement.dividends_paid.2024 (A=None B=6492)",
+    "cash_flow_statement.net_change_cash.2024 (A=None B=1749)"
+  ],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\MC.PA\\annual_report.pdf",
+  "face_start_page": 317
+}

@@ -1,10 +1,10 @@
 {
-  "fingerprint": "77aa15bb59ac8979",
+  "fingerprint": "7531dc3cabd97061",
   "companies": {
     "ATCO-B.ST": {
-      "pct": 100.0,
+      "pct": 93.75,
       "trusted": 48,
-      "matched": 48,
+      "matched": 45,
       "years": [
         2022,
         2023
@@ -17,13 +17,13 @@
         },
         "balance_sheet": {
           "trusted": 20,
-          "matched": 20,
-          "pct": 100.0
+          "matched": 18,
+          "pct": 90.0
         },
         "cash_flow_statement": {
           "trusted": 12,
-          "matched": 12,
-          "pct": 100.0
+          "matched": 11,
+          "pct": 91.67
         }
       }
     },
@@ -55,16 +55,16 @@
     },
     "ASML.AS": {
       "pct": 100.0,
-      "trusted": 56,
-      "matched": 56,
+      "trusted": 52,
+      "matched": 52,
       "years": [
         2024,
         2025
       ],
       "per_statement": {
         "income_statement": {
-          "trusted": 22,
-          "matched": 22,
+          "trusted": 18,
+          "matched": 18,
           "pct": 100.0
         },
         "balance_sheet": {
@@ -80,22 +80,48 @@
       }
     },
     "NESN.SW": {
-      "pct": 100.0,
-      "trusted": 52,
-      "matched": 52,
+      "pct": 96.0,
+      "trusted": 50,
+      "matched": 48,
       "years": [
         2023,
         2024
       ],
       "per_statement": {
         "income_statement": {
-          "trusted": 16,
-          "matched": 16,
+          "trusted": 14,
+          "matched": 14,
           "pct": 100.0
         },
         "balance_sheet": {
           "trusted": 24,
           "matched": 24,
+          "pct": 100.0
+        },
+        "cash_flow_statement": {
+          "trusted": 12,
+          "matched": 10,
+          "pct": 83.33
+        }
+      }
+    },
+    "BAS.DE": {
+      "pct": 65.38,
+      "trusted": 52,
+      "matched": 34,
+      "years": [
+        2023,
+        2024
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 20,
+          "matched": 2,
+          "pct": 10.0
+        },
+        "balance_sheet": {
+          "trusted": 20,
+          "matched": 20,
           "pct": 100.0
         },
         "cash_flow_statement": {
@@ -130,14 +156,37 @@
           "pct": 100.0
         }
       }
+    },
+    "MC.PA": {
+      "pct": 87.5,
+      "trusted": 32,
+      "matched": 28,
+      "years": [
+        2023,
+        2024
+      ],
+      "per_statement": {
+        "income_statement": {
+          "trusted": 12,
+          "matched": 10,
+          "pct": 83.33
+        },
+        "balance_sheet": {
+          "trusted": 16,
+          "matched": 14,
+          "pct": 87.5
+        },
+        "cash_flow_statement": {
+          "trusted": 4,
+          "matched": 4,
+          "pct": 100.0
+        }
+      }
     }
   },
-  "skipped": {
-    "SAP.DE": "ground truth empty (0 trusted cells)",
-    "MC.PA": "no pinned PDF (discovery failed)"
-  },
-  "total_trusted": 256,
-  "total_matched": 256,
-  "aggregate_pct": 100.0,
-  "measured_companies": 5
+  "skipped": {},
+  "total_trusted": 334,
+  "total_matched": 307,
+  "aggregate_pct": 91.92,
+  "measured_companies": 7
 }

@@ -72,7 +72,12 @@ def _llm_complete_via_cli(system_text: str, user_text: str) -> str:
     try:
         # Always pipe user_text via stdin — safest across all content types.
         # The -p task phrase is a stable string with no special characters.
+        # Default to opus: the committed tie-out baseline was built with the
+        # user's default (opus); sonnet mis-reads some lines (e.g. ATCO ppe_net,
+        # gross vs. net). Override with FINMODEL_LLM_MODEL.
+        _model = os.environ.get("FINMODEL_LLM_MODEL", "opus")
         claude_args = [
+            "--model", _model,
             "--system-prompt-file", sys_file,
             "--output-format", "text",
             "-p", "Process the piped input per the system instructions and return only the requested JSON.",

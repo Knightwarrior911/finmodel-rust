@@ -1,0 +1,139 @@
+{
+  "ticker": "BAS.DE",
+  "sector": "industrial",
+  "company": "BASF SE",
+  "currency_expected": "EUR",
+  "currency_reported": "EUR",
+  "years": [
+    2023,
+    2024
+  ],
+  "header_column_order": [
+    2024,
+    2023
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2023": 68902,
+        "2024": 65260
+      },
+      "cogs": {
+        "2023": 52200,
+        "2024": 48174
+      },
+      "gross_profit": {
+        "2023": 16702,
+        "2024": 17085
+      },
+      "rd": {
+        "2023": 2130,
+        "2024": 2061
+      },
+      "da": {
+        "2023": 4941,
+        "2024": 4648
+      },
+      "ebit": {
+        "2023": 2240,
+        "2024": 2033
+      },
+      "interest_expense": {
+        "2023": 860,
+        "2024": 929
+      },
+      "interest_income": {
+        "2023": 322,
+        "2024": 371
+      },
+      "income_tax": {
+        "2023": 1041,
+        "2024": 616
+      },
+      "net_income": {
+        "2023": 225,
+        "2024": 1298
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2023": 2624,
+        "2024": 2914
+      },
+      "accounts_receivable": {
+        "2023": 10414,
+        "2024": 10393
+      },
+      "inventory": {
+        "2023": 13876,
+        "2024": 13681
+      },
+      "total_current_assets": {
+        "2023": 31472,
+        "2024": 31232
+      },
+      "ppe_net": {
+        "2023": 24080,
+        "2024": 27197
+      },
+      "intangibles_net": {
+        "2023": 12216,
+        "2024": 11983
+      },
+      "total_assets": {
+        "2023": 77395,
+        "2024": 80415
+      },
+      "accounts_payable": {
+        "2023": 6741,
+        "2024": 6923
+      },
+      "long_term_debt": {
+        "2023": 17085,
+        "2024": 19122
+      },
+      "total_equity": {
+        "2023": 36646,
+        "2024": 36884
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2023": 8111,
+        "2024": 6946
+      },
+      "capex": {
+        "2023": 5395,
+        "2024": 6198
+      },
+      "cfi": {
+        "2023": -4991,
+        "2024": -5081
+      },
+      "dividends_paid": {
+        "2023": 3094,
+        "2024": 3284
+      },
+      "cff": {
+        "2023": -2905,
+        "2024": -1547
+      },
+      "net_change_cash": {
+        "2023": 215,
+        "2024": 318
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 329,
+    "balance_sheet": 331,
+    "cash_flow_statement": 333
+  },
+  "coverage": {
+    "trusted": 52,
+    "unverifiable": 0
+  },
+  "passes_disagreed": [],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\BAS.DE\\annual_report.pdf",
+  "face_start_page": 1
+}

@@ -57,7 +57,7 @@ def test_every_basket_row_has_known_sector():
 
 def test_existing_seven_are_industrial():
     expected = {"ATCO-B.ST", "SAND.ST", "ASML.AS", "NESN.SW",
-                "SAP.DE", "NOVO-B.CO", "MC.PA"}
+                "BAS.DE", "NOVO-B.CO", "MC.PA"}
     industrial = {r["ticker"] for r in config.BASKET
                   if r["sector"] == "industrial"}
     assert expected <= industrial

@@ -11,6 +11,12 @@ import sys
 import tempfile
 import time
 
+# Explicit model for the answer-key transport. The global Claude Code default
+# (e.g. an aliased "opus[1m]" beta) can fail headless `-p` invocations with
+# rc=1; pinning a plain alias here keeps the instrument runnable regardless of
+# the user's interactive settings. Override with FINMODEL_TIEOUT_MODEL.
+_MODEL = os.environ.get("FINMODEL_TIEOUT_MODEL", "opus")
+
 
 class LLMStall(RuntimeError):
     """Raised when the claude CLI fails or stalls after retries."""
@@ -43,6 +49,7 @@ def _call_once(system_text: str, user_text: str, *, timeout: int) -> str:
         sys_file = sf.name
     try:
         args = [
+            "--model", _MODEL,
             "--system-prompt-file", sys_file,
             "--output-format", "text",
             "-p", "Process the piped input per the system instructions and "

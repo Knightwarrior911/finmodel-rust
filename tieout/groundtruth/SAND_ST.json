@@ -1,0 +1,140 @@
+{
+  "ticker": "SAND.ST",
+  "sector": "industrial",
+  "company": "Sandvik AB",
+  "currency_expected": "SEK",
+  "currency_reported": "SEK",
+  "years": [
+    2023,
+    2024
+  ],
+  "header_column_order": [
+    2023,
+    2024
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2023": 126503,
+        "2024": 122878
+      },
+      "cogs": {
+        "2023": 74456,
+        "2024": 73742
+      },
+      "gross_profit": {
+        "2023": 52046,
+        "2024": 49136
+      },
+      "rd": {
+        "2023": 4489,
+        "2024": 4808
+      },
+      "da": {
+        "2023": 7459,
+        "2024": 7981
+      },
+      "ebit": {
+        "2023": 22418,
+        "2024": 18420
+      },
+      "income_tax": {
+        "2023": 4493,
+        "2024": 4216
+      },
+      "net_income": {
+        "2023": 15301,
+        "2024": 12245
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2023": 4363,
+        "2024": 4528
+      },
+      "accounts_receivable": {
+        "2023": 18477,
+        "2024": 19836
+      },
+      "inventory": {
+        "2023": 34301,
+        "2024": 34827
+      },
+      "total_current_assets": {
+        "2023": 72117,
+        "2024": 73502
+      },
+      "ppe_net": {
+        "2023": 22234,
+        "2024": 24678
+      },
+      "intangibles_net": {
+        "2023": 64495,
+        "2024": 70323
+      },
+      "total_assets": {
+        "2023": 174210,
+        "2024": 184384
+      },
+      "accounts_payable": {
+        "2023": 9488,
+        "2024": 10077
+      },
+      "long_term_debt": {
+        "2023": 32842,
+        "2024": 36486
+      },
+      "total_liabilities": {
+        "2023": 86513,
+        "2024": 87385
+      },
+      "total_equity": {
+        "2023": 87697,
+        "2024": 96999
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2023": 18797,
+        "2024": 20607
+      },
+      "capex": {
+        "2023": 3872,
+        "2024": 3565
+      },
+      "cfi": {
+        "2023": -8505,
+        "2024": -7671
+      },
+      "dividends_paid": {
+        "2023": 6261,
+        "2024": 6880
+      },
+      "cff": {
+        "2023": -16206,
+        "2024": -12988
+      },
+      "net_change_cash": {
+        "2023": -5913,
+        "2024": -51
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 71,
+    "balance_sheet": 72,
+    "cash_flow_statement": 74
+  },
+  "coverage": {
+    "trusted": 50,
+    "unverifiable": 4
+  },
+  "passes_disagreed": [
+    "income_statement.interest_expense.2023 (A=2622 B=None)",
+    "income_statement.interest_expense.2024 (A=2551 B=None)",
+    "income_statement.interest_income.2023 (A=603 B=None)",
+    "income_statement.interest_income.2024 (A=622 B=None)"
+  ],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\SAND.ST\\annual_report.pdf",
+  "face_start_page": 71
+}

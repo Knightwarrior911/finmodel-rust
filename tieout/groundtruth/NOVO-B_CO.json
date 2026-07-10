@@ -1,0 +1,138 @@
+{
+  "ticker": "NOVO-B.CO",
+  "sector": "industrial",
+  "company": "Novo Nordisk A/S",
+  "currency_expected": "DKK",
+  "currency_reported": "DKK",
+  "years": [
+    2023,
+    2024
+  ],
+  "header_column_order": [
+    2024,
+    2023
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2023": 232261,
+        "2024": 290403
+      },
+      "cogs": {
+        "2023": 35765,
+        "2024": 44522
+      },
+      "gross_profit": {
+        "2023": 196496,
+        "2024": 245881
+      },
+      "rd": {
+        "2023": 32443,
+        "2024": 48062
+      },
+      "da": {
+        "2023": 9413,
+        "2024": 19107
+      },
+      "ebit": {
+        "2023": 102574,
+        "2024": 128339
+      },
+      "income_tax": {
+        "2023": 20991,
+        "2024": 26203
+      },
+      "net_income": {
+        "2023": 83683,
+        "2024": 100988
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2023": 14392,
+        "2024": 15655
+      },
+      "accounts_receivable": {
+        "2023": 64770,
+        "2024": 71949
+      },
+      "inventory": {
+        "2023": 31811,
+        "2024": 40849
+      },
+      "total_current_assets": {
+        "2023": 139646,
+        "2024": 160897
+      },
+      "ppe_net": {
+        "2023": 90961,
+        "2024": 162488
+      },
+      "intangibles_net": {
+        "2023": 60406,
+        "2024": 111090
+      },
+      "total_assets": {
+        "2023": 314486,
+        "2024": 465795
+      },
+      "accounts_payable": {
+        "2023": 25606,
+        "2024": 28846
+      },
+      "long_term_debt": {
+        "2023": 20528,
+        "2024": 89674
+      },
+      "total_liabilities": {
+        "2023": 207925,
+        "2024": 322309
+      },
+      "total_equity": {
+        "2023": 106561,
+        "2024": 143486
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2023": 108908,
+        "2024": 120968
+      },
+      "capex": {
+        "2023": 25806,
+        "2024": 47164
+      },
+      "cfi": {
+        "2023": -43892,
+        "2024": -128895
+      },
+      "dividends_paid": {
+        "2023": 31767,
+        "2024": 44140
+      },
+      "cff": {
+        "2023": -63158,
+        "2024": 8735
+      },
+      "net_change_cash": {
+        "2023": 1858,
+        "2024": 808
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 102,
+    "balance_sheet": 104,
+    "cash_flow_statement": 103
+  },
+  "coverage": {
+    "trusted": 50,
+    "unverifiable": 2
+  },
+  "passes_disagreed": [
+    "income_statement.sga.2023 (A=None B=4855)",
+    "income_statement.sga.2024 (A=None B=5276)"
+  ],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\NOVO-B.CO\\annual_report.pdf",
+  "face_start_page": 102
+}

@@ -71,12 +71,16 @@ def _download(url: str, dest):
     headers = {**_UA, "Referer": f"{pu.scheme}://{pu.netloc}/"}
     r = requests.get(url, headers=headers, timeout=90, stream=True)
     r.raise_for_status()
-    head = next(r.iter_content(1024), b"")
-    if not head.startswith(b"%PDF"):
+    # ONE iterator only: calling r.iter_content() twice with different chunk
+    # sizes on a streamed response can silently truncate (some CDNs drop the
+    # connection after the first read), which produced sub-200KB files.
+    it = r.iter_content(65536)
+    first = next(it, b"")
+    if not first.startswith(b"%PDF"):
         raise ValueError("not a PDF")
     with open(dest, "wb") as f:
-        f.write(head)
-        for chunk in r.iter_content(65536):
+        f.write(first)
+        for chunk in it:
             f.write(chunk)
     if dest.stat().st_size < 200_000:
         dest.unlink(missing_ok=True)

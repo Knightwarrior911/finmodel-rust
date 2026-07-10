@@ -59,15 +59,18 @@ BASKET = [
         "search": "Nestle annual report consolidated financial statements",
     },
     {
-        "ticker": "SAP.DE",
-        "company": "SAP SE",
+        "ticker": "BAS.DE",
+        "company": "BASF SE",
         "currency": "EUR",
         "sector": "industrial",
         "pinned": None,
-        # sap.com/docs bot-blocks scripted GET (403); srnav mirror serves the
-        # identical 2024 Integrated Report PDF. One-time immutable source.
-        "url": "https://db.srnav.com/storage/v1/object/public/document-pdfs/44f05cfd-12af-4e22-b9e3-34cffdf3faf1.pdf",
-        "search": "SAP integrated report annual report",
+        # Standalone CONSOLIDATED primary-statements PDF (IS/BS/CFS, no notes,
+        # no parent-HGB or sustainability decoy pages). Replaces SAP.DE, whose
+        # 344-page integrated report defeated face-window detection (parent
+        # statements precede consolidated IFRS; 17 decoy "consolidated income
+        # statement" pages incl. a GHG page faking a revenue row).
+        "url": "https://report.basf.com/2024/en/_assets/downloads/consolidated-financial-statements-basf-ar24.pdf",
+        "search": "BASF consolidated financial statements annual report",
     },
     {
         "ticker": "NOVO-B.CO",

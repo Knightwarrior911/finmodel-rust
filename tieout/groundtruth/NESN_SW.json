@@ -1,0 +1,138 @@
+{
+  "ticker": "NESN.SW",
+  "sector": "industrial",
+  "company": "Nestle SA",
+  "currency_expected": "CHF",
+  "currency_reported": "CHF",
+  "years": [
+    2023,
+    2024
+  ],
+  "header_column_order": [
+    2024,
+    2023
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2023": 92998,
+        "2024": 91354
+      },
+      "cogs": {
+        "2023": 50328,
+        "2024": 48670
+      },
+      "sga": {
+        "2023": 17549,
+        "2024": 18112
+      },
+      "rd": {
+        "2023": 1656,
+        "2024": 1667
+      },
+      "da": {
+        "2023": 3458,
+        "2024": 3582
+      },
+      "ebit": {
+        "2023": 14063,
+        "2024": 14724
+      },
+      "income_tax": {
+        "2023": 2314,
+        "2024": 3314
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2023": 4816,
+        "2024": 5556
+      },
+      "accounts_receivable": {
+        "2023": 10995,
+        "2024": 11251
+      },
+      "inventory": {
+        "2023": 11896,
+        "2024": 13260
+      },
+      "total_current_assets": {
+        "2023": 30857,
+        "2024": 35188
+      },
+      "ppe_net": {
+        "2023": 30467,
+        "2024": 33706
+      },
+      "goodwill": {
+        "2023": 28693,
+        "2024": 30595
+      },
+      "intangibles_net": {
+        "2023": 18225,
+        "2024": 19245
+      },
+      "total_assets": {
+        "2023": 126550,
+        "2024": 139264
+      },
+      "accounts_payable": {
+        "2023": 19204,
+        "2024": 21807
+      },
+      "long_term_debt": {
+        "2023": 45825,
+        "2024": 51697
+      },
+      "total_liabilities": {
+        "2023": 90163,
+        "2024": 102571
+      },
+      "total_equity": {
+        "2023": 36387,
+        "2024": 36693
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2023": 15941,
+        "2024": 16675
+      },
+      "capex": {
+        "2023": 5714,
+        "2024": 5638
+      },
+      "cfi": {
+        "2023": -6196,
+        "2024": -8624
+      },
+      "dividends_paid": {
+        "2023": 7829,
+        "2024": 7816
+      },
+      "cff": {
+        "2023": -9758,
+        "2024": -7362
+      },
+      "net_change_cash": {
+        "2023": -695,
+        "2024": 742
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 80,
+    "balance_sheet": 82,
+    "cash_flow_statement": 84
+  },
+  "coverage": {
+    "trusted": 50,
+    "unverifiable": 2
+  },
+  "passes_disagreed": [
+    "income_statement.net_income.2023 (A=11209 B=11509)",
+    "income_statement.net_income.2024 (A=10884 B=11174)"
+  ],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\NESN.SW\\annual_report.pdf",
+  "face_start_page": 6
+}

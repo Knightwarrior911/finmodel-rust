@@ -1,0 +1,144 @@
+{
+  "ticker": "ASML.AS",
+  "sector": "industrial",
+  "company": "ASML Holding NV",
+  "currency_expected": "EUR",
+  "currency_reported": "EUR",
+  "years": [
+    2024,
+    2025
+  ],
+  "header_column_order": [
+    2024,
+    2025
+  ],
+  "values": {
+    "income_statement": {
+      "revenue": {
+        "2024": 28263,
+        "2025": 32667
+      },
+      "cogs": {
+        "2024": 13979,
+        "2025": 15736
+      },
+      "gross_profit": {
+        "2024": 14284,
+        "2025": 16931
+      },
+      "sga": {
+        "2024": 1166,
+        "2025": 1258
+      },
+      "rd": {
+        "2024": 3181,
+        "2025": 3620
+      },
+      "da": {
+        "2024": 1200,
+        "2025": 1433
+      },
+      "ebit": {
+        "2024": 9937,
+        "2025": 12054
+      },
+      "income_tax": {
+        "2024": 1818,
+        "2025": 2162
+      },
+      "net_income": {
+        "2024": 8349,
+        "2025": 10213
+      }
+    },
+    "balance_sheet": {
+      "cash": {
+        "2024": 12736,
+        "2025": 12916
+      },
+      "accounts_receivable": {
+        "2024": 4478,
+        "2025": 3023
+      },
+      "inventory": {
+        "2024": 10892,
+        "2025": 11429
+      },
+      "total_current_assets": {
+        "2024": 30357,
+        "2025": 30240
+      },
+      "ppe_net": {
+        "2024": 6847,
+        "2025": 7894
+      },
+      "goodwill": {
+        "2024": 4610,
+        "2025": 4610
+      },
+      "intangibles_net": {
+        "2024": 4729,
+        "2025": 5396
+      },
+      "total_assets": {
+        "2024": 52566,
+        "2025": 55577
+      },
+      "accounts_payable": {
+        "2024": 3498,
+        "2025": 3522
+      },
+      "long_term_debt": {
+        "2024": 3677,
+        "2025": 2709
+      },
+      "total_equity": {
+        "2024": 22022,
+        "2025": 24185
+      }
+    },
+    "cash_flow_statement": {
+      "cfo": {
+        "2024": 12370,
+        "2025": 13826
+      },
+      "capex": {
+        "2024": 2067,
+        "2025": 1574
+      },
+      "cfi": {
+        "2024": -3732,
+        "2025": -4857
+      },
+      "dividends_paid": {
+        "2024": 2453,
+        "2025": 2550
+      },
+      "cff": {
+        "2024": -2913,
+        "2025": -8759
+      },
+      "net_change_cash": {
+        "2024": 5731,
+        "2025": 180
+      }
+    }
+  },
+  "citations": {
+    "income_statement": 270,
+    "balance_sheet": 272,
+    "cash_flow_statement": 275
+  },
+  "coverage": {
+    "trusted": 52,
+    "unverifiable": 4
+  },
+  "passes_disagreed": [
+    "income_statement.interest_expense.2024 (A=163 B=None)",
+    "income_statement.interest_expense.2025 (A=118 B=None)",
+    "income_statement.interest_income.2024 (A=182 B=None)",
+    "income_statement.interest_income.2025 (A=223 B=None)"
+  ],
+  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\ASML.AS\\annual_report.pdf",
+  "face_start_page": 270
+}
