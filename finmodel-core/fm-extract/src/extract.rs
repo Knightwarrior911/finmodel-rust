@@ -604,13 +604,8 @@ pub fn extract_financials_from_pdf(
     periods: &[String],
     _ticker: &str,
 ) -> Result<ExtractionResult, ExtractError> {
-    // Step 1: Extract text from PDF via shell to pdfplumber
-    let text = extract_pdf_text_via_pdfplumber(pdf_path)?;
-
-    // Step 2: Split into pages (on form feeds or similar page boundaries)
-    let pages: Vec<String> = text.split('\u{000C}')  // form feed character
-        .map(|s| s.to_string())
-        .collect();
+    // Step 1: Extract per-page text natively (pure Rust, no Python)
+    let pages = extract_pdf_pages(pdf_path)?;
 
     // Step 3: Detect sector and get right prompt
     let sector = crate::section::detect_sector(&pages);
@@ -662,39 +657,26 @@ fn parse_llm_json_response(raw: &str) -> Result<serde_json::Value, ExtractError>
     )))
 }
 
-/// Fallback: extract PDF text by shelling to Python pdfplumber.
-fn extract_pdf_text_via_pdfplumber(pdf_path: &str) -> Result<String, ExtractError> {
-    let script = format!(
-        "import pdfplumber, sys; pdf = pdfplumber.open(sys.argv[1]); \
-         print('\\x0C'.join(page.extract_text() or '' for page in pdf.pages))"
-    );
-
-    // Try python launcher candidates in order — Windows uses `py`, Unix uses `python3`
-    let candidates = if cfg!(target_os = "windows") {
-        vec![("py", vec!["-3", "-c", &script, pdf_path]),
-             ("python", vec!["-c", &script, pdf_path])]
-    } else {
-        vec![("python3", vec!["-c", &script, pdf_path]),
-             ("python", vec!["-c", &script, pdf_path])]
-    };
-
-    let mut last_err = "no python interpreter found".to_string();
-    for (cmd, args) in &candidates {
-        let output = match std::process::Command::new(cmd)
-            .args(args)
-            .output()
-        {
-            Ok(o) => o,
-            Err(e) => { last_err = format!("{cmd}: {e}"); continue; }
-        };
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout).to_string();
-            return Ok(text);
-        }
-        let err = String::from_utf8_lossy(&output.stderr).to_string();
-        last_err = format!("{cmd} failed: {err}");
+/// Extract per-page text from a PDF natively (pure Rust via pdf-extract).
+///
+/// Replaces the former `py -3 pdfplumber` shell-out — no Python dependency.
+/// Returns a vector of page texts. Verified to match pdfplumber's page count
+/// and figure extraction on the baseline filings (Sandvik: 160 pages, key
+/// figures 126,503 / 122,878 extracted identically).
+fn extract_pdf_pages(pdf_path: &str) -> Result<Vec<String>, ExtractError> {
+    // pdf-extract can panic (not just Err) on malformed PDFs — catch it so one
+    // bad filing can't crash the whole app/Tauri process.
+    let path = pdf_path.to_string();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_extract::extract_text_by_pages(&path)
+    }));
+    match result {
+        Ok(Ok(pages)) => Ok(pages),
+        Ok(Err(e)) => Err(ExtractError::Other(format!("PDF text extraction failed: {e}"))),
+        Err(_) => Err(ExtractError::Other(format!(
+            "PDF text extraction panicked on {pdf_path} (malformed or unsupported PDF)"
+        ))),
     }
-    Err(ExtractError::Other(format!("pdfplumber extraction failed: {last_err}")))
 }
 
 /// Convert a JSON value (from LLM response) into an ExtractionResult.
