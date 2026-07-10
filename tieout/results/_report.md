@@ -1,6 +1,6 @@
 # Filing Tie-Out Report
 
-Code fingerprint: `67e4b39ae6e921e4`  
+Code fingerprint: `07ebec5aac4ba99d`  
 Aggregate: **96.86%** over 7 companies (339/350 cells)
 
 ## ATCO-B.ST — Atlas Copco AB  (93.75%)
