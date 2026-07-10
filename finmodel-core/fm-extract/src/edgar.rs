@@ -5,7 +5,7 @@
 //! parses with the xbrl module.
 
 use fm_fetch::edgar::{cik_from_ticker, fetch_companyfacts_raw};
-use crate::extract::{placeholder_result, ExtractionResult, ExtractError};
+use crate::extract::{ExtractionResult, ExtractError};
 use crate::xbrl;
 
 /// Fetch structured financial data from SEC EDGAR XBRL for the given ticker.
@@ -17,8 +17,12 @@ pub fn fetch_xbrl(ticker: &str) -> Result<ExtractionResult, ExtractError> {
     let cik = match cik_from_ticker(ticker) {
         Ok(c) => c,
         Err(_) => {
-            // Ticker not found in EDGAR — return placeholder (caller should use PDF path)
-            return Ok(placeholder_result(ticker));
+            // Ticker not in EDGAR (e.g. non-US). Return Err so the caller routes to
+            // the non-US PDF path or a committed fixture — NEVER fabricate placeholder
+            // data that could masquerade as a real extraction.
+            return Err(ExtractError::Other(format!(
+                "{ticker} not found in SEC EDGAR (non-US?) — use the PDF extraction path"
+            )));
         }
     };
 
@@ -141,14 +145,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fetch_xbrl_returns_ok() {
-        // This ticker is non-US — should return placeholder
-        let result = fetch_xbrl("NONUS").expect("should return placeholder for non-US ticker");
-        assert_eq!(result.currency, "USD");
-        assert!(!result.years_found.is_empty());
-        assert!(result.income_statement.contains_key("revenue"));
-        assert!(result.balance_sheet.contains_key("cash"));
-        assert!(result.cash_flow_statement.contains_key("cfo"));
+    #[ignore]
+    fn test_fetch_xbrl_errors_for_non_us() {
+        // Non-US / bogus ticker must return Err — never fabricate placeholder data
+        // that could masquerade as a real extraction.
+        let result = fetch_xbrl("NONUSXYZ");
+        assert!(result.is_err(), "non-US ticker should return Err, not placeholder");
     }
 
     #[test]
