@@ -15,7 +15,7 @@ the source filing PDFs. This requires a working `claude` CLI or Anthropic API ke
 python -m tieout.run_tieout
 ```
 
-**Acceptance:** 100% exact-match (256/256 for the 5-company European basket).
+**Acceptance:** matches the committed baseline — 339/350 (96.86%) across the 7-company basket, with no *new* mismatches vs `_baseline_wave0.json` (the pytest guard enforces this). The 11 known mismatches are documented extraction-convention targets, not regressions.
 The report is written to `tieout/results/_report.md` — scan it for any `FAIL` or `MISMATCH`
 lines.
 

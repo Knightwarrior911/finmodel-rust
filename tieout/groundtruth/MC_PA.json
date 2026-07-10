@@ -26,6 +26,10 @@
         "2023": 59277,
         "2024": 56765
       },
+      "sga": {
+        "2023": 5714,
+        "2024": 6220
+      },
       "ebit": {
         "2023": 22560,
         "2024": 18907
@@ -44,6 +48,10 @@
         "2023": 7774,
         "2024": 9631
       },
+      "accounts_receivable": {
+        "2023": 4728,
+        "2024": 4730
+      },
       "inventory": {
         "2023": 22952,
         "2024": 23669
@@ -56,13 +64,21 @@
         "2023": 27331,
         "2024": 29886
       },
+      "goodwill": {
+        "2023": 24022,
+        "2024": 20307
+      },
       "intangibles_net": {
-        "2023": 49611,
-        "2024": 46587
+        "2023": 25589,
+        "2024": 26280
       },
       "total_assets": {
         "2023": 143694,
         "2024": 149190
+      },
+      "accounts_payable": {
+        "2023": 9049,
+        "2024": 8630
       },
       "long_term_debt": {
         "2023": 11227,
@@ -81,24 +97,40 @@
       "capex": {
         "2023": 7478,
         "2024": 5531
+      },
+      "cfi": {
+        "2023": -8310,
+        "2024": -6539
+      },
+      "dividends_paid": {
+        "2023": 7159,
+        "2024": 7322
+      },
+      "cff": {
+        "2023": -9397,
+        "2024": -10716
+      },
+      "net_change_cash": {
+        "2023": 420,
+        "2024": 1749
       }
     }
   },
   "citations": {
-    "income_statement": 315,
-    "balance_sheet": 318,
-    "cash_flow_statement": 319
+    "income_statement": 330,
+    "balance_sheet": 332,
+    "cash_flow_statement": 334
   },
   "coverage": {
-    "trusted": 32,
+    "trusted": 48,
     "unverifiable": 4
   },
   "passes_disagreed": [
-    "income_statement.sga.2023 (A=None B=5714)",
-    "income_statement.sga.2024 (A=None B=6220)",
-    "cash_flow_statement.dividends_paid.2024 (A=None B=6492)",
-    "cash_flow_statement.net_change_cash.2024 (A=None B=1749)"
+    "income_statement.da.2023 (A=4146 B=None)",
+    "income_statement.da.2024 (A=4568 B=None)",
+    "income_statement.ebita.2023 (A=22802 B=None)",
+    "income_statement.ebita.2024 (A=19571 B=None)"
   ],
-  "source_pdf": "C:\\Users\\vinit\\Documents\\financial_model\\tieout\\filings\\MC.PA\\annual_report.pdf",
-  "face_start_page": 317
+  "source_pdf": "tieout/filings/MC.PA/annual_report.pdf",
+  "face_start_page": 332
 }

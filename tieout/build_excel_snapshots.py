@@ -8,7 +8,9 @@ Outputs:
   tests/snapshots/          ← git-ignored; generated .xlsx files
   tieout/excel_snapshots/   ← git-tracked; per-cell characterization .json
 """
-import json, os, sys
+import json
+import os
+import sys
 from pathlib import Path
 
 os.environ["FINMODEL_DEV_MOCK"] = "1"

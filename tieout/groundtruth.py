@@ -142,7 +142,7 @@ def _page_texts(pdf_path: str):
         return [_render_page(p) for p in pdf.pages]
 
 
-def _find_face_window(pages, sector="industrial"):
+def _find_face_window(pages, sector="industrial", start_page=0):
     """Return (start_idx, joined_normalized_text, is_header_line).
 
     The real income-statement face page must contain a strong anchor phrase
@@ -152,7 +152,8 @@ def _find_face_window(pages, sector="industrial"):
     """
     anchors = _SECTOR_IS_ANCHORS[sector]
     data_row = SECTOR_DATA_ROW[sector]
-    for i, norm in enumerate(pages):  # pages already column-split + minus-norm
+    for i in range(start_page, len(pages)):  # column-split + minus-norm already
+        norm = pages[i]
         low = norm.lower()
         if not any(a in low for a in anchors):
             continue
@@ -279,7 +280,7 @@ HARD_ASSERTS = {
 
 def build_ground_truth(ticker: str, company: str, currency: str,
                        pdf_path: str, *, sector: str = "industrial",
-                       force: bool = False) -> dict:
+                       force: bool = False, start_page: int = 0) -> dict:
     """Build (or load cached) immutable ground truth for one company."""
     out_path = gt_path(ticker)
     if out_path.exists() and not force:
@@ -287,7 +288,7 @@ def build_ground_truth(ticker: str, company: str, currency: str,
 
     abs_keys = ABS_KEYS_BY_SECTOR[sector]
     pages = _page_texts(pdf_path)
-    start, face_text, header_line = _find_face_window(pages, sector)
+    start, face_text, header_line = _find_face_window(pages, sector, start_page)
     years = find_years(header_line) or find_years(face_text[:4000])
     if not years or len(years) != 2:
         raise ValueError(

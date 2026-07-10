@@ -154,7 +154,8 @@ def run(only=None, retries=2, quiet=False):
                 print(f"[skip] {tk}: no pinned PDF", file=sys.stderr)
                 continue
             gt = build_ground_truth(tk, row["company"], row["currency"],
-                                    str(pdf), sector=row.get("sector", "industrial"))
+                                    str(pdf), sector=row.get("sector", "industrial"),
+                                    start_page=row.get("gt_start_page", 0))
             if gt["coverage"]["trusted"] == 0:
                 # Ground truth could not be established (e.g. unusual report
                 # layout). Skip rather than emit a meaningless 0/0 — it must

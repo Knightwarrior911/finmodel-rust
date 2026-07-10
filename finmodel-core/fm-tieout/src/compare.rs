@@ -223,14 +223,12 @@ mod tests {
     }
 
     fn load_model() -> ModelOutput {
-        let path = repo_root()
-            .join("tieout")
-            .join("results")
-            .join("_modelcache")
-            .join("4065a2c76ef95ca6_ATCO-B_ST.json");
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("cannot read model cache at {}: {e}", path.display()));
-        serde_json::from_str(&text).expect("model cache JSON parse")
+        // Committed fixture: the Python modelcache under tieout/results/ is
+        // gitignored, so a fresh clone / CI cannot read it. This is a frozen
+        // 48/48 ATCO extraction — a compare()-logic unit test, not the live
+        // parity gate (R.6 exercises the full pipeline).
+        let text = include_str!("../tests/fixtures/atco_model.json");
+        serde_json::from_str(text).expect("model cache JSON parse")
     }
 
     #[test]

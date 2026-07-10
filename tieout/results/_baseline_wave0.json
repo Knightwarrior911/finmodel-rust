@@ -1,5 +1,5 @@
 {
-  "fingerprint": "7531dc3cabd97061",
+  "fingerprint": "67e4b39ae6e921e4",
   "companies": {
     "ATCO-B.ST": {
       "pct": 93.75,
@@ -106,9 +106,9 @@
       }
     },
     "BAS.DE": {
-      "pct": 65.38,
+      "pct": 96.15,
       "trusted": 52,
-      "matched": 34,
+      "matched": 50,
       "years": [
         2023,
         2024
@@ -116,8 +116,8 @@
       "per_statement": {
         "income_statement": {
           "trusted": 20,
-          "matched": 2,
-          "pct": 10.0
+          "matched": 18,
+          "pct": 90.0
         },
         "balance_sheet": {
           "trusted": 20,
@@ -158,35 +158,35 @@
       }
     },
     "MC.PA": {
-      "pct": 87.5,
-      "trusted": 32,
-      "matched": 28,
+      "pct": 91.67,
+      "trusted": 48,
+      "matched": 44,
       "years": [
         2023,
         2024
       ],
       "per_statement": {
         "income_statement": {
-          "trusted": 12,
+          "trusted": 14,
           "matched": 10,
-          "pct": 83.33
+          "pct": 71.43
         },
         "balance_sheet": {
-          "trusted": 16,
-          "matched": 14,
-          "pct": 87.5
+          "trusted": 22,
+          "matched": 22,
+          "pct": 100.0
         },
         "cash_flow_statement": {
-          "trusted": 4,
-          "matched": 4,
+          "trusted": 12,
+          "matched": 12,
           "pct": 100.0
         }
       }
     }
   },
   "skipped": {},
-  "total_trusted": 334,
-  "total_matched": 307,
-  "aggregate_pct": 91.92,
+  "total_trusted": 350,
+  "total_matched": 339,
+  "aggregate_pct": 96.86,
   "measured_companies": 7
 }

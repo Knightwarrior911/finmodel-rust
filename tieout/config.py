@@ -86,6 +86,12 @@ BASKET = [
         "company": "LVMH Moet Hennessy Louis Vuitton SE",
         "currency": "EUR",
         "sector": "industrial",
+        # LVMH's URD prints a CONDENSED financial-review balance sheet (~p.320,
+        # "Intangible assets" = brands + goodwill combined) BEFORE the primary
+        # consolidated statements (detailed IS p.332, BS p.334). Start the GT
+        # face-window scan past the condensed section so the answer key comes
+        # from the primary statements (correct brands vs goodwill split).
+        "gt_start_page": 320,
         "pinned": None,
         "url": "https://lvmh-com.cdn.prismic.io/lvmh-com/Z-PY3HdAxsiBv6wN_UniversalRegistrationDocument2024.pdf",
         "search": "LVMH annual report consolidated financial statements",

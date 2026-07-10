@@ -17,10 +17,9 @@
 - **Immutable ground truth committed for all 7 companies** (`tieout/groundtruth/*.json`) —
   fixes prior non-determinism (only ATCO was committed; the rest rebuilt per-run and
   drifted). Future runs load committed GT.
-- **Baseline re-frozen** (`_baseline_wave0.json`): **307/334 (91.92%) across 7 industrial
-  cos**. The old 256/256 was unreproducible (built on an unavailable Claude model gen:
-  current sonnet AND opus agree with each other but differ from it on a few lines). Guard
-  green.
+- **Baseline re-frozen** (`_baseline_wave0.json`): **339/350 (96.86%) across 7 industrial
+  cos** (Wave 1 task 1.1.0 + harden-basket sprint). The old 256/256 was unreproducible
+  (built on an unavailable Claude model gen). Guard green.
 
 ## New baseline table (opus, immutable GT)
 | Company | matched/trusted | pct |
@@ -28,36 +27,33 @@
 | SAND.ST | 50/50 | 100% |
 | ASML.AS | 52/52 | 100% |
 | NOVO-B.CO | 50/50 | 100% |
+| BAS.DE | 50/52 | 96.2% |
 | NESN.SW | 48/50 | 96% |
 | ATCO-B.ST | 45/48 | 93.8% |
-| MC.PA | 28/32 | 87.5% |
-| BAS.DE | 34/52 | 65.4% |
-| **Aggregate** | **307/334** | **91.92%** |
+| MC.PA | 44/48 | 91.7% |
+| **Aggregate** | **339/350** | **96.86%** |
 
 ## Extraction-gap backlog (Rust-engine targets per the Rust amendment — do NOT patch Python)
-1. **BASF income statement not extracted** (drags BAS.DE to 34/52):
-   `_extract_financial_section` face-signature misses BASF's "Statement of Income"/"Sales"
-   page, so the IS text is never sent to the model. Broaden the IS revenue-row signature
-   (blast radius: re-validate every company).
-2. **`dividends_paid`** convention (ATCO, NESN): model reads total-incl-minorities vs the
-   face "dividends paid to owners" line.
-3. **`net_income`** (MC): group-share (GT) vs total-incl-NCI (model).
-4. **`intangibles_net`** (MC): scope — GT 49611 may include goodwill; model 25589 excludes.
-   Decide which is canonical (goodwill is a separate key → model may be right / GT wrong).
-5. **`ppe_net`** (ATCO): model includes IFRS-16 right-of-use (15409); face-net excludes
-   (12720).
+The harden-basket sprint (2026-07-10) already fixed the two INSTRUMENT issues: BASF
+IS-detection (`_extract_financial_section` now matches "statement of income"/"sales") and
+MC's GT (was LVMH's condensed financial-review BS; now the primary consolidated statements
+via a `gt_start_page` hint → correct brands-vs-goodwill split). The remaining 11 mismatches
+are extraction *conventions*:
+1. **`net_income`** group-share (GT) vs total-incl-minorities (model) — BASF, MC.
+2. **`sga`** (MC): LVMH splits "Marketing and selling" (~36B) vs "G&A" (~5.7B); GT took G&A,
+   model took selling. Decide the canonical SG&A definition.
+3. **`dividends_paid`** (ATCO, NESN): total-incl-minorities vs "dividends to owners".
+4. **`ppe_net`** (ATCO): model includes IFRS-16 right-of-use (15409); face-net excludes (12720).
 
 ## Notes
 - opus burst-rate-limits after ~12 calls in a run; pace GT/extraction or expect retryable
   tail skips (`claude rc=1`).
-- `docs/MASTER_PLAN.md` + `CLAUDE.md` Phase R gate updated 256/256 → 307/334 / cell-for-cell.
+- `docs/MASTER_PLAN.md` + `CLAUDE.md` + release/production docs: Phase R gate 256/256 → 339/350 / cell-for-cell.
 - Phase 1 remains gated on Phase R for the *extraction improvement loop* (fixes belong on
   the Rust engine). The instrument (transport, basket, ground truth) is done and honest.
-- **Pre-existing CI landmine (Phase R):** `fm-tieout::atco_b_st_scores_48_of_48` loads its
-  model side from `tieout/results/_modelcache/4065a2c76ef95ca6_ATCO-B_ST.json`, which is
-  gitignored. Passes locally only; a fresh clone / GitHub CI (`cargo test`) will panic.
-  Fix: copy that JSON into `finmodel-core/fm-tieout/tests/fixtures/` and repoint the test
-  (keep the 48/48 fixture — do NOT use the new 7531 cache where ATCO is 45/48).
+- **CI fixture landmine FIXED:** `fm-tieout::atco_b_st_scores_48_of_48` now reads a committed
+  fixture (`finmodel-core/fm-tieout/tests/fixtures/atco_model.json`) via `include_str!`
+  instead of the gitignored modelcache — CI-safe on a fresh clone.
 
 ---
 

@@ -10,7 +10,11 @@ and produce structurally equivalent results. The Rust fm-engine crate's
 project() function should accept the same ReconciledData that the Python
 ModelEngine receives, and produce equivalent ProjectedStatements.
 """
-import json, os, subprocess, sys, tempfile
+import json
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent
@@ -27,10 +31,6 @@ SNAPSHOTS = {
 REQUIRED_KEYS = {
     "income_statement": ["revenue", "cogs", "gross_profit", "ebitda", "ebit",
                          "net_income", "sga", "rd", "da", "interest", "tax",
-                         "pre_tax_income", "operating_expenses", "gross_margin",
-REQUIRED_KEYS = {
-    "income_statement": ["revenue", "cogs", "gross_profit", "ebitda", "ebit",
-                         "net_income", "sga", "rd", "da", "interest", "tax",
                          "pre_tax_income", "operating_expenses"],
     "balance_sheet": ["cash", "accounts_receivable", "total_current_assets",
                       "ppe", "total_assets", "accounts_payable",
@@ -39,6 +39,13 @@ REQUIRED_KEYS = {
     "cash_flow_statement": ["cfo", "capex", "free_cash_flow",
                             "da_add_back", "change_in_wc"],
 }
+
+
+def validate_snapshot_structure(snap: dict, name: str) -> list[str]:
+    """Structural checks on a committed Python snapshot; returns a list of issues."""
+    issues = []
+    for key in ("model_output", "periods", "verification", "sheets"):
+        if key not in snap:
             issues.append(f"[{name}] Missing top-level key: {key}")
     
     mo = snap.get("model_output", {})

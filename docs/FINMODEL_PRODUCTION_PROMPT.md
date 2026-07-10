@@ -15,7 +15,7 @@ Target: a platform that competes with / differentiates from Rogo.ai for individu
 - **Branch:** `master`
 - **Tech Stack:** Python 3.11, openpyxl, python-pptx, pytest, Streamlit (basic app), pdfplumber, Anthropic SDK + DeepSeek
 - **Tests:** 131 pytest tests; 6 skipped
-- **Extraction accuracy:** 100% tie-out on 5-company European industrial basket (256/256 cells)
+- **Extraction accuracy:** 96.86% tie-out on 7-company European industrial basket (339/350 cells); remaining gaps are documented extraction-convention targets (net_income group-vs-total, SG&A split, IFRS-16 RoU)
 - **Sectors supported:** industrial, bank, insurer (schemas defined)
 - **LLM providers:** DeepSeek (cheapest), Anthropic SDK, or claude CLI fallback (no API key)
 - **License:** Proprietary (no license file; copyrighted filings gitignored)
@@ -107,7 +107,7 @@ Rogo.ai is the current market leader: $160M Series D (Kleiner Perkins), 35,000+ 
 
 ### Finmodel's Unique Advantages (differentiate)
 1. **Open-source architecture** (vs Rogo's black-box SaaS) -- users can audit, extend, self-host
-2. **Tie-out harness** -- independently verified 100% extraction accuracy (Rogo doesn't publish accuracy metrics)
+2. **Tie-out harness** -- independently verified 96.86% extraction accuracy on a 7-company basket, published warts-and-all (Rogo doesn't publish accuracy metrics)
 3. **Assumption ledger** -- every number tiered with provenance, red catch-all for blind spots
 4. **Valuation-sanity gate** -- structural invariants prevent silent math errors
 5. **Non-US PDF extraction** -- works without EDGAR coverage (Rogo's non-US capability unknown)

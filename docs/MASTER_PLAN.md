@@ -100,7 +100,7 @@ What exists and works:
   tests when code changes; today someone must remember to run them).
 - The **tie-out harness** (`tieout/`): an independent accuracy instrument that compares
   extracted numbers cell-by-cell against ground truth. A frozen baseline is committed
-  (`tieout/results/_baseline_wave0.json`): **307/334 cells (91.92%) across 7 industrial
+  (`tieout/results/_baseline_wave0.json`): **339/350 cells (96.86%) across 7 industrial
   basket companies** (Wave 1 task 1.1.0: SAP.DE replaced by BASF after its integrated
   report defeated face-window detection; MC.PA pinned + added). Ground truth committed
   per company (immutable). A pytest guard
@@ -149,7 +149,7 @@ Known structural weak points:
 ```
 Phase 0: Safety Net ──► Phase R: Rust Port ──► Phase 1: Accuracy Claim ──► Phase 3: Desktop v1 ──► Phase 4: Seats (PARKED) ──► Phase 5 (PARKED)
 (guards the answer key)  (parity gate:          (waves run on the      ▲   (pure Rust/Tauri)
-                          307/334 vs baseline)   Rust engine)          │
+                          339/350 vs baseline)   Rust engine)          │
                                  │                    │                │ learnings feed in
                                  └────────────────────▼ (parallel)     │
                                           Phase 2: Dogfood (+ Services PARKED) ┘
@@ -273,12 +273,12 @@ each module proves parity before the next starts.
 
 | # | Workstream | Effort | Parity gate |
 |---|---|---|---|
-| R.1 | Tie-out adapter: harness scores an external engine via JSON output; wire Python reference through it first (proves the adapter itself). | 2–3 | Python-via-adapter reproduces the committed baseline cell-for-cell (307/334, 7 companies). |
+| R.1 | Tie-out adapter: harness scores an external engine via JSON output; wire Python reference through it first (proves the adapter itself). | 2–3 | Python-via-adapter reproduces the committed baseline cell-for-cell (339/350, 7 companies). |
 | R.2 | `fm-fetch` + `fm-extract`: EDGAR XBRL pull, PDF text (pdfium), LLM extraction with ported prompts, failure-honesty semantics from 0.6. | 8–12 | Rust extraction JSON matches Python's on all baseline companies + cached US tickers, cell-for-cell. |
 | R.3 | `fm-recon` + `fm-engine` + `fm-ledger`: identities, projections, derive-first cascade, assumption registry. | 6–9 | Projected statements + ledger tiers match Python reference outputs on fixtures. |
 | R.4 | `fm-value`: DCF, WACC, comps, EV bridge, all 11 sanity invariants. | 5–7 | Valuation outputs match Python to the cent on fixtures; invariants fire on the same seeded errors. |
 | R.5 | `fm-excel`: formula-driven workbook via rust_xlsxwriter — formulas, tier colors, source hyperlinks, sources appendix. | 7–10 | Cell-by-cell diff vs the Phase 0.5 snapshots: values + formulas + links identical (formatting may differ only where 👤 approves). |
-| R.6 | Full-pipeline parity run + CI: `fm-cli` builds every baseline company end-to-end; tie-out (via R.1 adapter) + snapshot diff run in CI for the Rust engine. | 2–4 | **THE GATE: Rust engine reproduces the committed baseline cell-for-cell (307/334 across 7 companies) and passes all snapshot diffs, in CI.** |
+| R.6 | Full-pipeline parity run + CI: `fm-cli` builds every baseline company end-to-end; tie-out (via R.1 adapter) + snapshot diff run in CI for the Rust engine. | 2–4 | **THE GATE: Rust engine reproduces the committed baseline cell-for-cell (339/350 across 7 companies) and passes all snapshot diffs, in CI.** |
 
 **PHASE R GATE (you can check this yourself):** the agent hands you two Excel files for
 the same company — one from the old Python pipeline, one from the Rust engine. You open
@@ -610,7 +610,7 @@ because building any of these on speculation is how the old prompt doc went wron
 ## Success metrics per phase (one line each)
 
 - **P0:** CI green with tie-out guard wired in + Excel snapshot "answer key" committed.
-- **PR:** Rust engine reproduces the committed baseline cell-for-cell (307/334, 7 companies) + passes all snapshot diffs, in CI.
+- **PR:** Rust engine reproduces the committed baseline cell-for-cell (339/350, 7 companies) + passes all snapshot diffs, in CI.
 - **P1:** public accuracy table: ≥15 companies, ≥3 sectors, honest held-out number — all on the Rust engine.
 - **P2:** ≥2 paid engagements + pre-order responses recorded.
 - **P3:** 2 of 3 strangers install→activate→build unaided.

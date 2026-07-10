@@ -1,0 +1,128 @@
+{
+  "income_statement": {
+    "revenue": [
+      141325,
+      172664
+    ],
+    "cogs": [
+      81941,
+      97547
+    ],
+    "gross_profit": [
+      59384,
+      75117
+    ],
+    "sga": [
+      23590,
+      30036
+    ],
+    "rd": [
+      5389,
+      6693
+    ],
+    "da": [
+      6333,
+      7761
+    ],
+    "ebit": [
+      30216,
+      37091
+    ],
+    "interest_expense": [
+      515,
+      1089
+    ],
+    "interest_income": [
+      343,
+      440
+    ],
+    "income_tax": [
+      6562,
+      8390
+    ],
+    "net_income": [
+      23482,
+      28052
+    ],
+    "shares_diluted": [
+      4881,
+      4877
+    ]
+  },
+  "balance_sheet": {
+    "cash": [
+      11254,
+      10887
+    ],
+    "accounts_receivable": [
+      29910,
+      32680
+    ],
+    "inventory": [
+      27219,
+      29283
+    ],
+    "total_current_assets": [
+      80212,
+      86207
+    ],
+    "ppe_net": [
+      12720,
+      14358
+    ],
+    "intangibles_net": [
+      67067,
+      67501
+    ],
+    "total_assets": [
+      172301,
+      182684
+    ],
+    "accounts_payable": [
+      19145,
+      17792
+    ],
+    "long_term_debt": [
+      23770,
+      29967
+    ],
+    "total_liabilities": [
+      92275,
+      91184
+    ],
+    "total_equity": [
+      80026,
+      91500
+    ]
+  },
+  "cash_flow_statement": {
+    "cfo": [
+      21377,
+      28084
+    ],
+    "capex": [
+      3660,
+      3987
+    ],
+    "cfi": [
+      -15503,
+      -9388
+    ],
+    "dividends_paid": [
+      9250,
+      11203
+    ],
+    "cff": [
+      -14651,
+      -18276
+    ],
+    "net_change_cash": [
+      -8777,
+      420
+    ]
+  },
+  "years_found": [
+    "2022",
+    "2023"
+  ]
+}
