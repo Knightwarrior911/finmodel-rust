@@ -45,9 +45,13 @@ _MODELCACHE.mkdir(parents=True, exist_ok=True)
 
 
 def _scope_fingerprint() -> str:
+    # Normalize CRLF->LF so the fingerprint is identical on Windows (working
+    # tree may be CRLF under core.autocrlf) and Linux/CI (LF blobs). Without
+    # this the guard's fingerprint check fails cross-platform.
     h = hashlib.sha256()
     for f in _SCOPE_FILES:
-        h.update(f.read_bytes() if f.exists() else b"<missing>")
+        data = f.read_bytes() if f.exists() else b"<missing>"
+        h.update(data.replace(b"\r\n", b"\n"))
     return h.hexdigest()[:16]
 
 
