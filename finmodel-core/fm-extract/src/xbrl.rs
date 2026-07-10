@@ -418,15 +418,21 @@ pub struct ParsedXbrlData {
     pub notes: HashMap<String, Value>,
 }
 
-/// Compute the target years to look for (e.g. 3 periods ending last FY).
+/// Compute the target years to look for (e.g. 3 periods ending at `latest_fy`).
+///
+/// `latest_fy` is the most recently completed fiscal year (e.g. 2025 for today in 2026
+/// with a 90-day filing lag). Tests should pass a fixed year for determinism.
+fn compute_target_years_from(periods_historical: usize, latest_fy: i32) -> Vec<String> {
+    (0..periods_historical)
+        .map(|i| format!("{}", latest_fy - periods_historical as i32 + 1 + i as i32))
+        .collect()
+}
+
+/// Compute target years using the wall-clock default (currently assumes 2026).
 fn compute_target_years(periods_historical: usize) -> Vec<String> {
-    // Simplified: use the most recent completed year based on current date
-    let today_year = 2026; // simplified — in production use current date logic
+    let today_year = 2026; // simplified — in production should use current date logic
     let latest_fy = today_year - 1;
-    let years: Vec<String> = (0..periods_historical)
-        .map(|i| format!("{}", latest_fy - periods_historical + 1 + i))
-        .collect();
-    years
+    compute_target_years_from(periods_historical, latest_fy)
 }
 
 /// Try each tag for a canonical key and return the first one with data for all years.
@@ -543,5 +549,207 @@ mod tests {
         });
         let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("should parse OK with empty data");
         assert!(result.is.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod deterministic_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_xbrl_to_raw_realistic_fixture() {
+        // Fixture uses years 2023-2025 matching compute_target_years(3) output.
+        let facts = serde_json::json!({
+            "cik": 12345, "entityName": "Test Corp",
+            "facts": { "us-gaap": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "label": "Revenue",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 5500, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 6100, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 6800, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "CostOfGoodsAndServicesSold": {
+                    "label": "COGS",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 3300, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 3600, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 4000, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "GrossProfit": {
+                    "label": "Gross Profit",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 2200, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 2500, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 2800, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "OperatingIncomeLoss": {
+                    "label": "EBIT",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 900, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 1100, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 1300, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "NetIncomeLoss": {
+                    "label": "Net Income",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 700, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 850, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 1000, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "CashAndCashEquivalentsAtCarryingValue": {
+                    "label": "Cash",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 600, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 700, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 800, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "Assets": {
+                    "label": "Assets",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 11000, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 12500, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 14000, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "AccountsPayableCurrent": {
+                    "label": "Accounts Payable",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 900, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 1000, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 1100, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "LongTermDebtNoncurrent": {
+                    "label": "Long-Term Debt",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 2800, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 2500, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 2200, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "StockholdersEquity": {
+                    "label": "Equity",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 5500, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 6200, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 7000, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "NetCashProvidedByUsedInOperatingActivities": {
+                    "label": "CFO",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 1000, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 1200, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 1400, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "PaymentsToAcquirePropertyPlantAndEquipment": {
+                    "label": "CapEx",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 350, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 400, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 450, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                }
+            }}
+        });
+        let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse_xbrl_to_raw");
+        let rev = result.is.get("revenue").expect("revenue");
+        assert_eq!(rev[0], Some(5500.0));
+        assert_eq!(rev[2], Some(6800.0));
+        let cogs = result.is.get("cogs").expect("cogs");
+        assert_eq!(cogs[0], Some(3300.0));
+        let ebit = result.is.get("ebit").expect("ebit");
+        assert_eq!(ebit[0], Some(900.0));
+        let ni = result.is.get("net_income").expect("net_income");
+        assert_eq!(ni[2], Some(1000.0));
+        let cash = result.bs.get("cash").expect("cash");
+        assert_eq!(cash[2], Some(800.0));
+        let ltd = result.bs.get("long_term_debt").expect("long_term_debt");
+        assert_eq!(ltd[0], Some(2800.0));
+        let ta = result.bs.get("total_assets").expect("total_assets");
+        assert_eq!(ta[2], Some(14000.0));
+        let cfo = result.cfs.get("cfo").expect("cfo");
+        assert_eq!(cfo[2], Some(1400.0));
+        let capex = result.cfs.get("capex").expect("capex");
+        assert_eq!(capex[0], Some(350.0));
+        let gp = result.is.get("gross_profit").expect("gross_profit");
+        assert_eq!(gp[2], Some(2800.0));
+        let ap = result.bs.get("accounts_payable").expect("accounts_payable");
+        assert_eq!(ap[2], Some(1100.0));
+    }
+
+    #[test]
+    fn test_parse_xbrl_to_raw_skips_non_10k() {
+        let facts = serde_json::json!({
+            "cik": 12345, "entityName": "Test Corp",
+            "facts": { "us-gaap": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "label": "Revenue",
+                    "units": { "USD": [
+                        {"end": "2024-03-31", "val": 1200, "form": "10-Q", "fy": "2024", "fp": "Q1"},
+                        {"end": "2024-12-31", "val": 6100, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2023-12-31", "val": 5500, "form": "10-K", "fy": "2023", "fp": "FY"}
+                    ]}
+                }
+            }}
+        });
+        let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse_xbrl_to_raw");
+        let rev = result.is.get("revenue");
+        assert!(rev.is_none() || rev.iter().all(|arr| arr.iter().all(|v| v != &Some(1200.0))));
+    }
+
+    #[test]
+    fn test_parse_xbrl_to_raw_tag_priority() {
+        let facts = serde_json::json!({
+            "cik": 12345, "entityName": "Test Corp",
+            "facts": { "us-gaap": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "label": "ASC 606",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 5500, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 6100, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 6800, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "Revenues": {
+                    "label": "Generic",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 9999, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 9999, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 9999, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                }
+            }}
+        });
+        let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse_xbrl_to_raw");
+        let rev = result.is.get("revenue").expect("revenue");
+        assert_eq!(rev[0], Some(5500.0));
+        assert_eq!(rev[2], Some(6800.0));
+    }
+
+    #[test]
+    fn test_parse_xbrl_to_raw_handles_missing_years() {
+        let facts = serde_json::json!({
+            "cik": 12345, "entityName": "Test Corp",
+            "facts": { "us-gaap": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "label": "Revenue",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 5500, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 6100, "form": "10-K", "fy": "2024", "fp": "FY"}
+                    ]}
+                }
+            }}
+        });
+        let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse_xbrl_to_raw");
+        assert!(result.is.get("revenue").is_none());
     }
 }

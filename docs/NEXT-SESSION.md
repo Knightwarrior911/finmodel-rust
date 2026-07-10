@@ -1,3 +1,32 @@
+# 2026-07-10 (session 3) — Phase R.2a: Native Rust extraction infrastructure DONE
+
+**Commit:** `b158bac` (14 files +1979 -32)
+**CI:** `cargo test --workspace -D warnings` → 69 passed (16 suites, 5 ignored), parity gate intact.
+
+## What was built
+
+### fm-fetch (new crate, 3 files, ~330 lines)
+- **edgar.rs:** CIK lookup via SEC `company_tickers.json`, XBRL `companyfacts/CIK{cik}.json` fetch (blocking reqwest), `CompanyFacts` deserialization. All network tests `#[ignore]` for CI.
+- **pdf.rs:** `download_pdf()` with temp-file output, configurable User-Agent, content-type validation.
+
+### fm-extract (extended: 4 new files + 2 updated, ~1250 lines added)
+- **llm.rs:** Cross-platform Claude CLI caller (Windows `cmd /c claude`, Unix `claude`). System prompt via temp file, user text piped via stdin, markdown fence stripping. Stubs for DeepSeek/Anthropic API providers.
+- **section.rs:** Financial section finder — port of Python `_extract_financial_section()`. Independent IS/BS/CFS face detection with regex-anchored data-row validation. Sector detection (industrial/bank/insurer) via text signatures.
+- **xbrl.rs:** 50+ entry XBRL_TAG_MAP ported verbatim from Python. `parse_xbrl_to_raw()` extracts annual 10-K/20-F values for target years by trying candidate tags in priority order.
+- **extract.rs:** Added prompts copied verbatim from Python — `FINANCIALS_SYSTEM_PROMPT` (industrial), `BANK_SYSTEM_PROMPT`, `INSURER_SYSTEM_PROMPT`, `NOTES_SYSTEM_PROMPT` — plus sector dispatch, extraction cache (file-based), JSON salvage (outer `{}` extraction for LLM prose-wrapped output). PDF text extraction via `python -c pdfplumber` shell-out (for text parity).
+- **edgar.rs:** Replaced stub with live SEC API flow: CIK lookup → companyfacts fetch → XBRL parse → `ExtractionResult`.
+> ⚠️ **Honest status:** The R.6 parity test (`parity.rs`) loads committed Python fixtures through the unchanged ModelEngine and exercises zero lines of the new extraction code. Native extraction (fm build) has NOT been run against any baseline company. Cell-for-cell extraction parity is UNVERIFIED — the 23 new tests are smoke tests; real extraction bugs are expected on first live run.
+>
+> Two deterministic fixture tests were added post-hoc for the parity-critical functions (`parse_xbrl_to_raw` value selection, `extract_financial_section` slice boundaries) but coverage is minimal.
+
+## Next-up
+## Remaining Phase R
+- **R.2b:** Non-US PDF discovery (DDG → IR page → PDF URL chain) — currently stubs to Python. Full Rust port needs browser automation (DDG search, IR page scraping).
+- **R.5:** fm-excel cell-by-cell parity vs Phase 0.5 Excel snapshots.
+- **R.6:** Full-pipeline CI wiring end-to-end (build command in CI).
+
+---
+
 # 2026-07-10 (session 2 cont.) — Phase R: fm-engine projection parity ACHIEVED
 
 **R.3 gate met on the projection engine:** `finmodel-core/fm-engine` now reproduces
