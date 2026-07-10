@@ -1,3 +1,31 @@
+# 2026-07-10 (session 2 cont.) — Phase R: fm-engine projection parity ACHIEVED
+
+**R.3 gate met on the projection engine:** `finmodel-core/fm-engine` now reproduces
+`src/engine.py` cell-for-cell across IS/BS/CFS for all 5 baseline companies —
+`parity.rs` went from 16–54 balance-sheet diffs/company to **0** (>15% threshold).
+Fixes (all in `fm-engine/src/engine.rs`, each aligning to engine.py): balance-sheet
+`total_liabilities`/`total_equity`/`total_assets` formulas (added `other_liab_hist`,
+roll-forward equity, `A=L+E+RNCI`); `dividend_per_share` derivation (was 0 → cash/equity
+drifted); `cfo` sign (dropped `.abs()`); `tax_rate` = tax/(NI+tax); `days()` averages
+ratios; `avg()` = last-3; `gross_margin` from gross_profit only (reproduces NESN's
+reference loss projection). Verified: `cargo test --workspace` (`-D warnings`) green.
+
+## Remaining Phase R (to "finish the port")
+- **R.6 parity gate — DONE (this session):** `parity.rs` now reads committed fixtures
+  (`fm-cli/tests/fixtures/*_model.json`) via `CARGO_MANIFEST_DIR` and **asserts 0 diffs
+  per company** — engine parity is CI-enforced (was skip-on-CI, never asserting). Any
+  future engine regression now turns the rust job red.
+- **R.2 `fm-fetch` + `fm-extract`:** still stubs — the Rust engine consumes Python-
+  extracted JSON, not its own extraction. This is the largest remaining piece.
+- **R.5 `fm-excel`:** cell-by-cell parity vs the Phase 0.5 Excel snapshots (needs an
+  xlsx reader for full comparison).
+- Note: `avg()` is now last-3 (matches engine.py) — correct for the 3-year histories
+  R.2's live extraction will produce.
+- ⚠️ **Machine:** C: drive is ~100% full (237G/237G). Freed cargo incremental cache to
+  proceed; flag for cleanup — it will block future `cargo`/venv work.
+
+---
+
 # 2026-07-10 (session 2) — Phase 1 Wave 1, task 1.1.0 CLOSED + baseline re-frozen
 
 ## What changed

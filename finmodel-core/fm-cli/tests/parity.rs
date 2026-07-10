@@ -13,8 +13,6 @@ use std::path::Path;
 use fm_engine::ModelEngine;
 use fm_types::{CompanyConfig, ProjectedStatements, ReconciledData, StatementData};
 
-const REPO_ROOT: &str = "../../";
-const FP: &str = "4065a2c76ef95ca6";
 
 const COMPANIES: &[(&str, &str, &str)] = &[
     ("ASML_AS",   "ASML.AS",  "EUR"),
@@ -25,11 +23,13 @@ const COMPANIES: &[(&str, &str, &str)] = &[
 ];
 
 fn model_cache_path(name: &str) -> String {
-    format!("{REPO_ROOT}tieout/results/_modelcache/{FP}_{name}.json")
+    // Committed fixture (the tie-out modelcache is gitignored) — makes the
+    // parity gate runnable on CI / fresh clones, not just locally.
+    format!("{}/tests/fixtures/{}_model.json", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn snapshot_path(name: &str) -> String {
-    format!("{REPO_ROOT}tieout/excel_snapshots/{}_snapshot.json", name)
+    format!("{}/../../tieout/excel_snapshots/{}_snapshot.json", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn load_json(path: &str) -> serde_json::Value {
@@ -119,10 +119,7 @@ fn try_match<'a>(key: &str, py_map: &'a HashMap<String, f64>) -> Option<&'a f64>
 
 fn run_parity(name: &str, ccy: &str) {
     let cpath = model_cache_path(name);
-    if !Path::new(&cpath).exists() {
-        println!("  SKIP: model cache not found (run tie-out to generate)");
-        return;
-    }
+    assert!(Path::new(&cpath).exists(), "missing committed parity fixture: {cpath}");
 
     let cache = load_json(&cpath);
     let snapshot = load_json(&snapshot_path(name));
@@ -193,6 +190,9 @@ fn run_parity(name: &str, ccy: &str) {
 
     println!("  TOTAL: {} keys compared, {} >15% diff(s)", grand_compared, grand_diffs);
     println!("  STATUS: {} gap(s) to resolve before parity gate", grand_diffs);
+    assert_eq!(grand_diffs, 0,
+               "{name}: {grand_diffs} projection parity diff(s) vs the Python \
+                reference (see the per-cell lines above)");
 }
 
 #[test]
