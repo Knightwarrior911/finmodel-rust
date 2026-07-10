@@ -38,6 +38,7 @@ impl ModelEngine {
         values.iter().rev().filter_map(|v| *v).next().unwrap_or(default)
     }
 
+    #[allow(dead_code)]
     fn at(values: &[Option<f64>], index: usize, default: f64) -> f64 {
         values.get(index).and_then(|v| *v).unwrap_or(default)
     }
@@ -91,7 +92,7 @@ impl ModelEngine {
         }
         if !a.contains_key("da_pct_rev") {
             for alt_key in &["depreciation", "da_add_back"] {
-                if let Some(depr) = cf.get(*alt_key) {
+                if let Some(_depr) = cf.get(*alt_key) {
                 }
             }
         }
@@ -170,7 +171,7 @@ impl ModelEngine {
         let lltd = Self::last_or(hist_bs.get("long_term_debt").unwrap_or(&vec![]), 0.0);
         let lgdwl = Self::last_or(hist_bs.get("goodwill").unwrap_or(&vec![]), 0.0);
 
-        let mut a = |m: &mut StatementData, k: &str, v: Vec<Option<f64>>| { m.insert(k.into(), v); };
+        let a = |m: &mut StatementData, k: &str, v: Vec<Option<f64>>| { m.insert(k.into(), v); };
         let mut is_out = StatementData::new();
         let mut bs_out = StatementData::new();
         let mut cf_out = StatementData::new();
@@ -373,7 +374,7 @@ mod tests {
             name: "TestCo".into(), hist_periods: 3, proj_periods: 3, ..Default::default()
         });
         let s = engine.derive_assumptions();
-        let mut ass: HashMap<String, Vec<f64>> = s.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
+        let ass: HashMap<String, Vec<f64>> = s.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
         let p = engine.project(&ass);
         assert_eq!(p.periods.len(), 3);
         for i in 0..3 {

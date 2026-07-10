@@ -54,6 +54,14 @@ are extraction *conventions*:
 - **CI fixture landmine FIXED:** `fm-tieout::atco_b_st_scores_48_of_48` now reads a committed
   fixture (`finmodel-core/fm-tieout/tests/fixtures/atco_model.json`) via `include_str!`
   instead of the gitignored modelcache — CI-safe on a fresh clone.
+- **Scope fingerprint is now line-ending-normalized** (`_scope_fingerprint` does
+  `.replace(b"\r\n", b"\n")`) so it is platform-stable (Windows CRLF working tree vs
+  Linux/CI LF blobs; core.autocrlf=true, no .gitattributes). Fingerprint changed
+  `67e4b39ae6e921e4` → `07ebec5aac4ba99d` with NO scope-file edit; local modelcache rekeyed.
+- **CI is now green** (was red since before this session). Fixed pre-existing blockers:
+  `run_parity.py` born-broken syntax (9d6d3d3), E401 multi-imports, 4 fm-engine
+  `-D warnings` failures (unused var/mut, dead_code), and the cross-platform fingerprint.
+  Jobs: ruff, pytest (mock), cargo build+test --workspace.
 
 ---
 
