@@ -58,7 +58,8 @@ def main():
 
     # Direct tool invocation — no API key needed, calls one tool and prints result
     if args.tool:
-        import asyncio, json as _json
+        import asyncio
+        import json as _json
         from src.orchestrator import _execute_tool
         tool_args = _json.loads(args.tool_args) if args.tool_args else {}
         # Convenience: inject --ticker into args if not in tool_args

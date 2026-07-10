@@ -1165,7 +1165,8 @@ def _tool_run_financial_model(
     output_path: Optional[str] = None,
 ) -> str:
     try:
-        import subprocess, sys
+        import subprocess
+        import sys
         out = output_path or f"{ticker.replace('.', '_')}_model.xlsx"
         cmd = [
             sys.executable, "-m", "src.cli",

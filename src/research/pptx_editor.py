@@ -1801,7 +1801,9 @@ def match_brand_style(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _main() -> None:
-    import argparse, json, sys
+    import argparse
+    import json
+    import sys
 
     parser = argparse.ArgumentParser(description="In-place .pptx editor")
     sub = parser.add_subparsers(dest="cmd", required=True)

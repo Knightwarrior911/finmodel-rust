@@ -1,0 +1,15 @@
+# Disclaimer and legal-notice text used across financial_model output surfaces.
+# ---------------------------------------------------------------
+# These are baseline phrasings. Before first paid engagement, have them
+# reviewed by a lawyer or reputable legal-template service.
+# ---------------------------------------------------------------
+
+excel_cover_sheet: "Not investment advice. For professional use only."
+
+deck_footer: "Not investment advice. For professional use only."
+
+terms_of_service_summary:
+  "This tool is provided 'as is', without warranty of any kind. It processes
+  user-supplied data locally; no telemetry or user data is collected. The
+  output is not investment advice. Use at your own risk. Full Terms of
+  Service are available in docs/TOS.md."

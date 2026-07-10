@@ -678,7 +678,8 @@ class ResearchAgent:
             # Overlay extraction cache for P&L fields the browser pipeline may miss
             if ticker:
                 try:
-                    import json as _json, os as _os
+                    import json as _json
+                    import os as _os
                     _cache_path = _os.path.join("extraction_cache", f"{ticker.replace('.', '_')}.json")
                     if _os.path.exists(_cache_path):
                         _c = _json.load(open(_cache_path))
