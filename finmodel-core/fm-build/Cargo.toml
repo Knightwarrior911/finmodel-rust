@@ -1,0 +1,11 @@
+[package]
+name = "fm-build"
+version = "0.1.0"
+edition = "2024"
+description = "Shared build orchestration: reconcile + project + Excel sheet assembly"
+
+[dependencies]
+fm-types = { path = "../fm-types" }
+fm-extract = { path = "../fm-extract" }
+fm-engine = { path = "../fm-engine" }
+fm-excel = { path = "../fm-excel" }

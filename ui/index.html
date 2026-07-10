@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>finmodel</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">fin</span><span class="logo-accent">model</span>
+    </div>
+    <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+  </header>
+
+  <main class="main">
+    <section class="hero">
+      <h1>Build a financial model</h1>
+      <p class="sub">Enter a ticker. We fetch the filing, project 5 years, and write an Excel model.</p>
+      <div class="build-row">
+        <input id="ticker" class="ticker-input" type="text" placeholder="e.g. SAND.ST" autocomplete="off" />
+        <button id="buildBtn" class="primary-btn">Build model</button>
+      </div>
+      <div class="chips" id="demoChips">
+        <span class="chip-label">Try:</span>
+        <button class="chip" data-t="SAND.ST">Sandvik</button>
+        <button class="chip" data-t="ASML.AS">ASML</button>
+        <button class="chip" data-t="NOVO-B.CO">Novo Nordisk</button>
+        <button class="chip" data-t="NESN.SW">Nestlé</button>
+        <button class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
+      </div>
+      <div id="status" class="status" hidden></div>
+    </section>
+
+    <section id="results" class="results" hidden>
+      <div class="results-head">
+        <div>
+          <h2 id="resTitle">—</h2>
+          <div class="meta" id="resMeta">—</div>
+        </div>
+        <button id="openXlsxBtn" class="primary-btn">Open in Excel</button>
+      </div>
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-s="income_statement">Income Statement</button>
+        <button class="tab" data-s="balance_sheet">Balance Sheet</button>
+        <button class="tab" data-s="cash_flow_statement">Cash Flow</button>
+      </div>
+      <div class="table-wrap">
+        <table id="modelTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Settings</h3>
+        <button id="settingsClose" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <label class="field">
+        <span>OpenRouter API key</span>
+        <input id="apiKey" type="password" placeholder="sk-or-…  (leave blank to keep current)" />
+        <small id="keyStatus" class="hint">No key set — offline demo tickers only.</small>
+      </label>
+      <label class="field">
+        <span>Model</span>
+        <div class="model-row">
+          <select id="modelSelect"><option value="">(set a key, then Refresh)</option></select>
+          <button id="refreshModels" class="ghost-btn">Refresh</button>
+        </div>
+        <small class="hint">Model list is fetched live from OpenRouter.</small>
+      </label>
+      <div class="modal-actions">
+        <button id="saveSettings" class="primary-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

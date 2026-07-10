@@ -1,0 +1,38 @@
+[package]
+name = "finmodel-app"
+version = "0.1.0"
+description = "finmodel desktop app"
+authors = ["Vinit"]
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+# Standalone workspace — detaches from finmodel-core's workspace so the heavy
+# Tauri build never touches the engine's fast CI.
+[workspace]
+
+[lib]
+name = "finmodel_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+thiserror = "2"
+
+# finmodel engine crates (the port). Path deps into the finmodel-core workspace.
+fm-types = { path = "../finmodel-core/fm-types" }
+fm-extract = { path = "../finmodel-core/fm-extract" }
+fm-engine = { path = "../finmodel-core/fm-engine" }
+fm-value = { path = "../finmodel-core/fm-value" }
+fm-excel = { path = "../finmodel-core/fm-excel" }
+fm-build = { path = "../finmodel-core/fm-build" }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"

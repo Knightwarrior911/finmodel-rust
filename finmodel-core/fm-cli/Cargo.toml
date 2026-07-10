@@ -10,6 +10,7 @@ fm-extract = { path = "../fm-extract" }
 fm-engine = { path = "../fm-engine" }
 fm-value = { path = "../fm-value" }
 fm-excel = { path = "../fm-excel" }
+fm-build = { path = "../fm-build" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

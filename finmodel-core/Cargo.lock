@@ -374,10 +374,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm-build"
+version = "0.1.0"
+dependencies = [
+ "fm-engine",
+ "fm-excel",
+ "fm-extract",
+ "fm-types",
+]
+
+[[package]]
 name = "fm-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "fm-build",
  "fm-engine",
  "fm-excel",
  "fm-extract",
