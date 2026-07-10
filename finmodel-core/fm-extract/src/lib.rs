@@ -19,6 +19,6 @@ pub use extract::{
     placeholder_result, load_cache, save_extraction_cache,
     extract_financials_from_pdf,
 };
-pub use llm::{llm_complete, LlmError};
+pub use llm::{llm_complete, list_openrouter_models, LlmError, OpenRouterModel, OpenRouterPricing};
 pub use section::{extract_financial_section, detect_sector};
 pub use xbrl::{xbrl_tag_map, parse_xbrl_to_raw, ParsedXbrlData, XbrlParseError};

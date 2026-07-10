@@ -26,16 +26,24 @@ pub enum LlmError {
 
 /// Call an LLM with the given system and user prompts.
 ///
-/// Provider selection (matches Python extractor.py):
-///   1. `DEEPSEEK_API_KEY` set → DeepSeek (openai-compatible)
-///   2. `ANTHROPIC_API_KEY` set → Anthropic SDK
-///   3. Neither → Claude Code CLI (`claude -p`)
+/// Provider selection (OpenRouter preferred — API keys don't expire like OAuth):
+///   1. `OPENROUTER_API_KEY` set → OpenRouter (openai-compatible, any model)
+///   2. `DEEPSEEK_API_KEY` set → DeepSeek (openai-compatible)
+///   3. `ANTHROPIC_API_KEY` set → Anthropic API
+///   4. None → Claude Code CLI (`claude -p`) — fragile, OAuth can expire
 ///
-/// Model override: `FINMODEL_LLM_MODEL` env var.
+/// Model override: `FINMODEL_LLM_MODEL` env var (for OpenRouter, a model id like
+/// `anthropic/claude-sonnet-4` or `openai/gpt-4o`).
 pub fn llm_complete(system_text: &str, user_text: &str, max_tokens: u32) -> Result<String, LlmError> {
+    let openrouter_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
     let deepseek_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default();
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
 
+    if !openrouter_key.trim().is_empty() {
+        let model = std::env::var("FINMODEL_LLM_MODEL")
+            .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string());
+        return llm_complete_openrouter(system_text, user_text, max_tokens, &model, openrouter_key.trim());
+    }
     if !deepseek_key.trim().is_empty() {
         return llm_complete_deepseek(system_text, user_text, max_tokens);
     }
@@ -168,6 +176,143 @@ fn llm_complete_anthropic(_system_text: &str, _user_text: &str, _max_tokens: u32
     )))
 }
 
+// ---------------------------------------------------------------------------
+// OpenRouter provider (production-grade — API key, openai-compatible)
+// ---------------------------------------------------------------------------
+
+const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+
+/// A model available on OpenRouter (subset of fields from the /models endpoint).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OpenRouterModel {
+    /// Model id used in API calls, e.g. "anthropic/claude-sonnet-4".
+    pub id: String,
+    /// Human-readable name.
+    #[serde(default)]
+    pub name: String,
+    /// Maximum context length in tokens.
+    #[serde(default)]
+    pub context_length: Option<u64>,
+    /// Pricing info (per-token strings, USD).
+    #[serde(default)]
+    pub pricing: Option<OpenRouterPricing>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OpenRouterPricing {
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub completion: String,
+}
+
+/// Fetch the live list of available models from OpenRouter.
+///
+/// This is the dynamic model catalog — never a hardcoded list. Requires a
+/// valid `api_key`. Returns models sorted by id.
+pub fn list_openrouter_models(api_key: &str) -> Result<Vec<OpenRouterModel>, LlmError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    let resp = client
+        .get(OPENROUTER_MODELS_URL)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?
+        .error_for_status()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(parse_models_response(&body))
+}
+
+/// Parse the OpenRouter /models response into a sorted list of models.
+/// Pure function — unit-testable without network.
+fn parse_models_response(body: &serde_json::Value) -> Vec<OpenRouterModel> {
+    let mut models: Vec<OpenRouterModel> = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| serde_json::from_value::<OpenRouterModel>(m.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models
+}
+
+/// Build the JSON request body for an OpenRouter chat completion.
+/// Pure function — unit-testable.
+fn build_openrouter_request(
+    system_text: &str,
+    user_text: &str,
+    max_tokens: u32,
+    model: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_text },
+            { "role": "user", "content": user_text }
+        ],
+        "temperature": 0,
+        "max_tokens": max_tokens
+    })
+}
+
+/// Extract the assistant message content from an OpenRouter chat response.
+/// Pure function — unit-testable.
+fn parse_openrouter_response(body: &serde_json::Value) -> Result<String, LlmError> {
+    body.get("choices")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|msg| msg.get("content"))
+        .and_then(|content| content.as_str())
+        .map(|s| strip_code_fences(s.trim()))
+        .ok_or_else(|| {
+            // Surface an API error message if present
+            let err_msg = body
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("no choices in OpenRouter response");
+            LlmError::CliError { rc: 1, stderr: err_msg.to_string() }
+        })
+}
+
+/// Call OpenRouter's chat completions endpoint (openai-compatible).
+fn llm_complete_openrouter(
+    system_text: &str,
+    user_text: &str,
+    max_tokens: u32,
+    model: &str,
+    api_key: &str,
+) -> Result<String, LlmError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    let request_body = build_openrouter_request(system_text, user_text, max_tokens, model);
+    let resp = client
+        .post(OPENROUTER_CHAT_URL)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .header("HTTP-Referer", "https://github.com/finmodel")
+        .header("X-Title", "finmodel")
+        .json(&request_body)
+        .send()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| LlmError::Io(std::io::Error::other(e.to_string())))?;
+    parse_openrouter_response(&body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +346,74 @@ mod tests {
     fn test_strip_code_fences_empty_fence() {
         let input = "```";
         assert_eq!(strip_code_fences(input), "");
+    }
+
+    #[test]
+    fn test_build_openrouter_request_structure() {
+        let req = build_openrouter_request("SYS", "USER", 8192, "anthropic/claude-sonnet-4");
+        assert_eq!(req["model"], "anthropic/claude-sonnet-4");
+        assert_eq!(req["temperature"], 0);
+        assert_eq!(req["max_tokens"], 8192);
+        assert_eq!(req["messages"][0]["role"], "system");
+        assert_eq!(req["messages"][0]["content"], "SYS");
+        assert_eq!(req["messages"][1]["role"], "user");
+        assert_eq!(req["messages"][1]["content"], "USER");
+    }
+
+    #[test]
+    fn test_parse_openrouter_response_success() {
+        let body = serde_json::json!({
+            "choices": [{ "message": { "role": "assistant", "content": "{\"revenue\": [100]}" } }]
+        });
+        let result = parse_openrouter_response(&body).expect("should parse");
+        assert_eq!(result, "{\"revenue\": [100]}");
+    }
+
+    #[test]
+    fn test_parse_openrouter_response_strips_fences() {
+        let body = serde_json::json!({
+            "choices": [{ "message": { "content": "```json\n{\"x\": 1}\n```" } }]
+        });
+        let result = parse_openrouter_response(&body).expect("should parse");
+        assert_eq!(result, "{\"x\": 1}");
+    }
+
+    #[test]
+    fn test_parse_openrouter_response_error() {
+        let body = serde_json::json!({
+            "error": { "message": "invalid api key", "code": 401 }
+        });
+        let result = parse_openrouter_response(&body);
+        assert!(result.is_err());
+        match result {
+            Err(LlmError::CliError { stderr, .. }) => assert!(stderr.contains("invalid api key")),
+            _ => panic!("expected CliError with API message"),
+        }
+    }
+
+    #[test]
+    fn test_parse_models_response() {
+        let body = serde_json::json!({
+            "data": [
+                { "id": "openai/gpt-4o", "name": "GPT-4o", "context_length": 128000,
+                  "pricing": { "prompt": "0.0000025", "completion": "0.00001" } },
+                { "id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4", "context_length": 200000 }
+            ]
+        });
+        let models = parse_models_response(&body);
+        assert_eq!(models.len(), 2);
+        // Sorted by id: anthropic before openai
+        assert_eq!(models[0].id, "anthropic/claude-sonnet-4");
+        assert_eq!(models[0].context_length, Some(200000));
+        assert_eq!(models[1].id, "openai/gpt-4o");
+        assert_eq!(models[1].pricing.as_ref().unwrap().prompt, "0.0000025");
+    }
+
+    #[test]
+    fn test_parse_models_response_empty() {
+        let body = serde_json::json!({ "data": [] });
+        assert_eq!(parse_models_response(&body).len(), 0);
+        let body2 = serde_json::json!({});
+        assert_eq!(parse_models_response(&body2).len(), 0);
     }
 }

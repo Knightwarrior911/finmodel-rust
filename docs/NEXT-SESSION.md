@@ -1,3 +1,26 @@
+# 2026-07-10 (session 4) — R.2b DONE + R.5 starting assessment
+
+**Commits:** `9d21a84` (R.2b validation), `0af69ea` (R.5 writer smoke test)
+**CI:** 84 tests (17 suites, 6 ignored) — all green.
+
+## R.2b — Non-US PDF discovery DONE ✅
+- `fm-fetch/src/discovery.rs`: `find_annual_report_pdf_url()` ported from Python. DDG HTML search via reqwest POST, `a.result__a` parsing, company-domain matching, IR page scrape fallback.
+- `parse_result_links()` extracted as pure function with **real DDG HTML fixture test** validating the selector against actual DDG output.
+- `is_pdf_url()` fixed: primary check via `Url::parse().path()` (handles `?h=` query params), fallback via manual strip.
+- `extract_pdf_text_via_pdfplumber` fixed: tries `py -3` → `python` (Windows launcher).
+- **Live-validated:** `find_annual_report_pdf_url("Sandvik AB", "SAND.ST", 2024)` returns `annualreport.sandvik/...pdf?h=EicP8c_e` — the correct URL.
+
+## R.5 — Excel writer parity: HONEST STATUS
+
+**What was done:** Writer smoke test (`fm-excel/tests/excel_parity.rs`) — validates the Rust writer handles real model data from all 5 baseline fixtures without crashing, produces valid .xlsx files with correct IS/BS/CFS values.
+
+**What R.5 actually requires:** Cell-for-cell parity means the Rust writer must produce the **same 6-sheet workbook** (Cover, Assumptions, IS, BS, CF, Sources) with the same cross-sheet formulas (`=CHOOSE($D$9,...)`, `=IF(IS!F11<>0,...)`), fills, and layout as Python `src/writer.py` (~850 lines). The current Rust writer is a simple header+data layout — full parity is a **multi-session port of writer.py**, not a test-wiring task.
+
+**Recommendation:** Before the next R.5 session, read Python `src/writer.py` and decide: full port vs. a narrower gate (e.g., Rust generates any valid Excel with correct values; the formal parity is already covered by parity.rs numeric model_output comparison).
+
+---
+
+
 # 2026-07-10 (session 3) — Phase R.2a: Native Rust extraction infrastructure DONE
 
 **Commit:** `b158bac` (14 files +1979 -32)
