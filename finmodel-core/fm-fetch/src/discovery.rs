@@ -57,6 +57,20 @@ fn is_skippable(url_str: &str) -> bool {
     SKIP_DOMAINS.iter().any(|s| domain.contains(s))
 }
 
+/// Check if a URL points to a PDF file (handles query parameters like `?h=abc`).
+fn is_pdf_url(url_str: &str) -> bool {
+    // Primary: parse URL and check path (excludes query string, fragment)
+    if let Ok(parsed) = Url::parse(url_str) {
+        return parsed.path().to_lowercase().ends_with(".pdf");
+    }
+    // Fallback for unparseable URLs: strip query/fragment manually then check suffix
+    let cleaned = match url_str.find(&['?', '#'][..]) {
+        Some(pos) => &url_str[..pos],
+        None => url_str,
+    };
+    cleaned.to_lowercase().ends_with(".pdf")
+}
+
 /// DuckDuckGo HTML search — POST to the non-JSON endpoint.
 fn ddg_search(query: &str) -> Result<String, reqwest::Error> {
     let client = reqwest::blocking::Client::builder()
@@ -103,23 +117,14 @@ pub fn find_annual_report_pdf_url(
             Err(_) => continue,
         };
 
-        // Parse HTML with scraper
-        let doc = Html::parse_fragment(&html);
-        let link_sel = Selector::parse("a.result__a").ok();
-
-        let links: Vec<String> = if let Some(sel) = &link_sel {
-            doc.select(sel)
-                .filter_map(|el| el.value().attr("href"))
-                .filter(|h| h.starts_with("http"))
-                .map(|h| h.to_string())
-                .collect()
-        } else {
+        let links = parse_result_links(&html);
+        if links.is_empty() {
             continue;
-        };
+        }
 
         // First pass: direct PDF links
         let direct_pdfs: Vec<&str> = links.iter()
-            .filter(|h| h.to_lowercase().ends_with(".pdf"))
+            .filter(|h| is_pdf_url(h))
             .filter(|h| !is_skippable(h))
             .map(|s| s.as_str())
             .collect();
@@ -193,6 +198,24 @@ pub fn find_annual_report_pdf_url(
     })
 }
 
+/// Parse DDG HTML search results into a list of result link URLs.
+///
+/// Selects `a.result__a` elements and extracts their `href` attributes.
+/// This is a pure function — no network I/O — suitable for unit testing
+/// with captured or synthetic HTML.
+pub fn parse_result_links(html: &str) -> Vec<String> {
+    let doc = Html::parse_fragment(html);
+    let link_sel = match Selector::parse("a.result__a") {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    doc.select(&link_sel)
+        .filter_map(|el| el.value().attr("href"))
+        .filter(|h| h.starts_with("http"))
+        .map(|h| h.to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +266,41 @@ mod tests {
         let html = ddg_search("test query").expect("DDG search should return HTML");
         assert!(!html.is_empty());
         assert!(html.contains("html") || html.contains("HTML") || html.contains("results"));
+    }
+    #[test]
+    fn test_parse_result_links_from_real_ddg_html() {
+        let html = r#"<div class="result results_links results_links_deep web-result ">
+  <div class="links_main links_deep result__body">
+    <h2 class="result__title">
+      <a rel="nofollow" class="result__a" href="https://www.annualreport.sandvik/en/2024/_assets/downloads/entire-en-svk-ar24.pdf?h=EicP8c_e">
+        <span class="result__type">PDF</span> Sandvik Annual Report 2024
+      </a>
+    </h2>
+  </div>
+</div>
+<div class="result results_links results_links_deep web-result ">
+  <div class="links_main links_deep result__body">
+    <h2 class="result__title">
+      <a rel="nofollow" class="result__a" href="https://www.sandvik.com/investors/report.html">
+        Sandvik Investor Relations
+      </a>
+    </h2>
+  </div>
+</div>"#;
+        let links = parse_result_links(html);
+        assert_eq!(links.len(), 2, "should find both result links");
+        assert!(links[0].contains("annualreport.sandvik"));
+        assert!(links[0].contains(".pdf"));
+        assert!(links[0].contains("?h=EicP8c_e"));
+        assert!(links[1].contains("sandvik.com/investors"));
+    }
+
+    #[test]
+    fn test_is_pdf_url_with_query_param() {
+        assert!(is_pdf_url("https://www.example.com/report.pdf?h=abc123"));
+        assert!(is_pdf_url("https://www.example.com/report.pdf"));
+        assert!(is_pdf_url("https://www.example.com/ar-2024.pdf?download=1"));
+        assert!(!is_pdf_url("https://www.example.com/report.html"));
+        assert!(!is_pdf_url("https://www.example.com/report.pdfx"));
     }
 }

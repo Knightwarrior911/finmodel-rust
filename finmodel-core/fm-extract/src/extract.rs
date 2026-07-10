@@ -668,17 +668,33 @@ fn extract_pdf_text_via_pdfplumber(pdf_path: &str) -> Result<String, ExtractErro
         "import pdfplumber, sys; pdf = pdfplumber.open(sys.argv[1]); \
          print('\\x0C'.join(page.extract_text() or '' for page in pdf.pages))"
     );
-    let output = std::process::Command::new("python")
-        .args(["-c", &script, pdf_path])
-        .output()
-        .map_err(|e| ExtractError::Other(format!("pdfplumber failed: {e}")))?;
 
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(ExtractError::Other(format!("pdfplumber error: {err}")));
+    // Try python launcher candidates in order — Windows uses `py`, Unix uses `python3`
+    let candidates = if cfg!(target_os = "windows") {
+        vec![("py", vec!["-3", "-c", &script, pdf_path]),
+             ("python", vec!["-c", &script, pdf_path])]
+    } else {
+        vec![("python3", vec!["-c", &script, pdf_path]),
+             ("python", vec!["-c", &script, pdf_path])]
+    };
+
+    let mut last_err = "no python interpreter found".to_string();
+    for (cmd, args) in &candidates {
+        let output = match std::process::Command::new(cmd)
+            .args(args)
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => { last_err = format!("{cmd}: {e}"); continue; }
+        };
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).to_string();
+            return Ok(text);
+        }
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        last_err = format!("{cmd} failed: {err}");
     }
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
-    Ok(text)
+    Err(ExtractError::Other(format!("pdfplumber extraction failed: {last_err}")))
 }
 
 /// Convert a JSON value (from LLM response) into an ExtractionResult.
