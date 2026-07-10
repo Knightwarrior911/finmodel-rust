@@ -2,6 +2,30 @@
 
 The Rust engine turns a ticker into a projected 3-statement Excel model.
 
+## Run the desktop app (the real product)
+
+Prereq: `cargo install tauri-cli` (already installed on this machine) and the
+WebView2 runtime (built into Windows 11).
+
+```
+cd src-tauri
+cargo tauri dev
+```
+
+A native window opens. Type a ticker (or click a demo chip: Sandvik, ASML,
+Novo Nordisk, Nestlé, Atlas Copco) → **Build model** → the 3 statements render
+(historical + 5-year projection) and an Excel file is written to
+`Documents/finmodel/`. **Open in Excel** opens it.
+
+**Settings (gear icon):** paste an OpenRouter API key, click **Refresh** to
+pull the live model list, pick a model, **Save**. With a key, US tickers
+(e.g. AAPL) extract live from SEC EDGAR; non-US tickers fall back to committed
+data (non-US live extraction isn't wired into the app yet).
+
+To build a distributable installer: `cd src-tauri && cargo tauri build`
+(produces an `.exe`/`.msi` under `src-tauri/target/release/bundle/`). Note:
+icons are placeholders copied from pdf-panda — rebrand before shipping.
+
 ## 2-minute offline smoke test (no key, no network)
 
 From `finmodel-core/`:
@@ -60,4 +84,4 @@ live model catalog is fetched from OpenRouter — see `fm_extract::list_openrout
   (pure Rust, no Python), PDF discovery, OpenRouter provider + live model listing.
 - 🟡 Non-US live extraction: validated end-to-end up to the LLM call; not yet wired
   into `build`.
-- ❌ Tauri desktop UI: not started (the OpenRouter key + model picker live here).
+- 🟡 Tauri desktop app: scaffolded + compiles (window, ticker→build→Excel, settings with live OpenRouter model picker). Needs `cargo tauri dev` run on a display to verify the GUI; icons are placeholders.
