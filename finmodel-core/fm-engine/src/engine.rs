@@ -19,7 +19,9 @@ impl ModelEngine {
 
     // ── Helpers ────────────────────────────────────────────────────────
     fn avg(values: &[f64]) -> f64 {
-        if values.is_empty() { 0.0 } else { values.iter().sum::<f64>() / values.len() as f64 }
+        // Matches engine.py _avg: mean of the last 3 values (all, if fewer).
+        let s = &values[values.len().saturating_sub(3)..];
+        if s.is_empty() { 0.0 } else { s.iter().sum::<f64>() / s.len() as f64 }
     }
 
     fn pct_growth_avg(values: &[Option<f64>]) -> f64 {
@@ -44,9 +46,15 @@ impl ModelEngine {
     }
 
     fn days(bal: &[Option<f64>], flow: &[Option<f64>]) -> f64 {
-        let b = Self::last_or(bal, 0.0);
-        let f = Self::last_or(flow, 0.0);
-        if f.abs() > 1e-9 { (b / f) * 365.0 } else { 0.0 }
+        // Average of per-year ratios (matches engine.py _days), not just the
+        // last year — otherwise DSO/DIO/DPO diverge on companies whose latest
+        // year differs from the historical average.
+        let ratios: Vec<f64> = bal.iter().zip(flow.iter())
+            .filter_map(|(b, f)| match (b, f) {
+                (Some(bv), Some(fv)) if *fv != 0.0 => Some(bv / fv * 365.0),
+                _ => None,
+            }).collect();
+        Self::avg(&ratios)
     }
 
     #[allow(dead_code)]
@@ -65,14 +73,16 @@ impl ModelEngine {
         let base_growth = Self::pct_growth_avg(rev.unwrap()).max(-0.10);
         a.insert("revenue_growth".into(), base_growth);
 
+        // gross_margin from gross_profit ONLY (matches engine.py — it does not
+        // fall back to cogs). A filing with COGS but no gross_profit line yields
+        // gross_margin = 0, which projects a low/negative-margin scenario — this
+        // is the NESN case where the reference projects a loss.
         if let Some(gp) = is.get("gross_profit") {
             let r: Vec<f64> = rv.iter().zip(gp.iter())
                 .filter_map(|(r, g)| match g { Some(gv) if *r > 1e-9 => Some(gv / r), _ => None }).collect();
-            if !r.is_empty() { a.insert("gross_margin".into(), Self::avg(&r)); }
-        } else if let Some(cgs) = is.get("cogs") {
-            let r: Vec<f64> = rv.iter().zip(cgs.iter())
-                .filter_map(|(r, c)| match c { Some(cv) if *r > 1e-9 => Some((r - cv) / r), _ => None }).collect();
-            if !r.is_empty() { a.insert("gross_margin".into(), Self::avg(&r)); }
+            a.insert("gross_margin".into(), if r.is_empty() { 0.0 } else { Self::avg(&r) });
+        } else {
+            a.insert("gross_margin".into(), 0.0);
         }
 
         for (key, src) in &[("sga_pct_rev", "sga"), ("rd_pct_rev", "rd")] {
@@ -107,11 +117,17 @@ impl ModelEngine {
             if !r.is_empty() { a.insert("capex_pct_rev".into(), Self::avg(&r)); }
         }
 
-        // Tax rate (effective)
-        if let (Some(pt), Some(tax)) = (is.get("pre_tax_income"), is.get("income_tax")) {
-            let r: Vec<f64> = pt.iter().zip(tax.iter())
-                .filter_map(|(p, t)| match (p, t) {
-                    (Some(pv), Some(tv)) if *pv > 1e-9 && *tv > 0.0 => Some(tv / pv), _ => None
+        // Effective tax rate = tax / (net_income + tax) averaged over history
+        // (matches engine.py). Using the extracted pre_tax_income field instead
+        // diverges when it isn't exactly net_income + income_tax.
+        if let (Some(ni), Some(tax)) = (is.get("net_income"), is.get("income_tax")) {
+            let r: Vec<f64> = ni.iter().zip(tax.iter())
+                .filter_map(|(n, t)| match (n, t) {
+                    (Some(nv), Some(tv)) => {
+                        let denom = nv + tv;
+                        if denom != 0.0 && tv / denom >= 0.0 { Some(tv / denom) } else { None }
+                    }
+                    _ => None,
                 }).collect();
             a.insert("tax_rate".into(), (if r.is_empty() { 0.21 } else { Self::avg(&r) }).max(0.05));
         } else { a.insert("tax_rate".into(), 0.21); }
@@ -126,6 +142,17 @@ impl ModelEngine {
             let d = Self::days(ap, cgs); a.insert("dpo_days".into(), if d > 365.0 { 0.0 } else { d });
         }
         if let Some(sh) = is.get("shares_diluted") { a.insert("shares_diluted".into(), Self::last_or(sh, 0.0)); }
+        // dividend_per_share = avg over history of dividends_paid / shares_diluted
+        // (matches engine.py). Without it the engine pays no dividends, so cash
+        // and equity drift high vs the Python reference.
+        if let (Some(divs), Some(sh)) = (cf.get("dividends_paid"), is.get("shares_diluted")) {
+            let r: Vec<f64> = divs.iter().zip(sh.iter())
+                .filter_map(|(d, s)| match s {
+                    Some(sv) if *sv != 0.0 => Some(d.unwrap_or(0.0) / sv),
+                    _ => None,
+                }).collect();
+            if !r.is_empty() { a.insert("dividend_per_share".into(), Self::avg(&r)); }
+        }
 
         a
     }
@@ -200,6 +227,7 @@ impl ModelEngine {
         let mut ap_v = Vec::with_capacity(np);
 
         let mut proj_cash_vals = Vec::with_capacity(np);
+        let mut divs_v = Vec::with_capacity(np);
 
         for i in 0..np {
             let g = rev_growth[i];
@@ -235,7 +263,7 @@ impl ModelEngine {
             let d_ar = ar - prev_ar;
             let d_inv = inv - prev_inv;
             let d_ap = ap - prev_ap;
-            let cfo = ni + da - d_ar.abs() - d_inv.abs() + d_ap;
+            let cfo = ni + da - d_ar - d_inv + d_ap;
             let cfi = -capex;
             let cash = prev_cash + cfo + cfi - divs;
 
@@ -257,6 +285,7 @@ impl ModelEngine {
             inv_v.push(Some(rnd(inv)));
             ap_v.push(Some(rnd(ap)));
             proj_cash_vals.push(Some(rnd(cash)));
+            divs_v.push(divs);
 
             prev_rev = rev;
             prev_cash = cash;
@@ -286,20 +315,26 @@ impl ModelEngine {
         a(&mut bs_out, "pp_and_e", ppe_v);
         a(&mut bs_out, "goodwill", (0..np).map(|_| Some(lgdwl)).collect());
 
-        // Compute A = L + E balanced
+        // Balance-sheet aggregates — match the Python reference (engine.py) exactly:
+        //   total_liabilities = AP + LTD + other_liab_hist  (non-modeled liabs held flat)
+        //   total_equity      = prev_equity + NI - dividends (rolled forward, not a plug)
+        //   total_assets      = TL + TE + redeemable_nci      (A = L + E + RNCI)
+        let last_tl = Self::last_or(hist_bs.get("total_liabilities").unwrap_or(&vec![]), 0.0);
+        let last_eq = Self::last_or(hist_bs.get("total_equity").unwrap_or(&vec![]), 0.0);
+        let last_rnci = Self::last_or(hist_bs.get("redeemable_nci").unwrap_or(&vec![]), 0.0);
+        let other_liab_hist = last_tl - lap - lltd;
         let mut ta_v = Vec::with_capacity(np);
         let mut tl_v = Vec::with_capacity(np);
         let mut te_v = Vec::with_capacity(np);
+        let mut prev_eq = last_eq;
         for i in 0..np {
-            let ca = bs_out["cash"][i].unwrap_or(0.0);
-            let ar_v2 = bs_out["accounts_receivable"][i].unwrap_or(0.0);
-            let inv_v2 = bs_out["inventory"][i].unwrap_or(0.0);
-            let ppe_v2 = bs_out["pp_and_e"][i].unwrap_or(0.0);
-            let gw = bs_out["goodwill"][i].unwrap_or(0.0);
-            let ta = ca + ar_v2 + inv_v2 + ppe_v2 + gw;
-            let ap_v2 = bs_out["accounts_payable"][i].unwrap_or(0.0);
-            let tl = ap_v2 + lltd;
-            let te = ta - tl;
+            let ap_i = bs_out["accounts_payable"][i].unwrap_or(0.0);
+            let ni_i = ni_v[i].unwrap_or(0.0);
+            let divs_i = divs_v[i];
+            let tl = ap_i + lltd + other_liab_hist;
+            let te = prev_eq + ni_i - divs_i;
+            prev_eq = te;
+            let ta = tl + te + last_rnci;
             ta_v.push(Some((ta * 100.0).round() / 100.0));
             tl_v.push(Some((tl * 100.0).round() / 100.0));
             te_v.push(Some((te * 100.0).round() / 100.0));
