@@ -8,6 +8,10 @@ build/
 .venv/
 venv/
 *.xlsx
+# fm-cli generated model outputs (at repo root)
+*_projection.json
+*_extraction.json
+*_rust_extraction.json
 
 # autoresearch / instrument runtime (not code)
 .env
