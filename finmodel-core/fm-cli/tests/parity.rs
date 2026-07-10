@@ -1,12 +1,12 @@
 //! R.6 Parity Gate — Rust engine vs Python reference implementation.
 //!
-//! Loads model cache + Excel snapshot for each baseline company, feeds
-//! extraction data through the Rust projection engine, diffs projected
-//! values against Python model_output. Asserts key intersection > 0.
+//! For each baseline company, feeds the committed extraction fixture
+//! (`tests/fixtures/<name>_model.json`) through the Rust projection engine and
+//! diffs the projected IS/BS/CFS values against the Python `model_output` in the
+//! committed Excel snapshot. **Asserts 0 cells diverge >15%** — a CI-enforced
+//! regression guard (fixtures are committed, so it runs on fresh clones / CI).
 //!
-//! Skips gracefully when model cache files are absent (gitignored — only
-//! present after a local tie-out run). Run with model cache to measure
-//! the parity gap: `cargo test -p fm-cli --test parity -- --nocapture`
+//! Inspect per-cell values: `cargo test -p fm-cli --test parity -- --nocapture`
 
 use std::collections::HashMap;
 use std::path::Path;
