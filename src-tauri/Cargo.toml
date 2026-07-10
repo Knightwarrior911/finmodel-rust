@@ -34,5 +34,12 @@ fm-value = { path = "../finmodel-core/fm-value" }
 fm-excel = { path = "../finmodel-core/fm-excel" }
 fm-build = { path = "../finmodel-core/fm-build" }
 
+# Lean release build — smaller target + exe (disk-constrained machine).
+[profile.release]
+strip = true
+opt-level = "s"
+codegen-units = 16
+lto = false
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
