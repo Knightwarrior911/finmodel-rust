@@ -2,14 +2,16 @@
 name = "fm-extract"
 version = "0.1.0"
 edition = "2024"
-description = "R.2 filing extraction crate: EDGAR XBRL stubs + LLM prompt templates"
+description = "R.2 filing extraction crate: EDGAR XBRL, LLM prompts, PDF section finder"
 
 [dependencies]
+fm-fetch = { path = "../fm-fetch" }
 fm-types = { path = "../fm-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking"] }
 thiserror = "2"
+regex = "1"
 
 [dev-dependencies]
 serde_json = "1"

@@ -277,6 +277,468 @@ pub fn placeholder_result(_ticker: &str) -> ExtractionResult {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PDF-based extraction prompts (non-US filings)
+// ---------------------------------------------------------------------------
+
+/// System prompt for non-US industrial filing PDF extraction.
+/// Ported verbatim from `src/extractor.py::FINANCIALS_SYSTEM_PROMPT`.
+pub static FINANCIALS_SYSTEM_PROMPT: &str = "\
+You are a senior financial analyst extracting structured financial data from annual report text.
+
+Extract main income statement, balance sheet, and cash flow statement line items for ALL years present in the report (typically 2-3 comparative years). Also extract key footnote detail.
+
+IMPORTANT RULES:
+- All monetary values in MILLIONS (same currency as the filing)
+- Arrays: oldest year first, newest year last — same length for every key
+- capex: positive number (absolute cash outflow for PP&E purchases)
+- income_tax: positive number (absolute tax charge)
+- dividends_paid: positive number (absolute cash outflow)
+- cfi: SIGNED total (negative = net outflow from investing; typical for industrial/manufacturing companies)
+- cff: SIGNED total (negative = net outflow from financing)
+- net_change_cash: SIGNED total (positive = increase in cash and equivalents)
+- USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
+- IFRS naming mappings (label in filing → JSON key):
+    \"Revenue\" / \"Net revenue\" / \"Net sales\" / \"Revenues\" → revenue
+    \"Cost of sales\" / \"Cost of revenue\" / \"Cost of goods sold\" → cogs
+    \"Gross profit\" → gross_profit
+    \"Marketing expenses\" + \"Selling expenses\" + \"Administrative expenses\" / \"SG&A\" → sga (SUM them if split). EXCLUDE \"Distribution expenses\" / \"Logistics\" / \"Fulfilment\" — those are COGS-type, NOT sga
+    \"Research and development expenses\" / \"R&D expenses\" → rd
+    \"Operating profit\" / \"Operating income\" / \"EBIT\" → ebit
+    \"EBITA\" / \"Earnings before interest, taxes and amortisation\" → ebita
+    \"Financial expenses\" / \"Interest expense\" / \"Finance costs\" → interest_expense
+    \"Financial income\" / \"Interest income\" / \"Finance income\" → interest_income
+    \"Depreciation and amortization\" / \"D&A\" from cash flow statement → da
+    \"Net cash from investing activities\" / \"Net cash used in investing activities\" / \"Cash flow from investment activities\" → cfi
+    \"Net cash from financing activities\" / \"Net cash used in financing activities\" / \"Cash flow from financing activities\" → cff
+    \"Net change in cash and cash equivalents\" / \"Net increase (decrease) in cash\" / \"Change in cash and cash equivalents\" → net_change_cash
+- da: take from the cash flow statement add-back line (most reliable source), NOT the income statement
+- net_income: the TOTAL \"Profit for the year\" / \"Profit for the period\" / \"Net profit\" for the whole group INCLUDING non-controlling interests — NEVER the \"attributable to owners/shareholders of the parent\" sub-line
+- shares_diluted: weighted average DILUTED shares in MILLIONS — NOT earnings per share
+- If gross profit not shown separately and cogs not shown: omit both cogs and gross_profit
+- Nordic/European numbers: \"168 343\" means 168,343 (space = thousands separator)
+- If a line item is absent from the filing, omit its key entirely (do not include null or 0)
+
+Return ONLY valid JSON in this exact structure (no prose, no markdown):
+{
+  \"currency\": \"<3-letter code e.g. SEK, EUR, GBP>\",
+  \"years_found\": [\"2022\", \"2023\", \"2024\"],
+  \"income_statement\": {
+    \"revenue\":          [<2022>, <2023>, <2024>],
+    \"cogs\":             [<2022>, <2023>, <2024>],
+    \"gross_profit\":     [<2022>, <2023>, <2024>],
+    \"sga\":              [<2022>, <2023>, <2024>],
+    \"rd\":               [<2022>, <2023>, <2024>],
+    \"da\":               [<2022>, <2023>, <2024>],
+    \"ebit\":             [<2022>, <2023>, <2024>],
+    \"ebita\":            [<2022>, <2023>, <2024>],
+    \"interest_expense\": [<2022>, <2023>, <2024>],
+    \"interest_income\":  [<2022>, <2023>, <2024>],
+    \"income_tax\":       [<2022>, <2023>, <2024>],
+    \"net_income\":       [<2022>, <2023>, <2024>],
+    \"shares_diluted\":   [<2022>, <2023>, <2024>]
+  },
+  \"balance_sheet\": {
+    \"cash\":                 [<2022>, <2023>, <2024>],
+    \"accounts_receivable\":  [<2022>, <2023>, <2024>],
+    \"inventory\":            [<2022>, <2023>, <2024>],
+    \"total_current_assets\": [<2022>, <2023>, <2024>],
+    \"ppe_net\":              [<2022>, <2023>, <2024>],
+    \"goodwill\":             [<2022>, <2023>, <2024>],
+    \"intangibles_net\":      [<2022>, <2023>, <2024>],
+    \"total_assets\":         [<2022>, <2023>, <2024>],
+    \"accounts_payable\":     [<2022>, <2023>, <2024>],
+    \"long_term_debt\":       [<2022>, <2023>, <2024>],
+    \"total_liabilities\":    [<2022>, <2023>, <2024>],
+    \"total_equity\":         [<2022>, <2023>, <2024>]
+  },
+  \"cash_flow_statement\": {
+    \"cfo\":             [<2022>, <2023>, <2024>],
+    \"capex\":           [<2022>, <2023>, <2024>],
+    \"cfi\":             [<2022>, <2023>, <2024>],
+    \"dividends_paid\":  [<2022>, <2023>, <2024>],
+    \"cff\":             [<2022>, <2023>, <2024>],
+    \"net_change_cash\": [<2022>, <2023>, <2024>]
+  },
+  \"notes\": {
+    \"tax_rate\":          {\"values\": {\"2022A\": <decimal>, \"2023A\": <decimal>, \"2024A\": <decimal>}},
+    \"debt_maturities\":   {\"2025\": <val>, \"2026\": <val>, \"2027\": <val>},
+    \"sbc_expense\":       {\"values\": {\"2022A\": <val>, \"2023A\": <val>, \"2024A\": <val>}},
+    \"lease_obligations\": {\"operating\": <val>, \"finance\": <val>},
+    \"dso_days\": <number or null>,
+    \"dpo_days\": <number or null>,
+    \"dio_days\": <number or null>
+  },
+  \"confidence\": <0.0 to 1.0>,
+  \"discrepancies\": [\"description of any conflicts or missing items\"]
+}";
+
+/// System prompt for bank extraction.
+/// Ported verbatim from `src/extractor.py::_BANK_SYSTEM_PROMPT`.
+pub static BANK_SYSTEM_PROMPT: &str = "\
+You are a senior financial analyst extracting structured financial data from annual report text.
+
+Extract main income statement, balance sheet, and cash flow statement line items for ALL years present in the report (typically 2-3 comparative years). Also extract key footnote detail.
+
+IMPORTANT RULES:
+- All monetary values in MILLIONS (same currency as the filing)
+- Arrays: oldest year first, newest year last — same length for every key
+- income_tax: positive number (absolute tax charge)
+- cfi: SIGNED total (negative = net outflow from investing)
+- cff: SIGNED total (negative = net outflow from financing)
+- net_change_cash: SIGNED total (positive = increase in cash and equivalents)
+- USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
+- IFRS naming mappings (label in filing → JSON key):
+    \"Interest income\" / \"Interest and similar income\" / \"Interest and similar revenue\" → interest_income
+    \"Interest expense\" / \"Interest and similar expense\" / \"Interest and similar charges\" → interest_expense
+    \"Net interest income\" / \"Net interest and similar income\" → net_interest_income
+    \"Fee and commission income\" / \"Net fee and commission income\" / \"Fees and commissions\" → fee_commission_income
+    \"Net trading income\" / \"Trading income\" / \"Net gains on financial instruments at fair value\" → trading_income
+    \"Total operating income\" / \"Total income\" / \"Operating income\" → total_operating_income
+    \"Loan loss provisions\" / \"Impairment losses on loans\" / \"Credit loss expense\" / \"Net impairment on financial assets\" → loan_loss_provisions
+    \"Operating expenses\" / \"Total operating expenses\" / \"General and administrative expenses\" → operating_expenses
+    \"Profit before tax\" / \"Profit before income tax\" / \"Pre-tax profit\" → pretax_income
+    \"Net cash from investing activities\" / \"Net cash used in investing activities\" / \"Cash flow from investment activities\" → cfi
+    \"Net cash from financing activities\" / \"Net cash used in financing activities\" / \"Cash flow from financing activities\" → cff
+    \"Net change in cash and cash equivalents\" / \"Net increase (decrease) in cash\" / \"Change in cash and cash equivalents\" → net_change_cash
+- net_income: the TOTAL \"Profit for the year\" / \"Profit for the period\" / \"Net profit\" for the whole group INCLUDING non-controlling interests — NEVER the \"attributable to owners/shareholders of the parent\" sub-line
+- Nordic/European numbers: \"168 343\" means 168,343 (space = thousands separator)
+- If a line item is absent from the filing, omit its key entirely (do not include null or 0)
+
+Return ONLY valid JSON in this exact structure (no prose, no markdown):
+{
+  \"currency\": \"<3-letter code e.g. SEK, EUR, GBP>\",
+  \"years_found\": [\"2022\", \"2023\", \"2024\"],
+  \"income_statement\": {
+    \"interest_income\":         [<2022>, <2023>, <2024>],
+    \"interest_expense\":        [<2022>, <2023>, <2024>],
+    \"net_interest_income\":     [<2022>, <2023>, <2024>],
+    \"fee_commission_income\":   [<2022>, <2023>, <2024>],
+    \"trading_income\":          [<2022>, <2023>, <2024>],
+    \"total_operating_income\":  [<2022>, <2023>, <2024>],
+    \"loan_loss_provisions\":    [<2022>, <2023>, <2024>],
+    \"operating_expenses\":      [<2022>, <2023>, <2024>],
+    \"pretax_income\":           [<2022>, <2023>, <2024>],
+    \"income_tax\":              [<2022>, <2023>, <2024>],
+    \"net_income\":              [<2022>, <2023>, <2024>]
+  },
+  \"balance_sheet\": {
+    \"cash_and_central_bank\":  [<2022>, <2023>, <2024>],
+    \"loans_to_customers\":     [<2022>, <2023>, <2024>],
+    \"investment_securities\":  [<2022>, <2023>, <2024>],
+    \"total_assets\":           [<2022>, <2023>, <2024>],
+    \"customer_deposits\":      [<2022>, <2023>, <2024>],
+    \"debt_securities_issued\": [<2022>, <2023>, <2024>],
+    \"total_liabilities\":      [<2022>, <2023>, <2024>],
+    \"total_equity\":           [<2022>, <2023>, <2024>]
+  },
+  \"cash_flow_statement\": {
+    \"cfo\":             [<2022>, <2023>, <2024>],
+    \"cfi\":             [<2022>, <2023>, <2024>],
+    \"cff\":             [<2022>, <2023>, <2024>],
+    \"net_change_cash\": [<2022>, <2023>, <2024>]
+  },
+  \"notes\": {
+    \"tax_rate\":          {\"values\": {\"2022A\": <decimal>, \"2023A\": <decimal>, \"2024A\": <decimal>}},
+    \"debt_maturities\":   {\"2025\": <val>, \"2026\": <val>, \"2027\": <val>},
+    \"sbc_expense\":       {\"values\": {\"2022A\": <val>, \"2023A\": <val>, \"2024A\": <val>}},
+    \"lease_obligations\": {\"operating\": <val>, \"finance\": <val>},
+    \"dso_days\": <number or null>,
+    \"dpo_days\": <number or null>,
+    \"dio_days\": <number or null>
+  },
+  \"confidence\": <0.0 to 1.0>,
+  \"discrepancies\": [\"description of any conflicts or missing items\"]
+}";
+
+/// System prompt for insurer extraction.
+/// Ported verbatim from `src/extractor.py::_INSURER_SYSTEM_PROMPT`.
+pub static INSURER_SYSTEM_PROMPT: &str = "\
+You are a senior financial analyst extracting structured financial data from annual report text.
+
+Extract main income statement, balance sheet, and cash flow statement line items for ALL years present in the report (typically 2-3 comparative years). Also extract key footnote detail.
+
+IMPORTANT RULES:
+- All monetary values in MILLIONS (same currency as the filing)
+- Arrays: oldest year first, newest year last — same length for every key
+- income_tax: positive number (absolute tax charge)
+- cfi: SIGNED total (negative = net outflow from investing)
+- cff: SIGNED total (negative = net outflow from financing)
+- net_change_cash: SIGNED total (positive = increase in cash and equivalents)
+- USE ONLY the CONSOLIDATED financial statements — never segment tables, parent-company, or subsidiary statements
+- IFRS naming mappings (label in filing → JSON key):
+    \"Gross written premium\" / \"Gross written premiums\" / \"Gross premiums written\" → gross_written_premium
+    \"Net earned premium\" / \"Net earned premiums\" / \"Premiums earned, net\" / \"Net insurance revenue\" → net_earned_premium
+    \"Net investment income\" / \"Investment income\" / \"Investment result\" → net_investment_income
+    \"Net claims incurred\" / \"Claims incurred, net\" / \"Net insurance claims\" / \"Insurance service expense\" → net_claims_incurred
+    \"Acquisition expenses\" / \"Acquisition costs\" / \"Deferred acquisition costs amortisation\" / \"Commission expenses\" → acquisition_expenses
+    \"Operating expenses\" / \"Total operating expenses\" / \"Administrative expenses\" → operating_expenses
+    \"Profit before tax\" / \"Profit before income tax\" / \"Pre-tax profit\" → pretax_income
+    \"Net cash from investing activities\" / \"Net cash used in investing activities\" / \"Cash flow from investment activities\" → cfi
+    \"Net cash from financing activities\" / \"Net cash used in financing activities\" / \"Cash flow from financing activities\" → cff
+    \"Net change in cash and cash equivalents\" / \"Net increase (decrease) in cash\" / \"Change in cash and cash equivalents\" → net_change_cash
+- net_income: the TOTAL \"Profit for the year\" / \"Profit for the period\" / \"Net profit\" for the whole group INCLUDING non-controlling interests — NEVER the \"attributable to owners/shareholders of the parent\" sub-line
+- Nordic/European numbers: \"168 343\" means 168,343 (space = thousands separator)
+- If a line item is absent from the filing, omit its key entirely (do not include null or 0)
+
+Return ONLY valid JSON in this exact structure (no prose, no markdown):
+{
+  \"currency\": \"<3-letter code e.g. SEK, EUR, GBP>\",
+  \"years_found\": [\"2022\", \"2023\", \"2024\"],
+  \"income_statement\": {
+    \"gross_written_premium\": [<2022>, <2023>, <2024>],
+    \"net_earned_premium\":    [<2022>, <2023>, <2024>],
+    \"net_investment_income\": [<2022>, <2023>, <2024>],
+    \"net_claims_incurred\":   [<2022>, <2023>, <2024>],
+    \"acquisition_expenses\":  [<2022>, <2023>, <2024>],
+    \"operating_expenses\":    [<2022>, <2023>, <2024>],
+    \"pretax_income\":         [<2022>, <2023>, <2024>],
+    \"income_tax\":            [<2022>, <2023>, <2024>],
+    \"net_income\":            [<2022>, <2023>, <2024>]
+  },
+  \"balance_sheet\": {
+    \"investments\":                    [<2022>, <2023>, <2024>],
+    \"cash\":                           [<2022>, <2023>, <2024>],
+    \"total_assets\":                   [<2022>, <2023>, <2024>],
+    \"insurance_contract_liabilities\": [<2022>, <2023>, <2024>],
+    \"total_liabilities\":              [<2022>, <2023>, <2024>],
+    \"total_equity\":                   [<2022>, <2023>, <2024>]
+  },
+  \"cash_flow_statement\": {
+    \"cfo\":             [<2022>, <2023>, <2024>],
+    \"cfi\":             [<2022>, <2023>, <2024>],
+    \"cff\":             [<2022>, <2023>, <2024>],
+    \"net_change_cash\": [<2022>, <2023>, <2024>]
+  },
+  \"notes\": {
+    \"tax_rate\":          {\"values\": {\"2022A\": <decimal>, \"2023A\": <decimal>, \"2024A\": <decimal>}},
+    \"debt_maturities\":   {\"2025\": <val>, \"2026\": <val>, \"2027\": <val>},
+    \"sbc_expense\":       {\"values\": {\"2022A\": <val>, \"2023A\": <val>, \"2024A\": <val>}},
+    \"lease_obligations\": {\"operating\": <val>, \"finance\": <val>},
+    \"dso_days\": <number or null>,
+    \"dpo_days\": <number or null>,
+    \"dio_days\": <number or null>
+  },
+  \"confidence\": <0.0 to 1.0>,
+  \"discrepancies\": [\"description of any conflicts or missing items\"]
+}";
+
+/// Notes extraction prompt.
+/// Ported verbatim from `src/extractor.py::NOTES_SYSTEM_PROMPT`.
+pub static NOTES_SYSTEM_PROMPT: &str = "\
+You are a senior financial analyst extracting data from company filing text.
+Extract ALL financial data found: D&A schedules, debt maturities, tax rates, working capital details,
+CapEx breakdown, SBC expense, lease obligations, segment data, and any other quantitative footnote data.
+Return ONLY valid JSON. Use millions as unit. Omit keys where data not present.";
+
+/// Sector dispatch map matching Python `_SYSTEM_PROMPT_BY_SECTOR`.
+/// INVARIANT: keys must stay key-exact with `tieout.config.CANONICAL_BY_SECTOR[sector]`.
+pub fn system_prompt_for_sector(sector: &str) -> &'static str {
+    match sector {
+        "industrial" => FINANCIALS_SYSTEM_PROMPT,
+        "bank" => BANK_SYSTEM_PROMPT,
+        "insurer" => INSURER_SYSTEM_PROMPT,
+        _ => FINANCIALS_SYSTEM_PROMPT,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Extraction cache (mirrors Python extraction_cache/)
+// ---------------------------------------------------------------------------
+
+use std::path::{Path, PathBuf};
+
+/// Default cache directory (relative to project root).
+fn cache_dir() -> PathBuf {
+    // Try extraction_cache/ relative to CARGO_MANIFEST_DIR, then cwd
+    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+        let p = Path::new(&manifest).join("../../extraction_cache");
+        if p.exists() || p.parent().map_or(true, |pp| pp.exists()) {
+            return p;
+        }
+    }
+    PathBuf::from("extraction_cache")
+}
+
+fn cache_filename(ticker: &str) -> String {
+    let safe = ticker.replace('/', "_").replace('.', "_");
+    format!("{safe}.json")
+}
+
+fn cache_path(ticker: &str) -> PathBuf {
+    cache_dir().join(cache_filename(ticker))
+}
+
+/// Load a cached extraction result for the given ticker.
+pub fn load_cache(ticker: &str) -> Option<ExtractionResult> {
+    let p = cache_path(ticker);
+    if !p.exists() {
+        return None;
+    }
+    let data = std::fs::read_to_string(&p).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+/// Save an extraction result to the cache.
+pub fn save_extraction_cache(ticker: &str, result: &ExtractionResult) -> Result<PathBuf, ExtractError> {
+    let p = cache_path(ticker);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| ExtractError::Other(format!("mkdir: {e}")))?;
+    }
+    let json = serde_json::to_string_pretty(result)
+        .map_err(|e| ExtractError::Other(format!("serialize: {e}")))?;
+    std::fs::write(&p, &json).map_err(|e| ExtractError::Other(format!("write: {e}")))?;
+    Ok(p)
+}
+
+// ---------------------------------------------------------------------------
+// PDF extraction orchestration
+// ---------------------------------------------------------------------------
+
+/// Extract financial data from a PDF filing by shelling to pdfplumber for text
+/// extraction, finding the financial section, then calling the LLM.
+///
+/// Ported from `extract_financials_from_pdf()` in `src/extractor.py`.
+pub fn extract_financials_from_pdf(
+    pdf_path: &str,
+    periods: &[String],
+    _ticker: &str,
+) -> Result<ExtractionResult, ExtractError> {
+    // Step 1: Extract text from PDF via shell to pdfplumber
+    let text = extract_pdf_text_via_pdfplumber(pdf_path)?;
+
+    // Step 2: Split into pages (on form feeds or similar page boundaries)
+    let pages: Vec<String> = text.split('\u{000C}')  // form feed character
+        .map(|s| s.to_string())
+        .collect();
+
+    // Step 3: Detect sector and get right prompt
+    let sector = crate::section::detect_sector(&pages);
+    let system_prompt = system_prompt_for_sector(sector);
+
+    // Step 4: Find financial section
+    let section_text = crate::section::extract_financial_section(&pages, 30);
+    // Step 5: Build user prompt matching Python `extract_financials_from_pdf` lines 590-596.
+    //   Python: years = [p[:4] for p in periods]
+    //   "Extract data for these years (oldest first): {years}\nReturn arrays of length {len} for every key.\n\nAnnual report text:\n{chunk}"
+    let years_clean: Vec<&str> = periods.iter().map(|p| &p[..p.len().min(4)]).collect();
+    let years_repr = format!("[{}]", years_clean.iter().map(|y| format!("'{y}'")).collect::<Vec<_>>().join(", "));
+    let user_prompt = format!(
+        "Extract data for these years (oldest first): {years_repr}\n\
+         Return arrays of length {} for every key.\n\n\
+         Annual report text:\n{section_text}",
+        years_clean.len(),
+    );
+
+    // Step 6: Call LLM (Python uses max_tokens=8192)
+    let raw = crate::llm::llm_complete(system_prompt, &user_prompt, 8192)
+        .map_err(|e| ExtractError::Other(format!("LLM call failed: {e}")))?;
+
+    // Step 7: Parse JSON response with salvage fallback matching Python lines 604-615.
+    let parsed = parse_llm_json_response(&raw)?;
+    extraction_result_from_json(&parsed)
+}
+
+/// Parse LLM JSON response with fallback salvage (matches Python's json.loads + find/rfind).
+fn parse_llm_json_response(raw: &str) -> Result<serde_json::Value, ExtractError> {
+    let raw_trimmed = raw.trim();
+    // First attempt: direct parse
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw_trimmed) {
+        return Ok(v);
+    }
+    // Fallback: extract outermost { ... } — Python uses find('{') / rfind('}')
+    let brace_start = raw_trimmed.find('{');
+    let brace_end = raw_trimmed.rfind('}');
+    if let (Some(s), Some(e)) = (brace_start, brace_end) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str(&raw_trimmed[s..=e]) {
+                return Ok(v);
+            }
+        }
+    }
+    Err(ExtractError::Other(format!(
+        "LLM returned invalid JSON; raw (first 200): {}",
+        &raw.chars().take(200).collect::<String>()
+    )))
+}
+
+/// Fallback: extract PDF text by shelling to Python pdfplumber.
+fn extract_pdf_text_via_pdfplumber(pdf_path: &str) -> Result<String, ExtractError> {
+    let script = format!(
+        "import pdfplumber, sys; pdf = pdfplumber.open(sys.argv[1]); \
+         print('\\x0C'.join(page.extract_text() or '' for page in pdf.pages))"
+    );
+    let output = std::process::Command::new("python")
+        .args(["-c", &script, pdf_path])
+        .output()
+        .map_err(|e| ExtractError::Other(format!("pdfplumber failed: {e}")))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(ExtractError::Other(format!("pdfplumber error: {err}")));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(text)
+}
+
+/// Convert a JSON value (from LLM response) into an ExtractionResult.
+fn extraction_result_from_json(val: &serde_json::Value) -> Result<ExtractionResult, ExtractError> {
+    let currency = val.get("currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USD")
+        .to_string();
+
+    let years_found = val.get("years_found")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let income_statement = json_obj_to_statement_data(val.get("income_statement"));
+    let balance_sheet = json_obj_to_statement_data(val.get("balance_sheet"));
+    let cash_flow_statement = json_obj_to_statement_data(val.get("cash_flow_statement"));
+
+    let notes = val.get("notes")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        })
+        .unwrap_or_default();
+
+    let confidence = val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.9);
+
+    let discrepancies = val.get("discrepancies")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    Ok(ExtractionResult {
+        currency,
+        years_found,
+        income_statement,
+        balance_sheet,
+        cash_flow_statement,
+        notes,
+        confidence,
+        discrepancies,
+    })
+}
+
+/// Convert a JSON object with array values into StatementData.
+fn json_obj_to_statement_data(obj: Option<&serde_json::Value>) -> StatementData {
+    let mut sd = StatementData::new();
+    if let Some(o) = obj.and_then(|v| v.as_object()) {
+        for (key, val) in o {
+            if let Some(arr) = val.as_array() {
+                let vec: Vec<Option<f64>> = arr.iter()
+                    .map(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+                    .collect();
+                sd.insert(key.clone(), vec);
+            }
+        }
+    }
+    sd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
