@@ -97,6 +97,45 @@ fn detect_years(parsed: &xbrl::ParsedXbrlData) -> Option<Vec<String>> {
     )
 }
 
+/// Fetch financial data for a non-US company by discovering and extracting its annual report PDF.
+///
+/// Steps:
+/// 1. Discover PDF URL via DDG search + IR page scrape (fm-fetch::discovery)
+/// 2. Download PDF to temp file (fm-fetch::pdf)
+/// 3. Extract financials via LLM (crate::extract::extract_financials_from_pdf)
+/// 4. Return ExtractionResult
+pub fn fetch_non_us_filing(
+    company_name: &str,
+    ticker: &str,
+    periods: &[String],
+    year: Option<i32>,
+) -> Result<super::ExtractionResult, super::ExtractError> {
+    // Step 1: Discover PDF URL
+    let pdf_url = fm_fetch::discovery::find_annual_report_pdf_url(company_name, ticker, year)
+        .map_err(|e| super::ExtractError::Other(format!("PDF discovery failed: {e}")))?;
+
+    // Step 2: Download PDF
+    let config = fm_fetch::pdf::DownloadConfig {
+        url: pdf_url,
+        output_path: None,
+        user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".into()),
+    };
+    let pdf_path = fm_fetch::pdf::download_pdf(&config)
+        .map_err(|e| super::ExtractError::Other(format!("PDF download failed: {e}")))?;
+
+    // Step 3: Extract financials from PDF
+    let result = super::extract::extract_financials_from_pdf(
+        &pdf_path.to_string_lossy(),
+        periods,
+        ticker,
+    )?;
+
+    // Step 4: Clean up temp file
+    let _ = std::fs::remove_file(&pdf_path);
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

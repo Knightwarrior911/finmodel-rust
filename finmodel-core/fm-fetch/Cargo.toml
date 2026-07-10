@@ -6,6 +6,8 @@ description = "R.2 filing fetch crate: EDGAR XBRL pull, CIK lookup, PDF download
 
 [dependencies]
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+scraper = "0.22"
+url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

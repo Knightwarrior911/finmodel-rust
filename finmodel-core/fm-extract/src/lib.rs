@@ -10,7 +10,7 @@ pub mod section;
 pub mod xbrl;
 
 // Re-export the most commonly used items.
-pub use edgar::fetch_xbrl;
+pub use edgar::{fetch_xbrl, fetch_non_us_filing};
 pub use extract::{
     ExtractError, ExtractionResult, FetchConfig,
     EXTRACT_SYSTEM_PROMPT, FINANCIALS_SYSTEM_PROMPT,
