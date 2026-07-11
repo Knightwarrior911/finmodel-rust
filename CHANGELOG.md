@@ -9,7 +9,10 @@
   net/FCF margin), Returns (ROE/ROA), Liquidity (current ratio), Leverage (net
   debt / net-debt-to-EBITDA / interest coverage) — all from filings, unit-tested.
 - **`fm verify`** now filters snapshots structurally (`model_output` present &&
-  not `*_full_*`), so the new gate oracles (adhoc / ev_bridge) never break it.
+  not `*_full_*`), so the new gate oracles (adhoc / ev_bridge / ifrs_bridge)
+  never break it.
+- **`fm benchmark --csv PATH`** exports the raw benchmark grid (header + one row
+  per company, values verbatim) for drop-in use in a banker's own model.
 - **`fm benchmark --tickers AAPL,MSFT,… [--out …] [--title …]`**: fetches each
   peer's SEC EDGAR XBRL companyfacts, computes latest-FY scale / growth /
   profitability / returns / leverage metrics, and renders an IB-grade comparison

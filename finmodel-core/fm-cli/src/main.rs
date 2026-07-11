@@ -131,6 +131,9 @@ enum Command {
         /// Workbook title (default derived from the tickers).
         #[arg(long)]
         title: Option<String>,
+        /// Also write the raw benchmark grid to this .csv path (for own models).
+        #[arg(long)]
+        csv: Option<String>,
     },
 }
 
@@ -469,6 +472,7 @@ fn cmd_benchmark(
     tickers: &str,
     out: &str,
     title: Option<&str>,
+    csv: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let list: Vec<String> = tickers
         .split(',')
@@ -496,6 +500,10 @@ fn cmd_benchmark(
     let generated = fm_research::generated_stamp(&fm_research::today_iso());
     fm_research::render_benchmark(&run.table, out, &generated)?;
     println!("  \u{2713} wrote benchmark workbook -> {out}");
+    if let Some(csv_path) = csv {
+        std::fs::write(csv_path, run.table.to_csv())?;
+        println!("  \u{2713} wrote benchmark CSV -> {csv_path}");
+    }
     Ok(())
 }
 
@@ -529,8 +537,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cash, short_term_investments, equity_investments, nol_dta,
             xlsx.as_deref(), ltm_revenue, ltm_ebitda,
         ),
-        Command::Benchmark { tickers, out, title } => {
-            cmd_benchmark(&tickers, &out, title.as_deref())
+        Command::Benchmark { tickers, out, title, csv } => {
+            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref())
         }
     }
 }

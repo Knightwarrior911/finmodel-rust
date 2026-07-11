@@ -351,6 +351,38 @@ impl AdHocTable {
         m
     }
 
+    /// Serialize the table's entity rows to CSV (header = column headers, one
+    /// line per data row; summary-stat / footer rows excluded). Monetary /
+    /// ratio values are emitted verbatim as computed, for drop-in use in a
+    /// banker's own model. RFC-4180 quoting for fields with `,"`/newlines.
+    pub fn to_csv(&self) -> String {
+        fn esc(s: &str) -> String {
+            if s.contains([',', '"', '\n', '\r']) {
+                format!("\"{}\"", s.replace('"', "\"\""))
+            } else {
+                s.to_string()
+            }
+        }
+        let mut out = String::new();
+        let header: Vec<String> = self.columns.iter().map(|c| esc(&c.header)).collect();
+        out.push_str(&header.join(","));
+        out.push('\n');
+        for r in &self.rows {
+            let line: Vec<String> = self
+                .columns
+                .iter()
+                .map(|c| match r.get(&c.key) {
+                    Some(CellVal::Number(n)) => format!("{n}"),
+                    Some(CellVal::Text(t)) => esc(t),
+                    _ => String::new(),
+                })
+                .collect();
+            out.push_str(&line.join(","));
+            out.push('\n');
+        }
+        out
+    }
+
     /// Run the decision tree for this table (with DASHBOARD fallback applied,
     /// mirroring `write_research`).
     pub fn decision(&self) -> LayoutDecision {
@@ -715,5 +747,30 @@ mod tests {
         assert!(t.validate().is_ok());
         t.rows.clear();
         assert!(t.validate().is_err()); // empty rows
+    }
+
+    #[test]
+    fn to_csv_emits_header_and_entity_rows() {
+        let table = AdHocTable {
+            title: "T".into(),
+            units: String::new(),
+            columns: vec![
+                ColumnSpec::label("t", "Name"),
+                ColumnSpec::metric("a", "A, x", ColKind::Dollar), // header needs quoting
+                ColumnSpec::metric("b", "B", ColKind::Percent),
+            ],
+            rows: vec![wide_row("X", 1.0, 0.1), wide_row("Y", 2.0, 0.2)],
+            sources: HashMap::new(),
+            grain: Grain::Company,
+            is_comparative: true,
+            needs_sort_filter: false,
+            layout_override: None,
+        };
+        let csv = table.to_csv();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "Name,\"A, x\",B"); // comma in header quoted
+        assert_eq!(lines[1], "X,1,0.1");
+        assert_eq!(lines[2], "Y,2,0.2");
+        assert_eq!(lines.len(), 3); // header + 2 entities, no stat/footer rows
     }
 }
