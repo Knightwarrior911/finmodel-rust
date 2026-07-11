@@ -506,6 +506,93 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
 }
 
 #[cfg(test)]
+mod e2e_tests {
+    use super::*;
+    use fm_excel::model::Value;
+
+    fn stmt(pairs: &[(&str, &[Option<f64>])]) -> StatementData {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect()
+    }
+
+    fn big(ticker_rev: f64) -> ExtractionResult {
+        ExtractionResult {
+            currency: "USD".into(),
+            years_found: vec!["2023".into(), "2024".into()],
+            income_statement: stmt(&[
+                ("revenue", &[Some(ticker_rev * 0.9), Some(ticker_rev)]),
+                ("gross_profit", &[Some(ticker_rev * 0.4), Some(ticker_rev * 0.45)]),
+                ("ebit", &[Some(ticker_rev * 0.2), Some(ticker_rev * 0.25)]),
+                ("da", &[Some(ticker_rev * 0.05), Some(ticker_rev * 0.05)]),
+                ("net_income", &[Some(ticker_rev * 0.15), Some(ticker_rev * 0.2)]),
+            ]),
+            balance_sheet: stmt(&[
+                ("long_term_debt", &[Some(ticker_rev * 0.3), Some(ticker_rev * 0.3)]),
+                ("cash", &[Some(ticker_rev * 0.1), Some(ticker_rev * 0.1)]),
+                ("total_equity", &[Some(ticker_rev), Some(ticker_rev * 1.1)]),
+                ("total_assets", &[Some(ticker_rev * 2.0), Some(ticker_rev * 2.2)]),
+            ]),
+            cash_flow_statement: StatementData::new(),
+            notes: HashMap::new(),
+            confidence: 1.0,
+            discrepancies: vec![],
+        }
+    }
+
+    /// Full pipeline: two synthetic filings → metrics → table → rendered sheet.
+    /// Guards the wiring (headers, group banners, millions scaling, summary
+    /// formulas over exactly the entity rows) that unit tests alone don't cover.
+    #[test]
+    fn benchmark_pipeline_renders_expected_cells() {
+        // 400,000,000,000 revenue → 400,000 in millions.
+        let a = metrics_from_extraction("AAA", &big(400_000_000_000.0));
+        let b = metrics_from_extraction("BBB", &big(200_000_000_000.0));
+        let table = build_benchmark_table(&[a, b], "E2E");
+        table.validate().unwrap();
+        let sheet = table.build_sheet("Generated: X | Source: Y");
+
+        let texts: Vec<String> = sheet
+            .cells
+            .values()
+            .filter_map(|c| match &c.value {
+                Some(Value::Text(t)) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        // Headers + group banners rendered.
+        for expected in ["Revenue", "Net Debt", "Sector", "SCALE", "LEVERAGE", "Median", "Max"] {
+            assert!(texts.iter().any(|t| t == expected), "missing cell text {expected:?}");
+        }
+        // Revenue scaled to millions and rendered as a number.
+        let numbers: Vec<f64> = sheet
+            .cells
+            .values()
+            .filter_map(|c| match &c.value {
+                Some(Value::Number(n)) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        assert!(numbers.iter().any(|n| (*n - 400_000.0).abs() < 1e-6), "AAA revenue (millions) not rendered");
+        assert!(numbers.iter().any(|n| (*n - 200_000.0).abs() < 1e-6), "BBB revenue (millions) not rendered");
+
+        // Every summary formula spans exactly the two entity rows (data_start..data_end).
+        let medians: Vec<String> = sheet
+            .cells
+            .values()
+            .filter_map(|c| c.formula.clone())
+            .filter(|f| f.starts_with("=MEDIAN("))
+            .collect();
+        assert!(!medians.is_empty(), "no MEDIAN summary formulas rendered");
+        for f in &medians {
+            // Range like =MEDIAN(E10:E11): the two row numbers must differ by 1.
+            let inner = f.trim_start_matches("=MEDIAN(").trim_end_matches(')');
+            let (lo, hi) = inner.split_once(':').expect("range");
+            let rownum = |cell: &str| cell.trim_start_matches(|c: char| c.is_ascii_alphabetic()).parse::<u32>().unwrap();
+            assert_eq!(rownum(hi) - rownum(lo), 1, "summary range {f} must span 2 entity rows");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
