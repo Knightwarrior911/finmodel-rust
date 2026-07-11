@@ -11,6 +11,9 @@
 - **`fm verify`** now filters snapshots structurally (`model_output` present &&
   not `*_full_*`), so the new gate oracles (adhoc / ev_bridge / ifrs_bridge)
   never break it.
+- **Sector column** — best-effort EDGAR SIC industry (submissions endpoint) per
+  peer, so financials (banks/insurers) whose leverage/coverage read differently
+  are visible; never fails the run. `fm-fetch::fetch_company_sic` + `SicInfo`.
 - **`fm benchmark --csv PATH`** exports the raw benchmark grid (header + one row
   per company, values verbatim) for drop-in use in a banker's own model.
 - **`fm benchmark --tickers AAPL,MSFT,… [--out …] [--title …]`**: fetches each

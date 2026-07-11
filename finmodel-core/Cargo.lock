@@ -596,6 +596,7 @@ version = "0.1.0"
 dependencies = [
  "fm-excel",
  "fm-extract",
+ "fm-fetch",
  "fm-types",
  "serde",
  "serde_json",

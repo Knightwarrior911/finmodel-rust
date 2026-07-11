@@ -31,6 +31,8 @@ pub struct BenchmarkMetrics {
     pub currency: String,
     /// Latest reported fiscal year label (e.g. `"2024"`), if known.
     pub fiscal_year: Option<String>,
+    /// SIC industry description from EDGAR (e.g. "National Commercial Banks").
+    pub sector: Option<String>,
 
     // ── Raw filing figures (native units) ────────────────────────────────
     pub revenue: Option<f64>,
@@ -217,6 +219,8 @@ fn benchmark_columns() -> Vec<ColumnSpec> {
         ColumnSpec::label("ticker", "Ticker"),
         ColumnSpec::metric("currency", "Ccy", ColKind::Text)
             .with_definition("Reporting currency (metrics NOT FX-normalized across peers)"),
+        ColumnSpec::metric("sector", "Sector", ColKind::Text)
+            .with_definition("SIC industry (EDGAR). Financials' leverage/coverage read differently."),
         ColumnSpec::metric("revenue", "Revenue", ColKind::Dollar)
             .with_group("Scale")
             .with_units("reporting-ccy millions")
@@ -286,6 +290,13 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         let mut r: HashMap<String, CellVal> = HashMap::new();
         r.insert("ticker".into(), CellVal::Text(m.ticker.clone()));
         r.insert("currency".into(), CellVal::Text(m.currency.clone()));
+        r.insert(
+            "sector".into(),
+            match &m.sector {
+                Some(s) if !s.is_empty() => CellVal::Text(s.clone()),
+                _ => CellVal::Empty,
+            },
+        );
         r.insert("revenue".into(), millions(m.revenue));
         r.insert("ebitda".into(), millions(m.ebitda));
         r.insert("net_income".into(), millions(m.net_income));
@@ -471,8 +482,14 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
     for t in tickers {
         match fm_extract::fetch_xbrl(t) {
             Ok(ex) => {
-                let m = metrics_from_extraction(t, &ex);
+                let mut m = metrics_from_extraction(t, &ex);
                 if m.fiscal_year.is_some() && m.revenue.is_some() {
+                    // Best-effort sector tag from EDGAR SIC (never fails the run).
+                    m.sector = fm_fetch::cik_from_ticker(t)
+                        .and_then(|cik| fm_fetch::fetch_company_sic(&cik))
+                        .ok()
+                        .map(|s| s.sic_description)
+                        .filter(|s| !s.is_empty());
                     metrics.push(m);
                 } else {
                     failed.push((t.clone(), "no revenue / fiscal year in XBRL".into()));
@@ -636,6 +653,22 @@ mod tests {
         assert_eq!(m.net_debt, None); // no debt/cash
         assert_eq!(m.revenue_growth, None); // single year
         assert_eq!(m.roe, None);
+    }
+
+    #[test]
+    fn sector_flows_into_table_when_present() {
+        let mut m = metrics_from_extraction("BANK", &sample());
+        m.sector = Some("National Commercial Banks".into());
+        let table = build_benchmark_table(&[m], "T");
+        assert!(table.columns.iter().any(|c| c.key == "sector"));
+        assert_eq!(
+            table.rows[0].get("sector"),
+            Some(&CellVal::Text("National Commercial Banks".into()))
+        );
+        // Absent sector → blank cell, never fabricated.
+        let m2 = metrics_from_extraction("X", &sample());
+        let t2 = build_benchmark_table(&[m2], "T");
+        assert_eq!(t2.rows[0].get("sector"), Some(&CellVal::Empty));
     }
 
     #[test]

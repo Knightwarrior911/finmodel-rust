@@ -12,6 +12,7 @@ use serde_json::Value;
 const EDGAR_USER_AGENT: &str = "FinancialModelBot vinit.paul@gmail.com";
 const COMPANY_TICKERS_URL: &str = "https://www.sec.gov/files/company_tickers.json";
 const COMPANY_FACTS_URL: &str = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json";
+const SUBMISSIONS_URL: &str = "https://data.sec.gov/submissions/CIK{cik}.json";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -144,6 +145,48 @@ pub fn fetch_companyfacts_raw(cik: &str) -> Result<Value, EdgarError> {
         .send()?
         .error_for_status()?;
     Ok(resp.json()?)
+}
+
+/// SIC industry classification from the SEC submissions endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SicInfo {
+    /// 4-digit SIC code (e.g. "6021").
+    pub sic: String,
+    /// Human-readable industry (e.g. "National Commercial Banks").
+    pub sic_description: String,
+}
+
+impl SicInfo {
+    /// True for SIC 6000–6799 (finance / insurance / real estate) — sectors
+    /// where industrial leverage / coverage metrics don't apply cleanly.
+    pub fn is_financial(&self) -> bool {
+        self.sic
+            .parse::<u32>()
+            .map(|c| (6000..=6799).contains(&c))
+            .unwrap_or(false)
+    }
+}
+
+/// Fetch a company's SIC industry classification (submissions endpoint).
+pub fn fetch_company_sic(cik: &str) -> Result<SicInfo, EdgarError> {
+    let url = SUBMISSIONS_URL.replace("{cik}", cik);
+    let resp = client()
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()?
+        .error_for_status()?;
+    let v: Value = resp.json()?;
+    let sic = v.get("sic").and_then(|s| match s {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }).unwrap_or_default();
+    let sic_description = v
+        .get("sicDescription")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Ok(SicInfo { sic, sic_description })
 }
 
 // ---------------------------------------------------------------------------
