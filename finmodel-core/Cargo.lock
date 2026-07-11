@@ -523,6 +523,7 @@ dependencies = [
  "fm-engine",
  "fm-excel",
  "fm-extract",
+ "fm-ifrs",
  "fm-tieout",
  "fm-types",
  "fm-value",
@@ -579,6 +580,13 @@ dependencies = [
  "serde_json",
  "thiserror",
  "url",
+]
+
+[[package]]
+name = "fm-ifrs"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ fm-tieout = { path = "../fm-tieout" }
 fm-extract = { path = "../fm-extract" }
 fm-engine = { path = "../fm-engine" }
 fm-value = { path = "../fm-value" }
+fm-ifrs = { path = "../fm-ifrs" }
 fm-excel = { path = "../fm-excel" }
 fm-build = { path = "../fm-build" }
 clap = { version = "4", features = ["derive"] }

@@ -27,6 +27,39 @@ enum Command {
     Build { ticker: String },
     /// Verify all committed snapshots reproduce to zero diffs
     Verify {},
+    /// IFRS 16 ↔ US GAAP lease-accounting conversion + ASC 842 estimation.
+    Ifrs {
+        /// Reported accounting standard: "IFRS" or "US GAAP".
+        #[arg(long, default_value = "IFRS")]
+        standard: String,
+        /// Reported EBIT / EBITDA / EBITA (as filed).
+        #[arg(long, default_value_t = 0.0)]
+        ebit: f64,
+        #[arg(long, default_value_t = 0.0)]
+        ebitda: f64,
+        #[arg(long, default_value_t = 0.0)]
+        ebita: f64,
+        /// Revenue (enables margin lines).
+        #[arg(long, default_value_t = 0.0)]
+        revenue: f64,
+        /// Direct adjustment inputs (skip ASC 842 estimation if both given).
+        #[arg(long)]
+        rou_depreciation: Option<f64>,
+        #[arg(long)]
+        lease_interest: Option<f64>,
+        /// ASC 842 note inputs — used to estimate ROU dep + lease interest.
+        #[arg(long)]
+        lease_cost: Option<f64>,
+        #[arg(long)]
+        lease_liability: Option<f64>,
+        /// Weighted-average discount rate as a percent (e.g. 3.4).
+        #[arg(long)]
+        discount_rate: Option<f64>,
+        #[arg(long)]
+        lease_term: Option<f64>,
+        #[arg(long)]
+        rou_assets: Option<f64>,
+    },
 }
 
 fn cmd_score(gt_path: &PathBuf, model_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -188,6 +221,70 @@ fn cmd_verify() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn cmd_ifrs(
+    standard: &str,
+    ebit: f64,
+    ebitda: f64,
+    ebita: f64,
+    revenue: f64,
+    rou_depreciation: Option<f64>,
+    lease_interest: Option<f64>,
+    lease_cost: Option<f64>,
+    lease_liability: Option<f64>,
+    discount_rate: Option<f64>,
+    lease_term: Option<f64>,
+    rou_assets: Option<f64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Resolve adjustment inputs: use direct values, else estimate from ASC 842 note.
+    let (rou_dep, interest) = match (rou_depreciation, lease_interest) {
+        (Some(r), Some(i)) => (r, i),
+        _ => {
+            let mut d = fm_ifrs::Asc842LeaseData {
+                operating_lease_cost: lease_cost,
+                operating_lease_liability: lease_liability,
+                weighted_avg_discount_rate: discount_rate,
+                weighted_avg_lease_term: lease_term,
+                operating_rou_assets: rou_assets,
+                ..Default::default()
+            };
+            d.compute_ifrs_adjustments();
+            (
+                rou_depreciation.or(d.estimated_rou_depreciation).unwrap_or(0.0),
+                lease_interest.or(d.estimated_lease_interest).unwrap_or(0.0),
+            )
+        }
+    };
+
+    let inp = fm_ifrs::IfrsAdjustmentInput {
+        rou_depreciation: rou_dep,
+        lease_interest: interest,
+        reported_ebit: ebit,
+        reported_ebitda: ebitda,
+        reported_ebita: ebita,
+        accounting_standard: standard.to_string(),
+        ..Default::default()
+    };
+    let out = fm_ifrs::auto_convert(&inp, revenue);
+
+    let title = match out.direction {
+        fm_ifrs::AdjustmentDirection::IfrsToUsGaap => "IFRS 16 → US GAAP  (strip lease capitalization)",
+        fm_ifrs::AdjustmentDirection::UsGaapToIfrs => "US GAAP → IFRS 16  (add lease capitalization)",
+    };
+    println!("IFRS lease-accounting bridge — {title}");
+    println!("  Adjustment items: ROU depreciation {rou_dep:.1}, lease interest {interest:.1}");
+    println!("  (excluded: short-term rent — already OPEX in both frameworks)\n");
+    let m = |v: f64| if revenue > 0.0 { format!("  ({v:.1}% margin)") } else { String::new() };
+    println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBIT", fmt2(ebit), fmt2(out.adjusted_ebit), out.ebit_delta, m(out.adjusted_ebit_margin));
+    println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBITDA", fmt2(ebitda), fmt2(out.adjusted_ebitda), out.ebitda_delta, m(out.adjusted_ebitda_margin));
+    println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBITA", fmt2(ebita), fmt2(out.adjusted_ebita), out.ebita_delta, m(out.adjusted_ebita_margin));
+    Ok(())
+}
+
+fn fmt2(v: f64) -> String {
+    format!("{v:.1}")
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -195,5 +292,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Compare { snapshot } => cmd_compare(&snapshot),
         Command::Build { ticker } => cmd_build(&ticker),
         Command::Verify {} => cmd_verify(),
+        Command::Ifrs {
+            standard, ebit, ebitda, ebita, revenue,
+            rou_depreciation, lease_interest, lease_cost, lease_liability,
+            discount_rate, lease_term, rou_assets,
+        } => cmd_ifrs(
+            &standard, ebit, ebitda, ebita, revenue,
+            rou_depreciation, lease_interest, lease_cost, lease_liability,
+            discount_rate, lease_term, rou_assets,
+        ),
     }
 }

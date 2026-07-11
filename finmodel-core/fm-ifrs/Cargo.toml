@@ -1,0 +1,8 @@
+[package]
+name = "fm-ifrs"
+version = "0.1.0"
+edition = "2024"
+description = "IFRS 16 ↔ US GAAP lease-accounting conversion + ASC 842 lease estimation (port of kb/ifrs.py + us_gaap_leases.compute_ifrs_adjustments)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
