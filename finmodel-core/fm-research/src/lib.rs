@@ -47,6 +47,9 @@ pub struct BenchmarkMetrics {
     pub capex: Option<f64>,
     pub eps_diluted: Option<f64>,
     pub shares_diluted: Option<f64>,
+    pub interest_expense: Option<f64>,
+    pub total_current_assets: Option<f64>,
+    pub total_current_liabilities: Option<f64>,
 
     // ── Derived (native units) ───────────────────────────────────────────
     pub net_debt: Option<f64>,
@@ -61,6 +64,10 @@ pub struct BenchmarkMetrics {
     pub roe: Option<f64>,
     pub roa: Option<f64>,
     pub net_debt_to_ebitda: Option<f64>,
+    pub revenue_cagr_3y: Option<f64>,
+    pub fcf_margin: Option<f64>,
+    pub interest_coverage: Option<f64>,
+    pub current_ratio: Option<f64>,
 }
 
 /// Value at `idx` in a statement line (period-aligned, oldest-first).
@@ -131,6 +138,9 @@ pub fn metrics_from_extraction(ticker: &str, ex: &ExtractionResult) -> Benchmark
     m.net_income = at(is, "net_income", last);
     m.eps_diluted = at(is, "eps_diluted", last);
     m.shares_diluted = at(is, "shares_diluted", last);
+    m.interest_expense = at(is, "interest_expense", last);
+    m.total_current_assets = at(bs, "total_current_assets", last);
+    m.total_current_liabilities = at(bs, "total_current_liabilities", last);
 
     // Total debt = long-term (incl. finance leases) + current portion / short-term
     // borrowings, so leverage isn't understated for revolver / CP-heavy names.
@@ -167,8 +177,38 @@ pub fn metrics_from_extraction(ticker: &str, ex: &ExtractionResult) -> Benchmark
     m.roe = ratio(m.net_income, m.total_equity);
     m.roa = ratio(m.net_income, m.total_assets);
     m.net_debt_to_ebitda = ratio(m.net_debt, m.ebitda);
+    m.fcf_margin = ratio(m.fcf, m.revenue);
+    // Interest coverage = EBIT / |interest expense| (filers tag it +/-).
+    m.interest_coverage = match (m.ebit, m.interest_expense) {
+        (Some(ebit), Some(int)) if int.abs() != 0.0 => Some(ebit / int.abs()),
+        _ => None,
+    };
+    m.current_ratio = ratio(m.total_current_assets, m.total_current_liabilities);
+    // 3-yr (window) revenue CAGR across the oldest→latest revenue with data.
+    m.revenue_cagr_3y = revenue_cagr(is);
 
     m
+}
+
+/// Compound annual growth rate of revenue over the full reported window
+/// (oldest non-null to latest non-null). `None` unless ≥2 positive endpoints.
+fn revenue_cagr(is: &StatementData) -> Option<f64> {
+    let series = is.get("revenue")?;
+    let vals: Vec<(usize, f64)> = series
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.map(|x| (i, x)))
+        .collect();
+    if vals.len() < 2 {
+        return None;
+    }
+    let (i0, first) = vals[0];
+    let (i1, last) = *vals.last().unwrap();
+    if first <= 0.0 || last <= 0.0 || i1 == i0 {
+        return None;
+    }
+    let periods = (i1 - i0) as f64;
+    Some((last / first).powf(1.0 / periods) - 1.0)
 }
 
 /// Column set for the peer benchmark (order chosen so groups stay contiguous).
@@ -191,24 +231,36 @@ fn benchmark_columns() -> Vec<ColumnSpec> {
         ColumnSpec::metric("rev_growth", "Rev Growth", ColKind::Percent)
             .with_group("Growth")
             .with_definition("YoY revenue growth vs prior FY"),
+        ColumnSpec::metric("rev_cagr_3y", "Rev CAGR", ColKind::Percent)
+            .with_group("Growth")
+            .with_definition("Revenue CAGR over the full reported window (oldest→latest FY)"),
         ColumnSpec::metric("gross_margin", "Gross Margin", ColKind::Percent)
             .with_group("Profitability"),
         ColumnSpec::metric("ebitda_margin", "EBITDA Margin", ColKind::Percent)
             .with_group("Profitability"),
         ColumnSpec::metric("net_margin", "Net Margin", ColKind::Percent)
             .with_group("Profitability"),
+        ColumnSpec::metric("fcf_margin", "FCF Margin", ColKind::Percent)
+            .with_group("Profitability")
+            .with_definition("(CFO − capex) / revenue"),
         ColumnSpec::metric("roe", "ROE", ColKind::Percent)
             .with_group("Returns")
             .with_definition("Net income / total equity"),
         ColumnSpec::metric("roa", "ROA", ColKind::Percent)
             .with_group("Returns")
             .with_definition("Net income / total assets"),
+        ColumnSpec::metric("current_ratio", "Current Ratio", ColKind::Multiple)
+            .with_group("Liquidity")
+            .with_definition("Total current assets / total current liabilities"),
         ColumnSpec::metric("net_debt", "Net Debt", ColKind::Dollar)
             .with_group("Leverage")
             .with_units("reporting-ccy millions")
             .with_definition("Total debt (long-term + current portion) − cash & equivalents"),
         ColumnSpec::metric("nd_ebitda", "Net Debt / EBITDA", ColKind::Multiple)
             .with_group("Leverage"),
+        ColumnSpec::metric("interest_coverage", "Int. Coverage", ColKind::Multiple)
+            .with_group("Leverage")
+            .with_definition("EBIT / |interest expense|"),
     ]
 }
 
@@ -238,13 +290,17 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         r.insert("ebitda".into(), millions(m.ebitda));
         r.insert("net_income".into(), millions(m.net_income));
         r.insert("rev_growth".into(), num(m.revenue_growth));
+        r.insert("rev_cagr_3y".into(), num(m.revenue_cagr_3y));
         r.insert("gross_margin".into(), num(m.gross_margin));
         r.insert("ebitda_margin".into(), num(m.ebitda_margin));
         r.insert("net_margin".into(), num(m.net_margin));
+        r.insert("fcf_margin".into(), num(m.fcf_margin));
         r.insert("roe".into(), num(m.roe));
         r.insert("roa".into(), num(m.roa));
+        r.insert("current_ratio".into(), num(m.current_ratio));
         r.insert("net_debt".into(), millions(m.net_debt));
         r.insert("nd_ebitda".into(), num(m.net_debt_to_ebitda));
+        r.insert("interest_coverage".into(), num(m.interest_coverage));
         rows.push(r);
 
         // Provenance: raw filing figures cite EDGAR; derived cells cite the
@@ -302,6 +358,26 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
             "nd_ebitda",
             m.net_debt_to_ebitda.is_some(),
             format!("Derived: net debt / EBITDA ({})", m.ticker),
+        );
+        cite(
+            "rev_cagr_3y",
+            m.revenue_cagr_3y.is_some(),
+            format!("Derived: revenue CAGR over reported window ({})", m.ticker),
+        );
+        cite(
+            "fcf_margin",
+            m.fcf_margin.is_some(),
+            format!("Derived: (CFO − capex) / revenue ({filing})"),
+        );
+        cite(
+            "current_ratio",
+            m.current_ratio.is_some(),
+            format!("Derived: current assets / current liabilities ({filing})"),
+        );
+        cite(
+            "interest_coverage",
+            m.interest_coverage.is_some(),
+            format!("Derived: EBIT / |interest expense| ({filing})"),
         );
     }
 
@@ -436,12 +512,15 @@ mod tests {
                 ("net_income", &[Some(150.0), Some(240.0)]),
                 ("eps_diluted", &[Some(1.5), Some(2.4)]),
                 ("shares_diluted", &[Some(100.0), Some(100.0)]),
+                ("interest_expense", &[Some(20.0), Some(30.0)]),
             ]),
             balance_sheet: stmt(&[
                 ("long_term_debt", &[Some(500.0), Some(600.0)]),
                 ("cash", &[Some(100.0), Some(200.0)]),
                 ("total_equity", &[Some(800.0), Some(1000.0)]),
                 ("total_assets", &[Some(2000.0), Some(2400.0)]),
+                ("total_current_assets", &[Some(700.0), Some(900.0)]),
+                ("total_current_liabilities", &[Some(350.0), Some(450.0)]),
             ]),
             cash_flow_statement: stmt(&[
                 ("cfo", &[Some(220.0), Some(320.0)]),
@@ -474,6 +553,28 @@ mod tests {
         approx(m.roe, 0.24); // 240/1000
         approx(m.roa, 0.1); // 240/2400
         approx(m.net_debt_to_ebitda, 400.0 / 360.0);
+        approx(m.fcf_margin, 220.0 / 1200.0); // fcf / revenue
+        approx(m.interest_coverage, 10.0); // 300 / 30
+        approx(m.current_ratio, 2.0); // 900 / 450
+        approx(m.revenue_cagr_3y, 0.2); // (1200/1000)^(1/1) - 1
+    }
+
+    #[test]
+    fn revenue_cagr_uses_full_window_exponent() {
+        // 3 periods: 1000 → ? → 1440 over 2 intervals → CAGR = sqrt(1.44)-1 = 0.20.
+        let ex = ExtractionResult {
+            currency: "USD".into(),
+            years_found: vec!["2022".into(), "2023".into(), "2024".into()],
+            income_statement: stmt(&[("revenue", &[Some(1000.0), Some(1200.0), Some(1440.0)])]),
+            balance_sheet: StatementData::new(),
+            cash_flow_statement: StatementData::new(),
+            notes: HashMap::new(),
+            confidence: 1.0,
+            discrepancies: vec![],
+        };
+        let m = metrics_from_extraction("X", &ex);
+        approx(m.revenue_cagr_3y, 0.2); // (1440/1000)^(1/2) - 1
+        approx(m.revenue_growth, 0.2); // latest YoY 1440/1200 - 1
     }
 
     #[test]

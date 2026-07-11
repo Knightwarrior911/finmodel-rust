@@ -256,9 +256,20 @@ fn cmd_verify() -> Result<(), Box<dyn std::error::Error>> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
-        // The populated-IS oracles (`*_full_snapshot.json`) lack `model_output`
-        // and are gated separately by the `full_is_parity` cargo test.
-        .filter(|p| !p.file_name().and_then(|n| n.to_str()).map(|n| n.contains("_full_")).unwrap_or(false))
+        // Verify only the base model-workbook snapshots: a top-level `model_output`
+        // (skips the pure-`{sheets}` gate oracles — adhoc / ev_bridge) AND not a
+        // `*_full_*` populated-IS/val/xbrl oracle (those need an explicit
+        // is_structure and are gated by full_is_parity / valuation_parity).
+        .filter(|p| {
+            let is_full = p.file_name().and_then(|n| n.to_str())
+                .map(|n| n.contains("_full_")).unwrap_or(true);
+            let has_model_output = std::fs::read_to_string(p)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .map(|v| v.get("model_output").is_some())
+                .unwrap_or(false);
+            has_model_output && !is_full
+        })
         .collect();
     files.sort();
     if files.is_empty() {

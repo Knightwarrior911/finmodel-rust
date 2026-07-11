@@ -4,6 +4,12 @@
 ## Unreleased
 
 ### Added — research/benchmarking subsystem (filings → Excel)
+- **Benchmark metric set (16 across 6 dimensions)**: Scale (revenue/EBITDA/net
+  income), Growth (YoY + full-window revenue CAGR), Profitability (gross/EBITDA/
+  net/FCF margin), Returns (ROE/ROA), Liquidity (current ratio), Leverage (net
+  debt / net-debt-to-EBITDA / interest coverage) — all from filings, unit-tested.
+- **`fm verify`** now filters snapshots structurally (`model_output` present &&
+  not `*_full_*`), so the new gate oracles (adhoc / ev_bridge) never break it.
 - **`fm benchmark --tickers AAPL,MSFT,… [--out …] [--title …]`**: fetches each
   peer's SEC EDGAR XBRL companyfacts, computes latest-FY scale / growth /
   profitability / returns / leverage metrics, and renders an IB-grade comparison

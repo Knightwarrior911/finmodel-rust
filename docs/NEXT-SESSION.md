@@ -39,8 +39,16 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
   (`ev_bridge_parity.rs`, 0 diffs) — sparse covers the dynamic row-skip / EV
   formula / multiples row-refs. Faithful bug-for-bug on the no-revenue EBITDA
   row-ref quirk (documented in `bridge.rs`).
-- Committed `6f2a097` (benchmark) + follow-up commit (EV bridge). Update the
-  session-start `up to <sha>` when re-reading.
+- **Benchmark enriched to 16 metrics / 6 groups** — added Growth (revenue CAGR),
+  Profitability (FCF margin), Liquidity (current ratio), Leverage (interest
+  coverage) alongside the originals; all filings-derived + unit-tested. Live
+  re-verified on AAPL/MSFT/JPM/WMT/XOM (XOM honestly failed: no us-gaap facts).
+- **`fm verify` regression fixed** — it globbed the new `{sheets}`-only gate
+  oracles and crashed ("missing periods"); now filters structurally
+  (`model_output` present && not `*_full_*`). All CLI commands exercised:
+  verify (5 snaps, 0 diffs), ifrs, build (offline SAND.ST), ev-bridge, benchmark.
+- Committed `6f2a097` (benchmark) + `5c967e8` (EV bridge) + follow-up (enriched
+  metrics + verify fix). Update the session-start `up to <sha>` when re-reading.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
