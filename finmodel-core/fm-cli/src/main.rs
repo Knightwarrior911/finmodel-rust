@@ -59,6 +59,22 @@ enum Command {
         lease_term: Option<f64>,
         #[arg(long)]
         rou_assets: Option<f64>,
+        /// Also write a polished IFRS-16 bridge worksheet to this .xlsx path.
+        #[arg(long)]
+        xlsx: Option<String>,
+        /// Company / period labels for the worksheet title.
+        #[arg(long, default_value = "Company")]
+        company: String,
+        #[arg(long, default_value = "")]
+        period: String,
+        /// PPE depreciation & intangible amortization (for the EBITDA derivation).
+        #[arg(long, default_value_t = 0.0)]
+        standard_depreciation: f64,
+        #[arg(long, default_value_t = 0.0)]
+        standard_amortization: f64,
+        /// Short-term lease rent (shown as an excluded item; never adjusted).
+        #[arg(long, default_value_t = 0.0)]
+        short_term_rent: f64,
     },
     /// Enterprise-Value bridge: equity value → EV via debt/leases/pension less
     /// cash & non-operating assets (BIWS rules; goodwill never subtracted).
@@ -302,6 +318,12 @@ fn cmd_ifrs(
     discount_rate: Option<f64>,
     lease_term: Option<f64>,
     rou_assets: Option<f64>,
+    xlsx: Option<&str>,
+    company: &str,
+    period: &str,
+    standard_depreciation: f64,
+    standard_amortization: f64,
+    short_term_rent: f64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Resolve adjustment inputs: use direct values, else estimate from ASC 842 note.
     let (rou_dep, interest) = match (rou_depreciation, lease_interest) {
@@ -326,9 +348,12 @@ fn cmd_ifrs(
     let inp = fm_ifrs::IfrsAdjustmentInput {
         rou_depreciation: rou_dep,
         lease_interest: interest,
+        short_term_rent,
         reported_ebit: ebit,
         reported_ebitda: ebitda,
         reported_ebita: ebita,
+        standard_depreciation,
+        standard_amortization,
         accounting_standard: standard.to_string(),
         ..Default::default()
     };
@@ -345,6 +370,28 @@ fn cmd_ifrs(
     println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBIT", fmt2(ebit), fmt2(out.adjusted_ebit), out.ebit_delta, m(out.adjusted_ebit_margin));
     println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBITDA", fmt2(ebitda), fmt2(out.adjusted_ebitda), out.ebitda_delta, m(out.adjusted_ebitda_margin));
     println!("  {:<8} {:>14} → {:>14}   Δ {:>+12.1}{}", "EBITA", fmt2(ebita), fmt2(out.adjusted_ebita), out.ebita_delta, m(out.adjusted_ebita_margin));
+    if let Some(path) = xlsx {
+        let generated = fm_research::generated_stamp(&fm_research::today_iso());
+        let bridge = fm_excel::bridge::IfrsBridgeInput {
+            company: company.to_string(),
+            period: period.to_string(),
+            ifrs_to_us_gaap: matches!(out.direction, fm_ifrs::AdjustmentDirection::IfrsToUsGaap),
+            reported_ebit: ebit,
+            reported_ebitda: ebitda,
+            reported_ebita: ebita,
+            standard_depreciation,
+            standard_amortization,
+            rou_depreciation: rou_dep,
+            lease_interest: interest,
+            short_term_rent,
+            revenue,
+            items_excluded: out.items_excluded.clone(),
+        };
+        let mut wb = fm_excel::model::Workbook::new();
+        wb.push(fm_excel::bridge::build_ifrs_bridge_sheet(&bridge, &generated));
+        fm_excel::render::render(&wb, path)?;
+        println!("  \u{2713} wrote IFRS-16 bridge worksheet -> {path}");
+    }
     Ok(())
 }
 
@@ -463,10 +510,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             standard, ebit, ebitda, ebita, revenue,
             rou_depreciation, lease_interest, lease_cost, lease_liability,
             discount_rate, lease_term, rou_assets,
+            xlsx, company, period, standard_depreciation, standard_amortization, short_term_rent,
         } => cmd_ifrs(
             &standard, ebit, ebitda, ebita, revenue,
             rou_depreciation, lease_interest, lease_cost, lease_liability,
             discount_rate, lease_term, rou_assets,
+            xlsx.as_deref(), &company, &period,
+            standard_depreciation, standard_amortization, short_term_rent,
         ),
         Command::EvBridge {
             company, share_price, shares, market_cap, total_debt, finance_leases,

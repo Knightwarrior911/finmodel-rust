@@ -35,6 +35,13 @@
   MC/EV formulas and source notes. Oracle-gated full + sparse
   (`ev_bridge_parity.rs`), the sparse case covering dynamic row-skip / formula
   row-refs.
+- **IFRS-16 bridge worksheet** — port of `ResearchExcelWriter.write_ifrs_bridge`
+  → `fm-excel::bridge`; `fm ifrs --xlsx PATH [--company --period
+  --standard-depreciation --standard-amortization --short-term-rent]` renders
+  EBITDA derivation (adjusted/computed) → IFRS-16 adjustment → EBIT/EBITA bridges
+  → excluded items → data sources, direction-aware (IFRS↔US GAAP). Oracle-gated
+  full + simple (`ifrs_bridge_parity.rs`) covering the branchy paths. Completes
+  research-port item 1 (benchmark + EV bridge + IFRS bridge all gated).
 
 **Phase 1 Wave 1 (task 1.1.0) + harden-basket sprint: tie-out unblocked, basket fixed & hardened, baseline re-frozen to 339/350 (96.86%) on 7 industrials.**
 

@@ -1,0 +1,744 @@
+{
+  "sheets": {
+    "IFRS Bridge": [
+      {
+        "row": 1,
+        "cells": [
+          {
+            "ref": "A1"
+          },
+          {
+            "ref": "B1"
+          },
+          {
+            "ref": "C1"
+          },
+          {
+            "ref": "D1"
+          },
+          {
+            "ref": "E1"
+          }
+        ]
+      },
+      {
+        "row": 2,
+        "cells": [
+          {
+            "ref": "A2"
+          },
+          {
+            "ref": "B2"
+          },
+          {
+            "ref": "C2"
+          },
+          {
+            "ref": "D2"
+          },
+          {
+            "ref": "E2"
+          }
+        ]
+      },
+      {
+        "row": 3,
+        "cells": [
+          {
+            "ref": "A3"
+          },
+          {
+            "ref": "B3"
+          },
+          {
+            "ref": "C3",
+            "value": "SimpleCo FY2024 \u2014 US GAAP \u2192 IFRS 16 (Post-IFRS)",
+            "fill": "FF2558B3"
+          },
+          {
+            "ref": "D3"
+          },
+          {
+            "ref": "E3"
+          }
+        ]
+      },
+      {
+        "row": 4,
+        "cells": [
+          {
+            "ref": "A4"
+          },
+          {
+            "ref": "B4"
+          },
+          {
+            "ref": "C4"
+          },
+          {
+            "ref": "D4"
+          },
+          {
+            "ref": "E4"
+          }
+        ]
+      },
+      {
+        "row": 5,
+        "cells": [
+          {
+            "ref": "A5"
+          },
+          {
+            "ref": "B5"
+          },
+          {
+            "ref": "C5"
+          },
+          {
+            "ref": "D5"
+          },
+          {
+            "ref": "E5"
+          }
+        ]
+      },
+      {
+        "row": 6,
+        "cells": [
+          {
+            "ref": "A6"
+          },
+          {
+            "ref": "B6"
+          },
+          {
+            "ref": "C6",
+            "value": "(in thousands unless noted)"
+          },
+          {
+            "ref": "D6"
+          },
+          {
+            "ref": "E6"
+          }
+        ]
+      },
+      {
+        "row": 7,
+        "cells": [
+          {
+            "ref": "A7"
+          },
+          {
+            "ref": "B7"
+          },
+          {
+            "ref": "C7"
+          },
+          {
+            "ref": "D7"
+          },
+          {
+            "ref": "E7"
+          }
+        ]
+      },
+      {
+        "row": 8,
+        "cells": [
+          {
+            "ref": "A8"
+          },
+          {
+            "ref": "B8"
+          },
+          {
+            "ref": "C8",
+            "value": " EBITDA Derivation \u2014 Hierarchy: Adjusted > Reported > Computed",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "D8"
+          },
+          {
+            "ref": "E8"
+          }
+        ]
+      },
+      {
+        "row": 9,
+        "cells": [
+          {
+            "ref": "A9"
+          },
+          {
+            "ref": "B9"
+          },
+          {
+            "ref": "C9",
+            "value": "Reported EBIT (from income statement)"
+          },
+          {
+            "ref": "D9",
+            "value": 500
+          },
+          {
+            "ref": "E9"
+          }
+        ]
+      },
+      {
+        "row": 10,
+        "cells": [
+          {
+            "ref": "A10"
+          },
+          {
+            "ref": "B10"
+          },
+          {
+            "ref": "C10",
+            "value": "+  Depreciation & Amortisation"
+          },
+          {
+            "ref": "D10",
+            "value": 100
+          },
+          {
+            "ref": "E10"
+          }
+        ]
+      },
+      {
+        "row": 11,
+        "cells": [
+          {
+            "ref": "A11"
+          },
+          {
+            "ref": "B11"
+          },
+          {
+            "ref": "C11"
+          },
+          {
+            "ref": "D11"
+          },
+          {
+            "ref": "E11"
+          }
+        ]
+      },
+      {
+        "row": 12,
+        "cells": [
+          {
+            "ref": "A12"
+          },
+          {
+            "ref": "B12"
+          },
+          {
+            "ref": "C12",
+            "value": "EBITDA (computed: EBIT + D&A)"
+          },
+          {
+            "ref": "D12",
+            "formula": "=D9+D10"
+          },
+          {
+            "ref": "E12"
+          }
+        ]
+      },
+      {
+        "row": 13,
+        "cells": [
+          {
+            "ref": "A13"
+          },
+          {
+            "ref": "B13"
+          },
+          {
+            "ref": "C13",
+            "value": "  (EBITDA not separately reported; using computed EBIT + D&A)"
+          },
+          {
+            "ref": "D13"
+          },
+          {
+            "ref": "E13"
+          }
+        ]
+      },
+      {
+        "row": 14,
+        "cells": [
+          {
+            "ref": "A14"
+          },
+          {
+            "ref": "B14"
+          },
+          {
+            "ref": "C14"
+          },
+          {
+            "ref": "D14"
+          },
+          {
+            "ref": "E14"
+          }
+        ]
+      },
+      {
+        "row": 15,
+        "cells": [
+          {
+            "ref": "A15"
+          },
+          {
+            "ref": "B15"
+          },
+          {
+            "ref": "C15",
+            "value": " IFRS 16 Adjustment",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "D15"
+          },
+          {
+            "ref": "E15"
+          }
+        ]
+      },
+      {
+        "row": 16,
+        "cells": [
+          {
+            "ref": "A16"
+          },
+          {
+            "ref": "B16"
+          },
+          {
+            "ref": "C16",
+            "value": "Starting EBITDA (Post-IFRS)"
+          },
+          {
+            "ref": "D16",
+            "formula": "=D12"
+          },
+          {
+            "ref": "E16"
+          }
+        ]
+      },
+      {
+        "row": 17,
+        "cells": [
+          {
+            "ref": "A17"
+          },
+          {
+            "ref": "B17"
+          },
+          {
+            "ref": "C17",
+            "value": "  + ROU Depreciation"
+          },
+          {
+            "ref": "D17",
+            "value": 40
+          },
+          {
+            "ref": "E17"
+          }
+        ]
+      },
+      {
+        "row": 18,
+        "cells": [
+          {
+            "ref": "A18"
+          },
+          {
+            "ref": "B18"
+          },
+          {
+            "ref": "C18",
+            "value": "  + Interest on Lease Liabilities"
+          },
+          {
+            "ref": "D18",
+            "value": 10
+          },
+          {
+            "ref": "E18"
+          }
+        ]
+      },
+      {
+        "row": 19,
+        "cells": [
+          {
+            "ref": "A19"
+          },
+          {
+            "ref": "B19"
+          },
+          {
+            "ref": "C19"
+          },
+          {
+            "ref": "D19"
+          },
+          {
+            "ref": "E19"
+          }
+        ]
+      },
+      {
+        "row": 20,
+        "cells": [
+          {
+            "ref": "A20"
+          },
+          {
+            "ref": "B20"
+          },
+          {
+            "ref": "C20",
+            "value": "Pre-IFRS EBITDA"
+          },
+          {
+            "ref": "D20",
+            "formula": "=D12+D17+D18"
+          },
+          {
+            "ref": "E20"
+          }
+        ]
+      },
+      {
+        "row": 21,
+        "cells": [
+          {
+            "ref": "A21"
+          },
+          {
+            "ref": "B21"
+          },
+          {
+            "ref": "C21"
+          },
+          {
+            "ref": "D21"
+          },
+          {
+            "ref": "E21"
+          }
+        ]
+      },
+      {
+        "row": 22,
+        "cells": [
+          {
+            "ref": "A22"
+          },
+          {
+            "ref": "B22"
+          },
+          {
+            "ref": "C22",
+            "value": " EBIT Bridge",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "D22"
+          },
+          {
+            "ref": "E22"
+          }
+        ]
+      },
+      {
+        "row": 23,
+        "cells": [
+          {
+            "ref": "A23"
+          },
+          {
+            "ref": "B23"
+          },
+          {
+            "ref": "C23",
+            "value": "Reported EBIT (from income statement)"
+          },
+          {
+            "ref": "D23",
+            "value": 500
+          },
+          {
+            "ref": "E23"
+          }
+        ]
+      },
+      {
+        "row": 24,
+        "cells": [
+          {
+            "ref": "A24"
+          },
+          {
+            "ref": "B24"
+          },
+          {
+            "ref": "C24",
+            "value": "  + Interest on Lease Liabilities"
+          },
+          {
+            "ref": "D24",
+            "value": 10
+          },
+          {
+            "ref": "E24"
+          }
+        ]
+      },
+      {
+        "row": 25,
+        "cells": [
+          {
+            "ref": "A25"
+          },
+          {
+            "ref": "B25"
+          },
+          {
+            "ref": "C25"
+          },
+          {
+            "ref": "D25"
+          },
+          {
+            "ref": "E25"
+          }
+        ]
+      },
+      {
+        "row": 26,
+        "cells": [
+          {
+            "ref": "A26"
+          },
+          {
+            "ref": "B26"
+          },
+          {
+            "ref": "C26",
+            "value": "Adjusted EBIT"
+          },
+          {
+            "ref": "D26",
+            "formula": "=D23+D24"
+          },
+          {
+            "ref": "E26"
+          }
+        ]
+      },
+      {
+        "row": 27,
+        "cells": [
+          {
+            "ref": "A27"
+          },
+          {
+            "ref": "B27"
+          },
+          {
+            "ref": "C27"
+          },
+          {
+            "ref": "D27"
+          },
+          {
+            "ref": "E27"
+          }
+        ]
+      },
+      {
+        "row": 28,
+        "cells": [
+          {
+            "ref": "A28"
+          },
+          {
+            "ref": "B28"
+          },
+          {
+            "ref": "C28",
+            "value": " Items Excluded from Adjustment",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "D28"
+          },
+          {
+            "ref": "E28"
+          }
+        ]
+      },
+      {
+        "row": 29,
+        "cells": [
+          {
+            "ref": "A29"
+          },
+          {
+            "ref": "B29"
+          },
+          {
+            "ref": "C29",
+            "value": "  X  Short-term rent (already OPEX in both frameworks)"
+          },
+          {
+            "ref": "D29"
+          },
+          {
+            "ref": "E29"
+          }
+        ]
+      },
+      {
+        "row": 30,
+        "cells": [
+          {
+            "ref": "A30"
+          },
+          {
+            "ref": "B30"
+          },
+          {
+            "ref": "C30"
+          },
+          {
+            "ref": "D30"
+          },
+          {
+            "ref": "E30"
+          }
+        ]
+      },
+      {
+        "row": 31,
+        "cells": [
+          {
+            "ref": "A31"
+          },
+          {
+            "ref": "B31"
+          },
+          {
+            "ref": "C31",
+            "value": " Input Data Sources",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "D31"
+          },
+          {
+            "ref": "E31"
+          }
+        ]
+      },
+      {
+        "row": 32,
+        "cells": [
+          {
+            "ref": "A32"
+          },
+          {
+            "ref": "B32"
+          },
+          {
+            "ref": "C32",
+            "value": "  ROU Depreciation: 40"
+          },
+          {
+            "ref": "D32"
+          },
+          {
+            "ref": "E32"
+          }
+        ]
+      },
+      {
+        "row": 33,
+        "cells": [
+          {
+            "ref": "A33"
+          },
+          {
+            "ref": "B33"
+          },
+          {
+            "ref": "C33",
+            "value": "  Lease Interest: 10"
+          },
+          {
+            "ref": "D33"
+          },
+          {
+            "ref": "E33"
+          }
+        ]
+      },
+      {
+        "row": 34,
+        "cells": [
+          {
+            "ref": "A34"
+          },
+          {
+            "ref": "B34"
+          },
+          {
+            "ref": "C34"
+          },
+          {
+            "ref": "D34"
+          },
+          {
+            "ref": "E34"
+          }
+        ]
+      },
+      {
+        "row": 35,
+        "cells": [
+          {
+            "ref": "A35"
+          },
+          {
+            "ref": "B35"
+          },
+          {
+            "ref": "C35",
+            "value": "Generated: 2026-01-01 00:00 | Source: SEC EDGAR / yfinance / Company filings"
+          },
+          {
+            "ref": "D35"
+          },
+          {
+            "ref": "E35"
+          }
+        ]
+      }
+    ]
+  }
+}

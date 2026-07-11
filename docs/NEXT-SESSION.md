@@ -16,7 +16,7 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
 `cargo run -q -p fm-cli -- …` and pass Windows-style `--out C:/tmp/x.xlsx`
 (git-bash `/c/tmp/…` mangles to `C:\c\tmp`).
 
-### Done this session — research port item 1 (benchmarking + EV bridge; IFRS bridge still TODO)
+### Done this session — research port item 1 DONE (benchmark + EV bridge + IFRS bridge)
 - **Research → Excel benchmarking** — ported `src/research/output_writer.py`
   (`pick_adhoc_layout` + `AdHocExcelWriter.write_research`) → `fm-excel::adhoc`
   on the shared cell-model/render engine. Cell-for-cell oracle-gated
@@ -47,8 +47,15 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
   oracles and crashed ("missing periods"); now filters structurally
   (`model_output` present && not `*_full_*`). All CLI commands exercised:
   verify (5 snaps, 0 diffs), ifrs, build (offline SAND.ST), ev-bridge, benchmark.
-- Committed `6f2a097` (benchmark) + `5c967e8` (EV bridge) + follow-up (enriched
-  metrics + verify fix). Update the session-start `up to <sha>` when re-reading.
+- **IFRS-16 bridge worksheet** — ported `write_ifrs_bridge` →
+  `fm-excel::bridge::build_ifrs_bridge_sheet` (plain `IfrsBridgeInput`, keeps
+  fm-excel fm-ifrs-free); `fm ifrs --xlsx …` renders it. Oracle-gated full +
+  simple (`ifrs_bridge_parity.rs`, 0 diffs) covering adjusted/computed EBITDA,
+  EBITA present/absent, margins present/absent, both directions. Faithful
+  bug-for-bug on the Pre-IFRS EBITA-margin row-ref quirk. `pdf_url` source-link
+  path intentionally not ported (no PDF context in the CLI).
+- Committed `6f2a097` (benchmark) + `5c967e8` (EV bridge) + `55e3c06` (enriched
+  metrics + verify fix) + follow-up (IFRS bridge). Update `up to <sha>` on resume.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
@@ -84,15 +91,15 @@ has ENOSPC'd before. Prefer running built exes by ABSOLUTE path (the shell rejec
 
 ### NEXT — finish the research subsystem (`src/research/`, ~600 KB Python)
 Port order (each: port calc → oracle-gate vs Python → reachable consumer):
-1. 🟡 **Research → Excel (MOSTLY DONE 2026-07-12)** — *Benchmarking* done
-   (`AdHocExcelWriter.write_research` → `fm-excel::adhoc` + `fm-research` +
-   `fm benchmark`, `adhoc_parity.rs`). *EV bridge* done
-   (`write_ev_bridge` → `fm-excel::bridge` + `fm ev-bridge --xlsx`,
-   `ev_bridge_parity.rs` full + sparse).
-   **STILL TODO for full item 1:** render `ResearchExcelWriter.write_ifrs_bridge`
-   to a polished worksheet (calc exists in `fm-ifrs`; needs the sheet layer +
-   oracle gate + `--xlsx` on `fm ifrs`). Also: non-US (PDF+LLM) peers in the
-   benchmark, and a Tauri app command/button.
+1. ✅ **Research → Excel (DONE 2026-07-12)** — all three worksheets ported +
+   oracle-gated + CLI-reachable: *Benchmarking* (`AdHocExcelWriter.write_research`
+   → `fm-excel::adhoc` + `fm-research` + `fm benchmark`, `adhoc_parity.rs`),
+   *EV bridge* (`write_ev_bridge` → `fm-excel::bridge` + `fm ev-bridge --xlsx`,
+   `ev_bridge_parity.rs` full + sparse), *IFRS-16 bridge* (`write_ifrs_bridge`
+   → `fm-excel::bridge` + `fm ifrs --xlsx`, `ifrs_bridge_parity.rs` full + simple).
+   Remaining (separate follow-ups, NOT item 1): non-US (PDF+LLM) peers in the
+   benchmark, and a Tauri app command/button. The `pdf_url` filing-source-link
+   path of the bridges is a Python-only feature (no PDF context in the Rust CLI).
 2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
    for filing-doc fetch (CIK/filings partly exist).
 3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.
@@ -117,14 +124,16 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
   `valuation_parity` (Cover/DCF/WACC/Sensitivities/Comps Peers/Comps Summary — 0 diffs
   vs `tieout/excel_snapshots/SAND_ST_val_full_snapshot.json`), `adhoc_parity`
   (benchmark table vs `ADHOC_bench_snapshot.json`), `ev_bridge_parity` (full +
-  sparse vs `EV_BRIDGE{,_SPARSE}_snapshot.json`), `formats`, `roundtrip`,
-  `formula_cache`. **Valuation + Comps + Benchmark + EV-bridge tabs are all gated.**
+  sparse vs `EV_BRIDGE{,_SPARSE}_snapshot.json`), `ifrs_bridge_parity` (full +
+  simple vs `IFRS_BRIDGE{,_SIMPLE}_snapshot.json`), `formats`, `roundtrip`,
+  `formula_cache`. **Valuation + Comps + Benchmark + EV/IFRS-bridge tabs all gated.**
 - **Oracles (Python-side, regen when the writer/inputs change):**
   `py tieout/build_full_is_oracle.py` → `*_full_snapshot.json` (+ sector/xbrl);
   `py tieout/build_val_oracle.py` → `SAND_ST_val_full_snapshot.json` (embeds
   WACCOutput/DCFOutput/PublicCompsOutput + writes `tests/snapshots/SAND_ST_val_full.xlsx`);
   `py tieout/build_adhoc_oracle.py` → `ADHOC_bench_snapshot.json`;
-  `py tieout/build_ev_bridge_oracle.py` → `EV_BRIDGE{,_SPARSE}_snapshot.json`.
+  `py tieout/build_ev_bridge_oracle.py` → `EV_BRIDGE{,_SPARSE}_snapshot.json`;
+  `py tieout/build_ifrs_bridge_oracle.py` → `IFRS_BRIDGE{,_SIMPLE}_snapshot.json`.
 - **Format parity (bold/italic/color) — 2-step, order matters:**
   1. `cargo test -p fm-excel --test render_dump` → writes `tests/snapshots/SAND_ST_rust.xlsx`
      (must re-run after ANY render.rs / sheet-builder change).
