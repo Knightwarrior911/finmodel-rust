@@ -88,6 +88,25 @@ fn scalar(scn: &ScenarioInputs, i: usize) -> f64 {
 fn periods_row(s: &mut Sheet, row: u32, proj: &[String]) {
     for (j, p) in proj.iter().enumerate() {
         s.text(row, col(j), p.clone());
+        let c = s.cell_mut(row, col(j));
+        c.font_hex = Some(crate::sheets::NAVY);
+        c.bold = true;
+        c.center = true;
+        c.bottom_border = true;
+    }
+}
+
+/// Driver row finish: gray italic label; italic data only for percent-format
+/// rows (num rows — days / dividend / multiple / D-E / price / shares — stay
+/// upright). Mirrors writer.py `lbl_drv` + `drv`/`hc` families.
+fn style_driver_row(s: &mut Sheet, row: u32, is_pct: bool, ncols: usize) {
+    let lc = s.cell_mut(row, LABEL);
+    lc.italic = true;
+    lc.font_hex = Some(crate::sheets::GRAY);
+    if is_pct {
+        for j in 0..ncols {
+            s.cell_mut(row, col(j)).italic = true;
+        }
     }
 }
 
@@ -118,6 +137,7 @@ fn scenario_inputs(s: &mut Sheet, drv0: u32, scn: &ScenarioInputs, n_proj: usize
             s.number(r, DATA0, scalar(scn, i));
         }
         s.stamp_row(r, DRIVER_FMT[i]);
+        style_driver_row(s, r, DRIVER_FMT[i] == FMT_PCT, if *is_pp { n_proj } else { 1 });
     }
 }
 
@@ -131,13 +151,19 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     s.title(TITLE, format!("{} — Assumptions", m.company));
     s.text(SUBTITLE, LABEL, "Operating & Valuation Drivers");
+    s.cell_mut(SUBTITLE, LABEL).font_hex = Some(crate::sheets::NAVY);
+    s.cell_mut(SUBTITLE, LABEL).bold = true;
     s.text(UNITS, LABEL, "(per-period values in proj year columns; scalars in first column)");
+    s.cell_mut(UNITS, LABEL).font_hex = Some(crate::sheets::GRAY);
+    s.cell_mut(UNITS, LABEL).italic = true;
 
     // Toggle + active-case display.
     s.text(TOGGLE, LABEL, "Case Toggle  (1 = Base  |  2 = Upside  |  3 = Downside)");
+    s.cell_mut(TOGGLE, LABEL).bold = true;
     s.number(TOGGLE, DATA0, a.active_case as f64);
     s.stamp_row(TOGGLE, FMT_NUM);
     s.text(ACTIVE, LABEL, "Active Case");
+    s.cell_mut(ACTIVE, LABEL).bold = true;
     s.formula(ACTIVE, DATA0, "=CHOOSE($D$9,\"Base\",\"Upside\",\"Downside\")");
 
     // Active block — CHOOSE formulas pulling from the three scenario blocks.
@@ -161,6 +187,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
             s.formula(ar, c, f);
         }
         s.stamp_row(ar, DRIVER_FMT[i]);
+        style_driver_row(&mut s, ar, DRIVER_FMT[i] == FMT_PCT, ncols);
     }
 
     // Hardcoded scenario blocks.
@@ -191,6 +218,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         s.text(r, LABEL, format!("  {label}"));
         s.number(r, DATA0, shared_vals[i]);
         s.stamp_row(r, SHARED_FMT[i]);
+        style_driver_row(&mut s, r, SHARED_FMT[i] == FMT_PCT, 1);
     }
 
     s

@@ -11,7 +11,11 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     // Header block (single cells at col C, per snapshot).
     s.title(2, m.company.clone());
     s.text(4, LABEL, "Sources & Audit Trail");
+    s.cell_mut(4, LABEL).font_hex = Some(crate::sheets::NAVY);
+    s.cell_mut(4, LABEL).bold = true;
     s.text(5, LABEL, format!("({} $ in millions)", m.currency));
+    s.cell_mut(5, LABEL).font_hex = Some(crate::sheets::GRAY);
+    s.cell_mut(5, LABEL).italic = true;
 
     // Column headers at row 7, starting col LABEL.
     let headers = [
@@ -23,6 +27,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     ];
     for (j, h) in headers.iter().enumerate() {
         s.text(7, LABEL + j as u32, *h);
+        s.cell_mut(7, LABEL + j as u32).bold = true;
     }
 
     // Verification report. Sources table body is empty in the snapshot config;
@@ -32,6 +37,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     r += 1;
     let status = if v.passed { "PASSED ✓" } else { "FAILED ✗" };
     s.text(r, LABEL, format!("Status: {}", status));
+    s.cell_mut(r, LABEL).bold = true;
     r += 1;
 
     if !v.critical_failures.is_empty() {

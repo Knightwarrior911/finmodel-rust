@@ -21,8 +21,7 @@ import openpyxl
 REPO = Path(__file__).parent.parent
 PY_XLSX = REPO / "tests/snapshots/SAND_ST_full.xlsx"
 RUST_XLSX = REPO / "tests/snapshots/SAND_ST_rust.xlsx"
-SHEETS = ["IS", "BS", "CF"]
-
+SHEETS = None  # None → auto-detect every sheet present in both workbooks
 
 def norm_color(c) -> str | None:
     rgb = getattr(c, "rgb", None) if c else None
@@ -55,7 +54,8 @@ def main() -> int:
     py, rs = load(PY_XLSX), load(RUST_XLSX)
     gtot = gmatch = 0
     worst = 100
-    for sh in SHEETS:
+    sheets = SHEETS or [s for s in py if s in rs]
+    for sh in sheets:
         p, r = py.get(sh, {}), rs.get(sh, {})
         tot = match = 0
         remaining = []

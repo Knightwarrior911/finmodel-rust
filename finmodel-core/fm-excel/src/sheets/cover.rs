@@ -31,11 +31,15 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     s.title(2, format!("{} — Valuation Model", m.company));
     s.text(4, LABEL, "3-Statement + DCF Valuation");
+    s.cell_mut(4, LABEL).font_hex = Some(crate::sheets::NAVY);
+    s.cell_mut(4, LABEL).bold = true;
     s.text(
         5,
         LABEL,
         format!("As of {}  |  ({} in millions)", m.as_of, m.currency),
     );
+    s.cell_mut(5, LABEL).font_hex = Some(crate::sheets::GRAY);
+    s.cell_mut(5, LABEL).italic = true;
 
     s.section(8, "MODEL OVERVIEW");
     s.text(9, LABEL, "Company");
@@ -50,6 +54,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
             m.ticker.clone()
         },
     );
+    s.cell_mut(10, DATA0).bold = true;
     s.text(11, LABEL, "Active Case");
     s.formula(11, DATA0, "=Assumptions!D10");
     s.text(12, LABEL, "Currency");
@@ -104,6 +109,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         );
     } else {
         s.text(CURRENT_PX, LABEL, "(DCF / Assumptions not yet built)");
+        s.cell_mut(CURRENT_PX, LABEL).font_hex = Some(crate::sheets::GRAY);
+        s.cell_mut(CURRENT_PX, LABEL).italic = true;
     }
 
     s
