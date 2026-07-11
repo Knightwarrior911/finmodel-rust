@@ -23,6 +23,12 @@
   benchmark total debt = long-term + short-term so leverage isn't understated.
   Gross profit falls back to revenue − COGS when a filer omits the GrossProfit tag.
 - `Cell.comment` → xlsx notes in the render engine (provenance; ungated).
+- **EV-bridge worksheet** — port of `ResearchExcelWriter.write_ev_bridge` →
+  `fm-excel::bridge`; `fm ev-bridge --xlsx PATH [--ltm-revenue --ltm-ebitda]`
+  renders equity value → EV checklist → valuation multiples → rules, with live
+  MC/EV formulas and source notes. Oracle-gated full + sparse
+  (`ev_bridge_parity.rs`), the sparse case covering dynamic row-skip / formula
+  row-refs.
 
 **Phase 1 Wave 1 (task 1.1.0) + harden-basket sprint: tie-out unblocked, basket fixed & hardened, baseline re-frozen to 339/350 (96.86%) on 7 industrials.**
 

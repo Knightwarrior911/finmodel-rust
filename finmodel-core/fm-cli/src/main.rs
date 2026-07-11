@@ -91,6 +91,15 @@ enum Command {
         equity_investments: Option<f64>,
         #[arg(long)]
         nol_dta: Option<f64>,
+        /// Also write a polished EV-bridge worksheet to this .xlsx path.
+        #[arg(long)]
+        xlsx: Option<String>,
+        /// LTM revenue (raw units) — enables the Valuation Multiples block.
+        #[arg(long)]
+        ltm_revenue: Option<f64>,
+        /// LTM EBITDA (raw units) — enables EV/EBITDA in the multiples block.
+        #[arg(long)]
+        ltm_ebitda: Option<f64>,
     },
     /// Benchmark filing figures for a peer set into an IB-grade Excel workbook.
     /// Fetches each ticker's SEC EDGAR XBRL facts, computes scale/growth/
@@ -348,6 +357,9 @@ fn cmd_ev_bridge(
     short_term_investments: Option<f64>,
     equity_investments: Option<f64>,
     nol_dta: Option<f64>,
+    xlsx: Option<&str>,
+    ltm_revenue: Option<f64>,
+    ltm_ebitda: Option<f64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let inp = fm_value::ev_bridge::EvBridgeInput {
         company: company.to_string(),
@@ -364,6 +376,8 @@ fn cmd_ev_bridge(
         short_term_investments,
         equity_investments,
         nol_dta,
+        ltm_revenue,
+        ltm_ebitda,
         ..Default::default()
     };
     let b = fm_value::ev_bridge::build_ev_bridge(&inp);
@@ -383,6 +397,13 @@ fn cmd_ev_bridge(
         }
     }
     println!("  {:<28} {:>16}", "= Enterprise Value", fmt2(b.total_ev));
+    if let Some(path) = xlsx {
+        let generated = fm_research::generated_stamp(&fm_research::today_iso());
+        let mut wb = fm_excel::model::Workbook::new();
+        wb.push(fm_excel::bridge::build_ev_bridge_sheet(&inp, &generated));
+        fm_excel::render::render(&wb, path)?;
+        println!("  \u{2713} wrote EV-bridge worksheet -> {path}");
+    }
     Ok(())
 }
 
@@ -440,10 +461,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             company, share_price, shares, market_cap, total_debt, finance_leases,
             operating_leases, underfunded_pension, minority_interest, preferred_stock,
             cash, short_term_investments, equity_investments, nol_dta,
+            xlsx, ltm_revenue, ltm_ebitda,
         } => cmd_ev_bridge(
             &company, share_price, shares, market_cap, total_debt, finance_leases,
             operating_leases, underfunded_pension, minority_interest, preferred_stock,
             cash, short_term_investments, equity_investments, nol_dta,
+            xlsx.as_deref(), ltm_revenue, ltm_ebitda,
         ),
         Command::Benchmark { tickers, out, title } => {
             cmd_benchmark(&tickers, &out, title.as_deref())
