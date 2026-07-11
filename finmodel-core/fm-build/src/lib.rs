@@ -73,10 +73,10 @@ pub fn build(extraction: &ExtractionResult, ticker: &str, proj_periods: usize) -
 /// Assemble the rich-writer input (model output + derived assumptions + meta)
 /// from an extraction and its forward projection.
 ///
-/// Historical statement columns come straight from the extraction; projected
-/// columns in the workbook are Excel formulas, so only the historicals need to
-/// be materialized here. The two external market inputs (risk-free rate, share
-/// price) are not fetched by the app yet — they default until wired.
+/// Historical + engine-projected statement columns are merged into `model` so
+/// formula cells can cache projected values for offline LibreOffice opens.
+/// Workbook still emits Excel formulas for projected periods. The two external
+/// market inputs (risk-free rate, share price) default until a live feed is wired.
 pub fn build_workbook_input(
     extraction: &ExtractionResult,
     projected: &ProjectedStatements,
@@ -121,11 +121,43 @@ pub fn build_workbook_input(
         }
     }
 
+    // Materialize hist+proj arrays so formula cells can carry cached engine
+    // results (LibreOffice shows numbers offline without recalculation).
+    let n_h = extraction.years_found.len();
+    let n_p = projected.periods.len();
+    let merge = |hist: &fm_types::StatementData, proj: &fm_types::StatementData| -> fm_excel::input::Statement {
+        let mut out: fm_excel::input::Statement = hist
+            .iter()
+            .map(|(k, v)| {
+                let mut row = v.clone();
+                row.resize(n_h, None);
+                // append projected years when present
+                if let Some(pv) = proj.get(k) {
+                    for x in pv.iter().take(n_p) {
+                        row.push(*x);
+                    }
+                }
+                while row.len() < n_h + n_p {
+                    row.push(None);
+                }
+                (k.clone(), row)
+            })
+            .collect();
+        // keys only in proj
+        for (k, pv) in proj {
+            if out.contains_key(k) { continue; }
+            let mut row = vec![None; n_h];
+            for x in pv.iter().take(n_p) { row.push(*x); }
+            while row.len() < n_h + n_p { row.push(None); }
+            out.insert(k.clone(), row);
+        }
+        out
+    };
     let model = ModelOutput {
         periods,
-        income_statement: is.clone(),
-        balance_sheet: extraction.balance_sheet.clone(),
-        cash_flow_statement: extraction.cash_flow_statement.clone(),
+        income_statement: merge(&is, &projected.income_statement),
+        balance_sheet: merge(&extraction.balance_sheet, &projected.balance_sheet),
+        cash_flow_statement: merge(&extraction.cash_flow_statement, &projected.cash_flow),
         plug_used: false,
     };
 

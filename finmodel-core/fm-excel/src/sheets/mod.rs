@@ -24,6 +24,23 @@ pub(crate) fn col(j: usize) -> u32 {
     DATA0 + j as u32
 }
 
+
+/// Write a formula, attaching a cached numeric result when available so
+/// LibreOffice/Excel show a value before recalculation.
+pub(crate) fn formula_maybe_cached(
+    s: &mut Sheet,
+    row: u32,
+    col: u32,
+    formula: impl AsRef<str>,
+    cache: Option<f64>,
+) {
+    match cache {
+        Some(v) => s.formula_cached(row, col, formula, v),
+        None => s.formula(row, col, formula),
+    }
+}
+
+
 /// Build every sheet. Valuation tabs (DCF/WACC/Sensitivities) are emitted only
 /// when `input.dcf` / `input.wacc` are present — keeps the committed 6-sheet
 /// snapshot gate green.

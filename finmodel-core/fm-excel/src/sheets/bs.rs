@@ -6,7 +6,7 @@
 
 use crate::input::{Statement, WorkbookInput};
 use crate::model::{cell_ref, Sheet, BLUE, FMT_NUM, FMT_PCT, LABEL};
-use crate::sheets::{col, period_headers, tab_header};
+use crate::sheets::{col, formula_maybe_cached, period_headers, tab_header};
 
 // ── BS main-section rows (0-based; Excel row = index + 1) ────────────────────
 const ASSETS_HDR: u32 = 10;
@@ -144,7 +144,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "cash", CASH, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(CASH, c, format!("=CF!{}", cell_ref(CF_ENDING_CASH, c)));
+        formula_maybe_cached(&mut s, CASH, c, format!("=CF!{}", cell_ref(CF_ENDING_CASH, c)), g(bs, "cash", j));
     }
 
     // AR / Inventory: hist number; proj link to WC schedule.
@@ -152,13 +152,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "accounts_receivable", AR, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(AR, c, format!("={}", cell_ref(WC_AR, c)));
+        formula_maybe_cached(&mut s, AR, c, format!("={}", cell_ref(WC_AR, c)), g(bs, "accounts_receivable", j));
     }
     s.text(INVENTORY, LABEL, "  Inventory");
     hist_nums(&mut s, bs, "inventory", INVENTORY, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(INVENTORY, c, format!("={}", cell_ref(WC_INV, c)));
+        formula_maybe_cached(&mut s, INVENTORY, c, format!("={}", cell_ref(WC_INV, c)), g(bs, "inventory", j));
     }
 
     // Total Current Assets.
@@ -184,7 +184,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "ppe_net", PPE_NET, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(PPE_NET, c, format!("={}", cell_ref(PPE_END, c)));
+        formula_maybe_cached(&mut s, PPE_NET, c, format!("={}", cell_ref(PPE_END, c)), g(bs, "ppe_net", j));
     }
 
     // Goodwill / Intangibles: no formulas; proj = model value or hold flat.
@@ -224,7 +224,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "accounts_payable", AP, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(AP, c, format!("={}", cell_ref(WC_AP, c)));
+        formula_maybe_cached(&mut s, AP, c, format!("={}", cell_ref(WC_AP, c)), g(bs, "accounts_payable", j));
     }
 
     // Total Current Liabilities.
@@ -248,7 +248,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "long_term_debt", LTD, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(LTD, c, format!("={}", cell_ref(DEBT_END, c)));
+        formula_maybe_cached(&mut s, LTD, c, format!("={}", cell_ref(DEBT_END, c)), g(bs, "long_term_debt", j));
     }
 
     // Deferred Revenue (non-current): hist number; proj held flat.
@@ -293,7 +293,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "retained_earnings", RET_EARN, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(RET_EARN, c, format!("={}", cell_ref(RE_END, c)));
+        formula_maybe_cached(&mut s, RET_EARN, c, format!("={}", cell_ref(RE_END, c)), g(bs, "retained_earnings", j));
     }
 
     // Total Equity: hist number; proj rollforward (prev + NI − Divs − Buybacks).
@@ -347,6 +347,45 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     // Number formats (product polish; not gate-checked). Monetary cells default to
     // thousands-separated numbers; the interest-rate schedule row is a percentage.
+    // Attach engine-projected caches to formula cells (LibreOffice offline).
+    for &(row, key) in &[
+        (CASH, "cash"),
+        (AR, "accounts_receivable"),
+        (INVENTORY, "inventory"),
+        (TCA, "total_current_assets"),
+        (PPE_NET, "ppe_net"),
+        (GOODWILL, "goodwill"),
+        (INTANG, "intangibles"),
+        (TOTAL_ASSETS, "total_assets"),
+        (AP, "accounts_payable"),
+        (TCL, "total_current_liabilities"),
+        (DEF_CUR, "deferred_revenue_current"),
+        (LTD, "long_term_debt"),
+        (DEF_LT, "deferred_revenue_lt"),
+        (TOTAL_LIAB, "total_liabilities"),
+        (RNCI, "redeemable_nci"),
+        (RET_EARN, "retained_earnings"),
+        (TOTAL_EQ, "total_equity"),
+        (PPE_END, "ppe_net"),
+        (WC_AR, "accounts_receivable"),
+        (WC_INV, "inventory"),
+        (WC_AP, "accounts_payable"),
+        (DEBT_END, "long_term_debt"),
+        (RE_END, "retained_earnings"),
+    ] {
+        if let Some(vals) = bs.get(key) {
+            for (j, v) in vals.iter().enumerate() {
+                if let Some(n) = *v {
+                    if let Some(cell) = s.cells.get_mut(&(row, col(j))) {
+                        if cell.formula.is_some() && cell.cached.is_none() {
+                            cell.cached = Some(n);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     s.stamp_numeric_default(FMT_NUM);
     s.stamp_row(DEBT_RATE, FMT_PCT);
     s

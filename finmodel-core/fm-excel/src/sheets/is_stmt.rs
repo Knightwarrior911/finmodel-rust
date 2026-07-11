@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::input::{Statement, WorkbookInput};
 use crate::is_structure::{compute_is_row_map, driver_assump_offset, RowType, IS_BODY_START};
 use crate::model::{cell_ref, col_name, Sheet, FMT_NUM, FMT_PCT, DATA0, LABEL};
-use crate::sheets::{col, period_headers, tab_header};
+use crate::sheets::{col, formula_maybe_cached, period_headers, tab_header};
 
 // Assumptions active-driver block anchor (0-based) + data col.
 const ASSUMP_ACTIVE_DRV0: u32 = 14;
@@ -241,7 +241,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 } else {
                     for j in 0..n_h {
                         if let Some(f) = is_hist_formula(key, j, &rm) {
-                            s.formula(r, col(j), f);
+                            formula_maybe_cached(&mut s, r, col(j), f, av(is_d, key, j));
                         }
                     }
                 }
@@ -260,7 +260,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 } else {
                     for j in 0..n_p {
                         if let Some(f) = is_proj_formula(key, j, &rm, n_h) {
-                            s.formula(r, col(n_h + j), f);
+                            formula_maybe_cached(&mut s, r, col(n_h + j), f, av(is_d, key, n_h + j));
                         }
                     }
                 }
@@ -307,6 +307,23 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                     s.formula(r, col(j), format!("=IF({den}<>0,{num}/{den},\"\")"));
                 }
                 s.stamp_row(r, FMT_PCT);
+            }
+        }
+    }
+
+    // Attach engine-projected caches to formula cells (LibreOffice offline).
+    for (idx, isr) in input.is_structure.iter().enumerate() {
+        if isr.key.is_empty() { continue; }
+        let r = IS_BODY_START + idx as u32;
+        if let Some(vals) = is_d.get(&isr.key) {
+            for (j, v) in vals.iter().enumerate() {
+                if let Some(n) = *v {
+                    if let Some(cell) = s.cells.get_mut(&(r, col(j))) {
+                        if cell.formula.is_some() && cell.cached.is_none() {
+                            cell.cached = Some(n);
+                        }
+                    }
+                }
             }
         }
     }

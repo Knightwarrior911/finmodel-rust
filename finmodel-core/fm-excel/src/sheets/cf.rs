@@ -321,6 +321,39 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     // Number formats (product polish; not gate-checked). Monetary cells default to
     // thousands-separated numbers; the CapEx%-of-revenue driver row is a percentage.
+
+    // Attach engine-projected caches to formula cells (LibreOffice offline).
+    for &(row, key) in &[
+        (11u32, "net_income"), // from IS; may also be in CF statement
+        (12, "da"),
+        (19, "cfo"),
+        (22, "capex"),
+        (26, "cfi"),
+        (29, "dividends_paid"),
+        (33, "cff"),
+        (35, "net_change_cash"),
+        (37, "cash"), // ending cash ~ BS cash
+        (38, "fcf"),
+    ] {
+        // Prefer CF statement; fall back to IS/BS for linked rows.
+        let vals = cf.get(key)
+            .or_else(|| is.get(key))
+            .or_else(|| bs.get(key));
+        if let Some(vals) = vals {
+            for (j, v) in vals.iter().enumerate() {
+                if let Some(n) = *v {
+                    // CapEx displayed as outflow (negative) on CF.
+                    let n = if row == 22 { -n.abs() } else { n };
+                    if let Some(cell) = s.cells.get_mut(&(row, col(j))) {
+                        if cell.formula.is_some() && cell.cached.is_none() {
+                            cell.cached = Some(n);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     s.stamp_numeric_default(FMT_NUM);
     s.stamp_row(23, FMT_PCT);
     s
