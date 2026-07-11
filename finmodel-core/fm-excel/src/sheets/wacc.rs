@@ -1,7 +1,7 @@
 //! WACC tab — port of `writer.py::_write_wacc`.
 
 use crate::input::WorkbookInput;
-use crate::model::{cell_ref, Sheet, FMT_NUM, FMT_PCT, DATA0, LABEL};
+use crate::model::{cell_ref, Sheet, BLUE, FMT_NUM, FMT_PCT, DATA0, LABEL};
 use fm_value::unlever_beta;
 
 // Row map (0-based) — WACC_R
@@ -162,6 +162,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let wd_c = cell_ref(WD, DATA0);
     let kdat_c = cell_ref(KD_AFTER, DATA0);
     s.formula(WACC, DATA0, format!("={we_c}*{ke_c}+{wd_c}*{kdat_c}"));
+    s.fill(WACC, DATA0, BLUE);
     s.stamp_row(WACC, FMT_PCT);
 
     s

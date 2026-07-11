@@ -17,6 +17,8 @@ pub const BLUE: &str = "FF255BE3";
 pub const TAN: &str = "FFEAE0D3";
 /// Critical-failure cells on the Sources tab (red).
 pub const RED: &str = "FFFF3C28";
+/// Sensitivity base-row highlight (light blue).
+pub const LIGHT_BLUE: &str = "FFDEEAF1";
 
 // ── Number formats (product polish; NOT part of the snapshot gate) ───────────
 // Ported verbatim from writer.py `_Fmt` (Section 3 codes).

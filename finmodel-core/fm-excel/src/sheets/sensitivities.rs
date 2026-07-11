@@ -1,7 +1,7 @@
 //! Sensitivities tab — port of `writer.py::_write_sensitivities`.
 
 use crate::input::WorkbookInput;
-use crate::model::{col_name, Sheet, FMT_MULT, FMT_NUM, FMT_PCT, DATA0, LABEL};
+use crate::model::{col_name, Sheet, BLUE, FMT_MULT, FMT_NUM, FMT_PCT, LIGHT_BLUE, DATA0, LABEL};
 use crate::sheets::dcf::rows as dr;
 
 // SENS_R
@@ -29,9 +29,10 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.text(
         SUBTITLE,
         LABEL,
-        "Implied Share Price under Alternative Assumptions",
+        "Implied Share Price Sensitivities",
     );
-    s.text(UNITS, LABEL, format!("({} per share)", m.currency));
+    // Python hardcodes USD in the units line even for non-USD models.
+    s.text(UNITS, LABEL, "(USD $ per share)");
 
     let lc = col_name(LABEL);
     let dcol = col_name(DATA0);
@@ -65,6 +66,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         }
     }
     let g_hdr_er = TBL1_COLS + 1;
+    let n_wacc = dcf.wacc_range.len();
+    let mid = n_wacc / 2;
     for (i, w) in dcf.wacc_range.iter().enumerate() {
         let r = TBL1_START + i as u32;
         let r_excel = r + 1;
@@ -86,6 +89,10 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 sum = ufcf_sum(&wacc_ref)
             );
             s.formula(r, col, formula);
+            if i == mid {
+                let fill = if j == dcf.gordon_growth_range.len() / 2 { BLUE } else { LIGHT_BLUE };
+                s.fill(r, col, fill);
+            }
         }
         s.stamp_row(r, FMT_NUM);
     }
@@ -119,6 +126,10 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 sum = ufcf_sum(&wacc_ref)
             );
             s.formula(r, col, formula);
+            if i == mid {
+                let fill = if j == dcf.ebitda_multiple_range.len() / 2 { BLUE } else { LIGHT_BLUE };
+                s.fill(r, col, fill);
+            }
         }
         s.stamp_row(r, FMT_NUM);
     }
