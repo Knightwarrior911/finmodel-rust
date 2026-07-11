@@ -13,40 +13,27 @@ use crate::xbrl;
 /// Uses live SEC API calls. Falls back to placeholder on network error
 /// (non-US tickers that won't be found in EDGAR should use the PDF path instead).
 pub fn fetch_xbrl(ticker: &str) -> Result<ExtractionResult, ExtractError> {
-    // 1. Look up CIK from ticker via SEC company_tickers.json
-    let cik = match cik_from_ticker(ticker) {
-        Ok(c) => c,
-        Err(_) => {
-            // Ticker not in EDGAR (e.g. non-US). Return Err so the caller routes to
-            // the non-US PDF path or a committed fixture — NEVER fabricate placeholder
-            // data that could masquerade as a real extraction.
-            return Err(ExtractError::Other(format!(
-                "{ticker} not found in SEC EDGAR (non-US?) — use the PDF extraction path"
-            )));
-        }
-    };
+    fetch_xbrl_with_provenance(ticker).map(|(r, _)| r)
+}
 
-    // 2. Fetch XBRL company facts JSON
-    let facts = match fetch_companyfacts_raw(&cik) {
-        Ok(f) => f,
-        Err(e) => {
-            return Err(ExtractError::Other(format!("XBRL fetch failed for {ticker}: {e}")));
-        }
-    };
-
-    // 3. Determine currency from the JSON (default USD)
+/// Like [`fetch_xbrl`] but also returns a `canonical_key → matched us-gaap tag`
+/// map, so downstream consumers can cite the exact XBRL fact behind each number.
+pub fn fetch_xbrl_with_provenance(
+    ticker: &str,
+) -> Result<(ExtractionResult, std::collections::HashMap<String, String>), ExtractError> {
+    let cik = cik_from_ticker(ticker).map_err(|_| {
+        ExtractError::Other(format!(
+            "{ticker} not found in SEC EDGAR (non-US?) — use the PDF extraction path"
+        ))
+    })?;
+    let facts = fetch_companyfacts_raw(&cik)
+        .map_err(|e| ExtractError::Other(format!("XBRL fetch failed for {ticker}: {e}")))?;
     let currency = detect_currency(&facts).unwrap_or("USD");
-
-    // 4. Parse XBRL into structured data
-    let parsed = xbrl::parse_xbrl_to_raw(&facts, 3, currency)
+    let (parsed, prov) = xbrl::parse_xbrl_to_raw_with_provenance(&facts, 3, currency)
         .map_err(|e| ExtractError::Other(format!("XBRL parse error for {ticker}: {e}")))?;
-
-    // 5. Build ExtractionResult
-    let years = detect_years(&parsed).unwrap_or_else(|| {
-        vec!["2022".to_string(), "2023".to_string(), "2024".to_string()]
-    });
-
-    Ok(ExtractionResult {
+    let years = detect_years(&parsed)
+        .unwrap_or_else(|| vec!["2022".to_string(), "2023".to_string(), "2024".to_string()]);
+    let result = ExtractionResult {
         currency: currency.to_string(),
         years_found: years,
         income_statement: parsed.is,
@@ -55,7 +42,8 @@ pub fn fetch_xbrl(ticker: &str) -> Result<ExtractionResult, ExtractError> {
         notes: parsed.notes,
         confidence: 0.95,
         discrepancies: vec![],
-    })
+    };
+    Ok((result, prov))
 }
 
 /// Try to detect the reporting currency from the companyfacts JSON.

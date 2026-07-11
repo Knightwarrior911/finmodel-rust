@@ -368,6 +368,17 @@ pub fn parse_xbrl_to_raw(
     periods_historical: usize,
     currency: &str,
 ) -> Result<ParsedXbrlData, XbrlParseError> {
+    parse_xbrl_to_raw_with_provenance(facts, periods_historical, currency).map(|(d, _)| d)
+}
+
+/// Like [`parse_xbrl_to_raw`], but also returns a `canonical_key → matched
+/// us-gaap tag` map, so each extracted number can cite the exact XBRL fact it
+/// came from (filing-level auditability for benchmarking).
+pub fn parse_xbrl_to_raw_with_provenance(
+    facts: &Value,
+    periods_historical: usize,
+    currency: &str,
+) -> Result<(ParsedXbrlData, HashMap<String, String>), XbrlParseError> {
     let gaap = facts
         .pointer("/facts/us-gaap")
         .and_then(|v| v.as_object())
@@ -380,6 +391,7 @@ pub fn parse_xbrl_to_raw(
     let mut bs = StatementData::new();
     let mut cfs = StatementData::new();
     let notes: HashMap<String, Value> = HashMap::new();
+    let mut prov: HashMap<String, String> = HashMap::new();
 
     // Define which canonical keys go to which statement
     let is_keys: &[&str] = &[
@@ -399,24 +411,17 @@ pub fn parse_xbrl_to_raw(
         "buybacks", "net_change_cash", "fx_effect_on_cash",
     ];
 
-    // Extract each canonical key
-    for key in is_keys {
-        if let Some(v) = extract_tag(&gaap, key, &tag_map, &target_years, currency) {
-            is.insert(key.to_string(), v);
-        }
-    }
-    for key in bs_keys {
-        if let Some(v) = extract_tag(&gaap, key, &tag_map, &target_years, currency) {
-            bs.insert(key.to_string(), v);
-        }
-    }
-    for key in cfs_keys {
-        if let Some(v) = extract_tag(&gaap, key, &tag_map, &target_years, currency) {
-            cfs.insert(key.to_string(), v);
+    // Extract each canonical key, recording the matched tag for provenance.
+    for (keys, stmt) in [(is_keys, &mut is), (bs_keys, &mut bs), (cfs_keys, &mut cfs)] {
+        for key in keys {
+            if let Some((tag, v)) = extract_tag_named(&gaap, key, &tag_map, &target_years, currency) {
+                stmt.insert(key.to_string(), v);
+                prov.insert(key.to_string(), tag.to_string());
+            }
         }
     }
 
-    Ok(ParsedXbrlData { is, bs, cfs, notes })
+    Ok((ParsedXbrlData { is, bs, cfs, notes }, prov))
 }
 
 /// Result of parsing XBRL company facts.
@@ -445,14 +450,15 @@ fn compute_target_years(periods_historical: usize) -> Vec<String> {
     compute_target_years_from(periods_historical, latest_fy)
 }
 
-/// Try each tag for a canonical key and return the first one with data for all years.
-fn extract_tag(
+/// Try each candidate tag for a canonical key; return the first with data for
+/// all target years, together with the winning us-gaap tag name (provenance).
+fn extract_tag_named(
     gaap: &serde_json::Map<String, Value>,
     canonical_key: &str,
     tag_map: &HashMap<&str, &[&str]>,
     target_years: &[String],
     currency: &str,
-) -> Option<Vec<Option<f64>>> {
+) -> Option<(String, Vec<Option<f64>>)> {
     let tags = tag_map.get(canonical_key)?;
     for tag_name in *tags {
         if let Some(entry) = gaap.get(*tag_name) {
@@ -493,7 +499,7 @@ fn extract_tag(
                         }
 
                         if all_found && !result.is_empty() {
-                            return Some(result);
+                            return Some((tag_name.to_string(), result));
                         }
                     }
                 }
@@ -761,5 +767,43 @@ mod deterministic_tests {
         });
         let result = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse_xbrl_to_raw");
         assert!(result.is.get("revenue").is_none());
+    }
+
+    #[test]
+    fn provenance_records_the_winning_tag() {
+        // Revenue via the ASC-606 tag; net income via NetIncomeLoss. The
+        // provenance map must name the exact us-gaap tag each value came from.
+        let facts = serde_json::json!({
+            "facts": { "us-gaap": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "label": "Revenue",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 100, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 110, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 120, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                },
+                "NetIncomeLoss": {
+                    "label": "NI",
+                    "units": { "USD": [
+                        {"end": "2023-12-31", "val": 10, "form": "10-K", "fy": "2023", "fp": "FY"},
+                        {"end": "2024-12-31", "val": 12, "form": "10-K", "fy": "2024", "fp": "FY"},
+                        {"end": "2025-12-31", "val": 14, "form": "10-K", "fy": "2025", "fp": "FY"}
+                    ]}
+                }
+            }}
+        });
+        let (data, prov) = parse_xbrl_to_raw_with_provenance(&facts, 3, "USD").expect("parse");
+        assert_eq!(data.is.get("revenue").unwrap()[2], Some(120.0));
+        assert_eq!(
+            prov.get("revenue").map(String::as_str),
+            Some("RevenueFromContractWithCustomerExcludingAssessedTax")
+        );
+        assert_eq!(prov.get("net_income").map(String::as_str), Some("NetIncomeLoss"));
+        // A key with no matching fact has no provenance entry.
+        assert!(prov.get("goodwill").is_none());
+        // parse_xbrl_to_raw (no-provenance wrapper) yields identical data.
+        let plain = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse plain");
+        assert_eq!(plain.is.get("revenue").unwrap()[2], Some(120.0));
     }
 }

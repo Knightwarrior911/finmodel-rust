@@ -10,7 +10,7 @@ pub mod section;
 pub mod xbrl;
 
 // Re-export the most commonly used items.
-pub use edgar::{fetch_xbrl, fetch_non_us_filing};
+pub use edgar::{fetch_xbrl, fetch_xbrl_with_provenance, fetch_non_us_filing};
 pub use extract::{
     ExtractError, ExtractionResult, FetchConfig,
     EXTRACT_SYSTEM_PROMPT, FINANCIALS_SYSTEM_PROMPT,
@@ -21,4 +21,4 @@ pub use extract::{
 };
 pub use llm::{llm_complete, list_openrouter_models, LlmError, OpenRouterModel, OpenRouterPricing};
 pub use section::{extract_financial_section, detect_sector};
-pub use xbrl::{xbrl_tag_map, parse_xbrl_to_raw, ParsedXbrlData, XbrlParseError};
+pub use xbrl::{xbrl_tag_map, parse_xbrl_to_raw, parse_xbrl_to_raw_with_provenance, ParsedXbrlData, XbrlParseError};

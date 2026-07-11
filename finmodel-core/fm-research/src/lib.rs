@@ -33,6 +33,8 @@ pub struct BenchmarkMetrics {
     pub fiscal_year: Option<String>,
     /// SIC industry description from EDGAR (e.g. "National Commercial Banks").
     pub sector: Option<String>,
+    /// `canonical_key → matched us-gaap XBRL tag` for exact filing-fact citation.
+    pub provenance: std::collections::HashMap<String, String>,
 
     // ── Raw filing figures (native units) ────────────────────────────────
     pub revenue: Option<f64>,
@@ -318,18 +320,25 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         // formula. Only attach a note where the value is present.
         let fy = m.fiscal_year.clone().unwrap_or_else(|| "latest FY".into());
         let filing = format!("SEC EDGAR XBRL companyfacts — {} {}", m.ticker, fy);
+        // Exact us-gaap tag for a raw canonical key, when captured.
+        let tagged = |key: &str| match m.provenance.get(key) {
+            Some(tag) => format!("{filing} (us-gaap:{tag})"),
+            None => filing.clone(),
+        };
         let mut cite = |key: &str, present: bool, text: String| {
             if present {
                 sources.insert((m.ticker.clone(), key.to_string()), text);
             }
         };
-        cite("revenue", m.revenue.is_some(), filing.clone());
+        cite("revenue", m.revenue.is_some(), tagged("revenue"));
         cite(
             "ebitda",
             m.ebitda.is_some(),
-            format!("Derived: EBIT + D&A ({filing})"),
+            format!("Derived: EBIT ({}) + D&A ({}) [{filing}]",
+                m.provenance.get("ebit").map(|t| format!("us-gaap:{t}")).unwrap_or_else(|| "EBIT".into()),
+                m.provenance.get("da").map(|t| format!("us-gaap:{t}")).unwrap_or_else(|| "D&A".into())),
         );
-        cite("net_income", m.net_income.is_some(), filing.clone());
+        cite("net_income", m.net_income.is_some(), tagged("net_income"));
         cite(
             "rev_growth",
             m.revenue_growth.is_some(),
@@ -480,8 +489,8 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
     let mut metrics = Vec::new();
     let mut failed = Vec::new();
     for t in tickers {
-        match fm_extract::fetch_xbrl(t) {
-            Ok(ex) => {
+        match fm_extract::fetch_xbrl_with_provenance(t) {
+            Ok((ex, prov)) => {
                 let mut m = metrics_from_extraction(t, &ex);
                 if m.fiscal_year.is_some() && m.revenue.is_some() {
                     // Best-effort sector tag from EDGAR SIC (never fails the run).
@@ -490,6 +499,7 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
                         .ok()
                         .map(|s| s.sic_description)
                         .filter(|s| !s.is_empty());
+                    m.provenance = prov; // exact us-gaap tag per canonical key
                     metrics.push(m);
                 } else {
                     failed.push((t.clone(), "no revenue / fiscal year in XBRL".into()));

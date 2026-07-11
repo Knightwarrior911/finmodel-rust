@@ -8,6 +8,11 @@
   income), Growth (YoY + full-window revenue CAGR), Profitability (gross/EBITDA/
   net/FCF margin), Returns (ROE/ROA), Liquidity (current ratio), Leverage (net
   debt / net-debt-to-EBITDA / interest coverage) — all from filings, unit-tested.
+- **Tag-level provenance** — each raw benchmark figure now cites the exact
+  matched us-gaap XBRL tag (e.g. `us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax`),
+  not just the fiscal year. `fm-extract::parse_xbrl_to_raw_with_provenance` /
+  `fetch_xbrl_with_provenance` (additive; `fetch_xbrl`/`parse_xbrl_to_raw` are
+  now thin wrappers). Unit-tested (winning-tag capture).
 - **`fm verify`** now filters snapshots structurally (`model_output` present &&
   not `*_full_*`), so the new gate oracles (adhoc / ev_bridge / ifrs_bridge)
   never break it.
