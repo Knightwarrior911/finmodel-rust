@@ -6,6 +6,63 @@ ALL work now happens here, in `finmodel-rust`
 (github.com/Knightwarrior911/finmodel-rust), cloned locally at
 `C:/Users/vinit/Documents/finmodel-rust`.
 
+## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
+
+All work committed (branch `master`, up to `34a3024`). Build with
+`cd finmodel-core && RUSTFLAGS="-D warnings" cargo test -p fm-excel -p fm-build -p fm-value -p fm-ifrs`.
+⚠️ Disk C: chronically tight (~2 GB now). Free `*/target/debug/{incremental,deps}`
+between heavy builds; a full `cargo build -p fm-cli`/Tauri build is ~1–8 min and
+has ENOSPC'd before. Prefer running built exes by ABSOLUTE path (the shell rejects
+`./foo.exe`).
+
+### Done this session
+- **Excel formatting → 100% parity** with the Python writer. `render.rs` applies
+  the `writer.py::_Fmt` system at render time (Arial 10; blue hardcoded inputs /
+  green cross-tab `=X!` links / black same-tab formulas / navy-bold totals+titles /
+  sand section headers / gray-italic drivers+memos; column widths; frozen panes;
+  hidden gridlines; borders). `Cell` gained render-only fields (bold/italic/
+  top_border/bottom_border/center/font_hex); IS/BS/CF/Cover/Assumptions/Sources
+  builders tag subtotals, drivers, memos, checks, period headers.
+  **Format oracle:** `tieout/diff_formats.py` (openpyxl) vs `tests/render_dump.rs`
+  output → **1192/1192 cells** match bold/italic/color across all 6 sheets.
+  Content gates (value/formula/fill) unaffected. Commits `5c88660`, `ccaec21`.
+- **Formula caches**: `Cell.cached` + `Formula::set_result`; IS/BS/CF projected
+  cells cache engine values so LibreOffice shows numbers offline (`bb4db02`,
+  `tests/formula_cache.rs`).
+- **App UI reskin**: warm light chrome + indigo accent (Snitch/PDF-Panda language),
+  `ui/` (`a60eaf3`). App builds + launches (`src-tauri/target/debug/finmodel-app.exe`).
+- **IFRS (DONE):** new `fm-ifrs` crate ports `kb/ifrs.py` (IFRS16↔US-GAAP EBIT/
+  EBITDA/EBITA conversion, margins/deltas, `auto_convert`) + `us_gaap_leases.
+  compute_ifrs_adjustments` (ASC 842 → ROU dep + lease interest, exact fallback
+  order). Oracle-gated (6 tests). Reachable: `fm-cli ifrs …`. Commit `8451ce7`.
+- **Research phase 1 (DONE):** `fm-value::ev_bridge` ports `kb/ev_bridge.py`
+  (equity→EV checklist; goodwill never subtracted R-014; `compute_unfunded_pension`
+  R-015). Oracle-gated (3 tests). Reachable: `fm-cli ev-bridge …`. Commit `34a3024`.
+
+### NEXT — finish the research subsystem (`src/research/`, ~600 KB Python)
+Port order (each: port calc → oracle-gate vs Python → reachable consumer):
+1. **Research → Excel** (`src/research/output_writer.py` `ResearchExcelWriter`) —
+   render the EV-bridge + IFRS bridge into an actual polished worksheet using the
+   `fm-excel` render engine. *Highest value, lowest risk — do first.* Makes
+   "ad-hoc analysis presented in Excel" real.
+2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
+   for filing-doc fetch (CIK/filings partly exist).
+3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.
+4. **PPTX decks** (`pptx_writer.py` 144 KB + editor/render/inspector) — big; IB slides.
+5. **Browser pipeline** (`browser_pipeline.py` 81 KB) — non-US annual-report extract.
+6. **Agent/orchestrator** (`agent.py` 39 KB, `orchestrator.py`) — NL query → tools → Excel/deck.
+
+### Also still open (pre-existing, non-blocking)
+- **Auto-update release NOT wired** (unlike PDF Panda): `tauri-plugin-updater` is a
+  dep but not initialized; `createUpdaterArtifacts:false`; no `plugins.updater`
+  pubkey/endpoints; no minisign keys; no published release; icons are pdf-panda
+  placeholders. To ship: init updater, gen minisign keypair, add pubkey+endpoints
+  (GitHub Releases like pdf-panda `ci.yml`), `createUpdaterArtifacts:true`, rebrand
+  icons, `cargo tauri build` → NSIS installer + latest.json.
+- **App market inputs** default (`risk_free=0.045`, `share_price=0.0`) — needs live feed.
+- Valuation-tab per-role emphasis (DCF/WACC/Sens/Comps) not format-oracle-measured
+  (they get the base render system; IS/BS/CF/Cover/Assumptions/Sources are 100%).
+
 ## THE MISSION
 
 Make the Rust Excel output match the Python output **100%**. Right now the Rust
