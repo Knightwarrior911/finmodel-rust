@@ -60,6 +60,38 @@ enum Command {
         #[arg(long)]
         rou_assets: Option<f64>,
     },
+    /// Enterprise-Value bridge: equity value → EV via debt/leases/pension less
+    /// cash & non-operating assets (BIWS rules; goodwill never subtracted).
+    EvBridge {
+        #[arg(long, default_value = "")]
+        company: String,
+        #[arg(long)]
+        share_price: Option<f64>,
+        #[arg(long)]
+        shares: Option<f64>,
+        #[arg(long)]
+        market_cap: Option<f64>,
+        #[arg(long)]
+        total_debt: Option<f64>,
+        #[arg(long)]
+        finance_leases: Option<f64>,
+        #[arg(long)]
+        operating_leases: Option<f64>,
+        #[arg(long)]
+        underfunded_pension: Option<f64>,
+        #[arg(long)]
+        minority_interest: Option<f64>,
+        #[arg(long)]
+        preferred_stock: Option<f64>,
+        #[arg(long)]
+        cash: Option<f64>,
+        #[arg(long)]
+        short_term_investments: Option<f64>,
+        #[arg(long)]
+        equity_investments: Option<f64>,
+        #[arg(long)]
+        nol_dta: Option<f64>,
+    },
 }
 
 fn cmd_score(gt_path: &PathBuf, model_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -285,6 +317,60 @@ fn fmt2(v: f64) -> String {
     format!("{v:.1}")
 }
 
+#[allow(clippy::too_many_arguments)]
+fn cmd_ev_bridge(
+    company: &str,
+    share_price: Option<f64>,
+    shares: Option<f64>,
+    market_cap: Option<f64>,
+    total_debt: Option<f64>,
+    finance_leases: Option<f64>,
+    operating_leases: Option<f64>,
+    underfunded_pension: Option<f64>,
+    minority_interest: Option<f64>,
+    preferred_stock: Option<f64>,
+    cash: Option<f64>,
+    short_term_investments: Option<f64>,
+    equity_investments: Option<f64>,
+    nol_dta: Option<f64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let inp = fm_value::ev_bridge::EvBridgeInput {
+        company: company.to_string(),
+        share_price,
+        shares_outstanding: shares,
+        market_cap,
+        total_debt,
+        finance_leases,
+        operating_leases,
+        underfunded_pension,
+        minority_interest,
+        preferred_stock,
+        cash,
+        short_term_investments,
+        equity_investments,
+        nol_dta,
+        ..Default::default()
+    };
+    let b = fm_value::ev_bridge::build_ev_bridge(&inp);
+    let name = if company.is_empty() { "Company".to_string() } else { company.to_string() };
+    println!("Enterprise Value Bridge — {name}");
+    println!("  {:<28} {:>16}", "Equity Value (Market Cap)", fmt2(b.market_cap.unwrap_or(0.0)));
+    if !b.additions.is_empty() {
+        println!("  (+) additions:");
+        for li in &b.additions {
+            println!("      {:<24} {:>16}   [{}]", li.item, fmt2(li.amount), li.source);
+        }
+    }
+    if !b.subtractions.is_empty() {
+        println!("  (−) subtractions:");
+        for li in &b.subtractions {
+            println!("      {:<24} {:>16}   [{}]", li.item, fmt2(li.amount), li.source);
+        }
+    }
+    println!("  {:<28} {:>16}", "= Enterprise Value", fmt2(b.total_ev));
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -300,6 +386,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &standard, ebit, ebitda, ebita, revenue,
             rou_depreciation, lease_interest, lease_cost, lease_liability,
             discount_rate, lease_term, rou_assets,
+        ),
+        Command::EvBridge {
+            company, share_price, shares, market_cap, total_debt, finance_leases,
+            operating_leases, underfunded_pension, minority_interest, preferred_stock,
+            cash, short_term_investments, equity_investments, nol_dta,
+        } => cmd_ev_bridge(
+            &company, share_price, shares, market_cap, total_debt, finance_leases,
+            operating_leases, underfunded_pension, minority_interest, preferred_stock,
+            cash, short_term_investments, equity_investments, nol_dta,
         ),
     }
 }
