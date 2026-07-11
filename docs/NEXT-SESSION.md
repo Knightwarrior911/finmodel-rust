@@ -63,6 +63,25 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
 - Valuation-tab per-role emphasis (DCF/WACC/Sens/Comps) not format-oracle-measured
   (they get the base render system; IS/BS/CF/Cover/Assumptions/Sources are 100%).
 
+### Gates & regen workflow (read before Excel/valuation work)
+- **Content gates (value/formula/fill):** `cargo test -p fm-excel` runs
+  `snapshot_parity` (empty-IS, 5 cos), `full_is_parity` (IS/BS/CF std+sectors+XBRL),
+  `valuation_parity` (Cover/DCF/WACC/Sensitivities/Comps Peers/Comps Summary — 0 diffs
+  vs `tieout/excel_snapshots/SAND_ST_val_full_snapshot.json`), `formats`, `roundtrip`,
+  `formula_cache`. **Valuation + Comps tabs already exist and are gated.**
+- **Oracles (Python-side, regen when the writer/inputs change):**
+  `py tieout/build_full_is_oracle.py` → `*_full_snapshot.json` (+ sector/xbrl);
+  `py tieout/build_val_oracle.py` → `SAND_ST_val_full_snapshot.json` (embeds
+  WACCOutput/DCFOutput/PublicCompsOutput + writes `tests/snapshots/SAND_ST_val_full.xlsx`).
+- **Format parity (bold/italic/color) — 2-step, order matters:**
+  1. `cargo test -p fm-excel --test render_dump` → writes `tests/snapshots/SAND_ST_rust.xlsx`
+     (must re-run after ANY render.rs / sheet-builder change).
+  2. `py tieout/build_full_is_oracle.py` (writes `SAND_ST_full.xlsx`), then
+     `py tieout/diff_formats.py` → prints per-sheet % and exits non-zero if <100%.
+  `tests/snapshots/*.xlsx` are git-ignored scratch — safe to delete/regenerate.
+- Snapshot/content gates are blind to fonts/borders/widths/freeze — those live only
+  in `render.rs` + the `Cell` emphasis fields, measured only by `diff_formats.py`.
+
 ## THE MISSION
 
 Make the Rust Excel output match the Python output **100%**. Right now the Rust
