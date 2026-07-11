@@ -18,7 +18,8 @@
 use std::collections::HashMap;
 
 use rust_xlsxwriter::{
-    Color, Format, FormatAlign, FormatBorder, FormatPattern, Formula, Workbook as XlsxWorkbook,
+    Color, Format, FormatAlign, FormatBorder, FormatPattern, Formula, Note,
+    Workbook as XlsxWorkbook,
 };
 
 use crate::model::{Cell, Value, Workbook, DATA0, LABEL};
@@ -226,6 +227,12 @@ pub fn render(wb: &Workbook, path: &str) -> Result<()> {
                 (None, None) => {
                     ws.write_blank(*row, *col as u16, &f)?;
                 }
+            }
+
+            if let Some(text) = &cell.comment {
+                // Provenance citation as a cell note (invisible to content gates).
+                let note = Note::new(text).set_author("finmodel");
+                ws.insert_note(*row, *col as u16, &note)?;
             }
         }
     }

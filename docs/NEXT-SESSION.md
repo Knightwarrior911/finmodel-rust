@@ -6,6 +6,34 @@ ALL work now happens here, in `finmodel-rust`
 (github.com/Knightwarrior911/finmodel-rust), cloned locally at
 `C:/Users/vinit/Documents/finmodel-rust`.
 
+
+## LATEST SESSION (2026-07-12) — Benchmark subsystem (filings → Excel)
+
+Build/verify: `cd finmodel-core && CARGO_INCREMENTAL=0 cargo test --workspace`
+(all green). Warnings gate: `RUSTFLAGS="-D warnings" cargo build -p fm-research
+-p fm-excel -p fm-cli -p fm-extract`. Disk C: chronically tight (~4.5 GB) — clear
+only `target/debug/incremental` between builds; keep `deps`. Run built exes via
+`cargo run -q -p fm-cli -- …` and pass Windows-style `--out C:/tmp/x.xlsx`
+(git-bash `/c/tmp/…` mangles to `C:\c\tmp`).
+
+### Done this session — research port item 1 (DONE)
+- **Research → Excel benchmarking** — ported `src/research/output_writer.py`
+  (`pick_adhoc_layout` + `AdHocExcelWriter.write_research`) → `fm-excel::adhoc`
+  on the shared cell-model/render engine. Cell-for-cell oracle-gated
+  (value/formula/fill): `tieout/build_adhoc_oracle.py` →
+  `tieout/excel_snapshots/ADHOC_bench_snapshot.json`,
+  `fm-excel/tests/adhoc_parity.rs` = **0 diffs** + 8 decision-tree unit tests.
+- **`fm-research` crate (new)** — `metrics_from_extraction` (pure, latest-FY
+  scale/growth/profitability/returns/leverage), `build_benchmark_table`,
+  `render_benchmark`, `benchmark_tickers` (live EDGAR). 6 unit tests.
+- **`fm benchmark --tickers … [--out] [--title]`** — live-verified on
+  AAPL/MSFT/GOOGL/AMZN/META (real FY2025 XBRL). Grouped headers, MEDIAN/MEAN/
+  MIN/MAX block (formulas + cached results), currency column, per-cell EDGAR
+  provenance notes (`Cell.comment` → xlsx notes in `render.rs`).
+- **XBRL/metrics correctness**: added `short_term_debt` tag key (total debt =
+  LT + current portion, so leverage isn't understated); gross profit falls back
+  to revenue − COGS when GrossProfit is untagged.
+- ⏳ NOT committed yet — commit this session's tree.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
@@ -41,10 +69,10 @@ has ENOSPC'd before. Prefer running built exes by ABSOLUTE path (the shell rejec
 
 ### NEXT — finish the research subsystem (`src/research/`, ~600 KB Python)
 Port order (each: port calc → oracle-gate vs Python → reachable consumer):
-1. **Research → Excel** (`src/research/output_writer.py` `ResearchExcelWriter`) —
-   render the EV-bridge + IFRS bridge into an actual polished worksheet using the
-   `fm-excel` render engine. *Highest value, lowest risk — do first.* Makes
-   "ad-hoc analysis presented in Excel" real.
+1. ✅ **Research → Excel (DONE 2026-07-12)** — `AdHocExcelWriter.write_research`
+   ported to `fm-excel::adhoc` + `fm-research` benchmark pipeline + `fm benchmark`
+   CLI, oracle-gated (`adhoc_parity.rs`). Remaining follow-up: non-US (PDF+LLM)
+   peers in the benchmark, and a Tauri app command/button.
 2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
    for filing-doc fetch (CIK/filings partly exist).
 3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.

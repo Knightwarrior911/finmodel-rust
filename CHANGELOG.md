@@ -3,6 +3,27 @@
 
 ## Unreleased
 
+### Added — research/benchmarking subsystem (filings → Excel)
+- **`fm benchmark --tickers AAPL,MSFT,… [--out …] [--title …]`**: fetches each
+  peer's SEC EDGAR XBRL companyfacts, computes latest-FY scale / growth /
+  profitability / returns / leverage metrics, and renders an IB-grade comparison
+  workbook with grouped headers, a MEDIAN/MEAN/MIN/MAX summary block (live Excel
+  formulas + cached results for offline viewers), a reporting-currency column,
+  and per-cell provenance notes back to the filing. Live-verified on
+  AAPL/MSFT/GOOGL/AMZN/META (real FY2025 figures).
+- **`fm-excel::adhoc`**: port of `src/research/output_writer.py`
+  (`pick_adhoc_layout` + `AdHocExcelWriter.write_research`) onto the shared
+  cell-model/render engine. Gated cell-for-cell (value/formula/fill) against a
+  Python oracle — `tieout/build_adhoc_oracle.py` → `ADHOC_bench_snapshot.json`,
+  `tests/adhoc_parity.rs` (0 diffs), plus decision-tree unit tests.
+- **`fm-research` crate**: `metrics_from_extraction` (pure), `build_benchmark_table`,
+  `render_benchmark`, `benchmark_tickers` (live). Unit-tested; failures reported,
+  never fabricated.
+- **XBRL**: added a `short_term_debt` tag key (current portion / CP / revolvers);
+  benchmark total debt = long-term + short-term so leverage isn't understated.
+  Gross profit falls back to revenue − COGS when a filer omits the GrossProfit tag.
+- `Cell.comment` → xlsx notes in the render engine (provenance; ungated).
+
 **Phase 1 Wave 1 (task 1.1.0) + harden-basket sprint: tie-out unblocked, basket fixed & hardened, baseline re-frozen to 339/350 (96.86%) on 7 industrials.**
 
 ### Fixed

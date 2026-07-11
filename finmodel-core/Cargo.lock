@@ -524,6 +524,7 @@ dependencies = [
  "fm-excel",
  "fm-extract",
  "fm-ifrs",
+ "fm-research",
  "fm-tieout",
  "fm-types",
  "fm-value",
@@ -587,6 +588,17 @@ name = "fm-ifrs"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "fm-research"
+version = "0.1.0"
+dependencies = [
+ "fm-excel",
+ "fm-extract",
+ "fm-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -84,6 +84,10 @@ pub struct Cell {
     /// Explicit font color (6-hex RGB, no alpha) overriding content inference
     /// (navy subtitles/headers, gray drivers/memos).
     pub font_hex: Option<&'static str>,
+    /// Cell note/comment — provenance citation (e.g. "AAPL 10-K FY2024 p.31").
+    /// Render-only: emitted as an xlsx note; invisible to the snapshot/content
+    /// gates (openpyxl `data_only=False` doesn't characterize notes).
+    pub comment: Option<String>,
 }
 
 impl Cell {
@@ -106,7 +110,7 @@ impl Sheet {
     }
 
     /// Merge content into a cell (later writes overlay earlier ones field-by-field).
-    fn merge(&mut self, row: u32, col: u32, patch: Cell) {
+    pub(crate) fn merge(&mut self, row: u32, col: u32, patch: Cell) {
         let c = self.cells.entry((row, col)).or_default();
         if patch.value.is_some() {
             c.value = patch.value;
@@ -124,6 +128,9 @@ impl Sheet {
         }
         if patch.num_fmt.is_some() {
             c.num_fmt = patch.num_fmt;
+        }
+        if patch.comment.is_some() {
+            c.comment = patch.comment;
         }
     }
 

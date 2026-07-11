@@ -1,3 +1,4 @@
+pub mod adhoc;
 pub mod derive;
 pub mod input;
 pub mod is_structure;

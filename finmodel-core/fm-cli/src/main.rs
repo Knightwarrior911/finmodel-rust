@@ -92,6 +92,21 @@ enum Command {
         #[arg(long)]
         nol_dta: Option<f64>,
     },
+    /// Benchmark filing figures for a peer set into an IB-grade Excel workbook.
+    /// Fetches each ticker's SEC EDGAR XBRL facts, computes scale/growth/
+    /// profitability/returns/leverage metrics, and renders a comparison sheet
+    /// with a MEDIAN/MEAN/MIN/MAX block and per-cell provenance notes.
+    Benchmark {
+        /// Comma-separated tickers, e.g. "AAPL,MSFT,GOOGL".
+        #[arg(long)]
+        tickers: String,
+        /// Output .xlsx path (default: "benchmark.xlsx").
+        #[arg(long, default_value = "benchmark.xlsx")]
+        out: String,
+        /// Workbook title (default derived from the tickers).
+        #[arg(long)]
+        title: Option<String>,
+    },
 }
 
 fn cmd_score(gt_path: &PathBuf, model_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -371,6 +386,40 @@ fn cmd_ev_bridge(
     Ok(())
 }
 
+fn cmd_benchmark(
+    tickers: &str,
+    out: &str,
+    title: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let list: Vec<String> = tickers
+        .split(',')
+        .map(|t| t.trim().to_uppercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if list.is_empty() {
+        return Err("no tickers given (use --tickers AAPL,MSFT,...)".into());
+    }
+    let title = title
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Peer Benchmark — {}", list.join(", ")));
+    println!("Benchmarking {} tickers from SEC EDGAR XBRL...", list.len());
+
+    let run = fm_research::benchmark_tickers(&list, &title)?;
+    for (t, why) in &run.failed {
+        println!("  ! {t}: {why}");
+    }
+    println!(
+        "  {} of {} tickers produced usable filing data",
+        run.metrics.len(),
+        list.len()
+    );
+
+    let generated = fm_research::generated_stamp(&fm_research::today_iso());
+    fm_research::render_benchmark(&run.table, out, &generated)?;
+    println!("  \u{2713} wrote benchmark workbook -> {out}");
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -396,5 +445,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             operating_leases, underfunded_pension, minority_interest, preferred_stock,
             cash, short_term_investments, equity_investments, nol_dta,
         ),
+        Command::Benchmark { tickers, out, title } => {
+            cmd_benchmark(&tickers, &out, title.as_deref())
+        }
     }
 }

@@ -240,6 +240,16 @@ pub fn xbrl_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
         "PolicyholderFunds",
         "LiabilityForFuturePolicyBenefits",
     ]);
+    m.insert("short_term_debt", &[
+        "DebtCurrent",
+        "LongTermDebtCurrent",
+        "ShortTermBorrowings",
+        "CommercialPaper",
+        "OtherShortTermBorrowings",
+        "FinanceLeaseLiabilityCurrent",
+        "LinesOfCreditCurrent",
+        "NotesPayableCurrent",
+    ]);
     m.insert("total_liabilities", &[
         // "Liabilities" — if absent, derivation computes: total_assets - total_equity - rnci
         "Liabilities",
@@ -381,7 +391,7 @@ pub fn parse_xbrl_to_raw(
     let bs_keys: &[&str] = &[
         "cash", "accounts_receivable", "inventory", "total_current_assets",
         "ppe_net", "goodwill", "intangibles_net", "total_assets",
-        "accounts_payable", "total_current_liabilities", "long_term_debt",
+        "accounts_payable", "total_current_liabilities", "long_term_debt", "short_term_debt",
         "total_liabilities", "retained_earnings", "total_equity", "redeemable_nci",
     ];
     let cfs_keys: &[&str] = &[

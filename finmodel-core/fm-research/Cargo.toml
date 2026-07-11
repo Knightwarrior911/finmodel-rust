@@ -1,0 +1,12 @@
+[package]
+name = "fm-research"
+version = "0.1.0"
+edition = "2024"
+description = "Research subsystem — benchmark filings figures into IB-grade Excel"
+
+[dependencies]
+fm-types = { path = "../fm-types" }
+fm-extract = { path = "../fm-extract" }
+fm-excel = { path = "../fm-excel" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

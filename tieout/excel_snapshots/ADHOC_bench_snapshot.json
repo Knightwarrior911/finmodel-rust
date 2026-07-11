@@ -1,0 +1,1022 @@
+{
+  "sheets": {
+    "Comparison": [
+      {
+        "row": 1,
+        "cells": [
+          {
+            "ref": "A1"
+          },
+          {
+            "ref": "B1"
+          },
+          {
+            "ref": "C1"
+          },
+          {
+            "ref": "D1"
+          },
+          {
+            "ref": "E1"
+          },
+          {
+            "ref": "F1"
+          },
+          {
+            "ref": "G1"
+          },
+          {
+            "ref": "H1"
+          },
+          {
+            "ref": "I1"
+          }
+        ]
+      },
+      {
+        "row": 2,
+        "cells": [
+          {
+            "ref": "A2"
+          },
+          {
+            "ref": "B2"
+          },
+          {
+            "ref": "C2"
+          },
+          {
+            "ref": "D2"
+          },
+          {
+            "ref": "E2"
+          },
+          {
+            "ref": "F2"
+          },
+          {
+            "ref": "G2"
+          },
+          {
+            "ref": "H2"
+          },
+          {
+            "ref": "I2"
+          }
+        ]
+      },
+      {
+        "row": 3,
+        "cells": [
+          {
+            "ref": "A3"
+          },
+          {
+            "ref": "B3"
+          },
+          {
+            "ref": "C3",
+            "value": "Big Tech - Peer Benchmark (FY2024)",
+            "fill": "FF2558B3"
+          },
+          {
+            "ref": "D3"
+          },
+          {
+            "ref": "E3"
+          },
+          {
+            "ref": "F3"
+          },
+          {
+            "ref": "G3"
+          },
+          {
+            "ref": "H3"
+          },
+          {
+            "ref": "I3"
+          }
+        ]
+      },
+      {
+        "row": 4,
+        "cells": [
+          {
+            "ref": "A4"
+          },
+          {
+            "ref": "B4"
+          },
+          {
+            "ref": "C4"
+          },
+          {
+            "ref": "D4"
+          },
+          {
+            "ref": "E4"
+          },
+          {
+            "ref": "F4"
+          },
+          {
+            "ref": "G4"
+          },
+          {
+            "ref": "H4"
+          },
+          {
+            "ref": "I4"
+          }
+        ]
+      },
+      {
+        "row": 5,
+        "cells": [
+          {
+            "ref": "A5"
+          },
+          {
+            "ref": "B5"
+          },
+          {
+            "ref": "C5"
+          },
+          {
+            "ref": "D5"
+          },
+          {
+            "ref": "E5"
+          },
+          {
+            "ref": "F5"
+          },
+          {
+            "ref": "G5"
+          },
+          {
+            "ref": "H5"
+          },
+          {
+            "ref": "I5"
+          }
+        ]
+      },
+      {
+        "row": 6,
+        "cells": [
+          {
+            "ref": "A6"
+          },
+          {
+            "ref": "B6"
+          },
+          {
+            "ref": "C6",
+            "value": "(comparable peers - units per column header)"
+          },
+          {
+            "ref": "D6"
+          },
+          {
+            "ref": "E6"
+          },
+          {
+            "ref": "F6"
+          },
+          {
+            "ref": "G6"
+          },
+          {
+            "ref": "H6"
+          },
+          {
+            "ref": "I6"
+          }
+        ]
+      },
+      {
+        "row": 7,
+        "cells": [
+          {
+            "ref": "A7"
+          },
+          {
+            "ref": "B7"
+          },
+          {
+            "ref": "C7"
+          },
+          {
+            "ref": "D7"
+          },
+          {
+            "ref": "E7"
+          },
+          {
+            "ref": "F7"
+          },
+          {
+            "ref": "G7"
+          },
+          {
+            "ref": "H7"
+          },
+          {
+            "ref": "I7"
+          }
+        ]
+      },
+      {
+        "row": 8,
+        "cells": [
+          {
+            "ref": "A8"
+          },
+          {
+            "ref": "B8"
+          },
+          {
+            "ref": "C8"
+          },
+          {
+            "ref": "D8",
+            "value": "FINANCIALS",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "E8"
+          },
+          {
+            "ref": "F8"
+          },
+          {
+            "ref": "G8",
+            "value": "PROFITABILITY",
+            "fill": "FFEAE0D3"
+          },
+          {
+            "ref": "H8"
+          },
+          {
+            "ref": "I8",
+            "value": "VALUATION",
+            "fill": "FFEAE0D3"
+          }
+        ]
+      },
+      {
+        "row": 9,
+        "cells": [
+          {
+            "ref": "A9"
+          },
+          {
+            "ref": "B9"
+          },
+          {
+            "ref": "C9",
+            "value": "Ticker",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "D9",
+            "value": "Revenue",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "E9",
+            "value": "EBITDA",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "F9",
+            "value": "Net Income",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "G9",
+            "value": "EBITDA Margin",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "H9",
+            "value": "Net Margin",
+            "fill": "FF0F1632"
+          },
+          {
+            "ref": "I9",
+            "value": "EV / EBITDA",
+            "fill": "FF0F1632"
+          }
+        ]
+      },
+      {
+        "row": 10,
+        "cells": [
+          {
+            "ref": "A10"
+          },
+          {
+            "ref": "B10"
+          },
+          {
+            "ref": "C10",
+            "value": "AAPL"
+          },
+          {
+            "ref": "D10",
+            "value": 391035
+          },
+          {
+            "ref": "E10",
+            "value": 134661
+          },
+          {
+            "ref": "F10",
+            "value": 93736
+          },
+          {
+            "ref": "G10",
+            "value": 0.3444
+          },
+          {
+            "ref": "H10",
+            "value": 0.2397
+          },
+          {
+            "ref": "I10",
+            "value": 22.5
+          }
+        ]
+      },
+      {
+        "row": 11,
+        "cells": [
+          {
+            "ref": "A11"
+          },
+          {
+            "ref": "B11"
+          },
+          {
+            "ref": "C11",
+            "value": "MSFT"
+          },
+          {
+            "ref": "D11",
+            "value": 245122
+          },
+          {
+            "ref": "E11",
+            "value": 133558
+          },
+          {
+            "ref": "F11",
+            "value": 88136
+          },
+          {
+            "ref": "G11",
+            "value": 0.5449
+          },
+          {
+            "ref": "H11",
+            "value": 0.3596
+          },
+          {
+            "ref": "I11",
+            "value": 24.1
+          }
+        ]
+      },
+      {
+        "row": 12,
+        "cells": [
+          {
+            "ref": "A12"
+          },
+          {
+            "ref": "B12"
+          },
+          {
+            "ref": "C12",
+            "value": "GOOGL"
+          },
+          {
+            "ref": "D12",
+            "value": 350018
+          },
+          {
+            "ref": "E12",
+            "value": 123456
+          },
+          {
+            "ref": "F12",
+            "value": 100118
+          },
+          {
+            "ref": "G12",
+            "value": 0.3527
+          },
+          {
+            "ref": "H12",
+            "value": 0.286
+          },
+          {
+            "ref": "I12",
+            "value": 15.3
+          }
+        ]
+      },
+      {
+        "row": 13,
+        "cells": [
+          {
+            "ref": "A13"
+          },
+          {
+            "ref": "B13"
+          },
+          {
+            "ref": "C13",
+            "value": "AMZN"
+          },
+          {
+            "ref": "D13",
+            "value": 637959
+          },
+          {
+            "ref": "E13",
+            "value": 111500
+          },
+          {
+            "ref": "F13",
+            "value": 59248
+          },
+          {
+            "ref": "G13",
+            "value": 0.1748
+          },
+          {
+            "ref": "H13",
+            "value": 0.0929
+          },
+          {
+            "ref": "I13",
+            "value": 18.7
+          }
+        ]
+      },
+      {
+        "row": 14,
+        "cells": [
+          {
+            "ref": "A14"
+          },
+          {
+            "ref": "B14"
+          },
+          {
+            "ref": "C14",
+            "value": "META"
+          },
+          {
+            "ref": "D14",
+            "value": 164501
+          },
+          {
+            "ref": "E14",
+            "value": 87200
+          },
+          {
+            "ref": "F14",
+            "value": 62360
+          },
+          {
+            "ref": "G14",
+            "value": 0.5301
+          },
+          {
+            "ref": "H14",
+            "value": 0.3791
+          },
+          {
+            "ref": "I14",
+            "value": 14.2
+          }
+        ]
+      },
+      {
+        "row": 15,
+        "cells": [
+          {
+            "ref": "A15"
+          },
+          {
+            "ref": "B15"
+          },
+          {
+            "ref": "C15"
+          },
+          {
+            "ref": "D15"
+          },
+          {
+            "ref": "E15"
+          },
+          {
+            "ref": "F15"
+          },
+          {
+            "ref": "G15"
+          },
+          {
+            "ref": "H15"
+          },
+          {
+            "ref": "I15"
+          }
+        ]
+      },
+      {
+        "row": 16,
+        "cells": [
+          {
+            "ref": "A16"
+          },
+          {
+            "ref": "B16"
+          },
+          {
+            "ref": "C16",
+            "value": "Median",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "D16",
+            "formula": "=MEDIAN(D10:D14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "E16",
+            "formula": "=MEDIAN(E10:E14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "F16",
+            "formula": "=MEDIAN(F10:F14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "G16",
+            "formula": "=MEDIAN(G10:G14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "H16",
+            "formula": "=MEDIAN(H10:H14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "I16",
+            "formula": "=MEDIAN(I10:I14)",
+            "fill": "FFE6EBED"
+          }
+        ]
+      },
+      {
+        "row": 17,
+        "cells": [
+          {
+            "ref": "A17"
+          },
+          {
+            "ref": "B17"
+          },
+          {
+            "ref": "C17",
+            "value": "Mean",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "D17",
+            "formula": "=AVERAGE(D10:D14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "E17",
+            "formula": "=AVERAGE(E10:E14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "F17",
+            "formula": "=AVERAGE(F10:F14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "G17",
+            "formula": "=AVERAGE(G10:G14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "H17",
+            "formula": "=AVERAGE(H10:H14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "I17",
+            "formula": "=AVERAGE(I10:I14)",
+            "fill": "FFE6EBED"
+          }
+        ]
+      },
+      {
+        "row": 18,
+        "cells": [
+          {
+            "ref": "A18"
+          },
+          {
+            "ref": "B18"
+          },
+          {
+            "ref": "C18",
+            "value": "Min",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "D18",
+            "formula": "=MIN(D10:D14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "E18",
+            "formula": "=MIN(E10:E14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "F18",
+            "formula": "=MIN(F10:F14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "G18",
+            "formula": "=MIN(G10:G14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "H18",
+            "formula": "=MIN(H10:H14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "I18",
+            "formula": "=MIN(I10:I14)",
+            "fill": "FFE6EBED"
+          }
+        ]
+      },
+      {
+        "row": 19,
+        "cells": [
+          {
+            "ref": "A19"
+          },
+          {
+            "ref": "B19"
+          },
+          {
+            "ref": "C19",
+            "value": "Max",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "D19",
+            "formula": "=MAX(D10:D14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "E19",
+            "formula": "=MAX(E10:E14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "F19",
+            "formula": "=MAX(F10:F14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "G19",
+            "formula": "=MAX(G10:G14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "H19",
+            "formula": "=MAX(H10:H14)",
+            "fill": "FFE6EBED"
+          },
+          {
+            "ref": "I19",
+            "formula": "=MAX(I10:I14)",
+            "fill": "FFE6EBED"
+          }
+        ]
+      },
+      {
+        "row": 20,
+        "cells": [
+          {
+            "ref": "A20"
+          },
+          {
+            "ref": "B20"
+          },
+          {
+            "ref": "C20"
+          },
+          {
+            "ref": "D20"
+          },
+          {
+            "ref": "E20"
+          },
+          {
+            "ref": "F20"
+          },
+          {
+            "ref": "G20"
+          },
+          {
+            "ref": "H20"
+          },
+          {
+            "ref": "I20"
+          }
+        ]
+      },
+      {
+        "row": 21,
+        "cells": [
+          {
+            "ref": "A21"
+          },
+          {
+            "ref": "B21"
+          },
+          {
+            "ref": "C21"
+          },
+          {
+            "ref": "D21"
+          },
+          {
+            "ref": "E21"
+          },
+          {
+            "ref": "F21"
+          },
+          {
+            "ref": "G21"
+          },
+          {
+            "ref": "H21"
+          },
+          {
+            "ref": "I21"
+          }
+        ]
+      },
+      {
+        "row": 22,
+        "cells": [
+          {
+            "ref": "A22"
+          },
+          {
+            "ref": "B22"
+          },
+          {
+            "ref": "C22",
+            "value": "Layout: wide"
+          },
+          {
+            "ref": "D22"
+          },
+          {
+            "ref": "E22"
+          },
+          {
+            "ref": "F22"
+          },
+          {
+            "ref": "G22"
+          },
+          {
+            "ref": "H22"
+          },
+          {
+            "ref": "I22"
+          }
+        ]
+      },
+      {
+        "row": 23,
+        "cells": [
+          {
+            "ref": "A23"
+          },
+          {
+            "ref": "B23"
+          },
+          {
+            "ref": "C23",
+            "value": "  - Q1 grain=company -> wide"
+          },
+          {
+            "ref": "D23"
+          },
+          {
+            "ref": "E23"
+          },
+          {
+            "ref": "F23"
+          },
+          {
+            "ref": "G23"
+          },
+          {
+            "ref": "H23"
+          },
+          {
+            "ref": "I23"
+          }
+        ]
+      },
+      {
+        "row": 24,
+        "cells": [
+          {
+            "ref": "A24"
+          },
+          {
+            "ref": "B24"
+          },
+          {
+            "ref": "C24",
+            "value": "  - Q3 max_text=5 -> in_cell"
+          },
+          {
+            "ref": "D24"
+          },
+          {
+            "ref": "E24"
+          },
+          {
+            "ref": "F24"
+          },
+          {
+            "ref": "G24"
+          },
+          {
+            "ref": "H24"
+          },
+          {
+            "ref": "I24"
+          }
+        ]
+      },
+      {
+        "row": 25,
+        "cells": [
+          {
+            "ref": "A25"
+          },
+          {
+            "ref": "B25"
+          },
+          {
+            "ref": "C25",
+            "value": "  - Q5 -> AutoFilter on"
+          },
+          {
+            "ref": "D25"
+          },
+          {
+            "ref": "E25"
+          },
+          {
+            "ref": "F25"
+          },
+          {
+            "ref": "G25"
+          },
+          {
+            "ref": "H25"
+          },
+          {
+            "ref": "I25"
+          }
+        ]
+      },
+      {
+        "row": 26,
+        "cells": [
+          {
+            "ref": "A26"
+          },
+          {
+            "ref": "B26"
+          },
+          {
+            "ref": "C26",
+            "value": "  - S7 comparative -> summary stats row"
+          },
+          {
+            "ref": "D26"
+          },
+          {
+            "ref": "E26"
+          },
+          {
+            "ref": "F26"
+          },
+          {
+            "ref": "G26"
+          },
+          {
+            "ref": "H26"
+          },
+          {
+            "ref": "I26"
+          }
+        ]
+      },
+      {
+        "row": 27,
+        "cells": [
+          {
+            "ref": "A27"
+          },
+          {
+            "ref": "B27"
+          },
+          {
+            "ref": "C27"
+          },
+          {
+            "ref": "D27"
+          },
+          {
+            "ref": "E27"
+          },
+          {
+            "ref": "F27"
+          },
+          {
+            "ref": "G27"
+          },
+          {
+            "ref": "H27"
+          },
+          {
+            "ref": "I27"
+          }
+        ]
+      },
+      {
+        "row": 28,
+        "cells": [
+          {
+            "ref": "A28"
+          },
+          {
+            "ref": "B28"
+          },
+          {
+            "ref": "C28",
+            "value": "Generated: 2026-01-01 00:00 | Source: SEC EDGAR / yfinance / Company filings"
+          },
+          {
+            "ref": "D28"
+          },
+          {
+            "ref": "E28"
+          },
+          {
+            "ref": "F28"
+          },
+          {
+            "ref": "G28"
+          },
+          {
+            "ref": "H28"
+          },
+          {
+            "ref": "I28"
+          }
+        ]
+      }
+    ]
+  }
+}
