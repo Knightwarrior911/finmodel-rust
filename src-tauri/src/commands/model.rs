@@ -10,6 +10,7 @@
 //! crate (same core the CLI uses — no drift).
 
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::commands::settings::read_settings;
 use crate::error::{AppError, AppResult};
