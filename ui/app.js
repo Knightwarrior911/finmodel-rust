@@ -19,12 +19,15 @@ function setStatus(msg, kind = "info") {
   el.textContent = msg;
   el.className = `status ${kind}`;
 }
-function clearStatus() { $("status").hidden = true; }
+
+function clearStatus() {
+  $("status").hidden = true;
+}
 
 function fmtNum(v) {
-  if (v === null || v === undefined) return "";
+  if (v === null || v === undefined) return "—";
   const n = Number(v);
-  if (!isFinite(n)) return "";
+  if (!isFinite(n)) return "—";
   return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 }
 
@@ -42,24 +45,36 @@ function renderTable() {
   const thead = $("modelTable").querySelector("thead");
   const tbody = $("modelTable").querySelector("tbody");
   const head = ["Item", ...histCols, ...projCols]
-    .map((h, i) => `<th class="${i === 0 ? "lbl" : "num"} ${i > histCols.length ? "proj" : ""}">${h}</th>`)
+    .map((h, i) => {
+      const isLbl = i === 0;
+      const isProj = i > histCols.length;
+      return `<th class="${isLbl ? "lbl" : "num"}${isProj ? " proj" : ""}">${h}</th>`;
+    })
     .join("");
   thead.innerHTML = `<tr>${head}</tr>`;
 
   const keys = Array.from(new Set([...Object.keys(hist), ...Object.keys(proj)])).sort();
-  tbody.innerHTML = keys.map((k) => {
-    const hv = hist[k] || [];
-    const pv = proj[k] || [];
-    const cells = [];
-    for (let i = 0; i < histCols.length; i++) cells.push(`<td class="num">${fmtNum(hv[i])}</td>`);
-    for (let i = 0; i < projCols.length; i++) cells.push(`<td class="num proj">${fmtNum(pv[i])}</td>`);
-    return `<tr><td class="lbl">${prettyKey(k)}</td>${cells.join("")}</tr>`;
-  }).join("");
+  tbody.innerHTML = keys
+    .map((k) => {
+      const hv = hist[k] || [];
+      const pv = proj[k] || [];
+      const cells = [];
+      for (let i = 0; i < histCols.length; i++) {
+        cells.push(`<td class="num">${fmtNum(hv[i])}</td>`);
+      }
+      for (let i = 0; i < projCols.length; i++) {
+        cells.push(`<td class="num proj">${fmtNum(pv[i])}</td>`);
+      }
+      return `<tr><td class="lbl">${prettyKey(k)}</td>${cells.join("")}</tr>`;
+    })
+    .join("");
 }
 
 async function build(ticker) {
   clearStatus();
   $("buildBtn").disabled = true;
+  const label = $("buildBtn").querySelector(".btn-label");
+  if (label) label.textContent = "Building…";
   setStatus(`Building model for ${ticker}…`, "info");
   try {
     const model = await call("build_model", { ticker });
@@ -76,6 +91,7 @@ async function build(ticker) {
     $("results").hidden = true;
   } finally {
     $("buildBtn").disabled = false;
+    if (label) label.textContent = "Build model";
   }
 }
 
@@ -89,25 +105,36 @@ $("ticker").addEventListener("keydown", (e) => {
 });
 $("demoChips").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
-  if (b) { $("ticker").value = b.dataset.t; build(b.dataset.t); }
+  if (b) {
+    $("ticker").value = b.dataset.t;
+    build(b.dataset.t);
+  }
 });
 $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest(".tab");
   if (!b) return;
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.remove("active");
+    t.setAttribute("aria-selected", "false");
+  });
   b.classList.add("active");
+  b.setAttribute("aria-selected", "true");
   activeStmt = b.dataset.s;
   renderTable();
 });
 $("openXlsxBtn").addEventListener("click", async () => {
   if (lastModel && lastModel.xlsx_path) {
-    try { await call("open_path", { path: lastModel.xlsx_path }); }
-    catch (e) { setStatus(`Open failed: ${e.message || e}`, "error"); }
+    try {
+      await call("open_path", { path: lastModel.xlsx_path });
+    } catch (e) {
+      setStatus(`Open failed: ${e.message || e}`, "error");
+    }
   }
 });
 
 // ---- settings ----
 const modal = $("settingsModal");
+
 async function openSettings() {
   try {
     const s = await call("load_settings");
@@ -116,25 +143,44 @@ async function openSettings() {
       : "No key set — offline demo tickers only.";
     const sel = $("modelSelect");
     if (s.model) sel.innerHTML = `<option value="${s.model}">${s.model}</option>`;
-  } catch (_) {}
+  } catch (_) {
+    /* offline / first launch */
+  }
   modal.hidden = false;
+  $("apiKey").focus();
 }
+
+function closeSettings() {
+  modal.hidden = true;
+}
+
 $("settingsBtn").addEventListener("click", openSettings);
-$("settingsClose").addEventListener("click", () => { modal.hidden = true; });
+$("settingsClose").addEventListener("click", closeSettings);
+modal.addEventListener("click", (e) => {
+  if (e.target && e.target.dataset && e.target.dataset.close) closeSettings();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !modal.hidden) closeSettings();
+});
+
 $("saveSettings").addEventListener("click", async () => {
   const api_key = $("apiKey").value;
   const model = $("modelSelect").value || "";
   try {
     await call("save_settings", { api_key, model });
     $("apiKey").value = "";
-    modal.hidden = true;
+    closeSettings();
     setStatus("Settings saved.", "info");
     setTimeout(clearStatus, 2000);
-  } catch (e) { setStatus(`Save failed: ${e.message || e}`, "error"); }
+  } catch (e) {
+    setStatus(`Save failed: ${e.message || e}`, "error");
+  }
 });
+
 $("refreshModels").addEventListener("click", async () => {
   const btn = $("refreshModels");
-  btn.disabled = true; btn.textContent = "Loading…";
+  btn.disabled = true;
+  btn.textContent = "Loading…";
   try {
     // Save the key first (blank keeps existing) so list_models can use it.
     await call("save_settings", { api_key: $("apiKey").value, model: "" });
@@ -145,6 +191,7 @@ $("refreshModels").addEventListener("click", async () => {
   } catch (e) {
     setStatus(`Model list failed: ${e.message || e}`, "error");
   } finally {
-    btn.disabled = false; btn.textContent = "Refresh";
+    btn.disabled = false;
+    btn.textContent = "Refresh";
   }
 });

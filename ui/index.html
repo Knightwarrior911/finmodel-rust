@@ -8,72 +8,114 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <span class="logo">fin</span><span class="logo-accent">model</span>
+    <div class="brand" aria-label="finmodel">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M5 12.5V8.5M9 12.5V5.5M13 12.5V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="brand-name">finmodel</span>
     </div>
-    <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+    <div class="topbar-actions">
+      <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M6.5 2.5h3l.4 1.4a5 5 0 0 1 1.1.6l1.4-.5 1.5 2.6-1.1 1a5 5 0 0 1 0 1.3l1.1 1-1.5 2.6-1.4-.5a5 5 0 0 1-1.1.6L9.5 13.5h-3l-.4-1.4a5 5 0 0 1-1.1-.6l-1.4.5L2.1 9.4l1.1-1a5 5 0 0 1 0-1.3l-1.1-1L3.6 3.5l1.4.5a5 5 0 0 1 1.1-.6L6.5 2.5Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
+          <circle cx="8" cy="8" r="1.75" stroke="currentColor" stroke-width="1.25"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <main class="main">
-    <section class="hero">
-      <h1>Build a financial model</h1>
-      <p class="sub">Enter a ticker. We fetch the filing, project 5 years, and write an Excel model.</p>
-      <div class="build-row">
-        <input id="ticker" class="ticker-input" type="text" placeholder="e.g. SAND.ST" autocomplete="off" />
-        <button id="buildBtn" class="primary-btn">Build model</button>
+    <section class="workspace">
+      <div class="workspace-intro">
+        <p class="eyebrow">3-statement · DCF · Excel</p>
+        <h1>Build a financial model</h1>
+        <p class="sub">Enter a ticker. We extract the filing, project five years, and write a formula-driven Excel workbook.</p>
       </div>
-      <div class="chips" id="demoChips">
-        <span class="chip-label">Try:</span>
-        <button class="chip" data-t="SAND.ST">Sandvik</button>
-        <button class="chip" data-t="ASML.AS">ASML</button>
-        <button class="chip" data-t="NOVO-B.CO">Novo Nordisk</button>
-        <button class="chip" data-t="NESN.SW">Nestlé</button>
-        <button class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
+
+      <div class="build-card">
+        <label class="field-label" for="ticker">Ticker</label>
+        <div class="build-row">
+          <input id="ticker" class="ticker-input" type="text" placeholder="SAND.ST" autocomplete="off" spellcheck="false" />
+          <button id="buildBtn" class="primary-btn">
+            <span class="btn-label">Build model</span>
+          </button>
+        </div>
+        <div class="chips" id="demoChips">
+          <span class="chip-label">Demo</span>
+          <button type="button" class="chip" data-t="SAND.ST">Sandvik</button>
+          <button type="button" class="chip" data-t="ASML.AS">ASML</button>
+          <button type="button" class="chip" data-t="NOVO-B.CO">Novo Nordisk</button>
+          <button type="button" class="chip" data-t="NESN.SW">Nestlé</button>
+          <button type="button" class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
+        </div>
+        <div id="status" class="status" hidden role="status"></div>
       </div>
-      <div id="status" class="status" hidden></div>
     </section>
 
     <section id="results" class="results" hidden>
       <div class="results-head">
-        <div>
+        <div class="results-title-block">
           <h2 id="resTitle">—</h2>
           <div class="meta" id="resMeta">—</div>
         </div>
-        <button id="openXlsxBtn" class="primary-btn">Open in Excel</button>
+        <button id="openXlsxBtn" class="primary-btn">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 13.5h10M8 2.5v8M4.5 7.5 8 11l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Open in Excel
+        </button>
       </div>
-      <div class="tabs" id="tabs">
-        <button class="tab active" data-s="income_statement">Income Statement</button>
-        <button class="tab" data-s="balance_sheet">Balance Sheet</button>
-        <button class="tab" data-s="cash_flow_statement">Cash Flow</button>
-      </div>
-      <div class="table-wrap">
-        <table id="modelTable"><thead></thead><tbody></tbody></table>
+
+      <div class="results-panel">
+        <div class="tabs" id="tabs" role="tablist">
+          <button type="button" class="tab active" role="tab" aria-selected="true" data-s="income_statement">Income Statement</button>
+          <button type="button" class="tab" role="tab" aria-selected="false" data-s="balance_sheet">Balance Sheet</button>
+          <button type="button" class="tab" role="tab" aria-selected="false" data-s="cash_flow_statement">Cash Flow</button>
+        </div>
+        <div class="table-wrap">
+          <table id="modelTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>
 
-  <!-- Settings modal -->
   <div id="settingsModal" class="modal" hidden>
-    <div class="modal-card">
+    <div class="modal-backdrop" data-close="1"></div>
+    <div class="modal-card" role="dialog" aria-labelledby="settingsTitle" aria-modal="true">
       <div class="modal-head">
-        <h3>Settings</h3>
-        <button id="settingsClose" class="icon-btn" aria-label="Close">✕</button>
+        <h3 id="settingsTitle">Settings</h3>
+        <button id="settingsClose" class="icon-btn" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M3 3l8 8M11 3 3 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
+
       <label class="field">
-        <span>OpenRouter API key</span>
-        <input id="apiKey" type="password" placeholder="sk-or-…  (leave blank to keep current)" />
+        <span class="field-label">OpenRouter API key</span>
+        <input id="apiKey" type="password" placeholder="sk-or-…  (leave blank to keep current)" autocomplete="off" />
         <small id="keyStatus" class="hint">No key set — offline demo tickers only.</small>
       </label>
+
       <label class="field">
-        <span>Model</span>
+        <span class="field-label">Model</span>
         <div class="model-row">
-          <select id="modelSelect"><option value="">(set a key, then Refresh)</option></select>
-          <button id="refreshModels" class="ghost-btn">Refresh</button>
+          <select id="modelSelect">
+            <option value="">(set a key, then Refresh)</option>
+          </select>
+          <button id="refreshModels" type="button" class="ghost-btn">Refresh</button>
         </div>
         <small class="hint">Model list is fetched live from OpenRouter.</small>
       </label>
+
       <div class="modal-actions">
-        <button id="saveSettings" class="primary-btn">Save</button>
+        <button id="saveSettings" type="button" class="primary-btn">Save</button>
       </div>
     </div>
   </div>
