@@ -388,6 +388,34 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     s.stamp_numeric_default(FMT_NUM);
     s.stamp_row(DEBT_RATE, FMT_PCT);
+
+    // Visual finish (render-only): mirrors writer.py `_Fmt` families.
+    for row in [TCA, TCL, TOTAL_LIAB, TOTAL_EQ, TOTAL_LE, PPE_END, DEBT_END, RE_END] {
+        s.stamp_bold_row(row);
+        s.stamp_top_border_row(row);
+    }
+    // Total Assets + schedule sub-headers: bold label (data already navy where filled).
+    for row in [TOTAL_ASSETS, SCHED_TITLE, PPE_HDR, WC_HDR, DEBT_HDR, RE_HDR] {
+        s.cell_mut(row, LABEL).bold = true;
+    }
+    // BS Check: whole-row italic, ink label (writer.py `lbl_chk`).
+    s.stamp_italic_row(BS_CHECK);
+    // Memo rows: gray italic label only.
+    for row in [WC_NET_CHG, DEBT_INT] {
+        let c = s.cell_mut(row, LABEL);
+        c.italic = true;
+        c.font_hex = Some(crate::sheets::GRAY);
+    }
+    // Driver rows: gray italic label + italic on the historical (implied) cells;
+    // projected cells link to Assumptions (green, upright), so leave them.
+    for row in [WC_AR_DAYS, WC_INV_DAYS, WC_AP_DAYS, DEBT_RATE] {
+        let lc = s.cell_mut(row, LABEL);
+        lc.italic = true;
+        lc.font_hex = Some(crate::sheets::GRAY);
+        for j in 0..n_h {
+            s.cell_mut(row, col(j)).italic = true;
+        }
+    }
     s
 }
 

@@ -202,6 +202,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     tab_header(&mut s, &m.company, "Income Statement", &m.currency);
     s.text(7, LABEL, "Circ Switch  (0 = off | 1 = on)");
+    s.cell_mut(7, LABEL).italic = true;
+    s.cell_mut(7, LABEL).font_hex = Some(crate::sheets::GRAY);
     s.number(7, DATA0, 0.0);
     period_headers(&mut s, 9, &input.model.periods);
 
@@ -265,6 +267,12 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                     }
                 }
                 s.stamp_row(r, FMT_NUM);
+                if isr.row_type == RowType::Subtotal {
+                    s.stamp_bold_row(r);
+                    s.stamp_top_border_row(r);
+                } else if isr.bold {
+                    s.cell_mut(r, LABEL).bold = true;
+                }
             }
             RowType::Driver => {
                 s.text(r, LABEL, isr.label.clone());
@@ -296,6 +304,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                     }
                 }
                 s.stamp_row(r, if isr.driver_format == "num" { FMT_NUM } else { FMT_PCT });
+                s.stamp_italic_row(r);
+                s.cell_mut(r, LABEL).font_hex = Some(crate::sheets::GRAY);
             }
             RowType::Memo => {
                 s.text(r, LABEL, isr.label.clone());
@@ -307,6 +317,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                     s.formula(r, col(j), format!("=IF({den}<>0,{num}/{den},\"\")"));
                 }
                 s.stamp_row(r, FMT_PCT);
+                s.stamp_italic_row(r);
+                s.cell_mut(r, LABEL).font_hex = Some(crate::sheets::GRAY);
             }
         }
     }

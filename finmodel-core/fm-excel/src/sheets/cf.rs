@@ -356,5 +356,26 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     s.stamp_numeric_default(FMT_NUM);
     s.stamp_row(23, FMT_PCT);
+
+    // Visual finish (render-only): bold subtotal rows + top border; italic drivers/checks.
+    for row in [19u32, 26, 33, 35, 37] {
+        s.stamp_bold_row(row);
+        s.stamp_top_border_row(row);
+    }
+    // Drivers (capex% / dividend-per-share): whole-row italic, gray label.
+    for row in [23u32, 30] {
+        s.stamp_italic_row(row);
+        s.cell_mut(row, LABEL).font_hex = Some(crate::sheets::GRAY);
+    }
+    // Checks: whole-row italic, ink label.
+    for row in [40u32, 41] {
+        s.stamp_italic_row(row);
+    }
+    // Free Cash Flow: italic label only (data cells stay upright).
+    {
+        let c = s.cell_mut(38, LABEL);
+        c.italic = true;
+        c.font_hex = Some(crate::sheets::GRAY);
+    }
     s
 }

@@ -70,6 +70,20 @@ pub struct Cell {
     /// Excel number-format code (e.g. [`FMT_PCT`]). Invisible to the snapshot
     /// gate (openpyxl doesn't characterize number formats) — product polish only.
     pub num_fmt: Option<&'static str>,
+    // ── Visual finish (render-only; invisible to the snapshot/content gates) ──
+    /// Force bold weight (subtotals, labels, column headers).
+    pub bold: bool,
+    /// Force italic (drivers, memos, units).
+    pub italic: bool,
+    /// Thin top border (subtotal / total separator rows).
+    pub top_border: bool,
+    /// Thin bottom border (column-header underline).
+    pub bottom_border: bool,
+    /// Force centered horizontal alignment (period headers).
+    pub center: bool,
+    /// Explicit font color (6-hex RGB, no alpha) overriding content inference
+    /// (navy subtitles/headers, gray drivers/memos).
+    pub font_hex: Option<&'static str>,
 }
 
 impl Cell {
@@ -182,6 +196,36 @@ impl Sheet {
             {
                 cell.num_fmt = Some(fmt);
             }
+        }
+    }
+
+    /// Mutable access to a cell (creates an empty one if absent).
+    pub fn cell_mut(&mut self, row: u32, col: u32) -> &mut Cell {
+        self.cells.entry((row, col)).or_default()
+    }
+
+    /// Emphasis flags applied to every populated cell in `row` (label + data).
+    /// Used to mirror writer.py `_Fmt` row families (subtotals, drivers, memos,
+    /// column headers) that content inference can't recover.
+    pub fn stamp_bold_row(&mut self, row: u32) {
+        for ((r, _), cell) in self.cells.iter_mut() {
+            if *r == row { cell.bold = true; }
+        }
+    }
+    pub fn stamp_italic_row(&mut self, row: u32) {
+        for ((r, _), cell) in self.cells.iter_mut() {
+            if *r == row { cell.italic = true; }
+        }
+    }
+    pub fn stamp_top_border_row(&mut self, row: u32) {
+        for ((r, _), cell) in self.cells.iter_mut() {
+            if *r == row { cell.top_border = true; }
+        }
+    }
+    /// Font color override on a whole row (e.g. gray drivers/memos).
+    pub fn stamp_font_row(&mut self, row: u32, hex: &'static str) {
+        for ((r, _), cell) in self.cells.iter_mut() {
+            if *r == row { cell.font_hex = Some(hex); }
         }
     }
 }

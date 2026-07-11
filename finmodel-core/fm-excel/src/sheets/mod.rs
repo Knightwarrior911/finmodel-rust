@@ -68,6 +68,10 @@ pub fn build_workbook(input: &WorkbookInput) -> Workbook {
     wb
 }
 
+/// Emphasis colors (writer.py `_Fmt`): navy brand + gray drivers/units.
+pub(crate) const NAVY: &str = "255BE3";
+pub(crate) const GRAY: &str = "595959";
+
 /// Shared tab header used by IS/BS/CF: single-cell title (blue), subtitle,
 /// units line, and the "Active Case:" link. Rows are 0-based and match the
 /// snapshot layout (title row 2, subtitle 4, units 5, active-case 8).
@@ -75,15 +79,26 @@ pub(crate) fn tab_header(s: &mut Sheet, title: &str, subtitle: &str, currency: &
     use crate::model::LABEL;
     s.title(2, title);
     s.text(4, LABEL, subtitle);
+    s.cell_mut(4, LABEL).font_hex = Some(NAVY);
+    s.cell_mut(4, LABEL).bold = true;
     s.text(5, LABEL, format!("({currency} in millions, unless noted)"));
+    s.cell_mut(5, LABEL).font_hex = Some(GRAY);
+    s.cell_mut(5, LABEL).italic = true;
     s.text(8, LABEL, "Active Case:");
+    s.cell_mut(8, LABEL).bold = true;
     s.formula(8, DATA0, "=Assumptions!$D$10");
 }
 
-/// Column-header row of period labels (row `row`, cols D..).
+/// Column-header row of period labels (row `row`, cols D..): navy bold, centered,
+/// with a hairline underline — the writer.py `hcol` family.
 pub(crate) fn period_headers(s: &mut Sheet, row: u32, periods: &[String]) {
     for (j, p) in periods.iter().enumerate() {
         s.text(row, col(j), p.clone());
+        let c = s.cell_mut(row, col(j));
+        c.font_hex = Some(NAVY);
+        c.bold = true;
+        c.center = true;
+        c.bottom_border = true;
     }
 }
 
