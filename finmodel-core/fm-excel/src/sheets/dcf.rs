@@ -93,42 +93,42 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     // ── WACC build-up (links to WACC tab) ───────────────────────────────────
     s.section(WACC_HDR, "WACC BUILD-UP");
     s.text(BETA, LABEL, "  Beta (3–5Y)");
-    s.formula(BETA, vc, format!("=WACC!{}", cell_ref(wr::BE_TARGET, DATA0)));
+    s.formula_cached(BETA, vc, format!("=WACC!{}", cell_ref(wr::BE_TARGET, DATA0)), dcf.beta);
     s.stamp_row(BETA, FMT_NUM);
     s.text(RF, LABEL, "  Risk-Free Rate (10Y Treasury)");
-    s.formula(RF, vc, format!("=WACC!{}", cell_ref(wr::RF, DATA0)));
+    s.formula_cached(RF, vc, format!("=WACC!{}", cell_ref(wr::RF, DATA0)), dcf.risk_free_rate);
     s.stamp_row(RF, FMT_PCT);
     s.text(ERP, LABEL, "  Equity Risk Premium");
-    s.formula(ERP, vc, format!("=WACC!{}", cell_ref(wr::ERP, DATA0)));
+    s.formula_cached(ERP, vc, format!("=WACC!{}", cell_ref(wr::ERP, DATA0)), dcf.equity_risk_premium);
     s.stamp_row(ERP, FMT_PCT);
 
     let beta_c = cell_ref(BETA, vc);
     let rf_c = cell_ref(RF, vc);
     let erp_c = cell_ref(ERP, vc);
     s.text(KE, LABEL, "  Cost of Equity  (CAPM = rf + β × ERP)");
-    s.formula(KE, vc, format!("={rf_c}+{beta_c}*{erp_c}"));
+    s.formula_cached(KE, vc, format!("={rf_c}+{beta_c}*{erp_c}"), dcf.cost_of_equity);
     s.stamp_row(KE, FMT_PCT);
 
     s.text(KD_PRE, LABEL, "  Pre-Tax Cost of Debt");
-    s.formula(KD_PRE, vc, format!("=WACC!{}", cell_ref(wr::KD_PRE, DATA0)));
+    s.formula_cached(KD_PRE, vc, format!("=WACC!{}", cell_ref(wr::KD_PRE, DATA0)), dcf.cost_of_debt_pretax);
     s.stamp_row(KD_PRE, FMT_PCT);
     s.text(TAX_SHIELD, LABEL, "  Effective Tax Rate");
-    s.formula(TAX_SHIELD, vc, format!("=WACC!{}", cell_ref(wr::TAX, DATA0)));
+    s.formula_cached(TAX_SHIELD, vc, format!("=WACC!{}", cell_ref(wr::TAX, DATA0)), dcf.tax_rate);
     s.stamp_row(TAX_SHIELD, FMT_PCT);
     let kd_pre_c = cell_ref(KD_PRE, vc);
     let tax_c = cell_ref(TAX_SHIELD, vc);
     s.text(KD, LABEL, "  After-Tax Cost of Debt  [kd × (1 − t)]");
-    s.formula(KD, vc, format!("={kd_pre_c}*(1-{tax_c})"));
+    s.formula_cached(KD, vc, format!("={kd_pre_c}*(1-{tax_c})"), dcf.after_tax_cost_of_debt);
     s.stamp_row(KD, FMT_PCT);
 
     s.text(EQ_WT, LABEL, "  Equity Weight  (% of Total Capital)");
-    s.formula(EQ_WT, vc, format!("=WACC!{}", cell_ref(wr::WE, DATA0)));
+    s.formula_cached(EQ_WT, vc, format!("=WACC!{}", cell_ref(wr::WE, DATA0)), dcf.equity_weight);
     s.stamp_row(EQ_WT, FMT_PCT);
     s.text(D_WT, LABEL, "  Debt Weight  (% of Total Capital)");
-    s.formula(D_WT, vc, format!("=WACC!{}", cell_ref(wr::WD, DATA0)));
+    s.formula_cached(D_WT, vc, format!("=WACC!{}", cell_ref(wr::WD, DATA0)), dcf.debt_weight);
     s.stamp_row(D_WT, FMT_PCT);
     s.text(WACC, LABEL, "  WACC  (single source of truth: WACC tab)");
-    s.formula(WACC, vc, format!("=WACC!{}", cell_ref(wr::WACC, DATA0)));
+    s.formula_cached(WACC, vc, format!("=WACC!{}", cell_ref(wr::WACC, DATA0)), dcf.wacc);
     s.stamp_row(WACC, FMT_PCT);
     let wacc_c = cell_ref(WACC, vc);
 
@@ -205,10 +205,12 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         let cap_c = cell_ref(FCF_CAPEX, vc + i as u32);
         let dwc_c = cell_ref(FCF_DWC, vc + i as u32);
         // CapEx on CF is stored as negative outflow → +cap_c subtracts.
-        s.formula(
+        let cache = dcf.fcff_proj.get(i).copied().unwrap_or(0.0);
+        s.formula_cached(
             FCF_FCFF,
             vc + i as u32,
             format!("={nop_c}+{da_ci}+{cap_c}-{dwc_c}"),
+            cache,
         );
     }
     s.stamp_row(FCF_FCFF, FMT_NUM);
@@ -228,7 +230,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.text(FCF_FACTOR, LABEL, "  Discount Factor  [1 ÷ (1 + WACC)^t]");
     for i in 0..n_proj {
         let t_ci = cell_ref(FCF_T, vc + i as u32);
-        s.formula(FCF_FACTOR, vc + i as u32, format!("=1/(1+{wacc_c})^{t_ci}"));
+        let cache = dcf.discount_factors.get(i).copied().unwrap_or(1.0);
+        s.formula_cached(FCF_FACTOR, vc + i as u32, format!("=1/(1+{wacc_c})^{t_ci}"), cache);
     }
     s.stamp_row(FCF_FACTOR, FMT_NUM);
 
@@ -236,14 +239,15 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     for i in 0..n_proj {
         let fcff_ci = cell_ref(FCF_FCFF, vc + i as u32);
         let fac_ci = cell_ref(FCF_FACTOR, vc + i as u32);
-        s.formula(FCF_PV, vc + i as u32, format!("={fcff_ci}*{fac_ci}"));
+        let cache = dcf.pv_fcfs_per_period.get(i).copied().unwrap_or(0.0);
+        s.formula_cached(FCF_PV, vc + i as u32, format!("={fcff_ci}*{fac_ci}"), cache);
     }
     s.stamp_row(FCF_PV, FMT_NUM);
 
     let pv_first = cell_ref(FCF_PV, vc);
     let pv_last = cell_ref(FCF_PV, vc + n_proj as u32 - 1);
     s.text(PV_FCFS, LABEL, "Sum of PV(FCFs)");
-    s.formula(PV_FCFS, vc, format!("=SUM({pv_first}:{pv_last})"));
+    s.formula_cached(PV_FCFS, vc, format!("=SUM({pv_first}:{pv_last})"), dcf.pv_fcfs);
     s.stamp_row(PV_FCFS, FMT_NUM);
     let pv_fcfs_c = cell_ref(PV_FCFS, vc);
 
@@ -265,16 +269,17 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     let last_proj_is_col = DATA0 + n_h as u32 + n_proj as u32 - 1;
     s.text(TV1_EBITDA, LABEL, "    Terminal Year EBITDA");
-    s.formula(
+    s.formula_cached(
         TV1_EBITDA,
         vc,
         format!("=IS!{}", cell_ref(is_ebitda, last_proj_is_col)),
+        dcf.terminal_ebitda,
     );
     s.stamp_row(TV1_EBITDA, FMT_NUM);
     let tv_ebitda_c = cell_ref(TV1_EBITDA, vc);
 
     s.text(TV1_TV, LABEL, "    Terminal Value (EBITDA Multiple)");
-    s.formula(TV1_TV, vc, format!("={tv_ebitda_c}*{tv_mult_c}"));
+    s.formula_cached(TV1_TV, vc, format!("={tv_ebitda_c}*{tv_mult_c}"), dcf.tv_ebitda);
     s.stamp_row(TV1_TV, FMT_NUM);
     let tv1_c = cell_ref(TV1_TV, vc);
 
@@ -286,90 +291,96 @@ pub fn build(input: &WorkbookInput) -> Sheet {
 
     let last_fcff_c = cell_ref(FCF_FCFF, vc + n_proj as u32 - 1);
     s.text(TV2_FCF, LABEL, "    Terminal Year FCF");
-    s.formula(TV2_FCF, vc, format!("={last_fcff_c}"));
+    s.formula_cached(TV2_FCF, vc, format!("={last_fcff_c}"), dcf.fcff_proj.last().copied().unwrap_or(0.0));
     s.stamp_row(TV2_FCF, FMT_NUM);
 
     s.text(TV2_TV, LABEL, "    Terminal Value (Gordon Growth)");
-    s.formula(
+    s.formula_cached(
         TV2_TV,
         vc,
         format!("=IF({wacc_c}>{tv_g_c},{last_fcff_c}*(1+{tv_g_c})/({wacc_c}-{tv_g_c}),0)"),
+        dcf.tv_gordon,
     );
     s.stamp_row(TV2_TV, FMT_NUM);
     let tv2_c = cell_ref(TV2_TV, vc);
 
     s.text(TV_SELECTED, LABEL, "  Selected Terminal Value");
-    s.formula(
+    s.formula_cached(
         TV_SELECTED,
         vc,
         format!("=CHOOSE({tv_meth_c},{tv1_c},{tv2_c})"),
+        dcf.tv_selected,
     );
     s.stamp_row(TV_SELECTED, FMT_NUM);
     let tv_sel_c = cell_ref(TV_SELECTED, vc);
 
     s.text(TV_PV, LABEL, "  PV of Terminal Value");
     // Writer uses n_proj (not mid-year adjusted) for TV PV exponent in the sheet formula.
-    s.formula(TV_PV, vc, format!("={tv_sel_c}/(1+{wacc_c})^{n_proj}"));
+    s.formula_cached(TV_PV, vc, format!("={tv_sel_c}/(1+{wacc_c})^{n_proj}"), dcf.pv_tv);
     s.stamp_row(TV_PV, FMT_NUM);
     let pv_tv_c = cell_ref(TV_PV, vc);
 
     // ── EV bridge ───────────────────────────────────────────────────────────
     s.section(EV_HDR, "ENTERPRISE VALUE BRIDGE");
     s.text(EV_PVFCFS, LABEL, "  PV of Free Cash Flows");
-    s.formula(EV_PVFCFS, vc, format!("={pv_fcfs_c}"));
+    s.formula_cached(EV_PVFCFS, vc, format!("={pv_fcfs_c}"), dcf.pv_fcfs);
     s.stamp_row(EV_PVFCFS, FMT_NUM);
     let ev_pvf_c = cell_ref(EV_PVFCFS, vc);
 
     s.text(EV_PVTV, LABEL, "  PV of Terminal Value");
-    s.formula(EV_PVTV, vc, format!("={pv_tv_c}"));
+    s.formula_cached(EV_PVTV, vc, format!("={pv_tv_c}"), dcf.pv_tv);
     s.stamp_row(EV_PVTV, FMT_NUM);
     let ev_pvt_c = cell_ref(EV_PVTV, vc);
 
     s.text(EV_TOTAL, LABEL, "  Total Enterprise Value");
-    s.formula(EV_TOTAL, vc, format!("={ev_pvf_c}+{ev_pvt_c}"));
+    s.formula_cached(EV_TOTAL, vc, format!("={ev_pvf_c}+{ev_pvt_c}"), dcf.enterprise_value);
     s.stamp_row(EV_TOTAL, FMT_NUM);
     let ev_c = cell_ref(EV_TOTAL, vc);
 
     let last_proj_bs_col = DATA0 + n_h as u32 + n_proj as u32 - 1;
     s.text(EV_DEBT, LABEL, "  Less: Total Debt");
-    s.formula(
+    s.formula_cached(
         EV_DEBT,
         vc,
         format!("=BS!{}", cell_ref(BS_LTD, last_proj_bs_col)),
+        dcf.total_debt,
     );
     s.stamp_row(EV_DEBT, FMT_NUM);
     let debt_c = cell_ref(EV_DEBT, vc);
 
     s.text(EV_CASH, LABEL, "  Plus: Cash & Equivalents");
-    s.formula(
+    s.formula_cached(
         EV_CASH,
         vc,
         format!("=BS!{}", cell_ref(BS_CASH, last_proj_bs_col)),
+        dcf.cash,
     );
     s.stamp_row(EV_CASH, FMT_NUM);
     let cash_c = cell_ref(EV_CASH, vc);
 
     s.text(EV_NET_DEBT, LABEL, "  Net Debt  (Debt − Cash)");
-    s.formula(EV_NET_DEBT, vc, format!("={debt_c}-{cash_c}"));
+    // Writer net_debt display is debt-cash (bridge); engine net_debt may include pref/nci.
+    s.formula_cached(EV_NET_DEBT, vc, format!("={debt_c}-{cash_c}"), dcf.total_debt - dcf.cash);
     s.stamp_row(EV_NET_DEBT, FMT_NUM);
     let nd_c = cell_ref(EV_NET_DEBT, vc);
 
     s.text(EV_EQUITY, LABEL, "  Equity Value");
-    s.formula(EV_EQUITY, vc, format!("={ev_c}-{nd_c}"));
+    s.formula_cached(EV_EQUITY, vc, format!("={ev_c}-{nd_c}"), dcf.equity_value);
     s.stamp_row(EV_EQUITY, FMT_NUM);
     let eq_val_c = cell_ref(EV_EQUITY, vc);
 
     s.text(EV_SHARES, LABEL, "  Diluted Shares Outstanding (M)");
-    s.formula(
+    s.formula_cached(
         EV_SHARES,
         vc,
         format!("=IS!{}", cell_ref(is_shares, last_proj_is_col)),
+        dcf.shares_diluted,
     );
     s.stamp_row(EV_SHARES, FMT_NUM);
     let sh_c = cell_ref(EV_SHARES, vc);
 
     s.text(EV_PRICE, LABEL, "  Implied Share Price");
-    s.formula(EV_PRICE, vc, format!("=IF({sh_c}<>0,{eq_val_c}/{sh_c},0)"));
+    s.formula_cached(EV_PRICE, vc, format!("=IF({sh_c}<>0,{eq_val_c}/{sh_c},0)"), dcf.implied_price);
     s.stamp_row(EV_PRICE, FMT_NUM);
 
     // ── Sensitivity (inline) ────────────────────────────────────────────────
@@ -424,7 +435,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            s.formula(r, col, formula);
+            let cache = dcf.sensitivity_ebitda.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            s.formula_cached(r, col, formula, cache);
             if i == mid {
                 let fill = if j == dcf.ebitda_multiple_range.len() / 2 { BLUE } else { LIGHT_BLUE };
                 s.fill(r, col, fill);
@@ -462,7 +474,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            s.formula(r, col, formula);
+            let cache = dcf.sensitivity_gordon.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            s.formula_cached(r, col, formula, cache);
             if i == mid {
                 let fill = if j == dcf.gordon_growth_range.len() / 2 { BLUE } else { LIGHT_BLUE };
                 s.fill(r, col, fill);

@@ -129,6 +129,7 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
         wacc: None,
         peer_source: "fallback".into(),
         dcf: None,
+        public_comps: None,
     })
 }
 

@@ -61,6 +61,10 @@ pub struct Cell {
     pub value: Option<Value>,
     /// Formula string INCLUDING the leading `=`, exactly as the snapshot stores it.
     pub formula: Option<String>,
+    /// Cached formula result written into the xlsx so LibreOffice/Excel show a
+    /// number before recalculation. Invisible to the snapshot gate (openpyxl
+    /// data_only=False only records the formula string).
+    pub cached: Option<f64>,
     /// 8-hex ARGB fill, e.g. `"FF255BE3"`.
     pub fill: Option<String>,
     /// Excel number-format code (e.g. [`FMT_PCT`]). Invisible to the snapshot
@@ -98,6 +102,9 @@ impl Sheet {
             c.formula = patch.formula;
             c.value = None;
         }
+        if patch.cached.is_some() {
+            c.cached = patch.cached;
+        }
         if patch.fill.is_some() {
             c.fill = patch.fill;
         }
@@ -120,6 +127,17 @@ impl Sheet {
         let f = f.as_ref();
         let f = if f.starts_with('=') { f.to_string() } else { format!("={f}") };
         self.merge(row, col, Cell { formula: Some(f), ..Default::default() });
+    }
+
+    /// Store a formula with a cached numeric result (LibreOffice-friendly).
+    pub fn formula_cached(&mut self, row: u32, col: u32, f: impl AsRef<str>, cache: f64) {
+        let f = f.as_ref();
+        let f = if f.starts_with('=') { f.to_string() } else { format!("={f}") };
+        self.merge(row, col, Cell {
+            formula: Some(f),
+            cached: Some(cache),
+            ..Default::default()
+        });
     }
 
     pub fn fill(&mut self, row: u32, col: u32, argb: &str) {

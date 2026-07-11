@@ -108,6 +108,7 @@ pub struct WorkbookInput {
     pub wacc: Option<fm_value::WACCOutput>,
     pub peer_source: String,
     pub dcf: Option<fm_value::DCFOutput>,
+    pub public_comps: Option<fm_value::PublicCompsOutput>,
 }
 
 impl WorkbookInput {

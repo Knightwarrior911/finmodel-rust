@@ -88,7 +88,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            s.formula(r, col, formula);
+            let cache = dcf.sensitivity_gordon.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            s.formula_cached(r, col, formula, cache);
             if i == mid {
                 let fill = if j == dcf.gordon_growth_range.len() / 2 { BLUE } else { LIGHT_BLUE };
                 s.fill(r, col, fill);
@@ -125,7 +126,8 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            s.formula(r, col, formula);
+            let cache = dcf.sensitivity_ebitda.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            s.formula_cached(r, col, formula, cache);
             if i == mid {
                 let fill = if j == dcf.ebitda_multiple_range.len() / 2 { BLUE } else { LIGHT_BLUE };
                 s.fill(r, col, fill);

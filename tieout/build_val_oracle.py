@@ -85,6 +85,9 @@ def main() -> None:
     from schemas.financial_data import (
         Peer,
         PeerSet,
+        PublicCompPeer,
+        PublicCompsOutput,
+        CompMultipleStats,
         ReconciledFinancialData,
         ModelConfig,
     )
@@ -213,6 +216,96 @@ def main() -> None:
         mo, META["ticker"], wacc_output, assumptions, tv_method=1
     )
 
+
+    # Synthetic public comps payload (deterministic) for Comps Peers / Summary tabs.
+    peers_pc = [
+        PublicCompPeer(
+            ticker="PEER1", name="Peer One", country="SE", currency="SEK", tier=1,
+            share_price=100.0, shares_diluted=500.0, market_cap=50_000.0,
+            total_debt=5_000.0, cash=2_000.0, enterprise_value=53_000.0,
+            week52_high=120.0, week52_low=80.0,
+            ltm_revenue=12_000.0, ltm_ebitda=3_000.0, ltm_ebit=2_400.0,
+            ltm_net_income=1_800.0, ltm_eps_diluted=3.6,
+            ntm_revenue=12_600.0, ntm_ebitda=3_200.0,
+            fy1_revenue=12_400.0, fy1_ebitda=3_100.0,
+            fy2_revenue=13_000.0, fy2_ebitda=3_400.0,
+            ntm_eps=3.8, fy1_eps=3.7,
+            ev_rev_ltm=4.4, ev_ebitda_ltm=17.7, ev_ebit_ltm=22.1, pe_ltm=27.8,
+            ev_rev_ntm=4.2, ev_ebitda_ntm=16.6, ev_rev_fy1=4.3, ev_ebitda_fy1=17.1,
+            ev_rev_fy2=4.1, ev_ebitda_fy2=15.6, pe_ntm=26.3, pe_fy1=27.0,
+            rationale="synthetic",
+        ),
+        PublicCompPeer(
+            ticker="PEER2", name="Peer Two", country="SE", currency="SEK", tier=1,
+            share_price=80.0, shares_diluted=500.0, market_cap=40_000.0,
+            total_debt=8_000.0, cash=1_500.0, enterprise_value=46_500.0,
+            week52_high=100.0, week52_low=60.0,
+            ltm_revenue=10_000.0, ltm_ebitda=2_500.0, ltm_ebit=2_000.0,
+            ltm_net_income=1_400.0, ltm_eps_diluted=2.8,
+            ntm_revenue=10_500.0, ntm_ebitda=2_700.0,
+            fy1_revenue=10_300.0, fy1_ebitda=2_600.0,
+            fy2_revenue=11_000.0, fy2_ebitda=2_900.0,
+            ntm_eps=3.0, fy1_eps=2.9,
+            ev_rev_ltm=4.7, ev_ebitda_ltm=18.6, ev_ebit_ltm=23.3, pe_ltm=28.6,
+            ev_rev_ntm=4.4, ev_ebitda_ntm=17.2, ev_rev_fy1=4.5, ev_ebitda_fy1=17.9,
+            ev_rev_fy2=4.2, ev_ebitda_fy2=16.0, pe_ntm=26.7, pe_fy1=27.6,
+            rationale="synthetic",
+        ),
+    ]
+    def _stats(name, vals):
+        vs = sorted(vals)
+        n = len(vs)
+        def pct(p):
+            if n == 1: return vs[0]
+            k = (n - 1) * p
+            f = int(k); c = min(f + 1, n - 1)
+            return vs[f] + (vs[c] - vs[f]) * (k - f)
+        return CompMultipleStats(
+            multiple_name=name, values=vs,
+            min=vs[0], p25=pct(0.25), median=pct(0.5), mean=sum(vs)/n,
+            p75=pct(0.75), max=vs[-1], count=n,
+        )
+    stats = {
+        "ev_rev_ltm": _stats("EV/Revenue (LTM)", [4.4, 4.7]),
+        "ev_ebitda_ltm": _stats("EV/EBITDA (LTM)", [17.7, 18.6]),
+        "ev_ebit_ltm": _stats("EV/EBIT (LTM)", [22.1, 23.3]),
+        "pe_ltm": _stats("P/E (LTM)", [27.8, 28.6]),
+        "ev_rev_ntm": _stats("EV/Revenue (NTM)", [4.2, 4.4]),
+        "ev_ebitda_ntm": _stats("EV/EBITDA (NTM)", [16.6, 17.2]),
+        "pe_ntm": _stats("P/E (NTM)", [26.3, 26.7]),
+    }
+    # Implied prices from median EV/EBITDA on target ebitda.
+    t_ebitda = (mo.income_statement.get("ebitda") or [0,0])[-1] or 2500.0
+    t_debt = debt
+    t_cash = (mo.balance_sheet.get("cash") or [0])[-1] or 0.0
+    t_sh = shares or 100.0
+    med = stats["ev_ebitda_ltm"].median
+    p25 = stats["ev_ebitda_ltm"].p25
+    p75 = stats["ev_ebitda_ltm"].p75
+    def _px(mult):
+        ev = t_ebitda * mult
+        eq = ev - (t_debt - t_cash)
+        return round(eq / t_sh, 2) if t_sh else 0.0
+    public_comps = PublicCompsOutput(
+        target_ticker=META["ticker"],
+        target_company_name=META["name"],
+        as_of_date="2025-01-15",
+        target_revenue=(mo.income_statement.get("revenue") or [0])[-1] or 0.0,
+        target_ebitda=t_ebitda,
+        target_ebit=(mo.income_statement.get("ebit") or [0])[-1] or 0.0,
+        target_net_income=(mo.income_statement.get("net_income") or [0])[-1] or 0.0,
+        target_total_debt=t_debt,
+        target_cash=t_cash,
+        target_shares_diluted=t_sh,
+        peers=peers_pc,
+        excluded=[("SKIP1", "too small")],
+        stats=stats,
+        implied_price_low=_px(p25),
+        implied_price_median=_px(med),
+        implied_price_high=_px(p75),
+        source="synthetic",
+    )
+
     xlsx = XLSX_DIR / f"{SAFE}_val_full.xlsx"
     ExcelWriter(
         mo,
@@ -228,7 +321,7 @@ def main() -> None:
         fiscal_year_end=META["fye"],
         wacc=wacc_output,
         peer_set=peer_set,
-        public_comps=None,
+        public_comps=public_comps,
         sector="standard",
         is_structure=is_structure,
     ).write()
@@ -249,6 +342,7 @@ def main() -> None:
         "wacc_output": asdict(wacc_output),
         "dcf_output": asdict(dcf_output),
         "peer_source": peer_set.source,
+        "public_comps": asdict(public_comps),
         "market": {
             "risk_free_rate": RF,
             "current_share_price": SHARE_PX,

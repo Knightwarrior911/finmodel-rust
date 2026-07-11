@@ -233,6 +233,7 @@ pub fn build_workbook_input(
         wacc: Some(wacc),
         peer_source: peer_set.source,
         dcf: Some(dcf),
+        public_comps: None, // filled when a peer feed exists
     }
 }
 

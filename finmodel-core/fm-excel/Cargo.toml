@@ -14,3 +14,4 @@ thiserror = "2"
 
 [dev-dependencies]
 calamine = "0.26"
+zip = "2"

@@ -9,6 +9,8 @@ use crate::model::{Sheet, Workbook, DATA0};
 pub mod assumptions;
 pub mod bs;
 pub mod cf;
+pub mod comps_peers;
+pub mod comps_summary;
 pub mod cover;
 pub mod dcf;
 pub mod is_stmt;
@@ -40,6 +42,10 @@ pub fn build_workbook(input: &WorkbookInput) -> Workbook {
     }
     if input.dcf.is_some() {
         wb.push(sensitivities::build(input));
+    }
+    if input.public_comps.is_some() {
+        wb.push(comps_peers::build(input));
+        wb.push(comps_summary::build(input));
     }
     wb.push(sources::build(input));
     wb

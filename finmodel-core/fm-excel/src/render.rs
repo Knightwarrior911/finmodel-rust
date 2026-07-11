@@ -55,13 +55,25 @@ pub fn render(wb: &Workbook, path: &str) -> Result<()> {
                 None
             };
 
+            let formula_obj = |formula: &str, cached: Option<f64>| -> Formula {
+                let mut fo = Formula::new(formula);
+                if let Some(n) = cached {
+                    // LibreOffice/Excel offline open show this until recalculation.
+                    fo = fo.set_result(format!("{n}"));
+                }
+                fo
+            };
             match (&cell.value, &cell.formula, fmt) {
                 (Some(Value::Number(n)), _, Some(f)) => { ws.write_number_with_format(*row, *col as u16, *n, &f)?; }
                 (Some(Value::Number(n)), _, None) => { ws.write_number(*row, *col as u16, *n)?; }
                 (Some(Value::Text(t)), _, Some(f)) => { ws.write_string_with_format(*row, *col as u16, t, &f)?; }
                 (Some(Value::Text(t)), _, None) => { ws.write_string(*row, *col as u16, t)?; }
-                (None, Some(formula), Some(f)) => { ws.write_formula_with_format(*row, *col as u16, Formula::new(formula.as_str()), &f)?; }
-                (None, Some(formula), None) => { ws.write_formula(*row, *col as u16, Formula::new(formula.as_str()))?; }
+                (None, Some(formula), Some(f)) => {
+                    ws.write_formula_with_format(*row, *col as u16, formula_obj(formula, cell.cached), &f)?;
+                }
+                (None, Some(formula), None) => {
+                    ws.write_formula(*row, *col as u16, formula_obj(formula, cell.cached))?;
+                }
                 (None, None, Some(f)) => { ws.write_blank(*row, *col as u16, &f)?; }
                 (None, None, None) => {}
             }

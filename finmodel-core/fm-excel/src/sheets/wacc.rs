@@ -62,9 +62,18 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         let bl_c = cell_ref(r, DATA0);
         let de_p = cell_ref(r, DATA0 + 1);
         let t_p = cell_ref(r, DATA0 + 2);
-        s.formula(r, DATA0 + 3, format!("={bl_c}/(1+(1-{t_p})*{de_p})"));
-        // hardcode mkt cap (no Comps Peers tab yet)
-        s.number(r, DATA0 + 4, p.market_cap);
+        s.formula_cached(r, DATA0 + 3, format!("={bl_c}/(1+(1-{t_p})*{de_p})"), (bu * 10000.0).round() / 10000.0);
+        let ticker_cell = cell_ref(r, LABEL);
+        if input.public_comps.as_ref().map(|c| !c.peers.is_empty()).unwrap_or(false) {
+            s.formula_cached(
+                r,
+                DATA0 + 4,
+                format!("=IFERROR(VLOOKUP({ticker_cell},'Comps Peers'!$C:$I,7,0),0)"),
+                p.market_cap,
+            );
+        } else {
+            s.number(r, DATA0 + 4, p.market_cap);
+        }
         // formats
         if let Some(c) = s.cells.get_mut(&(r, DATA0 + 1)) {
             c.num_fmt = Some(FMT_PCT);
@@ -85,10 +94,11 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let bu_col = crate::model::col_name(DATA0 + 3);
     let ps_er = PEER_START + 1;
     let pe_er = PEER_START + 10;
-    s.formula(
+    s.formula_cached(
         PEER_MEDIAN,
         DATA0 + 3,
         format!("=MEDIAN({bu_col}{ps_er}:{bu_col}{pe_er})"),
+        w.median_unlevered_beta,
     );
     if let Some(c) = s.cells.get_mut(&(PEER_MEDIAN, DATA0 + 3)) {
         c.num_fmt = Some(FMT_NUM);
@@ -111,14 +121,14 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let median_c = cell_ref(PEER_MEDIAN, DATA0 + 3);
     let de_c = cell_ref(DE_RESTATE, DATA0);
     let tax_c = cell_ref(TAX, DATA0);
-    s.formula(BE_TARGET, DATA0, format!("={median_c}*(1+(1-{tax_c})*{de_c})"));
+    s.formula_cached(BE_TARGET, DATA0, format!("={median_c}*(1+(1-{tax_c})*{de_c})"), w.target_levered_beta);
     s.stamp_row(BE_TARGET, FMT_NUM);
 
     s.text(KE, LABEL, "  Cost of Equity  (Ke = Rf + β × ERP)");
     let rf_c = cell_ref(RF, DATA0);
     let erp_c = cell_ref(ERP, DATA0);
     let be_c = cell_ref(BE_TARGET, DATA0);
-    s.formula(KE, DATA0, format!("={rf_c}+{be_c}*{erp_c}"));
+    s.formula_cached(KE, DATA0, format!("={rf_c}+{be_c}*{erp_c}"), w.cost_of_equity);
     s.stamp_row(KE, FMT_PCT);
 
     // Cost of debt
@@ -131,7 +141,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.stamp_row(TAX, FMT_PCT);
     s.text(KD_AFTER, LABEL, "  After-Tax Cost of Debt  [Kd × (1 − t)]");
     let kd_c = cell_ref(KD_PRE, DATA0);
-    s.formula(KD_AFTER, DATA0, format!("={kd_c}*(1-{tax_c})"));
+    s.formula_cached(KD_AFTER, DATA0, format!("={kd_c}*(1-{tax_c})"), w.after_tax_cost_of_debt);
     s.stamp_row(KD_AFTER, FMT_PCT);
 
     // Capital structure
@@ -145,14 +155,14 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.text(TOTAL_CAP, LABEL, "  Total Capital  (Equity + Debt)");
     let mc_c = cell_ref(MKT_CAP, DATA0);
     let d_c = cell_ref(DEBT, DATA0);
-    s.formula(TOTAL_CAP, DATA0, format!("={mc_c}+{d_c}"));
+    s.formula_cached(TOTAL_CAP, DATA0, format!("={mc_c}+{d_c}"), w.target_total_capital);
     s.stamp_row(TOTAL_CAP, FMT_NUM);
     let tc_c = cell_ref(TOTAL_CAP, DATA0);
     s.text(WE, LABEL, "  Equity Weight  (E / V)");
-    s.formula(WE, DATA0, format!("=IF({tc_c}<>0,{mc_c}/{tc_c},0)"));
+    s.formula_cached(WE, DATA0, format!("=IF({tc_c}<>0,{mc_c}/{tc_c},0)"), w.equity_weight);
     s.stamp_row(WE, FMT_PCT);
     s.text(WD, LABEL, "  Debt Weight  (D / V)");
-    s.formula(WD, DATA0, format!("=IF({tc_c}<>0,{d_c}/{tc_c},0)"));
+    s.formula_cached(WD, DATA0, format!("=IF({tc_c}<>0,{d_c}/{tc_c},0)"), w.debt_weight);
     s.stamp_row(WD, FMT_PCT);
 
     // Final WACC
@@ -161,7 +171,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let ke_c = cell_ref(KE, DATA0);
     let wd_c = cell_ref(WD, DATA0);
     let kdat_c = cell_ref(KD_AFTER, DATA0);
-    s.formula(WACC, DATA0, format!("={we_c}*{ke_c}+{wd_c}*{kdat_c}"));
+    s.formula_cached(WACC, DATA0, format!("={we_c}*{ke_c}+{wd_c}*{kdat_c}"), w.wacc);
     s.fill(WACC, DATA0, BLUE);
     s.stamp_row(WACC, FMT_PCT);
 
