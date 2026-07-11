@@ -1096,6 +1096,7 @@ dependencies = [
  "fm-excel",
  "fm-extract",
  "fm-types",
+ "fm-value",
 ]
 
 [[package]]
@@ -1112,7 +1113,9 @@ dependencies = [
 name = "fm-excel"
 version = "0.1.0"
 dependencies = [
+ "fm-engine",
  "fm-types",
+ "fm-value",
  "rust_xlsxwriter",
  "serde_json",
  "thiserror 2.0.18",

@@ -1,0 +1,99 @@
+//! Valuation I/O types — mirrors `schemas.financial_data` (WACC/DCF/Peers/Comps).
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Peer {
+    pub ticker: String,
+    pub name: String,
+    pub market_cap: f64,
+    pub enterprise_value: f64,
+    pub levered_beta: f64,
+    pub de_ratio: f64,
+    pub tax_rate: f64,
+    pub rationale: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PeerSet {
+    pub target_ticker: String,
+    pub target_market_cap: f64,
+    pub target_de_ratio: f64,
+    pub peers: Vec<Peer>,
+    pub excluded: Vec<(String, String)>,
+    /// `"llm"` | `"fallback"`
+    pub source: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct WACCOutput {
+    pub peers: Vec<Peer>,
+    pub median_unlevered_beta: f64,
+    pub target_levered_beta: f64,
+    pub target_de_ratio: f64,
+    pub risk_free_rate: f64,
+    pub equity_risk_premium: f64,
+    pub cost_of_equity: f64,
+    pub cost_of_debt_pretax: f64,
+    pub tax_rate: f64,
+    pub after_tax_cost_of_debt: f64,
+    pub target_market_cap: f64,
+    pub target_debt: f64,
+    pub target_total_capital: f64,
+    pub equity_weight: f64,
+    pub debt_weight: f64,
+    pub wacc: f64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DCFOutput {
+    pub ticker: String,
+    pub mid_year_convention: bool,
+    pub beta: f64,
+    pub risk_free_rate: f64,
+    pub equity_risk_premium: f64,
+    pub cost_of_equity: f64,
+    pub cost_of_debt_pretax: f64,
+    pub tax_rate: f64,
+    pub after_tax_cost_of_debt: f64,
+    pub equity_weight: f64,
+    pub debt_weight: f64,
+    pub wacc: f64,
+    pub proj_periods: Vec<String>,
+    pub fcff_proj: Vec<f64>,
+    pub dwc_proj: Vec<f64>,
+    pub discount_factors: Vec<f64>,
+    pub pv_fcfs_per_period: Vec<f64>,
+    pub pv_fcfs: f64,
+    pub terminal_ebitda: f64,
+    pub tv_ebitda_multiple: f64,
+    pub tv_ebitda: f64,
+    pub tv_ebitda_pv: f64,
+    pub tv_growth_rate: f64,
+    pub tv_gordon: f64,
+    pub tv_gordon_pv: f64,
+    pub tv_method: i32,
+    pub tv_selected: f64,
+    pub pv_tv: f64,
+    pub enterprise_value: f64,
+    pub total_debt: f64,
+    pub preferred_stock: f64,
+    pub noncontrolling_interest: f64,
+    pub cash: f64,
+    pub investments: f64,
+    pub net_debt: f64,
+    pub equity_value: f64,
+    pub shares_diluted: f64,
+    pub implied_price: f64,
+    pub current_share_price: f64,
+    pub upside_downside_pct: f64,
+    pub tv_pct_of_ev: f64,
+    pub wacc_minus_g: f64,
+    pub implied_exit_mult_from_gordon: f64,
+    pub implied_g_from_exit_mult: f64,
+    pub wacc_range: Vec<f64>,
+    pub ebitda_multiple_range: Vec<f64>,
+    pub gordon_growth_range: Vec<f64>,
+    pub sensitivity_ebitda: Vec<Vec<f64>>,
+    pub sensitivity_gordon: Vec<Vec<f64>>,
+}

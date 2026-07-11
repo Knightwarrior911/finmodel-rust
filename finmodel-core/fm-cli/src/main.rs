@@ -18,14 +18,14 @@ enum Command {
         #[arg(short, long)]
         model: PathBuf,
     },
-    /// Validate a snapshot JSON's structure
+    /// Diff a snapshot against the workbook generated from it (cell-by-cell)
     Compare {
         #[arg(short, long)]
         snapshot: PathBuf,
     },
     /// (Stub) Build a full model for a ticker
     Build { ticker: String },
-    /// Verify all committed snapshots (stub)
+    /// Verify all committed snapshots reproduce to zero diffs
     Verify {},
 }
 
@@ -48,14 +48,35 @@ fn cmd_score(gt_path: &PathBuf, model_path: &PathBuf) -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// Build the workbook from a snapshot and diff it cell-by-cell; returns the diff count.
+fn diff_snapshot(path: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    use std::collections::BTreeMap;
+    let snap = fm_excel::snapshot::load_snapshot(path)?;
+    let input = fm_excel::snapshot::workbook_input_from_snapshot(&snap)?;
+    let wb = fm_excel::sheets::build_workbook(&input);
+    let diffs = fm_excel::snapshot::compare_workbook(&wb, &snap);
+    if diffs.is_empty() {
+        println!("  ✓ 0 diffs (all sheets match)");
+    } else {
+        let mut by: BTreeMap<String, usize> = BTreeMap::new();
+        for d in &diffs {
+            *by.entry(d.sheet.clone()).or_default() += 1;
+        }
+        for (s, n) in &by {
+            println!("  ✗ {s}: {n} diffs");
+        }
+        for d in diffs.iter().take(20) {
+            println!("      {d}");
+        }
+    }
+    Ok(diffs.len())
+}
+
 fn cmd_compare(snapshot_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let snapshot = fm_excel::compare::load_snapshot(
-        &snapshot_path.to_string_lossy())?;
-    println!("Snapshot: {snapshot_path:?}");
-    let sheets = snapshot.get("sheets").and_then(|s| s.as_object());
-    match sheets {
-        Some(s) => println!("  ✓ {} sheet(s) in snapshot", s.len()),
-        None => println!("  ⚠ No 'sheets' key in snapshot"),
+    println!("Comparing {snapshot_path:?}");
+    let n = diff_snapshot(&snapshot_path.to_string_lossy())?;
+    if n > 0 {
+        return Err(format!("{n} cell diff(s)").into());
     }
     Ok(())
 }
@@ -123,7 +144,7 @@ fn cmd_build(ticker: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Step 3: Write Excel — the actual deliverable.
     let stem = fm_build::ticker_to_stem(ticker);
     let xlsx_path = format!("{stem}_model.xlsx");
-    fm_excel::writer::write_workbook(&xlsx_path, &out.sheets)?;
+    fm_excel::render::render(&out.workbook, &xlsx_path)?;
     println!("  \u{2713} wrote Excel model -> {xlsx_path}");
 
     // Step 4: Save the projection JSON for inspection.
@@ -136,8 +157,34 @@ fn cmd_build(ticker: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn cmd_verify() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Verifying all snapshots...");
-    println!("  All snapshots verified (stub)");
+    let dir = ["tieout/excel_snapshots", "../tieout/excel_snapshots", "../../tieout/excel_snapshots"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_dir())
+        .ok_or("could not locate tieout/excel_snapshots (run from the repo or finmodel-core)")?;
+    println!("Verifying committed snapshots in {dir:?}");
+
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+        // The populated-IS oracles (`*_full_snapshot.json`) lack `model_output`
+        // and are gated separately by the `full_is_parity` cargo test.
+        .filter(|p| !p.file_name().and_then(|n| n.to_str()).map(|n| n.contains("_full_")).unwrap_or(false))
+        .collect();
+    files.sort();
+    if files.is_empty() {
+        return Err(format!("no snapshot .json files found in {dir:?}").into());
+    }
+
+    let mut total = 0usize;
+    for f in &files {
+        println!("{}", f.file_name().unwrap().to_string_lossy());
+        total += diff_snapshot(&f.to_string_lossy())?;
+    }
+    if total > 0 {
+        return Err(format!("{total} total cell diff(s) across {} snapshot(s)", files.len()).into());
+    }
+    println!("\n✓ All {} snapshot(s) reproduce to 0 diffs", files.len());
     Ok(())
 }
 

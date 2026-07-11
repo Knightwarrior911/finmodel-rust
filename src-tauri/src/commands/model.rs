@@ -1,9 +1,10 @@
 //! `build_model` — the core pipeline command: ticker -> model + Excel.
 //!
 //! Extraction source:
-//!   - OpenRouter key set + US ticker  -> live SEC EDGAR fetch
-//!   - otherwise                       -> embedded committed fixture (offline demo)
-//! Never fabricates data: a non-EDGAR ticker with no fixture returns an error.
+//!   - OpenRouter key set + US ticker     -> live SEC EDGAR fetch
+//!   - OpenRouter key set + non-US ticker -> PDF discovery + LLM extraction
+//!   - otherwise                          -> embedded committed fixture (offline demo)
+//! Never fabricates data: a non-EDGAR ticker with no fixture and no key returns an error.
 //!
 //! Reconcile + project + Excel assembly are delegated to the shared `fm_build`
 //! crate (same core the CLI uses — no drift).
@@ -15,11 +16,26 @@ use crate::error::{AppError, AppResult};
 
 // Embedded baseline fixtures — the app is self-contained for the offline demo.
 const FIXTURES: &[(&str, &str)] = &[
-    ("SAND_ST", include_str!("../../../finmodel-core/fm-cli/tests/fixtures/SAND_ST_model.json")),
-    ("ASML_AS", include_str!("../../../finmodel-core/fm-cli/tests/fixtures/ASML_AS_model.json")),
-    ("NOVO-B_CO", include_str!("../../../finmodel-core/fm-cli/tests/fixtures/NOVO-B_CO_model.json")),
-    ("NESN_SW", include_str!("../../../finmodel-core/fm-cli/tests/fixtures/NESN_SW_model.json")),
-    ("ATCO-B_ST", include_str!("../../../finmodel-core/fm-cli/tests/fixtures/ATCO-B_ST_model.json")),
+    (
+        "SAND_ST",
+        include_str!("../../../finmodel-core/fm-cli/tests/fixtures/SAND_ST_model.json"),
+    ),
+    (
+        "ASML_AS",
+        include_str!("../../../finmodel-core/fm-cli/tests/fixtures/ASML_AS_model.json"),
+    ),
+    (
+        "NOVO-B_CO",
+        include_str!("../../../finmodel-core/fm-cli/tests/fixtures/NOVO-B_CO_model.json"),
+    ),
+    (
+        "NESN_SW",
+        include_str!("../../../finmodel-core/fm-cli/tests/fixtures/NESN_SW_model.json"),
+    ),
+    (
+        "ATCO-B_ST",
+        include_str!("../../../finmodel-core/fm-cli/tests/fixtures/ATCO-B_ST_model.json"),
+    ),
 ];
 
 fn fixture_extraction(ticker: &str) -> Option<fm_extract::ExtractionResult> {
@@ -30,6 +46,44 @@ fn fixture_extraction(ticker: &str) -> Option<fm_extract::ExtractionResult> {
         val["currency"] = serde_json::json!(fm_build::currency_for_ticker(ticker));
     }
     serde_json::from_value(val).ok()
+}
+
+/// Best-effort company name for PDF discovery. Demo tickers get real names;
+/// unknowns fall back to the ticker stem (works well enough for DDG).
+fn company_name_for_ticker(ticker: &str) -> String {
+    let up = ticker.to_uppercase();
+    match up.as_str() {
+        "SAND.ST" => "Sandvik".into(),
+        "ASML.AS" => "ASML".into(),
+        "NOVO-B.CO" => "Novo Nordisk".into(),
+        "NESN.SW" => "Nestle".into(),
+        "ATCO-B.ST" => "Atlas Copco".into(),
+        "KO" => "Coca-Cola".into(),
+        "AAPL" => "Apple".into(),
+        "MSFT" => "Microsoft".into(),
+        other => {
+            // Strip exchange suffix: "FOO.ST" -> "FOO"
+            other
+                .split('.')
+                .next()
+                .unwrap_or(other)
+                .replace('-', " ")
+        }
+    }
+}
+
+fn current_calendar_year() -> i32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // rough civil year from days since epoch (good enough for period labels)
+    let days = secs.div_euclid(86_400) + 719_468;
+    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
+    let doe = days - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    (yoe + era * 400) as i32
 }
 
 fn stmt_to_json(sd: &fm_types::StatementData) -> serde_json::Value {
@@ -71,13 +125,26 @@ fn build_model_blocking(app: &tauri::AppHandle, ticker: &str) -> AppResult<Strin
     let (extraction, source) = if has_key {
         match fm_extract::fetch_xbrl(&ticker) {
             Ok(e) => (e, "live (SEC EDGAR)"),
-            Err(_) => match fixture_extraction(&ticker) {
+            Err(edgar_err) => match fixture_extraction(&ticker) {
                 Some(e) => (e, "committed fixture (fallback)"),
                 None => {
-                    return Err(AppError::Engine(format!(
-                        "{ticker}: not in SEC EDGAR and no committed data. Non-US live \
-                         (PDF) extraction isn't wired into the app yet."
-                    )))
+                    // Non-US / non-EDGAR live path: discover annual-report PDF + LLM extract.
+                    let company = company_name_for_ticker(&ticker);
+                    let year = current_calendar_year() - 1; // latest full year typically
+                    let periods = [
+                        (year - 2).to_string(),
+                        (year - 1).to_string(),
+                        year.to_string(),
+                    ];
+                    match fm_extract::fetch_non_us_filing(&company, &ticker, &periods, Some(year))
+                    {
+                        Ok(e) => (e, "live (PDF + LLM)"),
+                        Err(pdf_err) => {
+                            return Err(AppError::Engine(format!(
+                                "{ticker}: EDGAR failed ({edgar_err}); PDF/LLM path failed ({pdf_err})"
+                            )));
+                        }
+                    }
                 }
             },
         }
@@ -87,7 +154,8 @@ fn build_model_blocking(app: &tauri::AppHandle, ticker: &str) -> AppResult<Strin
             None => {
                 return Err(AppError::Config(format!(
                     "{ticker}: no offline data. Demo tickers: SAND.ST, ASML.AS, \
-                     NOVO-B.CO, NESN.SW, ATCO-B.ST. Or add an OpenRouter key for US tickers."
+                     NOVO-B.CO, NESN.SW, ATCO-B.ST. Or add an OpenRouter key for \
+                     US (EDGAR) or non-US (PDF) live extraction."
                 )))
             }
         }
@@ -105,7 +173,7 @@ fn build_model_blocking(app: &tauri::AppHandle, ticker: &str) -> AppResult<Strin
     std::fs::create_dir_all(&out_dir)?;
     let stem = fm_build::ticker_to_stem(&ticker);
     let xlsx_path = out_dir.join(format!("{stem}_model.xlsx"));
-    fm_excel::writer::write_workbook(&xlsx_path.to_string_lossy(), &out.sheets)
+    fm_excel::render::render(&out.workbook, &xlsx_path.to_string_lossy())
         .map_err(|e| AppError::Engine(format!("Excel write failed: {e}")))?;
 
     // 4. JSON summary for the UI.
@@ -126,6 +194,11 @@ fn build_model_blocking(app: &tauri::AppHandle, ticker: &str) -> AppResult<Strin
             "cash_flow_statement": stmt_to_json(&out.projected.cash_flow),
         },
         "xlsx_path": xlsx_path.to_string_lossy(),
+        "valuation": {
+            "has_dcf": out.workbook.sheet("DCF").is_some(),
+            "has_wacc": out.workbook.sheet("WACC").is_some(),
+            "sheets": out.workbook.sheets.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        },
     })
     .to_string())
 }
@@ -133,9 +206,8 @@ fn build_model_blocking(app: &tauri::AppHandle, ticker: &str) -> AppResult<Strin
 /// Open a file with the OS default handler (the generated Excel).
 #[tauri::command(rename_all = "snake_case")]
 pub fn open_path(app: tauri::AppHandle, path: String) -> AppResult<String> {
-    use tauri_plugin_opener::OpenerExt;
     app.opener()
-        .open_path(&path, None::<&str>)
+        .open_path(path.clone(), None::<&str>)
         .map_err(|e| AppError::Io(format!("open failed: {e}")))?;
-    Ok(serde_json::json!({ "ok": true }).to_string())
+    Ok(path)
 }

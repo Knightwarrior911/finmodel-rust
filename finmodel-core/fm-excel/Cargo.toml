@@ -6,6 +6,11 @@ description = "R.5 Excel writer crate — rust_xlsxwriter, formulas, tier colors
 
 [dependencies]
 fm-types = { path = "../fm-types" }
+fm-engine = { path = "../fm-engine" }
+fm-value = { path = "../fm-value" }
 rust_xlsxwriter = "0.96"
 serde_json = "1"
 thiserror = "2"
+
+[dev-dependencies]
+calamine = "0.26"

@@ -1,5 +1,10 @@
-pub mod compare;
-pub mod writer;
+pub mod derive;
+pub mod input;
+pub mod is_structure;
+pub mod model;
+pub mod render;
+pub mod sheets;
+pub mod snapshot;
 
 use std::fmt;
 
@@ -12,6 +17,8 @@ pub enum ExcelError {
     Json(serde_json::Error),
     /// Wraps a rust_xlsxwriter error.
     Xlsx(rust_xlsxwriter::XlsxError),
+    /// Snapshot structural / parse problem (missing keys, bad shape).
+    Snapshot(String),
 }
 
 impl fmt::Display for ExcelError {
@@ -20,6 +27,7 @@ impl fmt::Display for ExcelError {
             ExcelError::Io(e) => write!(f, "IO error: {e}"),
             ExcelError::Json(e) => write!(f, "JSON error: {e}"),
             ExcelError::Xlsx(e) => write!(f, "Xlsx error: {e}"),
+            ExcelError::Snapshot(m) => write!(f, "Snapshot error: {m}"),
         }
     }
 }
@@ -30,6 +38,7 @@ impl std::error::Error for ExcelError {
             ExcelError::Io(e) => Some(e),
             ExcelError::Json(e) => Some(e),
             ExcelError::Xlsx(e) => Some(e),
+            ExcelError::Snapshot(_) => None,
         }
     }
 }

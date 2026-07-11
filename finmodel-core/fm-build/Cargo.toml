@@ -9,3 +9,7 @@ fm-types = { path = "../fm-types" }
 fm-extract = { path = "../fm-extract" }
 fm-engine = { path = "../fm-engine" }
 fm-excel = { path = "../fm-excel" }
+fm-value = { path = "../fm-value" }
+
+[dev-dependencies]
+serde_json = "1"
