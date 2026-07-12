@@ -10,6 +10,16 @@
   summary. New UI card (tickers input, preset peer sets, results table, Open
   Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
   pipeline live-verified via the identical CLI path.
+- **Global IFRS filers** — foreign 20-F filers reporting under `ifrs-full` on
+  EDGAR (TSM, SAP, NVO, SHEL, ASML, …) now benchmark from structured XBRL, **no
+  LLM**. `fm-extract::xbrl::ifrs_tag_map` (canonical → IFRS concepts) +
+  `select_taxonomy` (picks us-gaap vs ifrs-full by concept count) + broadened
+  currency detection (TWD/EUR/DKK/… dominant-unit). Provenance is taxonomy-
+  qualified (`us-gaap:` / `ifrs-full:`). Also: **data-anchored target years** —
+  the extraction window anchors to the filer's own latest reported annual FY
+  (not the wall clock), so late-window / behind-calendar filers extract too.
+  Unit-tested (IFRS parse, owners-of-parent NI preference); live-verified
+  TSM/SAP/NVO/SHEL/ASML. Gate-safe (committed-snapshot gates unaffected).
 - **Trading multiples** (`fm benchmark --multiples`) — the heart of IB comps:
   EV/EBITDA, EV/Revenue, P/E and market cap, computed from filing-derived EV
   components (net debt, diluted shares, EBITDA, net income) × a live share price

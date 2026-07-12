@@ -387,9 +387,9 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         // formula. Only attach a note where the value is present.
         let fy = m.fiscal_year.clone().unwrap_or_else(|| "latest FY".into());
         let filing = format!("SEC EDGAR XBRL companyfacts — {} {}", m.ticker, fy);
-        // Exact us-gaap tag for a raw canonical key, when captured.
+        // Exact taxonomy-qualified XBRL fact for a raw canonical key.
         let tagged = |key: &str| match m.provenance.get(key) {
-            Some(tag) => format!("{filing} (us-gaap:{tag})"),
+            Some(tag) => format!("{filing} ({tag})"),
             None => filing.clone(),
         };
         let mut cite = |key: &str, present: bool, text: String| {
@@ -402,8 +402,8 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
             "ebitda",
             m.ebitda.is_some(),
             format!("Derived: EBIT ({}) + D&A ({}) [{filing}]",
-                m.provenance.get("ebit").map(|t| format!("us-gaap:{t}")).unwrap_or_else(|| "EBIT".into()),
-                m.provenance.get("da").map(|t| format!("us-gaap:{t}")).unwrap_or_else(|| "D&A".into())),
+                m.provenance.get("ebit").cloned().unwrap_or_else(|| "EBIT".into()),
+                m.provenance.get("da").cloned().unwrap_or_else(|| "D&A".into())),
         );
         cite("net_income", m.net_income.is_some(), tagged("net_income"));
         cite(

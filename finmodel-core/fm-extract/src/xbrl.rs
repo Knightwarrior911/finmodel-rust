@@ -343,6 +343,86 @@ pub fn xbrl_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     m
 }
 
+/// Canonical line item → `ifrs-full` taxonomy concepts, for foreign private
+/// issuers that file 20-F with IFRS XBRL on EDGAR (TSM, SAP, NVO, SHEL, …).
+/// Same canonical keys as [`xbrl_tag_map`] so the extractor is taxonomy-agnostic.
+pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
+    let mut m: HashMap<&str, &[&str]> = HashMap::new();
+    // Income statement
+    m.insert("revenue", &["Revenue", "RevenueFromContractsWithCustomers"]);
+    m.insert("cogs", &["CostOfSales", "CostOfMerchandiseSold"]);
+    m.insert("gross_profit", &["GrossProfit"]);
+    m.insert("sga", &["SellingGeneralAndAdministrativeExpense", "AdministrativeExpense", "DistributionCosts"]);
+    m.insert("rd", &["ResearchAndDevelopmentExpense"]);
+    m.insert("ebit", &["ProfitLossFromOperatingActivities", "OperatingIncomeLoss"]);
+    m.insert("interest_expense", &["FinanceCosts", "InterestExpenseOnBorrowings", "InterestExpense"]);
+    m.insert("interest_income", &["FinanceIncome", "RevenueFromInterest"]);
+    m.insert("income_tax", &["IncomeTaxExpenseContinuingOperations", "TaxExpenseIncomeRelatingToProfitLossFromOrdinaryActivities"]);
+    m.insert("net_income", &["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"]);
+    m.insert("da", &[
+        "DepreciationAndAmortisationExpense",
+        "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
+        "DepreciationExpense",
+    ]);
+    m.insert("eps_basic", &["BasicEarningsLossPerShare"]);
+    m.insert("eps_diluted", &["DilutedEarningsLossPerShare"]);
+    m.insert("shares_basic", &["WeightedAverageShares", "NumberOfSharesOutstanding"]);
+    m.insert("shares_diluted", &["AdjustedWeightedAverageShares", "WeightedAverageSharesDiluted"]);
+    // Balance sheet
+    m.insert("cash", &["CashAndCashEquivalents"]);
+    m.insert("accounts_receivable", &["TradeAndOtherCurrentReceivables", "CurrentTradeReceivables"]);
+    m.insert("inventory", &["Inventories"]);
+    m.insert("total_current_assets", &["CurrentAssets"]);
+    m.insert("ppe_net", &["PropertyPlantAndEquipment"]);
+    m.insert("goodwill", &["Goodwill"]);
+    m.insert("intangibles_net", &["IntangibleAssetsOtherThanGoodwill"]);
+    m.insert("total_assets", &["Assets"]);
+    m.insert("accounts_payable", &["TradeAndOtherCurrentPayables", "CurrentTradePayables"]);
+    m.insert("total_current_liabilities", &["CurrentLiabilities"]);
+    m.insert("long_term_debt", &["NoncurrentBorrowings", "LongtermBorrowings", "NoncurrentPortionOfNoncurrentBorrowings"]);
+    m.insert("short_term_debt", &["CurrentBorrowings", "ShorttermBorrowings", "CurrentPortionOfLongtermBorrowings"]);
+    m.insert("total_liabilities", &["Liabilities"]);
+    m.insert("retained_earnings", &["RetainedEarnings"]);
+    m.insert("total_equity", &["Equity", "EquityAttributableToOwnersOfParent"]);
+    // Cash flow
+    m.insert("cfo", &["CashFlowsFromUsedInOperatingActivities"]);
+    m.insert("capex", &[
+        "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        "PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssetsClassifiedAsInvestingActivities",
+    ]);
+    m.insert("cfi", &["CashFlowsFromUsedInInvestingActivities"]);
+    m.insert("cff", &["CashFlowsFromUsedInFinancingActivities"]);
+    m.insert("dividends_paid", &["DividendsPaidClassifiedAsFinancingActivities", "DividendsPaid"]);
+    m.insert("buybacks", &["PaymentsToAcquireOrRedeemEntitysShares", "PaymentsForRepurchaseOfEntitysEquityInstruments"]);
+    m.insert("net_change_cash", &["IncreaseDecreaseInCashAndCashEquivalents", "IncreaseDecreaseInCashAndCashEquivalentsBeforeEffectOfExchangeRateChanges"]);
+    m.insert("fx_effect_on_cash", &["EffectOfExchangeRateChangesOnCashAndCashEquivalents"]);
+    m
+}
+
+/// Choose the reporting taxonomy present in a companyfacts JSON: prefer
+/// `us-gaap` (US filers), else `ifrs-full` (foreign 20-F filers). Returns the
+/// concept map, the matching canonical tag map, and the taxonomy name.
+pub fn select_taxonomy(
+    facts: &Value,
+) -> Option<(&serde_json::Map<String, Value>, HashMap<&'static str, &'static [&'static str]>, &'static str)> {
+    let us = facts.pointer("/facts/us-gaap").and_then(|v| v.as_object());
+    let ifrs = facts.pointer("/facts/ifrs-full").and_then(|v| v.as_object());
+    // Pick the taxonomy the company actually reports in — the one with more
+    // concepts — so residual us-gaap stubs on an IFRS filer don't win.
+    match (us, ifrs) {
+        (Some(u), Some(i)) => {
+            if u.len() >= i.len() {
+                Some((u, xbrl_tag_map(), "us-gaap"))
+            } else {
+                Some((i, ifrs_tag_map(), "ifrs-full"))
+            }
+        }
+        (Some(u), None) if !u.is_empty() => Some((u, xbrl_tag_map(), "us-gaap")),
+        (None, Some(i)) if !i.is_empty() => Some((i, ifrs_tag_map(), "ifrs-full")),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // XBRL Parsing
 // ---------------------------------------------------------------------------
@@ -379,13 +459,16 @@ pub fn parse_xbrl_to_raw_with_provenance(
     periods_historical: usize,
     currency: &str,
 ) -> Result<(ParsedXbrlData, HashMap<String, String>), XbrlParseError> {
-    let gaap = facts
-        .pointer("/facts/us-gaap")
-        .and_then(|v| v.as_object())
-        .ok_or(XbrlParseError::MissingGaap)?;
-
-    let tag_map = xbrl_tag_map();
-    let target_years = compute_target_years(periods_historical);
+    let (gaap, tag_map, taxonomy) =
+        select_taxonomy(facts).ok_or(XbrlParseError::MissingGaap)?;
+    // Anchor the target-year window to the company's latest reported annual FY
+    // (from revenue), not the wall clock — so filers that haven't yet filed the
+    // calendar-latest FY still extract. Fall back to the wall-clock default.
+    let target_years = tag_map
+        .get("revenue")
+        .and_then(|tags| latest_annual_year(gaap, tags, currency))
+        .map(|y| compute_target_years_from(periods_historical, y))
+        .unwrap_or_else(|| compute_target_years(periods_historical));
 
     let mut is = StatementData::new();
     let mut bs = StatementData::new();
@@ -414,9 +497,9 @@ pub fn parse_xbrl_to_raw_with_provenance(
     // Extract each canonical key, recording the matched tag for provenance.
     for (keys, stmt) in [(is_keys, &mut is), (bs_keys, &mut bs), (cfs_keys, &mut cfs)] {
         for key in keys {
-            if let Some((tag, v)) = extract_tag_named(&gaap, key, &tag_map, &target_years, currency) {
+            if let Some((tag, v)) = extract_tag_named(gaap, key, &tag_map, &target_years, currency) {
                 stmt.insert(key.to_string(), v);
-                prov.insert(key.to_string(), tag.to_string());
+                prov.insert(key.to_string(), format!("{taxonomy}:{tag}"));
             }
         }
     }
@@ -448,6 +531,56 @@ fn compute_target_years(periods_historical: usize) -> Vec<String> {
     let today_year = 2026; // simplified — in production should use current date logic
     let latest_fy = today_year - 1;
     compute_target_years_from(periods_historical, latest_fy)
+}
+
+/// Latest completed annual fiscal year present in the filings for `key` — the
+/// max end-year among ~1-year-duration 10-K/20-F facts. Anchors the target-year
+/// window to the company's own data, so a filer that hasn't yet filed the
+/// wall-clock latest FY (e.g. before its annual report drops) still extracts.
+fn latest_annual_year(
+    gaap: &serde_json::Map<String, Value>,
+    tags: &[&str],
+    currency: &str,
+) -> Option<i32> {
+    let day = |s: &str| -> Option<i64> {
+        let mut it = s.splitn(3, '-');
+        let y: i64 = it.next()?.parse().ok()?;
+        let m: i64 = it.next()?.parse().ok()?;
+        let d: i64 = it.next()?.parse().ok()?;
+        Some(y * 372 + m * 31 + d) // monotone pseudo-days, fine for duration bucketing
+    };
+    let mut latest: Option<i32> = None;
+    for tag in tags {
+        let Some(entry) = gaap.get(*tag) else { continue };
+        let Some(units) = entry.get("units").and_then(|u| u.as_object()) else { continue };
+        for (unit_name, vals) in units {
+            if !unit_name.contains(currency) && currency != "USD" {
+                continue;
+            }
+            let Some(arr) = vals.as_array() else { continue };
+            for v in arr {
+                let form = v.get("form").and_then(Value::as_str).unwrap_or("");
+                if form != "10-K" && form != "20-F" {
+                    continue;
+                }
+                let (Some(start), Some(end)) = (
+                    v.get("start").and_then(Value::as_str),
+                    v.get("end").and_then(Value::as_str),
+                ) else {
+                    continue;
+                };
+                if let (Some(s), Some(e)) = (day(start), day(end)) {
+                    let dur = e - s;
+                    if (330..=400).contains(&dur) {
+                        if let Ok(y) = end[..4].parse::<i32>() {
+                            latest = Some(latest.map_or(y, |m| m.max(y)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    latest
 }
 
 /// Try each candidate tag for a canonical key; return the first with data for
@@ -797,13 +930,45 @@ mod deterministic_tests {
         assert_eq!(data.is.get("revenue").unwrap()[2], Some(120.0));
         assert_eq!(
             prov.get("revenue").map(String::as_str),
-            Some("RevenueFromContractWithCustomerExcludingAssessedTax")
+            Some("us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax")
         );
-        assert_eq!(prov.get("net_income").map(String::as_str), Some("NetIncomeLoss"));
+        assert_eq!(prov.get("net_income").map(String::as_str), Some("us-gaap:NetIncomeLoss"));
         // A key with no matching fact has no provenance entry.
         assert!(prov.get("goodwill").is_none());
         // parse_xbrl_to_raw (no-provenance wrapper) yields identical data.
         let plain = parse_xbrl_to_raw(&facts, 3, "USD").expect("parse plain");
         assert_eq!(plain.is.get("revenue").unwrap()[2], Some(120.0));
+    }
+
+    #[test]
+    fn parses_ifrs_full_taxonomy() {
+        // Foreign 20-F filer: facts under ifrs-full, no us-gaap. Revenue + net
+        // income (owners-of-parent preferred) extracted; provenance ifrs-qualified.
+        let facts = serde_json::json!({
+            "facts": { "ifrs-full": {
+                "Revenue": { "units": { "TWD": [
+                    {"end": "2023-12-31", "val": 2000, "form": "20-F", "fp": "FY"},
+                    {"end": "2024-12-31", "val": 2200, "form": "20-F", "fp": "FY"},
+                    {"end": "2025-12-31", "val": 2500, "form": "20-F", "fp": "FY"}
+                ]}},
+                "ProfitLoss": { "units": { "TWD": [
+                    {"end": "2025-12-31", "val": 999, "form": "20-F", "fp": "FY"}
+                ]}},
+                "ProfitLossAttributableToOwnersOfParent": { "units": { "TWD": [
+                    {"end": "2023-12-31", "val": 700, "form": "20-F", "fp": "FY"},
+                    {"end": "2024-12-31", "val": 800, "form": "20-F", "fp": "FY"},
+                    {"end": "2025-12-31", "val": 900, "form": "20-F", "fp": "FY"}
+                ]}}
+            }}
+        });
+        let (data, prov) = parse_xbrl_to_raw_with_provenance(&facts, 3, "TWD").expect("parse ifrs");
+        assert_eq!(data.is.get("revenue").unwrap()[2], Some(2500.0));
+        // Owners-of-parent preferred over total ProfitLoss.
+        assert_eq!(data.is.get("net_income").unwrap()[2], Some(900.0));
+        assert_eq!(
+            prov.get("net_income").map(String::as_str),
+            Some("ifrs-full:ProfitLossAttributableToOwnersOfParent")
+        );
+        assert_eq!(prov.get("revenue").map(String::as_str), Some("ifrs-full:Revenue"));
     }
 }

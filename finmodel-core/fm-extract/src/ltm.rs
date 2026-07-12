@@ -13,8 +13,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::xbrl::xbrl_tag_map;
-
 /// LTM figures for one company. Flows are trailing-twelve-months (or annual
 /// fallback); balance-sheet items are the latest reported instant.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -217,8 +215,7 @@ fn days_to_iso(days: i64) -> String {
 
 /// Extract LTM figures from companyfacts JSON.
 pub fn extract_ltm(facts: &Value, currency: &str) -> Option<LtmData> {
-    let gaap = facts.pointer("/facts/us-gaap").and_then(Value::as_object)?;
-    let tm = xbrl_tag_map();
+    let (gaap, tm, _tax) = crate::xbrl::select_taxonomy(facts)?;
     let flow = |key: &str| -> Option<(f64, bool, i64)> {
         tm.get(key).and_then(|tags| ltm_flow(gaap, tags, currency))
     };

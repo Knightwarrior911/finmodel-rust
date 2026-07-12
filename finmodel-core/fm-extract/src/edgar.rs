@@ -25,7 +25,7 @@ fn companyfacts_for(ticker: &str) -> Result<(serde_json::Value, String), Extract
     })?;
     let facts = fetch_companyfacts_raw(&cik)
         .map_err(|e| ExtractError::Other(format!("XBRL fetch failed for {ticker}: {e}")))?;
-    let currency = detect_currency(&facts).unwrap_or("USD").to_string();
+    let currency = detect_currency(&facts).unwrap_or_else(|| "USD".to_string());
     Ok((facts, currency))
 }
 
@@ -80,27 +80,28 @@ pub fn fetch_xbrl_bundle(
     Ok((result, prov, ltm))
 }
 
-/// Try to detect the reporting currency from the companyfacts JSON.
-fn detect_currency(facts: &serde_json::Value) -> Option<&str> {
-    // Look at the first us-gaap concept with units to find the currency
-    let gaap = facts.pointer("/facts/us-gaap")?.as_object()?;
-    for (_name, entry) in gaap {
-        if let Some(units) = entry.get("units")?.as_object() {
-            for unit_name in units.keys() {
-                if unit_name.starts_with("USD") || unit_name.starts_with("EUR")
-                    || unit_name.starts_with("GBP") || unit_name.starts_with("SEK")
-                    || unit_name.starts_with("CHF") || unit_name.starts_with("DKK")
-                    || unit_name.starts_with("NOK") || unit_name.starts_with("JPY")
-                {
-                    // Return just the currency code part (before any suffix like /shares)
-                    let ccy = if let Some(idx) = unit_name.find('/') {
-                        &unit_name[..idx]
-                    } else {
-                        unit_name.as_str()
-                    };
-                    return Some(ccy);
+/// Detect the dominant reporting currency from companyfacts (any taxonomy).
+/// Picks the most frequent 3-letter ISO currency-code unit (USD, EUR, TWD, …),
+/// so a foreign filer with a few incidental USD facts still resolves correctly.
+fn detect_currency(facts: &serde_json::Value) -> Option<String> {
+    for tax in ["us-gaap", "ifrs-full"] {
+        let obj = match facts.pointer(&format!("/facts/{tax}")).and_then(|v| v.as_object()) {
+            Some(o) if !o.is_empty() => o,
+            _ => continue,
+        };
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for (_name, entry) in obj {
+            if let Some(units) = entry.get("units").and_then(|u| u.as_object()) {
+                for unit_name in units.keys() {
+                    let code = unit_name.split('/').next().unwrap_or("");
+                    if code.len() == 3 && code.chars().all(|c| c.is_ascii_uppercase()) {
+                        *counts.entry(code.to_string()).or_default() += 1;
+                    }
                 }
             }
+        }
+        if let Some((ccy, _)) = counts.into_iter().max_by_key(|(_, c)| *c) {
+            return Some(ccy);
         }
     }
     None
@@ -194,6 +195,6 @@ mod tests {
                 }
             }
         });
-        assert_eq!(detect_currency(&val), Some("USD"));
+        assert_eq!(detect_currency(&val).as_deref(), Some("USD"));
     }
 }
