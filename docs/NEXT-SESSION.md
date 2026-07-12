@@ -99,9 +99,14 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
    → `fm-excel::bridge` + `fm ifrs --xlsx`, `ifrs_bridge_parity.rs` full + simple).
    Remaining (separate follow-ups, NOT item 1): non-US (PDF+LLM) peers in the
    benchmark (needs OPENROUTER_API_KEY). ✅ Tauri app peer-benchmark panel DONE
-   (`benchmark_peers` command + UI card; binary compiles/links/embeds; GUI
-   click-through untested here — needs WebView2 CDP). The `pdf_url`
-   filing-source-link path of the bridges is a Python-only feature (no PDF ctx).
+   (`benchmark_peers` command + UI card; binary compiled/linked/embedded &
+   committed this session; GUI click-through untested — needs WebView2 CDP + a
+   desktop session). ⚠️ `src-tauri/target` was DELETED to reclaim disk — the next
+   app build is a COLD multi-GB build again (source is committed, was verified to
+   compile). ⚠️ DISK CRITICAL: an external process drove C: to ~170 MB free this
+   session; **reclaim GBs of free space before ANY `cargo` command** or builds
+   ENOSPC and corrupt the cache. The `pdf_url` filing-source-link path of the
+   bridges is a Python-only feature (no PDF ctx).
 2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
    for filing-doc fetch (CIK/filings partly exist).
 3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.
