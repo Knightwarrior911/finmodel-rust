@@ -1,9 +1,53 @@
 # Finmodel — Financial Model Engine
 
-## Project Memory
-Project memory lives at `C:\Users\vinit\.claude\projects\C--Users-vinit-Documents-financial_model\memory\finmodel-master-plan.md`. Read that FIRST before any session.
+## HANDOVER — Benchmarking subsystem (current, 2026-07-12)
+Rust workspace: `finmodel-core/` (11 crates). Build/verify from there:
+`CARGO_INCREMENTAL=0 cargo test --workspace` (33 suites, 0 failed) and
+`RUSTFLAGS="-D warnings" cargo build --workspace` (clean). Disk is volatile on
+this box — `df -h /c` before any `cargo`; clear only `target/debug/incremental`.
+Run the CLI via `cargo run -q -p fm-cli -- <cmd>` (the shell can't exec the .exe
+directly). Pass Windows-style paths (`--out C:/tmp/x.xlsx`); git-bash `/c/tmp` mangles.
 
-Master plan: `docs/MASTER_PLAN.md` (committed 2026-07-03). Resume/session-start note: `docs/NEXT-SESSION.md`.
+### Flagship: `fm benchmark` — benchmark filings → IB-grade Excel comps
+`cargo run -q -p fm-cli -- benchmark --tickers "AAPL,MSFT,TSM,NVO" [--out X.xlsx] [--csv X.csv] [--ltm] [--multiples] [--usd] [--title ...]`
+- Fetches SEC EDGAR XBRL per ticker; **US-GAAP AND IFRS** filers (foreign 20-F:
+  TSM/SAP/NVO/SHEL/ASML) — `fm-extract::xbrl::{select_taxonomy,ifrs_tag_map}`, no LLM.
+- 18 metrics / 7 dimensions (Scale, Growth incl. rev CAGR, Profitability incl. FCF
+  margin, Returns, Capital Return, Liquidity, Leverage) + EDGAR **Sector** column +
+  exact **taxonomy-qualified us-gaap:/ifrs-full: tag provenance** (cell notes) +
+  MEDIAN/MEAN/MIN/MAX block (cached).
+- `--ltm`: last-twelve-months (FY + latest YTD − prior-YTD; latest instant BS;
+  freshest-tag + staleness guard). `--multiples`: EV/EBITDA, EV/Rev, P/E, mkt cap
+  from filing-derived EV × live Yahoo price (no key; US filers — foreign blank due
+  to ADR ratio). `--usd`: spot-FX normalize monetary metrics for mixed-currency
+  global comps (Yahoo `{CCY}USD=X`); ratios/multiples FX-neutral. Extraction
+  anchors target years to the filer's own latest FY (behind-calendar filers work).
+
+### Other CLI: `build <ticker>` (full 3-statement model+DCF Excel), `verify`
+(5 model snapshots, 0 diffs), `ifrs --xlsx` (IFRS-16 bridge), `ev-bridge --xlsx`
+(EV bridge), `score`/`compare` (tie-out). All 7 exercised green.
+
+### Key crates & gates
+- `fm-research` — benchmark pipeline (`metrics_from_extraction`, `build_benchmark_table`,
+  `benchmark_tickers_opts(BenchmarkOpts{ltm,multiples,to_usd})`, `apply_ltm/_multiples/_fx`).
+- `fm-excel::adhoc` — AdHoc/benchmark table writer; `fm-excel::bridge` — EV+IFRS bridges.
+  Both **oracle-gated** vs Python (`tieout/build_*_oracle.py` → `excel_snapshots/*.json`,
+  `fm-excel/tests/{adhoc,ev_bridge,ifrs_bridge}_parity.rs`).
+- `fm-fetch::{edgar,market}` — EDGAR XBRL/SIC + Yahoo quotes/FX. `fm-extract::{xbrl,ltm,edgar}`.
+- Desktop app `src-tauri/` — `benchmark_peers` command + UI card (`ui/`). `src-tauri/target`
+  was reclaimed for disk; next app build is COLD (~4-5GB). GUI click-through untested
+  (needs a desktop session + WebView2 CDP per `automated-testing` skill).
+
+### Follow-ups (resource-gated, in `docs/NEXT-SESSION.md`)
+Non-EDGAR foreign filers (PDF+LLM, needs `OPENROUTER_API_KEY`); app GUI smoke
+(desktop session); forward/NTM multiples & news (external feeds). Parity rule:
+port calc → oracle-gate vs Python → reachable consumer; gates use committed
+snapshots (not live parse), so extraction changes don't break them.
+
+## Project Memory
+Read the HANDOVER section above + `docs/NEXT-SESSION.md` (current resume note)
+FIRST. The sections below are historical (Python-era tie-out track), kept for
+context. Master plan: `docs/MASTER_PLAN.md`. Changelog: `CHANGELOG.md`.
 
 ## Plan Summary (build track)
 P0 (safety net: CI, snapshots, failure honesty) → PR (Rust port, 6 crates, cell-for-cell parity vs baseline) → P1 (accuracy: banks/insurers/held-out on Rust engine) → P2E (engagement polish) → P3 (Tauri desktop v1, no Python). P2S + P4 + P5 PARKED.
