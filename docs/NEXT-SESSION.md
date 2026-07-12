@@ -62,7 +62,8 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
 - Commits: `6f2a097` benchmark · `5c967e8` EV bridge · `55e3c06` enriched+verify ·
   `bbf064f` IFRS bridge · `8538d73` CSV · `5aa65d2` sector · `12195bb` provenance ·
   `c7a10ef` app panel · `ed8f0bc` capital-return · `1fe063e` LTM · `3129b20`
-  trading multiples (Yahoo quotes, EV/EBITDA/P/E). Update `up to` on resume.
+  trading multiples · `343f1f7` global IFRS filers + data-anchored years.
+  Update `up to` on resume.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
@@ -104,8 +105,10 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
    *EV bridge* (`write_ev_bridge` → `fm-excel::bridge` + `fm ev-bridge --xlsx`,
    `ev_bridge_parity.rs` full + sparse), *IFRS-16 bridge* (`write_ifrs_bridge`
    → `fm-excel::bridge` + `fm ifrs --xlsx`, `ifrs_bridge_parity.rs` full + simple).
-   Remaining (separate follow-ups, NOT item 1): non-US (PDF+LLM) peers in the
-   benchmark (needs OPENROUTER_API_KEY). ✅ Tauri app peer-benchmark panel DONE
+   Remaining (separate follow-ups, NOT item 1): 🟢 non-US **IFRS filers on EDGAR
+   now work** (TSM/SAP/NVO/SHEL/ASML via ifrs-full taxonomy, `343f1f7`). Only
+   PURE foreign listings not on EDGAR at all need the PDF+LLM path
+   (OPENROUTER_API_KEY). ✅ Tauri app peer-benchmark panel DONE
    (`benchmark_peers` command + UI card; binary compiled/linked/embedded &
    committed this session; GUI click-through untested — needs WebView2 CDP + a
    desktop session). ⚠️ `src-tauri/target` was DELETED to reclaim disk — the next
