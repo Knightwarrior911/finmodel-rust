@@ -61,7 +61,8 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
   tag-level provenance, capital-return metrics, CSV export, e2e benchmark gate.
 - Commits: `6f2a097` benchmark · `5c967e8` EV bridge · `55e3c06` enriched+verify ·
   `bbf064f` IFRS bridge · `8538d73` CSV · `5aa65d2` sector · `12195bb` provenance ·
-  `c7a10ef` app panel · `ed8f0bc` capital-return · `1fe063e` LTM. Update `up to`.
+  `c7a10ef` app panel · `ed8f0bc` capital-return · `1fe063e` LTM · `3129b20`
+  trading multiples (Yahoo quotes, EV/EBITDA/P/E). Update `up to` on resume.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
@@ -115,7 +116,9 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
    filing-source-link path of the bridges is a Python-only feature (no PDF ctx).
 2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
    for filing-doc fetch (CIK/filings partly exist).
-3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.
+3. **Market data**: 🟢 quotes DONE — `fm-fetch::market::fetch_quote` (Yahoo, no
+   key) powers `fm benchmark --multiples` (EV/EBITDA, EV/Rev, P/E). Still TODO:
+   `news.py` headlines; FX rates for cross-currency comps (needs an FX feed).
 4. **PPTX decks** (`pptx_writer.py` 144 KB + editor/render/inspector) — big; IB slides.
 5. **Browser pipeline** (`browser_pipeline.py` 81 KB) — non-US annual-report extract.
 6. **Agent/orchestrator** (`agent.py` 39 KB, `orchestrator.py`) — NL query → tools → Excel/deck.
