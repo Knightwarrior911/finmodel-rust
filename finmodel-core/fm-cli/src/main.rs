@@ -142,6 +142,10 @@ enum Command {
         /// prices (Yahoo Finance) × filing-derived EV components.
         #[arg(long)]
         multiples: bool,
+        /// Convert monetary metrics to USD at spot FX (Yahoo) — for global,
+        /// mixed-currency peer sets. Ratios/multiples are already FX-neutral.
+        #[arg(long)]
+        usd: bool,
     },
 }
 
@@ -483,6 +487,7 @@ fn cmd_benchmark(
     csv: Option<&str>,
     ltm: bool,
     multiples: bool,
+    usd: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let list: Vec<String> = tickers
         .split(',')
@@ -495,6 +500,7 @@ fn cmd_benchmark(
     let mut tags: Vec<&str> = Vec::new();
     if ltm { tags.push("LTM"); }
     if multiples { tags.push("+multiples"); }
+    if usd { tags.push("USD"); }
     let basis = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
     let title = title
         .map(|s| s.to_string())
@@ -504,7 +510,7 @@ fn cmd_benchmark(
     let run = fm_research::benchmark_tickers_opts(
         &list,
         &title,
-        fm_research::BenchmarkOpts { ltm, multiples },
+        fm_research::BenchmarkOpts { ltm, multiples, to_usd: usd },
     )?;
     for (t, why) in &run.failed {
         println!("  ! {t}: {why}");
@@ -555,8 +561,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cash, short_term_investments, equity_investments, nol_dta,
             xlsx.as_deref(), ltm_revenue, ltm_ebitda,
         ),
-        Command::Benchmark { tickers, out, title, csv, ltm, multiples } => {
-            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm, multiples)
+        Command::Benchmark { tickers, out, title, csv, ltm, multiples, usd } => {
+            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm, multiples, usd)
         }
     }
 }

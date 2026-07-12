@@ -53,3 +53,22 @@ pub fn fetch_quote(ticker: &str) -> Option<Quote> {
         as_of_epoch: meta.get("regularMarketTime").and_then(serde_json::Value::as_i64),
     })
 }
+
+/// Spot FX rate: units of USD per 1 unit of `from` currency (e.g. EUR→~1.08,
+/// TWD→~0.031). `USD` returns 1.0. `None` on failure. Yahoo pair `{FROM}USD=X`.
+pub fn fetch_fx_rate(from: &str) -> Option<f64> {
+    let from = from.trim().to_uppercase();
+    if from == "USD" {
+        return Some(1.0);
+    }
+    if from.len() != 3 {
+        return None;
+    }
+    let url = format!("{QUOTE_URL}{from}USD=X?interval=1d&range=1d");
+    let resp = client().get(&url).send().ok()?.error_for_status().ok()?;
+    let v: serde_json::Value = resp.json().ok()?;
+    let rate = v
+        .pointer("/chart/result/0/meta/regularMarketPrice")
+        .and_then(serde_json::Value::as_f64)?;
+    if rate > 0.0 { Some(rate) } else { None }
+}

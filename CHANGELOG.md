@@ -10,6 +10,13 @@
   summary. New UI card (tickers input, preset peer sets, results table, Open
   Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
   pipeline live-verified via the identical CLI path.
+- **USD normalization** (`fm benchmark --usd`) — converts absolute monetary
+  metrics to USD at spot FX (Yahoo `{CCY}USD=X`, no key) so mixed-currency global
+  peer sets are directly comparable and their MEDIAN/MEAN are meaningful; ratios
+  and multiples are FX-neutral and untouched. Per-currency rate cache; the Ccy
+  column shows each row's value currency (USD when converted, native if FX
+  unavailable — never silently mixed). Live-verified: TSM TWD→$90B, SAP EUR→$42B,
+  NVO DKK→$47B alongside AAPL $416B.
 - **Global IFRS filers** — foreign 20-F filers reporting under `ifrs-full` on
   EDGAR (TSM, SAP, NVO, SHEL, ASML, …) now benchmark from structured XBRL, **no
   LLM**. `fm-extract::xbrl::ifrs_tag_map` (canonical → IFRS concepts) +

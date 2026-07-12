@@ -248,7 +248,7 @@ fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
     let mut cols = vec![
         ColumnSpec::label("ticker", "Ticker"),
         ColumnSpec::metric("currency", "Ccy", ColKind::Text)
-            .with_definition("Reporting currency (metrics NOT FX-normalized across peers)"),
+            .with_definition("Value currency of this row's monetary metrics (native filing ccy, or USD when --usd)"),
         ColumnSpec::metric("sector", "Sector", ColKind::Text)
             .with_definition("SIC industry (EDGAR). Financials' leverage/coverage read differently."),
     ];
@@ -256,7 +256,7 @@ fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
         cols.push(
             ColumnSpec::metric("market_cap", "Mkt Cap", ColKind::Dollar)
                 .with_group("Trading Multiples")
-                .with_units("reporting-ccy millions")
+                .with_units("millions (see Ccy)")
                 .with_definition("Share price × diluted shares (price = live market quote)"),
         );
         cols.push(
@@ -278,15 +278,15 @@ fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
     cols.extend([
         ColumnSpec::metric("revenue", "Revenue", ColKind::Dollar)
             .with_group("Scale")
-            .with_units("reporting-ccy millions")
+            .with_units("millions (see Ccy)")
             .with_definition("Total revenue, latest reported FY"),
         ColumnSpec::metric("ebitda", "EBITDA", ColKind::Dollar)
             .with_group("Scale")
-            .with_units("reporting-ccy millions")
+            .with_units("millions (see Ccy)")
             .with_definition("EBIT + depreciation & amortisation"),
         ColumnSpec::metric("net_income", "Net Income", ColKind::Dollar)
             .with_group("Scale")
-            .with_units("reporting-ccy millions"),
+            .with_units("millions (see Ccy)"),
         ColumnSpec::metric("rev_growth", "Rev Growth", ColKind::Percent)
             .with_group("Growth")
             .with_definition("YoY revenue growth vs prior FY"),
@@ -319,7 +319,7 @@ fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
             .with_definition("Total current assets / total current liabilities"),
         ColumnSpec::metric("net_debt", "Net Debt", ColKind::Dollar)
             .with_group("Leverage")
-            .with_units("reporting-ccy millions")
+            .with_units("millions (see Ccy)")
             .with_definition("Total debt (long-term + current portion) − cash & equivalents"),
         ColumnSpec::metric("nd_ebitda", "Net Debt / EBITDA", ColKind::Multiple)
             .with_group("Leverage"),
@@ -585,6 +585,8 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
 pub struct BenchmarkOpts {
     pub ltm: bool,
     pub multiples: bool,
+    /// Convert absolute monetary metrics to USD at spot FX (global comps).
+    pub to_usd: bool,
 }
 
 /// Like [`benchmark_tickers`], with [`BenchmarkOpts`]. One companyfacts download
@@ -596,6 +598,7 @@ pub fn benchmark_tickers_opts(
 ) -> Result<BenchmarkRun, BenchmarkError> {
     let mut metrics = Vec::new();
     let mut failed = Vec::new();
+    let mut fx_cache: HashMap<String, Option<f64>> = HashMap::new();
     for t in tickers {
         match fm_extract::fetch_xbrl_bundle(t) {
             Ok((ex, prov, ltm_data)) => {
@@ -611,6 +614,17 @@ pub fn benchmark_tickers_opts(
                     if opts.ltm {
                         if let Some(l) = ltm_data {
                             apply_ltm(&mut m, &l);
+                        }
+                    }
+                    // Convert filing figures to USD (before multiples, so EV
+                    // components share one currency). Cached per currency;
+                    // failures leave values native (Ccy column discloses it).
+                    if opts.to_usd && m.currency != "USD" {
+                        let rate = *fx_cache
+                            .entry(m.currency.clone())
+                            .or_insert_with(|| fm_fetch::fetch_fx_rate(&m.currency));
+                        if let Some(r) = rate {
+                            apply_fx(&mut m, r);
                         }
                     }
                     // Trading multiples: filing-derived EV components × live price.
@@ -630,7 +644,12 @@ pub fn benchmark_tickers_opts(
     if metrics.is_empty() {
         return Err(BenchmarkError::NoData);
     }
-    let table = build_benchmark_table(&metrics, title);
+    let mut table = build_benchmark_table(&metrics, title);
+    if opts.to_usd {
+        table.units =
+            "(monetary values in USD millions — converted from reporting currency at spot FX; \
+             Ccy column shows a row's value currency; ratios per column; multiples in x)".to_string();
+    }
     Ok(BenchmarkRun { metrics, failed, table })
 }
 
@@ -657,6 +676,37 @@ fn apply_multiples(m: &mut BenchmarkMetrics, q: &fm_fetch::Quote) {
         (Some(mc), Some(ni)) if ni > 0.0 => Some(mc / ni),
         _ => None,
     };
+}
+
+/// Convert all absolute monetary metrics to USD at spot FX (`rate` = USD per 1
+/// unit of the reporting currency). Ratios and multiples are currency-neutral
+/// and left untouched. Makes cross-currency global comps' raw-$ columns and
+/// their MEDIAN/MEAN comparable. Rate 1.0 (USD filer) is a no-op.
+fn apply_fx(m: &mut BenchmarkMetrics, rate: f64) {
+    if rate == 1.0 {
+        return;
+    }
+    let scale = |v: &mut Option<f64>| {
+        if let Some(x) = v {
+            *x *= rate;
+        }
+    };
+    for f in [
+        &mut m.revenue, &mut m.gross_profit, &mut m.ebit, &mut m.da, &mut m.ebitda,
+        &mut m.net_income, &mut m.interest_expense, &mut m.cfo, &mut m.capex, &mut m.fcf,
+        &mut m.total_debt, &mut m.cash, &mut m.net_debt, &mut m.total_equity,
+        &mut m.total_assets, &mut m.total_current_assets, &mut m.total_current_liabilities,
+        &mut m.dividends_paid, &mut m.buybacks, &mut m.eps_diluted,
+    ] {
+        scale(f);
+    }
+    // share_price / market_cap / EV are market-sourced (quote currency, already
+    // USD for US-listed ADRs) and computed later — NOT converted here.
+    // Values are now USD — reflect that in the row's currency so the Ccy column
+    // distinguishes converted rows (USD) from any FX-failed peer (still native).
+    m.currency = "USD".to_string();
+    // Ratios/multiples (margins, ROE, growth, CAGR, EV/EBITDA, P/E, coverage,
+    // current ratio, ND/EBITDA, payout) are FX-invariant — deliberately untouched.
 }
 
 /// Override a company's point-in-time metrics with a last-twelve-months basis
