@@ -10,6 +10,15 @@
   summary. New UI card (tickers input, preset peer sets, results table, Open
   Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
   pipeline live-verified via the identical CLI path.
+- **LTM (last-twelve-months) basis** — `fm benchmark --ltm` reports scale /
+  margins / returns / leverage / liquidity / capital-return on a trailing-twelve-
+  months basis (`FY + latest YTD − prior-year YTD`; balance sheet = latest
+  instant), the standard IB comps basis; growth & CAGR stay annual. Per-row label
+  becomes `LTM <as-of>`. `fm-extract::ltm` (extract_ltm / fetch_ltm /
+  fetch_xbrl_bundle — one companyfacts download → annual + provenance + LTM).
+  Freshest-tag selection + staleness guard drop discontinued tags (e.g. AAPL's
+  untagged interest expense) rather than surface a stale figure. Unit-tested
+  (stitch, annual fallback, stale-drop); live-verified (AAPL LTM rev $451B).
 - **Benchmark metric set (18 across 7 dimensions)**: Scale (revenue/EBITDA/net
   income), Growth (YoY + full-window revenue CAGR), Profitability (gross/EBITDA/
   net/FCF margin), Returns (ROE/ROA), Capital Return (dividend payout + total

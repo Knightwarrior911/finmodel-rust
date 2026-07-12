@@ -16,11 +16,8 @@ pub fn fetch_xbrl(ticker: &str) -> Result<ExtractionResult, ExtractError> {
     fetch_xbrl_with_provenance(ticker).map(|(r, _)| r)
 }
 
-/// Like [`fetch_xbrl`] but also returns a `canonical_key → matched us-gaap tag`
-/// map, so downstream consumers can cite the exact XBRL fact behind each number.
-pub fn fetch_xbrl_with_provenance(
-    ticker: &str,
-) -> Result<(ExtractionResult, std::collections::HashMap<String, String>), ExtractError> {
+/// Fetch companyfacts JSON + detected reporting currency (one HTTP call).
+fn companyfacts_for(ticker: &str) -> Result<(serde_json::Value, String), ExtractError> {
     let cik = cik_from_ticker(ticker).map_err(|_| {
         ExtractError::Other(format!(
             "{ticker} not found in SEC EDGAR (non-US?) — use the PDF extraction path"
@@ -28,8 +25,17 @@ pub fn fetch_xbrl_with_provenance(
     })?;
     let facts = fetch_companyfacts_raw(&cik)
         .map_err(|e| ExtractError::Other(format!("XBRL fetch failed for {ticker}: {e}")))?;
-    let currency = detect_currency(&facts).unwrap_or("USD");
-    let (parsed, prov) = xbrl::parse_xbrl_to_raw_with_provenance(&facts, 3, currency)
+    let currency = detect_currency(&facts).unwrap_or("USD").to_string();
+    Ok((facts, currency))
+}
+
+/// Build the annual `ExtractionResult` + tag provenance from fetched facts.
+fn build_result(
+    ticker: &str,
+    facts: &serde_json::Value,
+    currency: &str,
+) -> Result<(ExtractionResult, std::collections::HashMap<String, String>), ExtractError> {
+    let (parsed, prov) = xbrl::parse_xbrl_to_raw_with_provenance(facts, 3, currency)
         .map_err(|e| ExtractError::Other(format!("XBRL parse error for {ticker}: {e}")))?;
     let years = detect_years(&parsed)
         .unwrap_or_else(|| vec!["2022".to_string(), "2023".to_string(), "2024".to_string()]);
@@ -44,6 +50,34 @@ pub fn fetch_xbrl_with_provenance(
         discrepancies: vec![],
     };
     Ok((result, prov))
+}
+
+/// Fetch a company's LTM (last-twelve-months) figures. `None` when no usable revenue.
+pub fn fetch_ltm(ticker: &str) -> Result<Option<crate::ltm::LtmData>, ExtractError> {
+    let (facts, ccy) = companyfacts_for(ticker)?;
+    Ok(crate::ltm::extract_ltm(&facts, &ccy))
+}
+
+/// Like [`fetch_xbrl`] but also returns a `canonical_key → matched us-gaap tag` map.
+pub fn fetch_xbrl_with_provenance(
+    ticker: &str,
+) -> Result<(ExtractionResult, std::collections::HashMap<String, String>), ExtractError> {
+    let (facts, ccy) = companyfacts_for(ticker)?;
+    build_result(ticker, &facts, &ccy)
+}
+
+/// One companyfacts download → annual extraction + tag provenance + LTM figures.
+/// The efficient path for consumers (e.g. the benchmark) that need both bases.
+pub fn fetch_xbrl_bundle(
+    ticker: &str,
+) -> Result<
+    (ExtractionResult, std::collections::HashMap<String, String>, Option<crate::ltm::LtmData>),
+    ExtractError,
+> {
+    let (facts, ccy) = companyfacts_for(ticker)?;
+    let (result, prov) = build_result(ticker, &facts, &ccy)?;
+    let ltm = crate::ltm::extract_ltm(&facts, &ccy);
+    Ok((result, prov, ltm))
 }
 
 /// Try to detect the reporting currency from the companyfacts JSON.

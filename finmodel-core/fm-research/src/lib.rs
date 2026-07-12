@@ -522,11 +522,22 @@ pub struct BenchmarkRun {
 /// assemble the benchmark table. Failures are collected, never faked. A ticker
 /// with an empty extraction (no fiscal year) is treated as a failure.
 pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun, BenchmarkError> {
+    benchmark_tickers_opts(tickers, title, false)
+}
+
+/// Like [`benchmark_tickers`], with `ltm=true` overriding scale / margin /
+/// returns / leverage / liquidity / capital-return to a last-twelve-months basis
+/// (growth & CAGR stay annual). One companyfacts download per ticker.
+pub fn benchmark_tickers_opts(
+    tickers: &[String],
+    title: &str,
+    ltm: bool,
+) -> Result<BenchmarkRun, BenchmarkError> {
     let mut metrics = Vec::new();
     let mut failed = Vec::new();
     for t in tickers {
-        match fm_extract::fetch_xbrl_with_provenance(t) {
-            Ok((ex, prov)) => {
+        match fm_extract::fetch_xbrl_bundle(t) {
+            Ok((ex, prov, ltm_data)) => {
                 let mut m = metrics_from_extraction(t, &ex);
                 if m.fiscal_year.is_some() && m.revenue.is_some() {
                     // Best-effort sector tag from EDGAR SIC (never fails the run).
@@ -536,6 +547,11 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
                         .map(|s| s.sic_description)
                         .filter(|s| !s.is_empty());
                     m.provenance = prov; // exact us-gaap tag per canonical key
+                    if ltm {
+                        if let Some(l) = ltm_data {
+                            apply_ltm(&mut m, &l);
+                        }
+                    }
                     metrics.push(m);
                 } else {
                     failed.push((t.clone(), "no revenue / fiscal year in XBRL".into()));
@@ -549,6 +565,69 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
     }
     let table = build_benchmark_table(&metrics, title);
     Ok(BenchmarkRun { metrics, failed, table })
+}
+
+/// Override a company's point-in-time metrics with a last-twelve-months basis
+/// (BS = latest instant). Growth / CAGR stay annual (trend). The period label
+/// becomes `LTM <as-of>` so a comps row never mislabels LTM figures as an FY.
+fn apply_ltm(m: &mut BenchmarkMetrics, l: &fm_extract::LtmData) {
+    // Pure LTM — never blend an annual figure into an LTM-denominated ratio.
+    m.revenue = l.revenue;
+    m.gross_profit = l.gross_profit;
+    m.ebit = l.ebit;
+    m.da = l.da;
+    m.ebitda = add(l.ebit, l.da);
+    m.net_income = l.net_income;
+    m.interest_expense = l.interest_expense;
+    m.cfo = l.cfo;
+    m.capex = l.capex;
+    m.dividends_paid = l.dividends_paid;
+    m.buybacks = l.buybacks;
+    m.total_debt = l.total_debt();
+    m.cash = l.cash;
+    m.total_equity = l.total_equity;
+    m.total_assets = l.total_assets;
+    m.total_current_assets = l.total_current_assets;
+    m.total_current_liabilities = l.total_current_liabilities;
+    // Recompute derived from LTM.
+    m.net_debt = match (m.total_debt, m.cash) {
+        (Some(d), Some(c)) => Some(d - c),
+        _ => None,
+    };
+    m.fcf = match (m.cfo, m.capex) {
+        (Some(c), Some(x)) => Some(c - x.abs()),
+        _ => None,
+    };
+    m.gross_margin = ratio(m.gross_profit, m.revenue);
+    m.ebit_margin = ratio(m.ebit, m.revenue);
+    m.ebitda_margin = ratio(m.ebitda, m.revenue);
+    m.net_margin = ratio(m.net_income, m.revenue);
+    m.roe = ratio(m.net_income, m.total_equity);
+    m.roa = ratio(m.net_income, m.total_assets);
+    m.net_debt_to_ebitda = ratio(m.net_debt, m.ebitda);
+    m.fcf_margin = ratio(m.fcf, m.revenue);
+    m.interest_coverage = match (m.ebit, m.interest_expense) {
+        (Some(e), Some(i)) if i.abs() != 0.0 => Some(e / i.abs()),
+        _ => None,
+    };
+    m.current_ratio = ratio(m.total_current_assets, m.total_current_liabilities);
+    m.payout_ratio = match (m.dividends_paid, m.net_income) {
+        (Some(d), Some(ni)) if ni > 0.0 => Some(d.abs() / ni),
+        _ => None,
+    };
+    m.total_payout_ratio = match (m.net_income, m.dividends_paid, m.buybacks) {
+        (Some(ni), div, bb) if ni > 0.0 && (div.is_some() || bb.is_some()) => {
+            Some((div.map(f64::abs).unwrap_or(0.0) + bb.map(f64::abs).unwrap_or(0.0)) / ni)
+        }
+        _ => None,
+    };
+    if !l.as_of.is_empty() {
+        m.fiscal_year = Some(if l.is_ltm {
+            format!("LTM {}", l.as_of)
+        } else {
+            format!("FY {}", l.as_of)
+        });
+    }
 }
 
 #[cfg(test)]
@@ -729,6 +808,41 @@ mod tests {
         let m = metrics_from_extraction("X", &ex);
         approx(m.revenue_cagr_3y, 0.2); // (1440/1000)^(1/2) - 1
         approx(m.revenue_growth, 0.2); // latest YoY 1440/1200 - 1
+    }
+
+    #[test]
+    fn apply_ltm_overrides_levels_keeps_growth() {
+        let mut m = metrics_from_extraction("X", &sample());
+        // Annual latest-FY revenue was 1200; growth 0.2.
+        approx(m.revenue, 1200.0);
+        let growth_before = m.revenue_growth;
+        let cagr_before = m.revenue_cagr_3y;
+        let l = fm_extract::LtmData {
+            currency: "USD".into(),
+            as_of: "2025-09-30".into(),
+            is_ltm: true,
+            revenue: Some(1300.0),
+            ebit: Some(330.0),
+            da: Some(70.0),
+            net_income: Some(260.0),
+            total_equity: Some(1050.0),
+            total_assets: Some(2500.0),
+            long_term_debt: Some(650.0),
+            short_term_debt: Some(150.0),
+            cash: Some(250.0),
+            ..Default::default()
+        };
+        apply_ltm(&mut m, &l);
+        approx(m.revenue, 1300.0); // LTM level
+        approx(m.ebitda, 400.0); // 330 + 70 (pure LTM)
+        approx(m.ebitda_margin, 400.0 / 1300.0);
+        approx(m.net_margin, 260.0 / 1300.0);
+        approx(m.net_debt, 550.0); // (650+150) - 250
+        approx(m.roe, 260.0 / 1050.0);
+        assert_eq!(m.fiscal_year.as_deref(), Some("LTM 2025-09-30"));
+        // Growth / CAGR preserved from the annual series (trend, not LTM).
+        assert_eq!(m.revenue_growth, growth_before);
+        assert_eq!(m.revenue_cagr_3y, cagr_before);
     }
 
     #[test]

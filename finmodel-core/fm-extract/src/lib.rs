@@ -6,11 +6,13 @@
 pub mod edgar;
 pub mod extract;
 pub mod llm;
+pub mod ltm;
 pub mod section;
 pub mod xbrl;
 
 // Re-export the most commonly used items.
-pub use edgar::{fetch_xbrl, fetch_xbrl_with_provenance, fetch_non_us_filing};
+pub use edgar::{fetch_xbrl, fetch_xbrl_with_provenance, fetch_xbrl_bundle, fetch_ltm, fetch_non_us_filing};
+pub use ltm::{extract_ltm, LtmData};
 pub use extract::{
     ExtractError, ExtractionResult, FetchConfig,
     EXTRACT_SYSTEM_PROMPT, FINANCIALS_SYSTEM_PROMPT,
