@@ -76,6 +76,15 @@ pub struct BenchmarkMetrics {
     pub current_ratio: Option<f64>,
     pub payout_ratio: Option<f64>,
     pub total_payout_ratio: Option<f64>,
+
+    // ── Trading multiples (market price × filing figures; opt-in) ─────────
+    pub share_price: Option<f64>,
+    pub price_currency: Option<String>,
+    pub market_cap: Option<f64>,
+    pub enterprise_value: Option<f64>,
+    pub ev_revenue: Option<f64>,
+    pub ev_ebitda: Option<f64>,
+    pub pe: Option<f64>,
 }
 
 /// Value at `idx` in a statement line (period-aligned, oldest-first).
@@ -234,13 +243,39 @@ fn revenue_cagr(is: &StatementData) -> Option<f64> {
 }
 
 /// Column set for the peer benchmark (order chosen so groups stay contiguous).
-fn benchmark_columns() -> Vec<ColumnSpec> {
-    vec![
+/// `multiples` inserts the market-price Trading Multiples group after Sector.
+fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
+    let mut cols = vec![
         ColumnSpec::label("ticker", "Ticker"),
         ColumnSpec::metric("currency", "Ccy", ColKind::Text)
             .with_definition("Reporting currency (metrics NOT FX-normalized across peers)"),
         ColumnSpec::metric("sector", "Sector", ColKind::Text)
             .with_definition("SIC industry (EDGAR). Financials' leverage/coverage read differently."),
+    ];
+    if multiples {
+        cols.push(
+            ColumnSpec::metric("market_cap", "Mkt Cap", ColKind::Dollar)
+                .with_group("Trading Multiples")
+                .with_units("reporting-ccy millions")
+                .with_definition("Share price × diluted shares (price = live market quote)"),
+        );
+        cols.push(
+            ColumnSpec::metric("ev_revenue", "EV / Rev", ColKind::Multiple)
+                .with_group("Trading Multiples")
+                .with_definition("Enterprise value / revenue (EV = mkt cap + net debt)"),
+        );
+        cols.push(
+            ColumnSpec::metric("ev_ebitda", "EV / EBITDA", ColKind::Multiple)
+                .with_group("Trading Multiples")
+                .with_definition("Enterprise value / EBITDA"),
+        );
+        cols.push(
+            ColumnSpec::metric("pe", "P / E", ColKind::Multiple)
+                .with_group("Trading Multiples")
+                .with_definition("Market cap / net income (positive earnings only)"),
+        );
+    }
+    cols.extend([
         ColumnSpec::metric("revenue", "Revenue", ColKind::Dollar)
             .with_group("Scale")
             .with_units("reporting-ccy millions")
@@ -291,7 +326,8 @@ fn benchmark_columns() -> Vec<ColumnSpec> {
         ColumnSpec::metric("interest_coverage", "Int. Coverage", ColKind::Multiple)
             .with_group("Leverage")
             .with_definition("EBIT / |interest expense|"),
-    ]
+    ]);
+    cols
 }
 
 fn num(v: Option<f64>) -> CellVal {
@@ -308,7 +344,8 @@ fn millions(v: Option<f64>) -> CellVal {
 /// Build the benchmark [`AdHocTable`] (rows + columns + provenance) from a peer
 /// set of computed metrics. Monetary cells are scaled to millions.
 pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHocTable {
-    let columns = benchmark_columns();
+    let has_multiples = metrics.iter().any(|m| m.market_cap.is_some() || m.share_price.is_some());
+    let columns = benchmark_columns(has_multiples);
     let mut rows: Vec<HashMap<String, CellVal>> = Vec::with_capacity(metrics.len());
     let mut sources: HashMap<(String, String), String> = HashMap::new();
 
@@ -323,6 +360,10 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
                 _ => CellVal::Empty,
             },
         );
+        r.insert("market_cap".into(), millions(m.market_cap));
+        r.insert("ev_revenue".into(), num(m.ev_revenue));
+        r.insert("ev_ebitda".into(), num(m.ev_ebitda));
+        r.insert("pe".into(), num(m.pe));
         r.insert("revenue".into(), millions(m.revenue));
         r.insert("ebitda".into(), millions(m.ebitda));
         r.insert("net_income".into(), millions(m.net_income));
@@ -435,6 +476,18 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
             m.interest_coverage.is_some(),
             format!("Derived: EBIT / |interest expense| ({filing})"),
         );
+        // Trading multiples: mark the market-price input (NOT a filing figure).
+        let px = format!(
+            "Live market quote (Yahoo Finance){}",
+            m.price_currency.as_deref().map(|c| format!(", {c}")).unwrap_or_default()
+        );
+        cite("market_cap", m.market_cap.is_some(),
+            format!("Share price × diluted shares. Price: {px}"));
+        cite("ev_revenue", m.ev_revenue.is_some(),
+            format!("(mkt cap + net debt) / revenue. Price: {px}"));
+        cite("ev_ebitda", m.ev_ebitda.is_some(),
+            format!("(mkt cap + net debt) / EBITDA. Price: {px}"));
+        cite("pe", m.pe.is_some(), format!("Market cap / net income. Price: {px}"));
     }
 
     AdHocTable {
@@ -522,16 +575,24 @@ pub struct BenchmarkRun {
 /// assemble the benchmark table. Failures are collected, never faked. A ticker
 /// with an empty extraction (no fiscal year) is treated as a failure.
 pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun, BenchmarkError> {
-    benchmark_tickers_opts(tickers, title, false)
+    benchmark_tickers_opts(tickers, title, BenchmarkOpts::default())
 }
 
-/// Like [`benchmark_tickers`], with `ltm=true` overriding scale / margin /
-/// returns / leverage / liquidity / capital-return to a last-twelve-months basis
-/// (growth & CAGR stay annual). One companyfacts download per ticker.
+/// Benchmark options. `ltm` switches point-in-time metrics to a trailing-twelve-
+/// months basis (growth stays annual); `multiples` adds market-price EV/EBITDA,
+/// EV/Revenue and P/E (the only non-filing input is the live share price).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BenchmarkOpts {
+    pub ltm: bool,
+    pub multiples: bool,
+}
+
+/// Like [`benchmark_tickers`], with [`BenchmarkOpts`]. One companyfacts download
+/// per ticker (+ one quote fetch per ticker when `multiples`).
 pub fn benchmark_tickers_opts(
     tickers: &[String],
     title: &str,
-    ltm: bool,
+    opts: BenchmarkOpts,
 ) -> Result<BenchmarkRun, BenchmarkError> {
     let mut metrics = Vec::new();
     let mut failed = Vec::new();
@@ -547,9 +608,15 @@ pub fn benchmark_tickers_opts(
                         .map(|s| s.sic_description)
                         .filter(|s| !s.is_empty());
                     m.provenance = prov; // exact us-gaap tag per canonical key
-                    if ltm {
+                    if opts.ltm {
                         if let Some(l) = ltm_data {
                             apply_ltm(&mut m, &l);
+                        }
+                    }
+                    // Trading multiples: filing-derived EV components × live price.
+                    if opts.multiples {
+                        if let Some(q) = fm_fetch::fetch_quote(t) {
+                            apply_multiples(&mut m, &q);
                         }
                     }
                     metrics.push(m);
@@ -565,6 +632,31 @@ pub fn benchmark_tickers_opts(
     }
     let table = build_benchmark_table(&metrics, title);
     Ok(BenchmarkRun { metrics, failed, table })
+}
+
+/// Trading multiples from a live quote + filing-derived EV components.
+/// Market cap = price × diluted shares; EV = market cap + net debt (both from
+/// filings). Blank when a component is missing — never fabricated.
+fn apply_multiples(m: &mut BenchmarkMetrics, q: &fm_fetch::Quote) {
+    m.share_price = Some(q.price);
+    m.price_currency = Some(q.currency.clone());
+    let mc = match m.shares_diluted {
+        Some(sh) if sh > 0.0 => Some(q.price * sh),
+        _ => None,
+    };
+    m.market_cap = mc;
+    m.enterprise_value = match (mc, m.net_debt) {
+        (Some(mc), Some(nd)) => Some(mc + nd),
+        (Some(mc), None) => Some(mc), // no debt data → EV ≈ market cap
+        _ => None,
+    };
+    m.ev_revenue = ratio(m.enterprise_value, m.revenue);
+    m.ev_ebitda = ratio(m.enterprise_value, m.ebitda);
+    // P/E on positive earnings only (negative P/E is meaningless in comps).
+    m.pe = match (mc, m.net_income) {
+        (Some(mc), Some(ni)) if ni > 0.0 => Some(mc / ni),
+        _ => None,
+    };
 }
 
 /// Override a company's point-in-time metrics with a last-twelve-months basis
@@ -843,6 +935,28 @@ mod tests {
         // Growth / CAGR preserved from the annual series (trend, not LTM).
         assert_eq!(m.revenue_growth, growth_before);
         assert_eq!(m.revenue_cagr_3y, cagr_before);
+    }
+
+    #[test]
+    fn apply_multiples_computes_ev_and_ratios() {
+        let mut m = metrics_from_extraction("X", &sample());
+        // sample latest FY: revenue 1200, ebitda 360, net_income 240,
+        // shares_diluted 100, net_debt 400 (600 debt − 200 cash).
+        let q = fm_fetch::Quote {
+            ticker: "X".into(),
+            price: 50.0,
+            currency: "USD".into(),
+            week52_high: None,
+            week52_low: None,
+            as_of_epoch: None,
+        };
+        apply_multiples(&mut m, &q);
+        approx(m.market_cap, 5000.0); // 50 × 100 shares
+        approx(m.enterprise_value, 5400.0); // 5000 + 400 net debt
+        approx(m.ev_revenue, 5400.0 / 1200.0);
+        approx(m.ev_ebitda, 5400.0 / 360.0);
+        approx(m.pe, 5000.0 / 240.0);
+        assert_eq!(m.share_price, Some(50.0));
     }
 
     #[test]

@@ -4,8 +4,10 @@
 //! Provides the network layer for the extraction pipeline.
 pub mod discovery;
 pub mod edgar;
+pub mod market;
 pub mod pdf;
 
 pub use discovery::{find_annual_report_pdf_url, DiscoveryError};
 pub use edgar::{cik_from_ticker, fetch_companyfacts, fetch_company_sic, CompanyFacts, SicInfo};
+pub use market::{fetch_quote, Quote};
 pub use pdf::{download_pdf, DownloadConfig};

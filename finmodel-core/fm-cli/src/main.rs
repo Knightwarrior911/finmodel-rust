@@ -138,6 +138,10 @@ enum Command {
         /// (growth & CAGR stay annual) — the standard IB comps basis.
         #[arg(long)]
         ltm: bool,
+        /// Add trading multiples (EV/EBITDA, EV/Revenue, P/E) using live market
+        /// prices (Yahoo Finance) × filing-derived EV components.
+        #[arg(long)]
+        multiples: bool,
     },
 }
 
@@ -478,6 +482,7 @@ fn cmd_benchmark(
     title: Option<&str>,
     csv: Option<&str>,
     ltm: bool,
+    multiples: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let list: Vec<String> = tickers
         .split(',')
@@ -487,13 +492,20 @@ fn cmd_benchmark(
     if list.is_empty() {
         return Err("no tickers given (use --tickers AAPL,MSFT,...)".into());
     }
-    let basis = if ltm { " (LTM basis)" } else { "" };
+    let mut tags: Vec<&str> = Vec::new();
+    if ltm { tags.push("LTM"); }
+    if multiples { tags.push("+multiples"); }
+    let basis = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
     let title = title
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("Peer Benchmark{basis} — {}", list.join(", ")));
     println!("Benchmarking {} tickers from SEC EDGAR XBRL{basis}...", list.len());
 
-    let run = fm_research::benchmark_tickers_opts(&list, &title, ltm)?;
+    let run = fm_research::benchmark_tickers_opts(
+        &list,
+        &title,
+        fm_research::BenchmarkOpts { ltm, multiples },
+    )?;
     for (t, why) in &run.failed {
         println!("  ! {t}: {why}");
     }
@@ -543,8 +555,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cash, short_term_investments, equity_investments, nol_dta,
             xlsx.as_deref(), ltm_revenue, ltm_ebitda,
         ),
-        Command::Benchmark { tickers, out, title, csv, ltm } => {
-            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm)
+        Command::Benchmark { tickers, out, title, csv, ltm, multiples } => {
+            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm, multiples)
         }
     }
 }

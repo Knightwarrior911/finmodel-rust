@@ -10,6 +10,14 @@
   summary. New UI card (tickers input, preset peer sets, results table, Open
   Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
   pipeline live-verified via the identical CLI path.
+- **Trading multiples** (`fm benchmark --multiples`) — the heart of IB comps:
+  EV/EBITDA, EV/Revenue, P/E and market cap, computed from filing-derived EV
+  components (net debt, diluted shares, EBITDA, net income) × a live share price
+  (Yahoo Finance, no key; `fm-fetch::market::fetch_quote`). Combinable with
+  `--ltm`. Columns render only when priced; per-cell notes mark the price as a
+  market input (not a filing figure). Blank on missing components / negative
+  earnings — never fabricated. Unit-tested; live-verified (AAPL P/E 38.6x,
+  EV/EBITDA 29.8x, mkt cap $4.7T).
 - **LTM (last-twelve-months) basis** — `fm benchmark --ltm` reports scale /
   margins / returns / leverage / liquidity / capital-return on a trailing-twelve-
   months basis (`FY + latest YTD − prior-year YTD`; balance sheet = latest
