@@ -62,8 +62,8 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
 - Commits: `6f2a097` benchmark · `5c967e8` EV bridge · `55e3c06` enriched+verify ·
   `bbf064f` IFRS bridge · `8538d73` CSV · `5aa65d2` sector · `12195bb` provenance ·
   `c7a10ef` app panel · `ed8f0bc` capital-return · `1fe063e` LTM · `3129b20`
-  trading multiples · `343f1f7` global IFRS filers + data-anchored years.
-  Update `up to` on resume.
+  trading multiples · `343f1f7` global IFRS filers + data-anchored years ·
+  `cf74a40` --usd FX normalization (global mixed-currency comps). Update `up to`.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
