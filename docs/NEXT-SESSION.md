@@ -54,8 +54,14 @@ only `target/debug/incremental` between builds; keep `deps`. Run built exes via
   EBITA present/absent, margins present/absent, both directions. Faithful
   bug-for-bug on the Pre-IFRS EBITA-margin row-ref quirk. `pdf_url` source-link
   path intentionally not ported (no PDF context in the CLI).
-- Committed `6f2a097` (benchmark) + `5c967e8` (EV bridge) + `55e3c06` (enriched
-  metrics + verify fix) + follow-up (IFRS bridge). Update `up to <sha>` on resume.
+- **LTM basis** (`1fe063e`) — `fm benchmark --ltm`: trailing-twelve-months scale/
+  margins/returns/leverage (growth stays annual), `fm-extract::ltm` (FY + YTD −
+  prior-YTD; latest instant BS; freshest-tag + staleness guard). The standard IB
+  comps basis. Live-verified AAPL LTM rev $451B. Also this session: sector column,
+  tag-level provenance, capital-return metrics, CSV export, e2e benchmark gate.
+- Commits: `6f2a097` benchmark · `5c967e8` EV bridge · `55e3c06` enriched+verify ·
+  `bbf064f` IFRS bridge · `8538d73` CSV · `5aa65d2` sector · `12195bb` provenance ·
+  `c7a10ef` app panel · `ed8f0bc` capital-return · `1fe063e` LTM. Update `up to`.
 ## LATEST SESSION (2026-07-11) — Excel polish + IFRS + research start
 
 All work committed (branch `master`, up to `34a3024`). Build with
