@@ -54,6 +54,8 @@ pub struct BenchmarkMetrics {
     pub interest_expense: Option<f64>,
     pub total_current_assets: Option<f64>,
     pub total_current_liabilities: Option<f64>,
+    pub dividends_paid: Option<f64>,
+    pub buybacks: Option<f64>,
 
     // ── Derived (native units) ───────────────────────────────────────────
     pub net_debt: Option<f64>,
@@ -72,6 +74,8 @@ pub struct BenchmarkMetrics {
     pub fcf_margin: Option<f64>,
     pub interest_coverage: Option<f64>,
     pub current_ratio: Option<f64>,
+    pub payout_ratio: Option<f64>,
+    pub total_payout_ratio: Option<f64>,
 }
 
 /// Value at `idx` in a statement line (period-aligned, oldest-first).
@@ -159,6 +163,8 @@ pub fn metrics_from_extraction(ticker: &str, ex: &ExtractionResult) -> Benchmark
 
     m.cfo = at(cfs, "cfo", last);
     m.capex = at(cfs, "capex", last);
+    m.dividends_paid = at(cfs, "dividends_paid", last);
+    m.buybacks = at(cfs, "buybacks", last);
     // FCF = CFO less capital expenditure (treated as an outflow regardless of
     // the filing's sign convention).
     m.fcf = match (m.cfo, m.capex) {
@@ -188,6 +194,18 @@ pub fn metrics_from_extraction(ticker: &str, ex: &ExtractionResult) -> Benchmark
         _ => None,
     };
     m.current_ratio = ratio(m.total_current_assets, m.total_current_liabilities);
+    // Capital return (payout) — dividends/buybacks are cash outflows in the CFS,
+    // tagged +/- by filer; use magnitudes over positive net income.
+    m.payout_ratio = match (m.dividends_paid, m.net_income) {
+        (Some(d), Some(ni)) if ni > 0.0 => Some(d.abs() / ni),
+        _ => None,
+    };
+    m.total_payout_ratio = match (m.net_income, m.dividends_paid, m.buybacks) {
+        (Some(ni), div, bb) if ni > 0.0 && (div.is_some() || bb.is_some()) => {
+            Some((div.map(f64::abs).unwrap_or(0.0) + bb.map(f64::abs).unwrap_or(0.0)) / ni)
+        }
+        _ => None,
+    };
     // 3-yr (window) revenue CAGR across the oldest→latest revenue with data.
     m.revenue_cagr_3y = revenue_cagr(is);
 
@@ -255,6 +273,12 @@ fn benchmark_columns() -> Vec<ColumnSpec> {
         ColumnSpec::metric("roa", "ROA", ColKind::Percent)
             .with_group("Returns")
             .with_definition("Net income / total assets"),
+        ColumnSpec::metric("payout_ratio", "Div Payout", ColKind::Percent)
+            .with_group("Capital Return")
+            .with_definition("|Dividends paid| / net income"),
+        ColumnSpec::metric("total_payout", "Total Payout", ColKind::Percent)
+            .with_group("Capital Return")
+            .with_definition("(|dividends| + |buybacks|) / net income"),
         ColumnSpec::metric("current_ratio", "Current Ratio", ColKind::Multiple)
             .with_group("Liquidity")
             .with_definition("Total current assets / total current liabilities"),
@@ -310,6 +334,8 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         r.insert("fcf_margin".into(), num(m.fcf_margin));
         r.insert("roe".into(), num(m.roe));
         r.insert("roa".into(), num(m.roa));
+        r.insert("payout_ratio".into(), num(m.payout_ratio));
+        r.insert("total_payout".into(), num(m.total_payout_ratio));
         r.insert("current_ratio".into(), num(m.current_ratio));
         r.insert("net_debt".into(), millions(m.net_debt));
         r.insert("nd_ebitda".into(), num(m.net_debt_to_ebitda));
@@ -368,6 +394,16 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
             "roa",
             m.roa.is_some(),
             format!("Derived: net income / total assets ({})", m.ticker),
+        );
+        cite(
+            "payout_ratio",
+            m.payout_ratio.is_some(),
+            format!("Derived: |dividends paid| / net income ({filing})"),
+        );
+        cite(
+            "total_payout",
+            m.total_payout_ratio.is_some(),
+            format!("Derived: (|dividends| + |buybacks|) / net income ({filing})"),
         );
         cite(
             "net_debt",
@@ -639,6 +675,8 @@ mod tests {
             cash_flow_statement: stmt(&[
                 ("cfo", &[Some(220.0), Some(320.0)]),
                 ("capex", &[Some(-80.0), Some(-100.0)]),
+                ("dividends_paid", &[Some(-48.0), Some(-60.0)]),
+                ("buybacks", &[Some(-24.0), Some(-60.0)]),
             ]),
             notes: HashMap::new(),
             confidence: 1.0,
@@ -670,6 +708,8 @@ mod tests {
         approx(m.fcf_margin, 220.0 / 1200.0); // fcf / revenue
         approx(m.interest_coverage, 10.0); // 300 / 30
         approx(m.current_ratio, 2.0); // 900 / 450
+        approx(m.payout_ratio, 0.25); // |−60| / 240
+        approx(m.total_payout_ratio, 0.5); // (60 + 60) / 240
         approx(m.revenue_cagr_3y, 0.2); // (1200/1000)^(1/1) - 1
     }
 

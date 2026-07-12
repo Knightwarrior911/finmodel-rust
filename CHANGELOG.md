@@ -10,9 +10,10 @@
   summary. New UI card (tickers input, preset peer sets, results table, Open
   Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
   pipeline live-verified via the identical CLI path.
-- **Benchmark metric set (16 across 6 dimensions)**: Scale (revenue/EBITDA/net
+- **Benchmark metric set (18 across 7 dimensions)**: Scale (revenue/EBITDA/net
   income), Growth (YoY + full-window revenue CAGR), Profitability (gross/EBITDA/
-  net/FCF margin), Returns (ROE/ROA), Liquidity (current ratio), Leverage (net
+  net/FCF margin), Returns (ROE/ROA), Capital Return (dividend payout + total
+  shareholder payout, from the CFS), Liquidity (current ratio), Leverage (net
   debt / net-debt-to-EBITDA / interest coverage) — all from filings, unit-tested.
 - **Tag-level provenance** — each raw benchmark figure now cites the exact
   matched us-gaap XBRL tag (e.g. `us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax`),
