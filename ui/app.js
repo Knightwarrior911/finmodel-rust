@@ -132,6 +132,96 @@ $("openXlsxBtn").addEventListener("click", async () => {
   }
 });
 
+// ---- peer benchmark ----
+let lastBench = null;
+
+function setBenchStatus(msg, kind = "info") {
+  const el = $("benchStatus");
+  el.hidden = false;
+  el.textContent = msg;
+  el.className = `status ${kind}`;
+}
+
+function fmtPct(v) { return v == null ? "—" : (v * 100).toFixed(1) + "%"; }
+function fmtMult(v) { return v == null ? "—" : v.toFixed(1) + "x"; }
+function fmtM(v) { return v == null ? "—" : Math.round(v).toLocaleString(); }
+
+const BENCH_COLS = [
+  ["ticker", "Ticker", (r) => r.ticker || "—"],
+  ["sector", "Sector", (r) => r.sector || "—"],
+  ["fiscal_year", "FY", (r) => r.fiscal_year || "—"],
+  ["revenue_m", "Revenue ($M)", (r) => fmtM(r.revenue_m)],
+  ["ebitda_m", "EBITDA ($M)", (r) => fmtM(r.ebitda_m)],
+  ["rev_growth", "Rev Growth", (r) => fmtPct(r.rev_growth)],
+  ["ebitda_margin", "EBITDA %", (r) => fmtPct(r.ebitda_margin)],
+  ["net_margin", "Net %", (r) => fmtPct(r.net_margin)],
+  ["roe", "ROE", (r) => fmtPct(r.roe)],
+  ["net_debt_to_ebitda", "ND/EBITDA", (r) => fmtMult(r.net_debt_to_ebitda)],
+];
+
+function renderBench() {
+  if (!lastBench) return;
+  const thead = $("benchTable").querySelector("thead");
+  const tbody = $("benchTable").querySelector("tbody");
+  thead.innerHTML = "<tr>" + BENCH_COLS.map((c) => `<th>${c[1]}</th>`).join("") + "</tr>";
+  tbody.innerHTML = lastBench.rows
+    .map((r) => "<tr>" + BENCH_COLS.map((c) => `<td>${c[2](r)}</td>`).join("") + "</tr>")
+    .join("");
+}
+
+async function benchmark(tickers) {
+  $("benchBtn").disabled = true;
+  const label = $("benchBtn").querySelector(".btn-label-b");
+  if (label) label.textContent = "Benchmarking…";
+  setBenchStatus(`Fetching filings for ${tickers}…`, "info");
+  try {
+    const res = await call("benchmark_peers", { tickers });
+    lastBench = res;
+    $("benchResults").hidden = false;
+    $("benchTitle").textContent = `Peer Benchmark  ·  ${res.count}/${res.requested}`;
+    const fails = (res.failed || []).map((f) => `${f.ticker} (${f.why})`).join("; ");
+    $("benchMeta").textContent = fails
+      ? `SEC EDGAR XBRL · skipped: ${fails}`
+      : `SEC EDGAR XBRL · ${res.count} peers · numbers cite exact us-gaap facts`;
+    renderBench();
+    $("benchStatus").hidden = true;
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    setBenchStatus(`Could not benchmark: ${msg}`, "error");
+    $("benchResults").hidden = true;
+  } finally {
+    $("benchBtn").disabled = false;
+    if (label) label.textContent = "Benchmark";
+  }
+}
+
+$("benchBtn").addEventListener("click", () => {
+  const t = $("peers").value.trim();
+  if (t) benchmark(t);
+});
+$("peers").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && $("peers").value.trim()) benchmark($("peers").value.trim());
+});
+$("peerChips").addEventListener("click", (e) => {
+  const b = e.target.closest(".chip");
+  if (b) {
+    $("peers").value = b.dataset.t;
+    benchmark(b.dataset.t);
+  }
+});
+$("openBenchBtn").addEventListener("click", async () => {
+  if (lastBench && lastBench.xlsx_path) {
+    try { await call("open_path", { path: lastBench.xlsx_path }); }
+    catch (e) { setBenchStatus(`Open failed: ${e.message || e}`, "error"); }
+  }
+});
+$("openBenchCsvBtn").addEventListener("click", async () => {
+  if (lastBench && lastBench.csv_path) {
+    try { await call("open_path", { path: lastBench.csv_path }); }
+    catch (e) { setBenchStatus(`Open failed: ${e.message || e}`, "error"); }
+  }
+});
+
 // ---- settings ----
 const modal = $("settingsModal");
 

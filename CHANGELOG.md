@@ -4,6 +4,12 @@
 ## Unreleased
 
 ### Added — research/benchmarking subsystem (filings → Excel)
+- **Desktop app: peer-benchmark panel** — new `benchmark_peers` Tauri command
+  (`src-tauri/src/commands/benchmark.rs`) wrapping `fm_research::benchmark_tickers`
+  + `render_benchmark`; writes xlsx+csv to Documents/finmodel/ and returns a JSON
+  summary. New UI card (tickers input, preset peer sets, results table, Open
+  Excel/CSV). App lib + full binary compile & link; frontend embeds. Underlying
+  pipeline live-verified via the identical CLI path.
 - **Benchmark metric set (16 across 6 dimensions)**: Scale (revenue/EBITDA/net
   income), Growth (YoY + full-window revenue CAGR), Profitability (gross/EBITDA/
   net/FCF margin), Returns (ROE/ROA), Liquidity (current ratio), Leverage (net

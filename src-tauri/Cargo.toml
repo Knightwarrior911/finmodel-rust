@@ -33,6 +33,7 @@ fm-engine = { path = "../finmodel-core/fm-engine" }
 fm-value = { path = "../finmodel-core/fm-value" }
 fm-excel = { path = "../finmodel-core/fm-excel" }
 fm-build = { path = "../finmodel-core/fm-build" }
+fm-research = { path = "../finmodel-core/fm-research" }
 
 # Lean release build — smaller target + exe (disk-constrained machine).
 [profile.release]

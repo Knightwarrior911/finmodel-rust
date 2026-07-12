@@ -98,8 +98,10 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
    `ev_bridge_parity.rs` full + sparse), *IFRS-16 bridge* (`write_ifrs_bridge`
    → `fm-excel::bridge` + `fm ifrs --xlsx`, `ifrs_bridge_parity.rs` full + simple).
    Remaining (separate follow-ups, NOT item 1): non-US (PDF+LLM) peers in the
-   benchmark, and a Tauri app command/button. The `pdf_url` filing-source-link
-   path of the bridges is a Python-only feature (no PDF context in the Rust CLI).
+   benchmark (needs OPENROUTER_API_KEY). ✅ Tauri app peer-benchmark panel DONE
+   (`benchmark_peers` command + UI card; binary compiles/links/embeds; GUI
+   click-through untested here — needs WebView2 CDP). The `pdf_url`
+   filing-source-link path of the bridges is a Python-only feature (no PDF ctx).
 2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
    for filing-doc fetch (CIK/filings partly exist).
 3. **Market data + news** (`market_data.py`, `news.py`) — live quotes/headlines.

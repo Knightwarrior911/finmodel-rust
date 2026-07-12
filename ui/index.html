@@ -53,6 +53,24 @@
         </div>
         <div id="status" class="status" hidden role="status"></div>
       </div>
+
+      <div class="build-card" style="margin-top:18px">
+        <label class="field-label" for="peers">Peer benchmark · numbers from filings (US tickers, SEC EDGAR)</label>
+        <div class="build-row">
+          <input id="peers" class="ticker-input" type="text" placeholder="AAPL, MSFT, GOOGL, AMZN, META" autocomplete="off" spellcheck="false" />
+          <button id="benchBtn" class="primary-btn">
+            <span class="btn-label-b">Benchmark</span>
+          </button>
+        </div>
+        <div class="chips" id="peerChips">
+          <span class="chip-label">Sets</span>
+          <button type="button" class="chip" data-t="AAPL, MSFT, GOOGL, AMZN, META">Big Tech</button>
+          <button type="button" class="chip" data-t="JPM, BAC, WFC, C">Big Banks</button>
+          <button type="button" class="chip" data-t="WMT, TGT, COST">Retail</button>
+          <button type="button" class="chip" data-t="XOM, CVX, COP">Energy</button>
+        </div>
+        <div id="benchStatus" class="status" hidden role="status"></div>
+      </div>
     </section>
 
     <section id="results" class="results" hidden>
@@ -77,6 +95,27 @@
         </div>
         <div class="table-wrap">
           <table id="modelTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="benchResults" class="results" hidden>
+      <div class="results-head">
+        <div class="results-title-block">
+          <h2 id="benchTitle">—</h2>
+          <div class="meta" id="benchMeta">—</div>
+        </div>
+        <div class="topbar-actions">
+          <button id="openBenchCsvBtn" class="icon-btn" title="Open CSV">CSV</button>
+          <button id="openBenchBtn" class="primary-btn">Open in Excel</button>
+        </div>
+      </div>
+      <div class="results-panel">
+        <div class="table-wrap">
+          <table id="benchTable">
             <thead></thead>
             <tbody></tbody>
           </table>

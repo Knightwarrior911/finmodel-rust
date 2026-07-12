@@ -1,3 +1,4 @@
+pub mod benchmark;
 pub mod model;
 pub mod settings;
 
@@ -7,6 +8,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
     tauri::generate_handler![
         model::build_model,
         model::open_path,
+        benchmark::benchmark_peers,
         settings::load_settings,
         settings::save_settings,
         settings::list_models,

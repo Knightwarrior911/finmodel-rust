@@ -1065,6 +1065,7 @@ dependencies = [
  "fm-engine",
  "fm-excel",
  "fm-extract",
+ "fm-research",
  "fm-types",
  "fm-value",
  "serde",
@@ -1145,6 +1146,18 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "url",
+]
+
+[[package]]
+name = "fm-research"
+version = "0.1.0"
+dependencies = [
+ "fm-excel",
+ "fm-extract",
+ "fm-fetch",
+ "fm-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
