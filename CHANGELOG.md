@@ -17,8 +17,9 @@
   **+ `.exe.sig`**. Release/signing/`latest.json` process documented in
   `docs/RELEASE_CHECKLIST.md` §6. Hardening: all remote/untrusted strings
   (update version/notes, OpenRouter model IDs) are HTML-escaped before any
-  `innerHTML` interpolation. (Publishing the first GitHub Release is the only
-  remaining step to make updates live.)
+  `innerHTML` interpolation. **Live:** v0.1.0 published to the public
+  `finmodel-releases` repo (private source → unauthenticated updater needs a
+  public channel); the `latest/download/latest.json` endpoint is verified 200.
 
 ### Changed — desktop app UX (self-explanatory workspace)
 - **Guided, discoverable UI** (`ui/index.html`, `ui/app.js`, `ui/style.css`) —

@@ -105,6 +105,12 @@ The Tauri desktop app (`src-tauri/`) self-updates from GitHub Releases. Builds a
 signed with a **minisign** key; the app verifies each update against the `pubkey`
 baked into `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) before installing.
 
+> **Releases live in a PUBLIC repo.** The source repo `finmodel-rust` is private,
+> and the updater fetches `latest.json` **unauthenticated** — a private repo 404s
+> for clients. So releases (installer + `latest.json`) are published to the public
+> **`github.com/Knightwarrior911/finmodel-releases`** repo, which the endpoint in
+> `tauri.conf.json` points at (mirrors the `pdf-panda-releases` pattern).
+
 ### Signing keys (one-time, already done)
 - Keypair generated with `cargo tauri signer generate -w C:\Users\vinit\.tauri\finmodel.key -p ""`.
 - **Private key: `C:\Users\vinit\.tauri\finmodel.key` — NEVER commit it.** It lives
@@ -127,7 +133,7 @@ Produces under `src-tauri/target/release/bundle/nsis/`:
 
 ### Publish the GitHub Release
 1. Bump `version` in `src-tauri/tauri.conf.json` (and `Cargo.toml`) to the new `X.Y.Z`.
-2. Create a release tagged `vX.Y.Z` on `github.com/Knightwarrior911/finmodel-rust`.
+2. Create a release tagged `vX.Y.Z` on `github.com/Knightwarrior911/finmodel-releases` (public).
 3. Upload two assets: the `-setup.exe` and a `latest.json` (below).
 
 `latest.json` — the updater endpoint
@@ -140,7 +146,7 @@ Produces under `src-tauri/target/release/bundle/nsis/`:
   "platforms": {
     "windows-x86_64": {
       "signature": "<paste the ENTIRE contents of finmodel_0.1.0_x64-setup.exe.sig>",
-      "url": "https://github.com/Knightwarrior911/finmodel-rust/releases/download/v0.1.0/finmodel_0.1.0_x64-setup.exe"
+      "url": "https://github.com/Knightwarrior911/finmodel-releases/releases/download/v0.1.0/finmodel_0.1.0_x64-setup.exe"
     }
   }
 }

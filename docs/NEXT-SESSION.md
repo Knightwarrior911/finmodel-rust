@@ -144,9 +144,12 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
   finmodel.key`, OUTSIDE the repo — never commit; add as CI secret
   `TAURI_SIGNING_PRIVATE_KEY`). Signed `cargo tauri build --bundles nsis`
   verified: emits `-setup.exe` + `.exe.sig`. Full release/`latest.json` process
-  in `docs/RELEASE_CHECKLIST.md` §6. **Remaining to go live:** publish the first
-  GitHub Release (upload `-setup.exe` + a `latest.json`); rebrand the pdf-panda
-  placeholder icons in `src-tauri/icons/`.
+  in `docs/RELEASE_CHECKLIST.md` §6. **Auto-update is LIVE:** v0.1.0 published to
+  the PUBLIC `github.com/Knightwarrior911/finmodel-releases` (source repo is
+  private → updater fetches unauthenticated, so releases go to a public channel,
+  mirroring `pdf-panda-releases`); endpoint verified 200. Future releases just
+  bump the version and re-run `RELEASE_CHECKLIST.md` §6. **Remaining:** rebrand
+  the pdf-panda placeholder icons in `src-tauri/icons/`.
 - **App market inputs** default (`risk_free=0.045`, `share_price=0.0`) — needs live feed.
 - Valuation-tab per-role emphasis (DCF/WACC/Sens/Comps) not format-oracle-measured
   (they get the base render system; IS/BS/CF/Cover/Assumptions/Sources are 100%).
