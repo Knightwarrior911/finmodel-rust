@@ -8,6 +8,9 @@ pub mod market;
 pub mod pdf;
 
 pub use discovery::{find_annual_report_pdf_url, DiscoveryError};
-pub use edgar::{cik_from_ticker, fetch_companyfacts, fetch_company_sic, CompanyFacts, SicInfo};
+pub use edgar::{
+    cik_from_ticker, fetch_companyfacts, fetch_company_sic, recent_filings, search_filings,
+    CompanyFacts, Filing, SicInfo, DEFAULT_FORM_TYPES,
+};
 pub use market::{fetch_quote, fetch_fx_rate, Quote};
 pub use pdf::{download_pdf, DownloadConfig};

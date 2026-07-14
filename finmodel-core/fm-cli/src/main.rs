@@ -147,6 +147,19 @@ enum Command {
         #[arg(long)]
         usd: bool,
     },
+    /// List a company's recent SEC filings (form type, dates, and a direct URL
+    /// to each filing's primary document in the EDGAR Archives).
+    Filings {
+        /// Ticker symbol, e.g. "AAPL".
+        ticker: String,
+        /// Restrict to one form type (e.g. "10-K", "20-F"). Omit for the
+        /// default set (10-K/10-Q/8-K/20-F/6-K).
+        #[arg(long)]
+        form: Option<String>,
+        /// Maximum number of filings to list.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
 }
 
 fn cmd_score(gt_path: &PathBuf, model_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -531,6 +544,30 @@ fn cmd_benchmark(
     Ok(())
 }
 
+fn cmd_filings(
+    ticker: &str,
+    form: Option<&str>,
+    limit: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cik = fm_fetch::cik_from_ticker(ticker)?;
+    println!("{} -> CIK {cik}", ticker.trim().to_uppercase());
+    let filings = match form {
+        Some(f) => fm_fetch::recent_filings(&cik, f, limit)?,
+        None => fm_fetch::search_filings(&cik, fm_fetch::DEFAULT_FORM_TYPES, limit)?,
+    };
+    if filings.is_empty() {
+        println!("  (no matching filings)");
+        return Ok(());
+    }
+    for f in &filings {
+        println!(
+            "  {:<5}  filed {}  period {:<10}  {}",
+            f.form_type, f.filing_date, f.fiscal_period_end, f.url
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
@@ -563,6 +600,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         Command::Benchmark { tickers, out, title, csv, ltm, multiples, usd } => {
             cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm, multiples, usd)
+        }
+        Command::Filings { ticker, form, limit } => {
+            cmd_filings(&ticker, form.as_deref(), limit)
         }
     }
 }

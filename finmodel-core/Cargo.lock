@@ -523,6 +523,7 @@ dependencies = [
  "fm-engine",
  "fm-excel",
  "fm-extract",
+ "fm-fetch",
  "fm-ifrs",
  "fm-research",
  "fm-tieout",
