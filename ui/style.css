@@ -860,3 +860,62 @@ tbody tr:hover td.num.proj {
   margin-top: 0;
   align-self: center;
 }
+
+/* ── Persistent footer: version + update status/button ────────────── */
+.appfoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 34px;
+  padding: 0 16px;
+  border-top: 1px solid var(--hairline);
+  background: var(--chrome);
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+}
+.appfoot-brand {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.foot-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.foot-update:hover:not(:disabled) {
+  background: var(--element);
+  color: var(--ink);
+}
+.foot-update:disabled { cursor: default; opacity: 0.7; }
+.foot-update:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.foot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--faint);
+}
+.foot-update[data-state="checking"] .foot-dot { background: var(--warn); }
+.foot-update[data-state="ok"] .foot-dot { background: var(--ok); }
+.foot-update[data-state="error"] .foot-dot { background: var(--err); }
+.foot-update[data-state="available"] {
+  color: var(--accent-strong);
+  border-color: var(--accent-weak);
+  background: var(--accent-soft);
+}
+.foot-update[data-state="available"] .foot-dot { background: var(--accent); }
+
+/* `hidden` must win over `.banner { display:flex }` (same guard the modal uses). */
+.banner[hidden] { display: none; }

@@ -53,6 +53,7 @@ async function initMode() {
     const s = await call("load_settings");
     hasKey = !!s.has_key;
     model = s.model || "";
+    if (s.version) $("appVersion").textContent = `finmodel v${s.version}`;
   } catch (_) {
     // Not in the app window (browser preview) or first launch → treat as demo.
   }
@@ -383,6 +384,30 @@ $("refreshModels").addEventListener("click", async () => {
 });
 
 // ---- auto-update ----
+let pendingUpdate = null;
+
+function setFoot(state, text) {
+  const btn = $("footUpdateBtn");
+  if (!btn) return;
+  btn.dataset.state = state; // idle | checking | ok | available | error
+  btn.disabled = state === "checking";
+  $("footUpdateText").textContent = text;
+}
+
+async function doInstall(triggerBtn) {
+  const btn = triggerBtn;
+  const restore = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = "Downloading…"; }
+  setFoot("checking", "Downloading update…");
+  try {
+    await call("install_update"); // on success: downloads, installs, relaunches
+  } catch (e) {
+    $("updateBannerText").innerHTML = `<strong>Update failed:</strong> ${escapeHtml(e.message || e)}`;
+    setFoot("error", "Update failed — retry");
+    if (btn) { btn.disabled = false; btn.textContent = restore || "Retry"; }
+  }
+}
+
 async function checkForUpdate(silent) {
   const status = $("updateStatus");
   const btn = $("checkUpdateBtn");
@@ -390,22 +415,28 @@ async function checkForUpdate(silent) {
     if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
     if (status) status.textContent = "Checking for updates…";
   }
+  setFoot("checking", "Checking…");
   try {
     const res = await call("check_for_update");
     if (res.available) {
+      pendingUpdate = res;
       const v = res.version ? `Version ${escapeHtml(res.version)}` : "An update";
       $("updateBannerText").innerHTML =
         `<strong>${v} is available.</strong> ` +
         (res.current ? `You're on ${escapeHtml(res.current)}. ` : "") +
         `Your work is saved to disk; the app will reopen after updating.`;
       $("updateBanner").hidden = false;
+      setFoot("available", `Update available: ${res.version} — install`);
       if (!silent && status) status.textContent = `Update available: ${res.version}.`;
-    } else if (!silent && status) {
-      status.textContent = `You're on the latest version${res.current ? ` (${res.current})` : ""}.`;
+    } else {
+      pendingUpdate = null;
+      setFoot("ok", `Up to date${res.current ? ` · v${res.current}` : ""}`);
+      if (!silent && status) status.textContent = `You're on the latest version${res.current ? ` (${res.current})` : ""}.`;
     }
   } catch (e) {
-    // A silent startup check stays quiet (no release yet / offline). Manual
-    // checks report the reason.
+    // A silent startup check stays quiet in the banner (no release / offline);
+    // the footer + manual check report the reason.
+    setFoot("error", "Check failed — retry");
     if (!silent && status) status.textContent = `Could not check: ${e.message || e}`;
   } finally {
     if (!silent && btn) { btn.disabled = false; btn.textContent = "Check now"; }
@@ -413,18 +444,11 @@ async function checkForUpdate(silent) {
 }
 
 $("checkUpdateBtn").addEventListener("click", () => checkForUpdate(false));
-$("updateInstallBtn").addEventListener("click", async () => {
-  const btn = $("updateInstallBtn");
-  btn.disabled = true;
-  btn.textContent = "Downloading…";
-  try {
-    await call("install_update"); // on success the app downloads, installs, and relaunches
-  } catch (e) {
-    $("updateBannerText").innerHTML = `<strong>Update failed:</strong> ${escapeHtml(e.message || e)}`;
-    btn.disabled = false;
-    btn.textContent = "Retry";
-  }
+$("footUpdateBtn").addEventListener("click", () => {
+  if (pendingUpdate) doInstall($("footUpdateBtn"));
+  else checkForUpdate(false);
 });
+$("updateInstallBtn").addEventListener("click", () => doInstall($("updateInstallBtn")));
 
 // ---- startup ----
 updateTickerUI();

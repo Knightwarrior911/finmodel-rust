@@ -20,6 +20,14 @@
   `innerHTML` interpolation. **Live:** v0.1.0 published to the public
   `finmodel-releases` repo (private source → unauthenticated updater needs a
   public channel); the `latest/download/latest.json` endpoint is verified 200.
+- **Always-visible update control (v0.1.1)** — a persistent footer shows the app
+  version and a one-click update status/button (Check for updates → Checking →
+  Up to date · vX / Update available → install), mirroring the Snitch Voice
+  pattern instead of hiding the check in Settings. `load_settings` now returns
+  the running version. Fixed a CSS bug where `.banner { display:flex }` overrode
+  the `hidden` attribute, so the update banner showed spuriously. Published
+  v0.1.1 to `finmodel-releases`; the endpoint serves 0.1.1 and installed 0.1.0
+  clients are offered the update (end-to-end auto-update verified).
 
 ### Changed — desktop app UX (self-explanatory workspace)
 - **Guided, discoverable UI** (`ui/index.html`, `ui/app.js`, `ui/style.css`) —

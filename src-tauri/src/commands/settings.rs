@@ -51,6 +51,7 @@ pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
     Ok(serde_json::json!({
         "has_key": !s.openrouter_api_key.trim().is_empty(),
         "model": s.model,
+        "version": app.package_info().version.to_string(),
     })
     .to_string())
 }
