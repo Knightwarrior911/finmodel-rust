@@ -96,3 +96,60 @@ to `main`. It executes:
    using `FINMODEL_DEV_MOCK=1` to bypass LLM calls)
 
 A red CI is a release blocker.
+
+---
+
+## 6. Desktop app release (auto-update)
+
+The Tauri desktop app (`src-tauri/`) self-updates from GitHub Releases. Builds are
+signed with a **minisign** key; the app verifies each update against the `pubkey`
+baked into `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) before installing.
+
+### Signing keys (one-time, already done)
+- Keypair generated with `cargo tauri signer generate -w C:\Users\vinit\.tauri\finmodel.key -p ""`.
+- **Private key: `C:\Users\vinit\.tauri\finmodel.key` — NEVER commit it.** It lives
+  outside the repo. Back it up securely; losing it means no client can ever update
+  again. Add it to CI as the secret `TAURI_SIGNING_PRIVATE_KEY` (the file's
+  contents, not the path) with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` empty.
+- Public key is committed in `tauri.conf.json` (safe to publish).
+
+### Build the signed installer + updater artifacts
+```bash
+cd src-tauri
+# key as a string; PATH form is NOT honored by this tauri-cli:
+TAURI_SIGNING_PRIVATE_KEY="$(cat /c/Users/vinit/.tauri/finmodel.key)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+  cargo tauri build --bundles nsis
+```
+Produces under `src-tauri/target/release/bundle/nsis/`:
+- `finmodel_<version>_x64-setup.exe` — the installer (also the update payload)
+- `finmodel_<version>_x64-setup.exe.sig` — the minisign signature (goes in `latest.json`)
+
+### Publish the GitHub Release
+1. Bump `version` in `src-tauri/tauri.conf.json` (and `Cargo.toml`) to the new `X.Y.Z`.
+2. Create a release tagged `vX.Y.Z` on `github.com/Knightwarrior911/finmodel-rust`.
+3. Upload two assets: the `-setup.exe` and a `latest.json` (below).
+
+`latest.json` — the updater endpoint
+(`…/releases/latest/download/latest.json`) — format:
+```json
+{
+  "version": "0.1.0",
+  "notes": "What changed in this release.",
+  "pub_date": "2026-07-14T12:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "<paste the ENTIRE contents of finmodel_0.1.0_x64-setup.exe.sig>",
+      "url": "https://github.com/Knightwarrior911/finmodel-rust/releases/download/v0.1.0/finmodel_0.1.0_x64-setup.exe"
+    }
+  }
+}
+```
+`version` MUST be greater (semver) than the installed build or clients won't offer it.
+
+### Client behavior
+- On launch the app silently checks the endpoint; if a newer signed build exists it
+  shows a "Restart & update" banner. Settings → "Check now" forces a check.
+- No release / offline → the silent check stays quiet; the manual check reports it.
+- Icons are still pdf-panda placeholders (`src-tauri/icons/`) — rebrand before a
+  public release.
