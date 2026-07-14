@@ -1,6 +1,46 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — Benchmarking subsystem (current, 2026-07-12)
+## HANDOVER — Desktop app shipped + auto-update LIVE (current, 2026-07-14)
+**Two repos:** source **`finmodel-rust` is PRIVATE**; releases go to the PUBLIC
+**`finmodel-releases`** (github.com/Knightwarrior911/finmodel-releases). The Tauri
+updater fetches `latest.json` UNAUTHENTICATED, so a private repo 404s — releases
+MUST be published to the public repo, and its endpoint is baked into the exe at
+build time. Disk volatile: `df -h /c` before any `cargo`. All work pushed to
+`origin/master` (through `93386f5`). App installed here: `%LOCALAPPDATA%\finmodel\finmodel-app.exe`.
+
+Shipped this session (v0.1.0 → **v0.1.1**), desktop app = `src-tauri/` + `ui/`:
+- **UX redesign (`ui/`)** — self-explanatory two-tool workspace: (1) *Build a full
+  model* (one ticker → 3-statement + DCF Excel), (2) *Benchmark a peer set*
+  (comma-sep US tickers → comps). Format help + live-parsed ticker echo, Live/Demo
+  mode banner, "You get" tags, save-note. Verified in headless browser (invoke mocked).
+- **Auto-update (LIVE)** — `tauri-plugin-updater` inited in `lib.rs` (desktop-only);
+  `plugins.updater` pubkey+endpoint + `createUpdaterArtifacts:true`; `updater:default`
+  capability; backend cmds `check_for_update`/`install_update` (download+relaunch).
+  **Always-visible FOOTER control** (app version + status button: Check → Checking →
+  Up to date·vX / Update available→install), Snitch-style; also silent launch check +
+  Settings "Check now". Remote strings HTML-escaped (`escapeHtml`).
+- **SEC filing-doc fetch** — `fm-fetch::edgar` `recent_filings`/`search_filings` +
+  `Filing` + `DEFAULT_FORM_TYPES`; reachable via `fm filings <ticker> [--form][--limit]`.
+
+**Signing + release (see `docs/RELEASE_CHECKLIST.md` §6):**
+- Minisign private key: **`C:\Users\vinit\.tauri\finmodel.key` — OUTSIDE repo, NEVER
+  commit.** Public key is in `tauri.conf.json`. CI secret `TAURI_SIGNING_PRIVATE_KEY`
+  = the file's CONTENTS (not path); password empty.
+- Build+sign: `cd src-tauri && CARGO...` → run with env `CI=true`
+  `TAURI_SIGNING_PRIVATE_KEY="<contents>"` `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""`
+  `cargo tauri build --bundles nsis` → `target/release/bundle/nsis/finmodel_<v>_x64-setup.exe`
+  + `.exe.sig`. (MUST set `CI=true` or tauri-cli mis-parses the shell's `CI=1`.
+  `TAURI_SIGNING_PRIVATE_KEY_PATH` is NOT honored — pass the key string.)
+- Publish: bump `version` in `tauri.conf.json` + `src-tauri/Cargo.toml`; then
+  `gh release create v<X.Y.Z> --repo Knightwarrior911/finmodel-releases <setup.exe> <latest.json>`.
+  `latest.json` = `{version, notes, pub_date, platforms:{"windows-x86_64":{signature:<.sig contents>, url}}}`.
+  Endpoint `…/finmodel-releases/releases/latest/download/latest.json` verified serving 0.1.1.
+
+**Remaining:** rebrand pdf-panda placeholder icons (`src-tauri/icons/`); wire live
+market inputs (`share_price=0.0` → `fm-fetch::market::fetch_quote`) so DCF upside is
+real; research port items 3–6 (news, PPTX decks, browser pipeline, agent/orchestrator).
+
+## HANDOVER — Benchmarking subsystem (previous, 2026-07-12)
 Rust workspace: `finmodel-core/` (11 crates). Build/verify from there:
 `CARGO_INCREMENTAL=0 cargo test --workspace` (33 suites, 0 failed) and
 `RUSTFLAGS="-D warnings" cargo build --workspace` (clean). Disk is volatile on

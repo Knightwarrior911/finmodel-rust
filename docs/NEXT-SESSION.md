@@ -7,6 +7,26 @@ ALL work now happens here, in `finmodel-rust`
 `C:/Users/vinit/Documents/finmodel-rust`.
 
 
+## LATEST SESSION (2026-07-14) — Desktop app shipped + auto-update LIVE
+
+Full detail in `CLAUDE.md` (top HANDOVER). Summary:
+- **SEC filing-doc fetch** (research port item 2) — `fm-fetch::edgar`
+  `recent_filings`/`search_filings` + `fm filings <ticker>` CLI. Done.
+- **App UX redesign** (`ui/`) — self-explanatory two-tool workspace (Build a full
+  model / Benchmark a peer set): ticker-format help, live-parsed echo, Live/Demo
+  mode banner, "You get" tags, save-note. Fixes "I didn't know what to do / what
+  format / what it can do". Verified in headless browser.
+- **Signed auto-update — LIVE.** `tauri-plugin-updater` wired; always-visible
+  FOOTER control (version + Check/Up-to-date/Update-available→install) like Snitch
+  Voice; silent launch check + Settings "Check now". Shipped **v0.1.0 → v0.1.1**.
+- **Release channel:** source repo is PRIVATE, so releases go to the PUBLIC
+  `finmodel-releases` repo (updater fetches unauth). Minisign private key at
+  `C:\Users\vinit\.tauri\finmodel.key` (never commit). Process: `RELEASE_CHECKLIST.md` §6.
+- Installed on this box: `%LOCALAPPDATA%\finmodel\finmodel-app.exe`. Pushed to
+  `origin/master` through `93386f5`.
+- **Next:** rebrand pdf-panda icons; wire live `share_price` (fetch_quote) for real
+  DCF upside; research port items 3–6 (news, PPTX, browser, agent).
+
 ## LATEST SESSION (2026-07-12) — Benchmark subsystem (filings → Excel)
 
 Build/verify: `cd finmodel-core && CARGO_INCREMENTAL=0 cargo test --workspace`
