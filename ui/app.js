@@ -10,6 +10,16 @@ async function call(name, payload = {}) {
 }
 
 const $ = (id) => document.getElementById(id);
+
+// Escape untrusted values before any innerHTML interpolation. Update metadata
+// (version/notes) comes from a remote latest.json whose *string fields are not
+// signature-verified* (only the downloaded artifact is), so treat them as hostile.
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
 let lastModel = null;
 let activeStmt = "income_statement";
 
@@ -33,6 +43,82 @@ function fmtNum(v) {
 
 function prettyKey(k) {
   return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── Mode banner (offline demo vs live) ──────────────────────────────
+async function initMode() {
+  let hasKey = false;
+  let model = "";
+  try {
+    const s = await call("load_settings");
+    hasKey = !!s.has_key;
+    model = s.model || "";
+  } catch (_) {
+    // Not in the app window (browser preview) or first launch → treat as demo.
+  }
+  const pill = $("modePill");
+  const pillText = $("modePillText");
+  const banner = $("modeBanner");
+  const bannerText = $("modeBannerText");
+  if (hasKey) {
+    pill.classList.add("live");
+    pillText.textContent = "Live";
+    pill.title = model ? `Live extraction · ${model}` : "Live extraction";
+    banner.className = "banner ok";
+    bannerText.innerHTML =
+      `<strong>Live mode.</strong> Build a full model for any US ticker (SEC EDGAR) ` +
+      `or international company (annual-report PDF), and benchmark any US peer set.` +
+      (model ? ` Model: <code>${escapeHtml(model)}</code>.` : "");
+  } else {
+    pill.classList.remove("live");
+    pillText.textContent = "Demo mode";
+    pill.title = "No API key — offline demo";
+    banner.className = "banner info";
+    bannerText.innerHTML =
+      `<strong>No API key set.</strong> <strong>Benchmarking</strong> works right now ` +
+      `for any US tickers. <strong>Building a full model</strong> works for the 5 demo ` +
+      `companies below — add an OpenRouter key to build any company worldwide.`;
+  }
+}
+
+// ── Live input parsing / validation ─────────────────────────────────
+function normTicker(s) {
+  return (s || "").trim().toUpperCase();
+}
+
+function parsePeers(s) {
+  return (s || "")
+    .split(",")
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t.length > 0);
+}
+
+function updateTickerUI() {
+  const raw = $("ticker").value;
+  const t = normTicker(raw);
+  const echo = $("tickerEcho");
+  $("buildBtn").disabled = t.length === 0;
+  if (t && t !== raw.trim()) {
+    echo.hidden = false;
+    echo.textContent = `→ will read as ${t}`;
+  } else {
+    echo.hidden = true;
+  }
+}
+
+function updatePeersUI() {
+  const list = parsePeers($("peers").value);
+  const echo = $("peersEcho");
+  $("benchBtn").disabled = list.length === 0;
+  if (list.length === 0) {
+    echo.hidden = true;
+  } else if (list.length === 1) {
+    echo.hidden = false;
+    echo.textContent = "1 company — add at least one more to compare";
+  } else {
+    echo.hidden = false;
+    echo.textContent = `${list.length} companies: ${list.join(", ")}`;
+  }
 }
 
 function renderTable() {
@@ -75,7 +161,7 @@ async function build(ticker) {
   $("buildBtn").disabled = true;
   const label = $("buildBtn").querySelector(".btn-label");
   if (label) label.textContent = "Building…";
-  setStatus(`Building model for ${ticker}…`, "info");
+  setStatus(`Building model for ${ticker}… reading the filing, projecting 5 years, writing Excel.`, "info");
   try {
     const model = await call("build_model", { ticker });
     lastModel = model;
@@ -85,28 +171,33 @@ async function build(ticker) {
       `Source: ${model.source}  ·  Historical ${model.hist_periods.join(", ")}  ·  Projected ${model.proj_periods.join(", ")}`;
     renderTable();
     clearStatus();
+    $("results").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
-    setStatus(`Could not build: ${msg}`, "error");
+    setStatus(`Could not build ${ticker}: ${msg}`, "error");
     $("results").hidden = true;
   } finally {
     $("buildBtn").disabled = false;
     if (label) label.textContent = "Build model";
+    updateTickerUI();
   }
 }
 
 // ---- events ----
+$("ticker").addEventListener("input", updateTickerUI);
 $("buildBtn").addEventListener("click", () => {
-  const t = $("ticker").value.trim();
+  const t = normTicker($("ticker").value);
   if (t) build(t);
 });
 $("ticker").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && $("ticker").value.trim()) build($("ticker").value.trim());
+  const t = normTicker($("ticker").value);
+  if (e.key === "Enter" && t) build(t);
 });
 $("demoChips").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (b) {
     $("ticker").value = b.dataset.t;
+    updateTickerUI();
     build(b.dataset.t);
   }
 });
@@ -173,18 +264,20 @@ async function benchmark(tickers) {
   $("benchBtn").disabled = true;
   const label = $("benchBtn").querySelector(".btn-label-b");
   if (label) label.textContent = "Benchmarking…";
-  setBenchStatus(`Fetching filings for ${tickers}…`, "info");
+  const list = parsePeers(tickers);
+  setBenchStatus(`Fetching SEC filings for ${list.length} companies…`, "info");
   try {
     const res = await call("benchmark_peers", { tickers });
     lastBench = res;
     $("benchResults").hidden = false;
-    $("benchTitle").textContent = `Peer Benchmark  ·  ${res.count}/${res.requested}`;
+    $("benchTitle").textContent = `Peer Benchmark  ·  ${res.count} of ${res.requested}`;
     const fails = (res.failed || []).map((f) => `${f.ticker} (${f.why})`).join("; ");
     $("benchMeta").textContent = fails
       ? `SEC EDGAR XBRL · skipped: ${fails}`
-      : `SEC EDGAR XBRL · ${res.count} peers · numbers cite exact us-gaap facts`;
+      : `SEC EDGAR XBRL · ${res.count} peers · every number cites an exact filing fact`;
     renderBench();
     $("benchStatus").hidden = true;
+    $("benchResults").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
     setBenchStatus(`Could not benchmark: ${msg}`, "error");
@@ -192,9 +285,11 @@ async function benchmark(tickers) {
   } finally {
     $("benchBtn").disabled = false;
     if (label) label.textContent = "Benchmark";
+    updatePeersUI();
   }
 }
 
+$("peers").addEventListener("input", updatePeersUI);
 $("benchBtn").addEventListener("click", () => {
   const t = $("peers").value.trim();
   if (t) benchmark(t);
@@ -206,6 +301,7 @@ $("peerChips").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (b) {
     $("peers").value = b.dataset.t;
+    updatePeersUI();
     benchmark(b.dataset.t);
   }
 });
@@ -232,7 +328,7 @@ async function openSettings() {
       ? "A key is saved. Leave blank to keep it."
       : "No key set — offline demo tickers only.";
     const sel = $("modelSelect");
-    if (s.model) sel.innerHTML = `<option value="${s.model}">${s.model}</option>`;
+    if (s.model) sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
   } catch (_) {
     /* offline / first launch */
   }
@@ -245,6 +341,7 @@ function closeSettings() {
 }
 
 $("settingsBtn").addEventListener("click", openSettings);
+$("bannerSettingsBtn").addEventListener("click", openSettings);
 $("settingsClose").addEventListener("click", closeSettings);
 modal.addEventListener("click", (e) => {
   if (e.target && e.target.dataset && e.target.dataset.close) closeSettings();
@@ -260,8 +357,7 @@ $("saveSettings").addEventListener("click", async () => {
     await call("save_settings", { api_key, model });
     $("apiKey").value = "";
     closeSettings();
-    setStatus("Settings saved.", "info");
-    setTimeout(clearStatus, 2000);
+    await initMode();
   } catch (e) {
     setStatus(`Save failed: ${e.message || e}`, "error");
   }
@@ -277,7 +373,7 @@ $("refreshModels").addEventListener("click", async () => {
     $("apiKey").value = "";
     const models = await call("list_models");
     const sel = $("modelSelect");
-    sel.innerHTML = models.map((m) => `<option value="${m.id}">${m.id}</option>`).join("");
+    sel.innerHTML = models.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join("");
   } catch (e) {
     setStatus(`Model list failed: ${e.message || e}`, "error");
   } finally {
@@ -285,3 +381,53 @@ $("refreshModels").addEventListener("click", async () => {
     btn.textContent = "Refresh";
   }
 });
+
+// ---- auto-update ----
+async function checkForUpdate(silent) {
+  const status = $("updateStatus");
+  const btn = $("checkUpdateBtn");
+  if (!silent) {
+    if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+    if (status) status.textContent = "Checking for updates…";
+  }
+  try {
+    const res = await call("check_for_update");
+    if (res.available) {
+      const v = res.version ? `Version ${escapeHtml(res.version)}` : "An update";
+      $("updateBannerText").innerHTML =
+        `<strong>${v} is available.</strong> ` +
+        (res.current ? `You're on ${escapeHtml(res.current)}. ` : "") +
+        `Your work is saved to disk; the app will reopen after updating.`;
+      $("updateBanner").hidden = false;
+      if (!silent && status) status.textContent = `Update available: ${res.version}.`;
+    } else if (!silent && status) {
+      status.textContent = `You're on the latest version${res.current ? ` (${res.current})` : ""}.`;
+    }
+  } catch (e) {
+    // A silent startup check stays quiet (no release yet / offline). Manual
+    // checks report the reason.
+    if (!silent && status) status.textContent = `Could not check: ${e.message || e}`;
+  } finally {
+    if (!silent && btn) { btn.disabled = false; btn.textContent = "Check now"; }
+  }
+}
+
+$("checkUpdateBtn").addEventListener("click", () => checkForUpdate(false));
+$("updateInstallBtn").addEventListener("click", async () => {
+  const btn = $("updateInstallBtn");
+  btn.disabled = true;
+  btn.textContent = "Downloading…";
+  try {
+    await call("install_update"); // on success the app downloads, installs, and relaunches
+  } catch (e) {
+    $("updateBannerText").innerHTML = `<strong>Update failed:</strong> ${escapeHtml(e.message || e)}`;
+    btn.disabled = false;
+    btn.textContent = "Retry";
+  }
+});
+
+// ---- startup ----
+updateTickerUI();
+updatePeersUI();
+initMode();
+checkForUpdate(true);

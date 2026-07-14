@@ -117,8 +117,16 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
    → ~170 MB → ~16 GB within minutes this session. Always `df -h /c` before a
    `cargo` command; a cold app rebuild needs ~4–5 GB. The `pdf_url`
    filing-source-link path of the bridges is a Python-only feature (no PDF ctx).
-2. **SEC EDGAR client** (`src/research/sec_edgar.py`) — extend `fm-fetch::edgar`
-   for filing-doc fetch (CIK/filings partly exist).
+2. ✅ **SEC EDGAR client (DONE 2026-07-14)** — ported `get_recent_filings` /
+   `search_filings` from `src/research/sec_edgar.py` → `fm-fetch::edgar`
+   (`recent_filings` / `search_filings` / `Filing` / `DEFAULT_FORM_TYPES`):
+   submissions history → filing records + direct primary-doc Archive URLs.
+   Pure parse gated by unit tests (`parse_recent_filings_*`), live paths
+   `#[ignore]`. Reachable via `fm filings <ticker> [--form] [--limit]`;
+   live-verified on AAPL + TSM. (CIK/companyfacts/SIC already existed.)
+   Remaining EDGAR follow-up: fetch/parse the actual filing document body
+   (full-text 10-K/20-F sections) — only needed if the extraction pipeline
+   should read filing prose beyond structured XBRL.
 3. **Market data**: 🟢 quotes DONE — `fm-fetch::market::fetch_quote` (Yahoo, no
    key) powers `fm benchmark --multiples` (EV/EBITDA, EV/Rev, P/E). Still TODO:
    `news.py` headlines; FX rates for cross-currency comps (needs an FX feed).
@@ -127,12 +135,18 @@ Port order (each: port calc → oracle-gate vs Python → reachable consumer):
 6. **Agent/orchestrator** (`agent.py` 39 KB, `orchestrator.py`) — NL query → tools → Excel/deck.
 
 ### Also still open (pre-existing, non-blocking)
-- **Auto-update release NOT wired** (unlike PDF Panda): `tauri-plugin-updater` is a
-  dep but not initialized; `createUpdaterArtifacts:false`; no `plugins.updater`
-  pubkey/endpoints; no minisign keys; no published release; icons are pdf-panda
-  placeholders. To ship: init updater, gen minisign keypair, add pubkey+endpoints
-  (GitHub Releases like pdf-panda `ci.yml`), `createUpdaterArtifacts:true`, rebrand
-  icons, `cargo tauri build` → NSIS installer + latest.json.
+- ✅ **Auto-update WIRED (2026-07-14)** — `tauri-plugin-updater` initialized in
+  `lib.rs` (desktop-only); `plugins.updater` pubkey + `releases/latest/download/
+  latest.json` endpoint + `createUpdaterArtifacts:true` in `tauri.conf.json`;
+  `updater:default` capability; backend `check_for_update`/`install_update`
+  commands; frontend silent-startup "Restart & update" banner + Settings "Check
+  now". Minisign keypair generated (private key at `C:\Users\vinit\.tauri\
+  finmodel.key`, OUTSIDE the repo — never commit; add as CI secret
+  `TAURI_SIGNING_PRIVATE_KEY`). Signed `cargo tauri build --bundles nsis`
+  verified: emits `-setup.exe` + `.exe.sig`. Full release/`latest.json` process
+  in `docs/RELEASE_CHECKLIST.md` §6. **Remaining to go live:** publish the first
+  GitHub Release (upload `-setup.exe` + a `latest.json`); rebrand the pdf-panda
+  placeholder icons in `src-tauri/icons/`.
 - **App market inputs** default (`risk_free=0.045`, `share_price=0.0`) — needs live feed.
 - Valuation-tab per-role emphasis (DCF/WACC/Sens/Comps) not format-oracle-measured
   (they get the base render system; IS/BS/CF/Cover/Assumptions/Sources are 100%).

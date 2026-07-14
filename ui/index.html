@@ -18,6 +18,10 @@
       <span class="brand-name">finmodel</span>
     </div>
     <div class="topbar-actions">
+      <span id="modePill" class="mode-pill" title="Extraction mode">
+        <span class="mode-dot" aria-hidden="true"></span>
+        <span id="modePillText">Demo mode</span>
+      </span>
       <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M6.5 2.5h3l.4 1.4a5 5 0 0 1 1.1.6l1.4-.5 1.5 2.6-1.1 1a5 5 0 0 1 0 1.3l1.1 1-1.5 2.6-1.4-.5a5 5 0 0 1-1.1.6L9.5 13.5h-3l-.4-1.4a5 5 0 0 1-1.1-.6l-1.4.5L2.1 9.4l1.1-1a5 5 0 0 1 0-1.3l-1.1-1L3.6 3.5l1.4.5a5 5 0 0 1 1.1-.6L6.5 2.5Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
@@ -28,52 +32,134 @@
   </header>
 
   <main class="main">
-    <section class="workspace">
-      <div class="workspace-intro">
-        <p class="eyebrow">3-statement · DCF · Excel</p>
-        <h1>Build a financial model</h1>
-        <p class="sub">Enter a ticker. We extract the filing, project five years, and write a formula-driven Excel workbook.</p>
-      </div>
+    <section class="intro" aria-labelledby="introTitle">
+      <p class="eyebrow">Financial model builder</p>
+      <h1 id="introTitle">Turn a stock ticker into an analyst-grade Excel model.</h1>
+      <p class="sub">
+        Pick one of the two tools below. finmodel pulls the numbers from public
+        company filings, does the math, and writes a formula-driven
+        <strong>.xlsx</strong> you can open and edit in Excel.
+      </p>
+    </section>
 
-      <div class="build-card">
-        <label class="field-label" for="ticker">Ticker</label>
+    <div id="updateBanner" class="banner ok" role="status" hidden>
+      <span class="banner-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 2.5v7m0 0 3-3m-3 3-3-3M3 12.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <p id="updateBannerText" class="banner-text">An update is available.</p>
+      <button id="updateInstallBtn" class="banner-action" type="button">Restart &amp; update</button>
+    </div>
+
+    <div id="modeBanner" class="banner" role="status">
+      <span class="banner-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M8 7.2v3.4M8 5.2v.05" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <p id="modeBannerText" class="banner-text">Checking mode…</p>
+      <button id="bannerSettingsBtn" class="banner-action" type="button">Open Settings</button>
+    </div>
+
+    <section class="tools" aria-label="Tools">
+      <!-- Tool 1: Build a full model -->
+      <article class="tool-card" aria-labelledby="buildHeading">
+        <div class="tool-head">
+          <span class="tool-num" aria-hidden="true">1</span>
+          <div>
+            <h2 id="buildHeading">Build a full model</h2>
+            <p class="tool-desc">One company → a complete 3-statement model, projected 5 years, with a DCF valuation.</p>
+          </div>
+        </div>
+
+        <label class="field-label" for="ticker">Company ticker</label>
         <div class="build-row">
-          <input id="ticker" class="ticker-input" type="text" placeholder="SAND.ST" autocomplete="off" spellcheck="false" />
-          <button id="buildBtn" class="primary-btn">
+          <input id="ticker" class="ticker-input" type="text" placeholder="SAND.ST"
+                 autocomplete="off" spellcheck="false" aria-describedby="tickerHelp" />
+          <button id="buildBtn" class="primary-btn" disabled>
             <span class="btn-label">Build model</span>
           </button>
         </div>
+        <p id="tickerHelp" class="help">
+          One ticker. Use <code>SYMBOL</code> for US companies (<code>AAPL</code>)
+          or <code>SYMBOL.EXCHANGE</code> for international (<code>SAND.ST</code>).
+          <span id="tickerEcho" class="help-echo" hidden></span>
+        </p>
+
         <div class="chips" id="demoChips">
-          <span class="chip-label">Demo</span>
+          <span class="chip-label">Try one — works offline</span>
           <button type="button" class="chip" data-t="SAND.ST">Sandvik</button>
           <button type="button" class="chip" data-t="ASML.AS">ASML</button>
           <button type="button" class="chip" data-t="NOVO-B.CO">Novo Nordisk</button>
           <button type="button" class="chip" data-t="NESN.SW">Nestlé</button>
           <button type="button" class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
         </div>
-        <div id="status" class="status" hidden role="status"></div>
-      </div>
 
-      <div class="build-card" style="margin-top:18px">
-        <label class="field-label" for="peers">Peer benchmark · numbers from filings (US tickers, SEC EDGAR)</label>
+        <div class="outcome">
+          <span class="outcome-label">You get</span>
+          <span class="tag">Income Statement</span>
+          <span class="tag">Balance Sheet</span>
+          <span class="tag">Cash Flow</span>
+          <span class="tag">DCF</span>
+          <span class="tag">WACC</span>
+          <span class="tag">Sensitivities</span>
+        </div>
+
+        <div id="status" class="status" hidden role="status"></div>
+      </article>
+
+      <!-- Tool 2: Benchmark peers -->
+      <article class="tool-card" aria-labelledby="benchHeading">
+        <div class="tool-head">
+          <span class="tool-num" aria-hidden="true">2</span>
+          <div>
+            <h2 id="benchHeading">Benchmark a peer set</h2>
+            <p class="tool-desc">Several companies → a side-by-side comparison of scale, growth, margins, returns and leverage.</p>
+          </div>
+        </div>
+
+        <label class="field-label" for="peers">Peer tickers</label>
         <div class="build-row">
-          <input id="peers" class="ticker-input" type="text" placeholder="AAPL, MSFT, GOOGL, AMZN, META" autocomplete="off" spellcheck="false" />
-          <button id="benchBtn" class="primary-btn">
+          <input id="peers" class="ticker-input" type="text" placeholder="AAPL, MSFT, GOOGL"
+                 autocomplete="off" spellcheck="false" aria-describedby="peersHelp" />
+          <button id="benchBtn" class="primary-btn" disabled>
             <span class="btn-label-b">Benchmark</span>
           </button>
         </div>
+        <p id="peersHelp" class="help">
+          Two or more <strong>US tickers</strong>, comma-separated — read live from
+          public SEC filings, no key needed.
+          <span id="peersEcho" class="help-echo" hidden></span>
+        </p>
+
         <div class="chips" id="peerChips">
-          <span class="chip-label">Sets</span>
+          <span class="chip-label">Preset sets</span>
           <button type="button" class="chip" data-t="AAPL, MSFT, GOOGL, AMZN, META">Big Tech</button>
           <button type="button" class="chip" data-t="JPM, BAC, WFC, C">Big Banks</button>
           <button type="button" class="chip" data-t="WMT, TGT, COST">Retail</button>
           <button type="button" class="chip" data-t="XOM, CVX, COP">Energy</button>
         </div>
+
+        <div class="outcome">
+          <span class="outcome-label">You get</span>
+          <span class="tag">18 metrics</span>
+          <span class="tag">Median / Mean</span>
+          <span class="tag">Per-cell filing sources</span>
+          <span class="tag">Excel + CSV</span>
+        </div>
+
         <div id="benchStatus" class="status" hidden role="status"></div>
-      </div>
+      </article>
     </section>
 
-    <section id="results" class="results" hidden>
+    <p class="save-note">
+      Results appear below and every workbook is saved to
+      <strong>Documents\finmodel\</strong>.
+    </p>
+
+    <section id="results" class="results" hidden aria-label="Model result">
       <div class="results-head">
         <div class="results-title-block">
           <h2 id="resTitle">—</h2>
@@ -88,6 +174,11 @@
       </div>
 
       <div class="results-panel">
+        <div class="panel-hint">
+          Preview of the numbers below. Blue columns are historical (from the filing);
+          <span class="proj-swatch">indigo</span> columns are the 5-year projection.
+          Open in Excel for the full formula-driven workbook.
+        </div>
         <div class="tabs" id="tabs" role="tablist">
           <button type="button" class="tab active" role="tab" aria-selected="true" data-s="income_statement">Income Statement</button>
           <button type="button" class="tab" role="tab" aria-selected="false" data-s="balance_sheet">Balance Sheet</button>
@@ -102,14 +193,14 @@
       </div>
     </section>
 
-    <section id="benchResults" class="results" hidden>
+    <section id="benchResults" class="results" hidden aria-label="Benchmark result">
       <div class="results-head">
         <div class="results-title-block">
           <h2 id="benchTitle">—</h2>
           <div class="meta" id="benchMeta">—</div>
         </div>
         <div class="topbar-actions">
-          <button id="openBenchCsvBtn" class="icon-btn" title="Open CSV">CSV</button>
+          <button id="openBenchCsvBtn" class="ghost-btn" title="Open the raw CSV">Open CSV</button>
           <button id="openBenchBtn" class="primary-btn">Open in Excel</button>
         </div>
       </div>
@@ -136,6 +227,12 @@
         </button>
       </div>
 
+      <p class="modal-intro">
+        An OpenRouter key unlocks live extraction beyond the 5 demo companies —
+        any US ticker (from SEC EDGAR) and international companies (from their
+        annual-report PDF). Benchmarking already works without a key.
+      </p>
+
       <label class="field">
         <span class="field-label">OpenRouter API key</span>
         <input id="apiKey" type="password" placeholder="sk-or-…  (leave blank to keep current)" autocomplete="off" />
@@ -152,6 +249,14 @@
         </div>
         <small class="hint">Model list is fetched live from OpenRouter.</small>
       </label>
+
+      <div class="field update-field">
+        <span class="field-label">Updates</span>
+        <div class="model-row">
+          <small id="updateStatus" class="hint update-hint">finmodel checks for updates automatically.</small>
+          <button id="checkUpdateBtn" type="button" class="ghost-btn">Check now</button>
+        </div>
+      </div>
 
       <div class="modal-actions">
         <button id="saveSettings" type="button" class="primary-btn">Save</button>

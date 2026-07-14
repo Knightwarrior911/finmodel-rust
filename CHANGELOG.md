@@ -3,7 +3,55 @@
 
 ## Unreleased
 
+### Added — desktop auto-update
+- **Signed self-update** — the desktop app now checks GitHub Releases on launch
+  and installs newer builds, verified against a minisign `pubkey`. Wiring:
+  `plugins.updater` (pubkey + `releases/latest/download/latest.json` endpoint) +
+  `createUpdaterArtifacts: true` in `tauri.conf.json`; `tauri_plugin_updater`
+  initialized in `lib.rs` (desktop-only) with `updater:default` capability; two
+  backend commands (`check_for_update`, `install_update` → download + relaunch);
+  a silent startup check that raises a **"Restart & update"** banner only when a
+  newer version exists, plus a **Settings → "Check now"** control. Signing keys
+  generated (private key kept outside the repo); a signed `cargo tauri build
+  --bundles nsis` verified end-to-end — produces `finmodel_0.1.0_x64-setup.exe`
+  **+ `.exe.sig`**. Release/signing/`latest.json` process documented in
+  `docs/RELEASE_CHECKLIST.md` §6. Hardening: all remote/untrusted strings
+  (update version/notes, OpenRouter model IDs) are HTML-escaped before any
+  `innerHTML` interpolation. (Publishing the first GitHub Release is the only
+  remaining step to make updates live.)
+
+### Changed — desktop app UX (self-explanatory workspace)
+- **Guided, discoverable UI** (`ui/index.html`, `ui/app.js`, `ui/style.css`) —
+  the app now teaches the user what it does and exactly how to use it, instead
+  of a bare pair of unlabeled inputs. New: a purpose headline; a **two-tool
+  layout** (1 · Build a full model — one ticker → 3-statement + DCF; 2 ·
+  Benchmark a peer set — comma-separated US tickers → comps); **inline
+  ticker-format help** with concrete examples (`SYMBOL` vs `SYMBOL.EXCHANGE`;
+  "two or more US tickers, comma-separated") and a **live parsed echo** (ticker
+  normalization / peer count as you type); **"You get" outcome tags** naming
+  every sheet/metric produced; a **contextual mode banner** that states honestly
+  what works right now (benchmarking needs no key; full models need a key beyond
+  the 5 demo companies) with a Live/Demo pill; a **save-location note**
+  (Documents\finmodel\); and a results panel hint distinguishing historical vs
+  projected columns. Buttons stay disabled until input is valid. The Tauri
+  invoke contract is unchanged (`build_model` / `benchmark_peers` /
+  `open_path` / settings). Verified against all states (empty, live/demo,
+  populated model + benchmark, settings) in a headless browser with a mocked
+  bridge.
+
 ### Added — research/benchmarking subsystem (filings → Excel)
+- **SEC filing-doc index** (`fm filings <ticker> [--form 10-K] [--limit N]`) —
+  ports `get_recent_filings` / `search_filings` from `src/research/sec_edgar.py`
+  into `fm-fetch::edgar`: resolves a company's recent filings from the SEC
+  submissions history into `Filing` records (form type, filing date, report
+  date, accession number) each carrying a direct URL to its primary document in
+  the EDGAR Archives (`…/Archives/edgar/data/{cik}/{accession}/{doc}`, leading
+  zeros stripped, dashes removed — faithful to the Python URL construction).
+  `search_filings` filters by a form-type set (`DEFAULT_FORM_TYPES` =
+  10-K/10-Q/8-K/20-F/6-K); `recent_filings` filters a single type. The parse +
+  URL construction is a pure, network-free function gated by unit tests
+  (`parse_recent_filings_*`); live EDGAR paths covered by `#[ignore]` tests.
+  Live-verified on AAPL (US 10-K/10-Q/8-K) and TSM (foreign 20-F/6-K filer).
 - **Desktop app: peer-benchmark panel** — new `benchmark_peers` Tauri command
   (`src-tauri/src/commands/benchmark.rs`) wrapping `fm_research::benchmark_tickers`
   + `render_benchmark`; writes xlsx+csv to Documents/finmodel/ and returns a JSON
