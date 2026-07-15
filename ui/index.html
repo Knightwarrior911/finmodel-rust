@@ -70,7 +70,7 @@
           <span class="tool-num" aria-hidden="true">1</span>
           <div>
             <h2 id="buildHeading">Build a full model</h2>
-            <p class="tool-desc">One company → a complete 3-statement model, projected 5 years, with a DCF valuation.</p>
+            <p class="tool-desc">One company → a complete 3-statement model, projected forward (2–10 years), with a DCF valuation and editable assumptions.</p>
           </div>
         </div>
 
@@ -97,6 +97,72 @@
           <button type="button" class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
         </div>
 
+        <details id="advOpts" class="adv-opts">
+          <summary>Advanced options</summary>
+          <div class="adv-grid">
+            <label class="adv-field">Projection years
+              <input id="optYears" type="number" min="2" max="10" step="1" value="5" />
+            </label>
+            <label class="adv-field">Sector
+              <select id="optSector">
+                <option value="standard">Standard</option>
+                <option value="utility">Utility</option>
+                <option value="bank">Bank</option>
+                <option value="insurance">Insurance</option>
+                <option value="reit">REIT</option>
+              </select>
+            </label>
+            <label class="adv-field">Risk-free %
+              <input id="optRiskFree" type="number" step="0.1" placeholder="4.5" />
+            </label>
+            <label class="adv-field">Equity risk premium %
+              <input id="optErp" type="number" step="0.1" placeholder="5.5" />
+            </label>
+            <label class="adv-field">Target D/E
+              <input id="optTargetDe" type="number" step="0.05" placeholder="0.30" />
+            </label>
+            <label class="adv-field">Cost of debt %
+              <input id="optCostDebt" type="number" step="0.1" placeholder="derived" />
+            </label>
+            <label class="adv-field">Beta
+              <input id="optBeta" type="number" step="0.1" placeholder="1.0" />
+            </label>
+            <label class="adv-field">Tax rate %
+              <input id="optTaxRate" type="number" step="0.1" placeholder="derived" />
+            </label>
+            <label class="adv-field">Terminal growth %
+              <input id="optTerminalGrowth" type="number" step="0.1" placeholder="2.5" />
+            </label>
+            <label class="adv-field">Exit multiple
+              <input id="optExitMult" type="number" step="0.5" placeholder="sector default" />
+            </label>
+            <label class="adv-field">Share price
+              <input id="optSharePrice" type="number" step="0.01" placeholder="live quote" />
+            </label>
+            <label class="adv-field">FYE month
+              <select id="optFye">
+                <option>Jan</option><option>Feb</option><option>Mar</option><option>Apr</option>
+                <option>May</option><option>Jun</option><option>Jul</option><option>Aug</option>
+                <option>Sep</option><option>Oct</option><option>Nov</option><option selected>Dec</option>
+              </select>
+            </label>
+            <div class="adv-field adv-tv">
+              <span class="field-label">Terminal value</span>
+              <label><input type="radio" name="tvMethod" value="1" checked /> Exit multiple</label>
+              <label><input type="radio" name="tvMethod" value="2" /> Gordon growth</label>
+            </div>
+          </div>
+          <label class="adv-check">
+            <input type="checkbox" id="skipReview" /> Skip the assumptions review (one-click build)
+          </label>
+        </details>
+
+        <div class="save-row">
+          <span class="save-label">Save to</span>
+          <span id="buildOutDir" class="save-path">Documents\finmodel\</span>
+          <button type="button" id="buildChangeDir" class="ghost-btn">Change…</button>
+        </div>
+
         <div class="outcome">
           <span class="outcome-label">You get</span>
           <span class="tag">Income Statement</span>
@@ -108,6 +174,21 @@
         </div>
 
         <div id="status" class="status" hidden role="status"></div>
+
+        <div id="assumptionsPanel" class="assumptions-panel" hidden>
+          <div class="assumptions-head">
+            <strong>Review assumptions</strong>
+            <span class="assumptions-hint">Edit any projection-year driver; edited cells are highlighted. Blank = keep derived.</span>
+            <div class="assumptions-actions">
+              <button type="button" id="resetAssumptions" class="ghost-btn">Reset to derived</button>
+              <button type="button" id="finalizeBtn" class="primary-btn">Build Excel</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="assumptionsTable"><thead></thead><tbody></tbody></table>
+          </div>
+          <div id="assumptionsStatus" class="status" hidden role="status"></div>
+        </div>
       </article>
 
       <!-- Tool 2: Benchmark peers -->
@@ -134,6 +215,26 @@
           <span id="peersEcho" class="help-echo" hidden></span>
         </p>
 
+        <div class="bench-opts">
+          <label class="adv-field">Period
+            <select id="benchPeriod">
+              <option value="annual">Annual FY</option>
+              <option value="ltm">LTM</option>
+              <option value="quarter">Latest quarter</option>
+              <option value="semi">Latest half</option>
+            </select>
+          </label>
+          <label class="bench-check"><input type="checkbox" id="benchMultiples" /> Trading multiples (live prices)</label>
+          <label class="bench-check"><input type="checkbox" id="benchUsd" /> Convert to USD</label>
+        </div>
+        <label class="field-label" for="benchTitle">Title (optional)</label>
+        <input id="benchTitle" class="ticker-input" type="text" placeholder="Peer Benchmark" autocomplete="off" />
+        <div class="save-row">
+          <span class="save-label">Save to</span>
+          <span id="benchOutDir" class="save-path">Documents\finmodel\</span>
+          <button type="button" id="benchChangeDir" class="ghost-btn">Change…</button>
+        </div>
+
         <div class="chips" id="peerChips">
           <span class="chip-label">Preset sets</span>
           <button type="button" class="chip" data-t="AAPL, MSFT, GOOGL, AMZN, META">Big Tech</button>
@@ -144,7 +245,7 @@
 
         <div class="outcome">
           <span class="outcome-label">You get</span>
-          <span class="tag">18 metrics</span>
+          <span class="tag">18 metrics (10 shown)</span>
           <span class="tag">Median / Mean</span>
           <span class="tag">Per-cell filing sources</span>
           <span class="tag">Excel + CSV</span>
@@ -152,12 +253,39 @@
 
         <div id="benchStatus" class="status" hidden role="status"></div>
       </article>
+
+      <!-- Tool 3: Web search -->
+      <article class="tool-card" aria-labelledby="searchHeading">
+        <div class="tool-head">
+          <span class="tool-num" aria-hidden="true">3</span>
+          <div>
+            <h2 id="searchHeading">Search the web</h2>
+            <p class="tool-desc">Type a query → ranked results → read any page in-app. Roam browser when configured, basic search otherwise.</p>
+          </div>
+        </div>
+        <label class="field-label" for="searchQuery">Query</label>
+        <div class="build-row">
+          <input id="searchQuery" class="ticker-input" type="text" placeholder="Nestlé annual report 2025"
+                 autocomplete="off" aria-describedby="searchHelp" />
+          <button id="searchBtn" class="primary-btn" disabled>
+            <span class="btn-label-s">Search</span>
+          </button>
+        </div>
+        <p id="searchHelp" class="help">
+          <span id="searchBackendPill" class="mode-pill">basic search</span>
+          <span id="searchEcho" class="help-echo" hidden></span>
+        </p>
+        <div id="searchHistory" class="search-history" hidden></div>
+        <div id="searchStatus" class="status" hidden role="status"></div>
+      </article>
     </section>
 
     <p class="save-note">
       Results appear below and every workbook is saved to
       <strong>Documents\finmodel\</strong>.
     </p>
+
+    <div id="recentFiles" class="recent-files" hidden></div>
 
     <section id="results" class="results" hidden aria-label="Model result">
       <div class="results-head">
@@ -172,6 +300,10 @@
           Open in Excel
         </button>
       </div>
+
+      <div id="modelWarnings" class="status warn" role="status" hidden></div>
+
+      <div id="valuationStrip" class="valuation-strip" hidden></div>
 
       <div class="results-panel">
         <div class="panel-hint">
@@ -191,6 +323,7 @@
           </table>
         </div>
       </div>
+      <div id="newsStrip" class="news-strip" hidden></div>
     </section>
 
     <section id="benchResults" class="results" hidden aria-label="Benchmark result">
@@ -204,6 +337,7 @@
           <button id="openBenchBtn" class="primary-btn">Open in Excel</button>
         </div>
       </div>
+      <div id="benchWarnings" class="status warn" role="status" hidden></div>
       <div class="results-panel">
         <div class="table-wrap">
           <table id="benchTable">
@@ -212,6 +346,29 @@
           </table>
         </div>
       </div>
+    </section>
+
+    <section id="searchResults" class="results" hidden aria-label="Search results">
+      <div class="results-head">
+        <div class="results-title-block">
+          <h2 id="searchResTitle">Results</h2>
+          <div class="results-meta" id="searchResMeta"></div>
+        </div>
+        <div class="topbar-actions">
+          <button id="searchReaderBack" class="ghost-btn" hidden title="Back to results">← Results</button>
+        </div>
+      </div>
+      <ul id="searchHitList" class="search-hits"></ul>
+      <article id="searchReader" class="search-reader" hidden>
+        <div class="reader-bar">
+          <a id="readerUrl" class="reader-url" href="#" title=""></a>
+          <div class="reader-actions">
+            <input id="readerFind" class="reader-find" type="text" placeholder="Find on page…" hidden />
+            <button id="readerOpen" class="ghost-btn" title="Open in browser">Open ↗</button>
+          </div>
+        </div>
+        <div id="readerBody" class="reader-body"></div>
+      </article>
     </section>
   </main>
 
@@ -258,6 +415,30 @@
         <small class="hint">Model list is fetched live from OpenRouter.</small>
       </label>
 
+      <label class="field">
+        <span class="field-label">SEC EDGAR contact email</span>
+        <input id="edgarContact" type="text" placeholder="you@example.com" autocomplete="off" />
+        <small class="hint">Sent in the SEC User-Agent (their fair-access policy). Blank uses a default.</small>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Default output folder</span>
+        <div class="model-row">
+          <input id="outDir" type="text" placeholder="Documents\finmodel\" autocomplete="off" />
+          <button id="chooseOutDir" type="button" class="ghost-btn">Choose…</button>
+        </div>
+        <small class="hint">Where generated workbooks are saved. Blank uses Documents\finmodel\.</small>
+      </label>
+
+      <div class="field">
+        <span class="field-label">Web research (Roam MCP)</span>
+        <div class="model-row">
+          <input id="mcpCommand" type="text" placeholder="e.g. uvx roam-mcp" autocomplete="off" />
+          <button id="testMcp" type="button" class="ghost-btn">Test connection</button>
+        </div>
+        <small id="mcpStatus" class="hint">The MCP server command from your Roam install. Blank uses basic search.</small>
+      </div>
+
       <div class="field update-field">
         <span class="field-label">Updates</span>
         <div class="model-row">
@@ -266,7 +447,10 @@
         </div>
       </div>
 
+      <div id="settingsStatus" class="status" hidden role="status"></div>
+
       <div class="modal-actions">
+        <button id="removeKey" type="button" class="ghost-btn">Remove key</button>
         <button id="saveSettings" type="button" class="primary-btn">Save</button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 /// Command failures serialize to `{ "kind": "...", "message": "..." }` for the
-/// frontend. Mirrors the pdf-panda error contract.
+/// frontend to render.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("{0}")]

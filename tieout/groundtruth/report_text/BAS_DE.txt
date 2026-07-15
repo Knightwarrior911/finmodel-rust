@@ -1,0 +1,880 @@
+BASF Report 2024
+Consolidated Financial
+ 
+ 
+   Statements
+Statement of Income
+329
+Statement of Income and Expense Recognized in 
+Equity
+330
+Balance Sheet
+331
+Statement of Cash Flows
+333
+Statement of Changes in Equity
+334
+Notes
+336
+1 Summary of accounting policies
+336
+2 Scope of consolidation
+343
+3 Acquisitions and divestitures
+344
+4 BASF Group list of shares held
+349
+5 Reporting by segment and region
+350
+6 Earnings per share
+357
+7 Sales revenue
+358
+8 Functional costs
+360
+9 Other operating income and expenses
+361
+10 Investments accounted for using the equity 
+method and other financial assets
+363
+11 Financial result
+371
+12 Income taxes
+372
+13 Noncontrolling interests
+377
+14 Fixed assets
+378
+15 Leases
+388
+16 Inventories
+390
+17 Receivables and miscellaneous assets
+391
+18 Capital, reserves and retained earnings
+394
+19 Other comprehensive income
+396
+20 Liabilities
+397
+21 Provisions for pensions and similar obligations
+400
+22 Other provisions
+409
+23 Risks from litigation and claims
+411
+24 Other financial obligations
+412
+25 Supplementary information on financial instruments
+412
+26 Capital structure management and statement of 
+cash flows
+430
+27 Personnel expenses and employees
+435
+28 Share price-based compensation programs and 
+BASF incentive share program
+436
+29 Compensation of the Board of Executive Directors 
+and Supervisory Board 
+440
+30 Related party transactions
+440
+31 Services provided by the external auditor
+442
+32 Declaration of Conformity with the German 
+Corporate Governance Code
+443
+33 Non-adjusting events after the balance sheet date 
+443
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Consolidated Financial Statements and Notes 328
+2
+Statement of Income
+BASF Group
+Statement of income
+Million €
+Explanations 
+in Note
+2024
+2023
+Sales revenue
+7
+65,260
+68,902
+Cost of sales
+8
+-48,174
+-52,200
+Gross profit on sales
+17,085
+16,702
+Selling expenses
+8
+-8,782
+-8,788
+General administrative expenses
+8
+-1,466
+-1,506
+Research and development expenses
+8
+-2,061
+-2,130
+Other operating income
+9
+1,374
+1,990
+Other operating expenses
+9
+-4,120
+-4,221
+Income from integral companies accounted for using the equity method
+10
+2
+192
+Income from operations (EBIT)
+5
+2,033
+2,240
+Income from non-integral companies accounted for using the equity method
+651
+-114
+Income from other shareholdings
+76
+55
+Expenses from other shareholdings
+-129
+-141
+Net income from shareholdings
+10
+598
+-200
+Interest income
+371
+322
+Interest expenses
+-929
+-860
+Interest result
+-558
+-538
+Other financial income
+267
+199
+Other financial expenses
+-271
+-281
+Other financial result
+-5
+-82
+Financial result
+11
+-563
+-620
+Income before income taxes
+2,069
+1,420
+Income taxes
+12
+-616
+-1,041
+Income after taxes
+1,453
+379
+of which attributable to shareholders of BASF SE (net income)
+1,298
+225
+attributable to noncontrolling interests
+13
+155
+154
+Earnings per share (€)
+6
+1.45
+0.25
+Dilution effect (€)
+6
+–
+–
+Diluted earnings per share (€)
+6
+1.45
+0.25
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Statement of Income 329
+Statement of Income and Expense Recognized in Equity
+BASF Group
+Statement of comprehensive incomea
+Million €
+2024
+2023
+Income after taxes
+1,453
+379
+Remeasurement of defined benefit plansb
+1,727
+-674
+Deferred taxes on the remeasurement of defined benefit plans
+-273
+100
+Investments accounted for using the equity method – share of nonreclassifiable gains/losses (after 
+taxes)
+23
+-196
+Nonreclassifiable gains/losses
+1,477
+-771
+Unrealized gains/losses from debt instruments measured at fair value through other 
+comprehensive income
+–
+11
+Reclassification of realized gains/losses from debt instruments measured at fair value recognized in 
+the statement of income
+-1
+–
+Unrealized gains/losses in connection with cash flow hedges
+44
+-78
+Reclassification of realized gains/losses recognized in the statement of income in connection with 
+cash flow hedges
+-103
+-13
+Unrealized gains/losses from currency translation
+632
+-1,072
+Reclassification of realized gains/losses from currency translation recognized in the statement of 
+income
+-10
+–
+Deferred taxes on reclassifiable gains/losses
+7
+18
+Investments accounted for using the equity method – share of reclassifiable gains/losses (after 
+taxes)
+70
+354
+Investments accounted for using the equity method – reclassification of realized gains/losses 
+recognized in the statement of income
+45
+–
+Reclassifiable gains/losses
+684
+-780
+Other comprehensive income after taxes
+2,161
+-1,551
+of which attributable to shareholders of BASF SE
+2,107
+-1,477
+attributable to noncontrolling interests
+54
+-74
+Comprehensive income
+3,613
+-1,172
+of which attributable to shareholders of BASF SE
+3,405
+-1,252
+attributable to noncontrolling interests
+209
+80
+a For more information on other comprehensive income, see Note 19 on page 396
+b For more information on the remeasurement of defined benefit plans, see Note 21 from page 400 onward
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Statement of Income and Expense Recognized in Equity 330
+Balance Sheet
+BASF Group
+Assets
+Million €
+Explanations 
+in Note
+Dec. 31, 2024
+Dec. 31, 2023
+Intangible assets
+14
+11,983
+12,216
+Property, plant and equipment
+14
+27,197
+24,080
+Integral investments accounted for using the equity method
+10
+2,399
+2,054
+Non-integral investments accounted for using the equity method
+10
+3,411
+4,518
+Other financial assets
+10
+1,165
+1,099
+Deferred tax assets
+12
+574
+617
+Receivables for income taxesa
+88
+80
+Other receivables and miscellaneous assetsa
+17
+2,366
+1,258
+Noncurrent assets
+49,183
+45,923
+Inventories
+16
+13,681
+13,876
+Accounts receivable, trade
+17
+10,393
+10,414
+Receivables for income taxesa
+740
+717
+Other receivables and miscellaneous assetsa
+3,256
+3,787
+Marketable securities
+67
+53
+Cash and cash equivalents
+26
+2,914
+2,624
+Assets of disposal groups
+3
+181
+–
+Current assets
+31,232
+31,472
+Total assets
+80,415
+77,395
+a Since the 2024 business year, receivables for income taxes, which were previously included in other receivables and miscellaneous assets, have been reported separately. 
+The prior-year figures have been adjusted.
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Balance Sheet 331
+Equity and liabilities
+Million €
+Explanations 
+in Note
+Dec. 31, 2024
+Dec. 31, 2023
+Subscribed capital
+18
+1,142
+1,142
+Capital reserves
+18
+3,139
+3,139
+Retained earnings
+18
+30,883
+32,517
+Other comprehensive income
+19
+435
+-1,521
+Equity attributable to shareholders of BASF SE
+35,599
+35,277
+Noncontrolling interests
+13
+1,284
+1,368
+Equity                                                                                                                          
+36,884
+36,646
+Provisions for pensions and similar obligations
+21
+2,403
+2,896
+Deferred tax liabilities
+12
+1,005
+1,140
+Income tax provisions
+335
+335
+Other provisions
+22
+1,883
+1,684
+Financial indebtedness                                                                                                  
+20
+19,122
+17,085
+Other liabilities
+20
+1,744
+1,739
+Noncurrent liabilities
+26,492
+24,879
+Accounts payable, trade
+20
+6,923
+6,741
+Provisions
+22
+3,320
+3,214
+Liabilities for income taxesa
+12
+404
+442
+Financial indebtedness                                                                                                  
+20
+2,639
+2,182
+Other liabilitiesa
+20
+3,714
+3,291
+Liabilities of disposal groups
+3
+39
+–
+Current liabilities
+17,039
+15,871
+Total equity and liabilities
+80,415
+77,395
+a In the previous year, liabilities for income taxes were reported with liabilities for other taxes. As of the 2024 business year, these are recognized under other liabilities. The 
+prior-year figure was adjusted accordingly by the amount for other taxes (€359 million).
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Balance Sheet 332
+Statement of Cash Flows
+BASF Group
+Statement of cash flows
+Million €
+2024
+2023
+Net income
+1,298
+225
+Depreciation and amortization of property, plant and equipment and intangible assetsa
+4,648
+4,941
+Equity-accounted income
+-654
+-78
+Other noncash items
+390
+3
+Gains (-) / losses (+) from the disposal of noncurrent assets and securities
+-51
+-103
+Dividends received from equity-accounted investments
+442
+622
+Changes in inventories
+222
+1,896
+Changes in accounts receivable, trade
+42
+1,443
+Changes in accounts payable, trade
+96
+-1,544
+Changes in provisions
+204
+-484
+Changes in other operating assets
+383
+1,918
+Changes in other operating liabilities and pension provisions
+-76
+-730
+Cash flows from operating activities
+6,946
+8,111
+Payments made for property, plant and equipment and intangible assets
+-6,198
+-5,395
+Payments made for financial assets and securities
+-749
+-1,042
+Payments made for investments in equity instruments
+-646
+-57
+Payments made for acquisitions
+-202
+-5
+Payments received from divestitures
+75
+32
+Payments received from the disposal of noncurrent assets and securities
+808
+1,439
+Payments received from the disposal of equity instruments
+1,831
+36
+Cash flows from investing activities
+-5,081
+-4,991
+Capital repayments and other equity transactions
+-46
+-70
+Additions to financial and similar liabilities
+6,362
+9,503
+Repayment of financial and similar liabilities
+-4,579
+-9,244
+Dividends paid
+-3,284
+-3,094
+Cash flows from financing activities
+-1,547
+-2,905
+Cash-effective changes in cash and cash equivalents
+318
+215
+Changes in cash and cash equivalents from foreign exchange rates and changes in the scope of 
+consolidation
+-21
+-106
+Cash and cash equivalents at the beginning of the year
+2,624
+2,516
+Cash and cash equivalents at the end of the yearb
+2,921
+2,624
+a This item includes depreciation and amortization, impairments and reversals of impairments.
+b In 2024, cash and cash equivalents in the statement of cash flows differ from the value in the balance sheet due to the existence of disposal groups.
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Statement of Cash Flows 333
+Statement of Changes in Equity
+BASF Group
+Statement of changes in equitya
+Million €
+Subscribed
+capital
+Capital
+reserves
+Retained
+earnings
+Remeasurement of defined 
+benefit plans
+Currency
+translation
+Measurement
+of securities
+at fair value
+Cash flow
+hedges
+Other comprehensive
+income
+Equity attributable to 
+shareholders of BASF SE
+Noncontrolling
+interests
+Equity
+January 1, 
+2024
+1,142
+3,139
+32,517
+-1,739
+320
+-167
+65
+-1,521
+35,277
+1,368
+36,646
+Dividends paid
+–
+–
+-3,035
+–
+–
+–
+–
+–
+-3,035
+-249b
+-3,284
+Income after 
+taxes
+–
+–
+1,298
+–
+–
+–
+–
+–
+1,298
+155
+1,453
+Other 
+comprehensive 
+income after 
+taxes
+–
+–
+–
+1,477
+782
+-1
+-151
+2,107
+2,107
+54
+2,161
+Gains and 
+losses on cash 
+flow hedges 
+and hedging 
+costs, 
+eliminated from 
+other 
+comprehensive 
+income not 
+affecting profit 
+and loss
+–
+–
+–
+–
+–
+–
+38
+38
+38
+–
+38
+Changes in 
+scope of 
+consolidation 
+and other 
+changes
+–
+–
+103
+-188
+–
+–
+–
+-188
+-86
+-17
+-103
+Changes in 
+noncontrolling 
+interests
+–
+–
+–
+–
+–
+–
+–
+–
+–
+-26
+-26
+December 31, 
+2024
+1,142
+3,139
+30,883
+-451
+1,102
+-168
+-48
+435
+35,599
+1,285
+36,884
+a For more information on the items relating to equity, see Notes 18 and 19 from page 394 onward
+b Including profit and loss transfers
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Statement of Changes in Equity 334
+Statement of changes in equitya
+Million €
+Subscribed
+capital
+Capital
+reserves
+Retained
+earnings
+Remeasurement of defined 
+benefit plans
+Currency
+translation
+Measurement
+of securities
+at fair value
+Cash flow
+hedges
+Other comprehensive
+income
+Equity attributable to 
+shareholders of BASF SE
+Noncontrolling
+interests
+Equity
+January 1, 
+2023
+1,144
+3,147
+35,453
+-1,207
+1,540
+–
+-504
+-171
+39,573
+1,350
+40,923
+Treasury 
+shares
+-2
+2
+-70
+–
+–
+–
+–
+–
+-70
+–
+-70
+Dividends paid
+–
+–
+-3,035
+–
+–
+–
+–
+–
+-3,035
+-60b
+-3,095
+Income after 
+taxes
+–
+–
+225
+–
+–
+–
+–
+–
+225
+154
+379
+Other 
+comprehensive 
+income after 
+taxes
+–
+–
+–
+-591
+-1,220
+-172
+506
+-1,477
+-1,477
+-74
+-1,551
+Gains and 
+losses on cash 
+flow hedges 
+and hedging 
+costs, 
+eliminated from 
+other 
+comprehensive 
+income not 
+affecting profit 
+and loss
+–
+–
+–
+–
+–
+–
+64
+64
+64
+–
+64
+Changes in 
+scope of 
+consolidation 
+and other 
+changes
+–
+-9
+-58
+59
+–
+5
+–
+64
+-3
+–
+-3
+December 31, 
+2023
+1,142
+3,139
+32,517
+-1,739
+320
+-167
+65
+-1,521
+35,277
+1,368
+36,646
+a For more information on the items relating to equity, see Notes 18 and 19 from page 394 onward
+b Including profit and loss transfers
+About This Report
+Combined Management’s Report
+Consolidated Financial Statements
+Further Information
+BASF Report 2024
+Statement of Changes in Equity 335

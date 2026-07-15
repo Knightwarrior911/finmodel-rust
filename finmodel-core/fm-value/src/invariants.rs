@@ -1,11 +1,10 @@
 use crate::dcf::DCFInput;
 
-/// Run all 11 sanity checks on DCF inputs, WACC, and market multiples.
-///
-/// Returns a list of invariant descriptions. Each non-empty string represents
-/// a violated invariant that the caller should investigate. An empty `Vec`
-/// means all checks passed.
-pub fn check_all(dcf: &DCFInput, wacc: f64, pe: f64, pb: f64) -> Vec<String> {
+/// DCF/WACC structural invariants — the checks that need NO live market data
+/// (discount-vs-growth, WACC sanity, TV FCF sign, projection coverage). Each
+/// non-empty string is a violated invariant. Empty means all passed. Callers
+/// without market multiples use this directly instead of fabricating pe/pb.
+pub fn check_dcf_invariants(dcf: &DCFInput, wacc: f64) -> Vec<String> {
     let mut issues: Vec<String> = Vec::new();
 
     // 1. Discount rate must exceed long-term terminal growth
@@ -27,11 +26,6 @@ pub fn check_all(dcf: &DCFInput, wacc: f64, pe: f64, pb: f64) -> Vec<String> {
             "Terminal growth ({:.4}) exceeds nominal GDP proxy (0.035)",
             dcf.terminal_growth
         ));
-    }
-
-    // 4. Implied P/E must be positive
-    if pe <= 0.0 {
-        issues.push(format!("Implied P/E must be positive (got {:.4})", pe));
     }
 
     // 5. FCF must not be empty
@@ -59,14 +53,6 @@ pub fn check_all(dcf: &DCFInput, wacc: f64, pe: f64, pb: f64) -> Vec<String> {
         issues.push("Projected periods must be greater than zero".to_string());
     }
 
-    // 9. P/B must be positive
-    if pb <= 0.0 {
-        issues.push(format!(
-            "Price-to-book ratio must be positive (got {:.4})",
-            pb
-        ));
-    }
-
     // 10. Terminal growth rate should not be negative for a going concern
     if dcf.terminal_growth < 0.0 {
         issues.push(format!(
@@ -81,6 +67,31 @@ pub fn check_all(dcf: &DCFInput, wacc: f64, pe: f64, pb: f64) -> Vec<String> {
             "FCF projections length ({}) is less than projected periods ({})",
             dcf.fcf.len(),
             dcf.projected_periods
+        ));
+    }
+
+    issues
+}
+
+/// Run all 11 sanity checks on DCF inputs, WACC, and market multiples.
+///
+/// Returns a list of invariant descriptions. Each non-empty string represents
+/// a violated invariant that the caller should investigate. An empty `Vec`
+/// means all checks passed. Extends [`check_dcf_invariants`] with the two
+/// market-multiple checks (require live `pe`/`pb`).
+pub fn check_all(dcf: &DCFInput, wacc: f64, pe: f64, pb: f64) -> Vec<String> {
+    let mut issues = check_dcf_invariants(dcf, wacc);
+
+    // 4. Implied P/E must be positive
+    if pe <= 0.0 {
+        issues.push(format!("Implied P/E must be positive (got {:.4})", pe));
+    }
+
+    // 9. P/B must be positive
+    if pb <= 0.0 {
+        issues.push(format!(
+            "Price-to-book ratio must be positive (got {:.4})",
+            pb
         ));
     }
 

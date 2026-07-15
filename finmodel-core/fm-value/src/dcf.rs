@@ -152,9 +152,17 @@ pub fn compute_dcf(
     let last_fcff = *fcff_proj.last().unwrap_or(&0.0);
 
     let tv_ebitda = terminal_ebitda * exit_mult;
+    let mut warnings: Vec<String> = Vec::new();
     let tv_gordon = if wacc > terminal_g {
         (last_fcff * (1.0 + terminal_g)) / (wacc - terminal_g)
     } else {
+        // g ≥ WACC → Gordon growth is mathematically undefined. Never silently
+        // emit a plausible-looking 0; flag it (surfaced by fm-build → UI/CLI).
+        warnings.push(format!(
+            "terminal growth ({:.1}%) ≥ WACC ({:.1}%) — Gordon terminal value undefined; using 0",
+            terminal_g * 100.0,
+            wacc * 100.0
+        ));
         0.0
     };
 
@@ -331,6 +339,7 @@ pub fn compute_dcf(
         gordon_growth_range,
         sensitivity_ebitda,
         sensitivity_gordon,
+        warnings,
     }
 }
 

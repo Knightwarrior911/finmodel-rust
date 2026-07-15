@@ -23,8 +23,51 @@ enum Command {
         #[arg(short, long)]
         snapshot: PathBuf,
     },
-    /// (Stub) Build a full model for a ticker
-    Build { ticker: String },
+    /// Build a full 3-statement + DCF model for a ticker
+    Build {
+        ticker: String,
+        /// Projection years (2-10).
+        #[arg(long, default_value_t = 5)]
+        years: usize,
+        #[arg(long, default_value = "standard")]
+        sector: String,
+        /// Risk-free rate as a decimal (e.g. 0.045).
+        #[arg(long)]
+        risk_free: Option<f64>,
+        /// Equity risk premium as a decimal (e.g. 0.055).
+        #[arg(long)]
+        erp: Option<f64>,
+        #[arg(long)]
+        target_de: Option<f64>,
+        /// Pre-tax cost of debt as a decimal (blank = engine-derived).
+        #[arg(long)]
+        cost_of_debt: Option<f64>,
+        #[arg(long)]
+        beta: Option<f64>,
+        /// Tax rate as a decimal (blank = engine-derived).
+        #[arg(long)]
+        tax_rate: Option<f64>,
+        /// Base-case terminal growth as a decimal (e.g. 0.025).
+        #[arg(long)]
+        terminal_growth: Option<f64>,
+        /// Exit EBITDA multiple (blank = sector default).
+        #[arg(long)]
+        exit_multiple: Option<f64>,
+        /// Terminal-value method: 1 = EBITDA exit, 2 = Gordon growth.
+        #[arg(long, default_value_t = 1)]
+        tv_method: u8,
+        #[arg(long)]
+        share_price: Option<f64>,
+        #[arg(long, default_value = "Dec")]
+        fye: String,
+        /// Output .xlsx path (blank = <STEM>_model.xlsx).
+        #[arg(long)]
+        out: Option<String>,
+        /// Per-driver override: `--set revenue_growth_pct=0.12,0.10,0.08` (repeatable;
+        /// empty comma slots keep the derived value: `--set tax_rate_pct=,,0.20`).
+        #[arg(long = "set")]
+        set: Vec<String>,
+    },
     /// Verify all committed snapshots reproduce to zero diffs
     Verify {},
     /// IFRS 16 ↔ US GAAP lease-accounting conversion + ASC 842 estimation.
@@ -134,10 +177,10 @@ enum Command {
         /// Also write the raw benchmark grid to this .csv path (for own models).
         #[arg(long)]
         csv: Option<String>,
-        /// Use last-twelve-months (LTM) basis for scale/margins/leverage
-        /// (growth & CAGR stay annual) — the standard IB comps basis.
-        #[arg(long)]
-        ltm: bool,
+        /// Reporting-period basis: annual (default) | ltm | quarter | semi.
+        /// LTM is the standard IB comps basis; quarter/semi use discrete periods.
+        #[arg(long, default_value = "annual")]
+        period: String,
         /// Add trading multiples (EV/EBITDA, EV/Revenue, P/E) using live market
         /// prices (Yahoo Finance) × filing-derived EV components.
         #[arg(long)]
@@ -159,6 +202,18 @@ enum Command {
         /// Maximum number of filings to list.
         #[arg(long, default_value_t = 5)]
         limit: usize,
+    },
+    /// Latest news headlines for a ticker or query (Google News RSS).
+    News {
+        /// Ticker or free-text query, e.g. "AAPL" or "Nvidia acquisition".
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Research an M&A deal from the web (query routing + regex synthesis).
+    Deal {
+        /// e.g. "Microsoft acquires Activision" or "Credit Suisse merger with UBS".
+        query: String,
     },
 }
 
@@ -239,15 +294,37 @@ fn load_fixture_extraction(ticker: &str) -> Option<fm_extract::ExtractionResult>
     None
 }
 
-fn cmd_build(ticker: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Parse `--set key=v1,v2,...` entries into per-driver overrides. Empty comma
+/// slots (and non-numeric values) become `None` (keep the engine-derived value).
+fn parse_overrides(set: &[String]) -> Vec<fm_build::AssumptionOverride> {
+    set.iter()
+        .filter_map(|entry| {
+            let (key, vals) = entry.split_once('=')?;
+            let values = vals
+                .split(',')
+                .map(|s| s.trim().parse::<f64>().ok())
+                .collect();
+            Some(fm_build::AssumptionOverride {
+                key: key.trim().to_string(),
+                values,
+            })
+        })
+        .collect()
+}
+
+fn cmd_build(ticker: &str, opts: &fm_build::BuildOptions) -> Result<(), Box<dyn std::error::Error>> {
     println!("Build pipeline for {ticker}");
 
     // Step 1: Obtain extraction — live-first when key, else committed fixture.
     let has_key = std::env::var("OPENROUTER_API_KEY").map(|k| !k.trim().is_empty()).unwrap_or(false);
+    let mut live = false;
     let extraction = if has_key {
         println!("  OPENROUTER_API_KEY set — attempting live fetch...");
         match fm_extract::fetch_xbrl(ticker) {
-            Ok(e) => e,
+            Ok(e) => {
+                live = true;
+                e
+            }
             Err(live_err) => {
                 println!("  live fetch failed ({live_err}); falling back to committed fixture");
                 load_fixture_extraction(ticker).ok_or_else(|| format!(
@@ -270,13 +347,33 @@ fn cmd_build(ticker: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("  extracted: IS({n_is}) BS({n_bs}) CFS({n_cfs}) across {ny} years in {ccy}",
         ccy = extraction.currency);
 
-    // Step 2: reconcile + project + assemble sheets (SHARED fm-build core).
+    // Step 2: live share price (real DCF upside) for live extractions; the
+    // offline fixture path stays instant.
+    let mut opts = opts.clone();
+    if opts.share_price.is_none() && live {
+        match fm_fetch::fetch_quote(ticker) {
+            Ok(q) if q.currency == extraction.currency => opts.share_price = Some(q.price),
+            Ok(q) => eprintln!(
+                "warning: quote currency {} ≠ filing currency {} — live share price not applied",
+                q.currency, extraction.currency
+            ),
+            Err(_) => eprintln!("warning: live quote unavailable — pass --share-price for DCF upside"),
+        }
+    }
+    // reconcile + project + assemble sheets (SHARED fm-build core).
     println!("  reconcile -> project...");
-    let out = fm_build::build(&extraction, ticker, 5);
+    let out = fm_build::build_with(&extraction, ticker, &opts);
+    for w in &out.warnings {
+        eprintln!("warning: {w}");
+    }
 
     // Step 3: Write Excel — the actual deliverable.
     let stem = fm_build::ticker_to_stem(ticker);
-    let xlsx_path = format!("{stem}_model.xlsx");
+    let xlsx_path = opts
+        .out_path
+        .clone()
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| format!("{stem}_model.xlsx"));
     fm_excel::render::render(&out.workbook, &xlsx_path)?;
     println!("  \u{2713} wrote Excel model -> {xlsx_path}");
 
@@ -498,7 +595,7 @@ fn cmd_benchmark(
     out: &str,
     title: Option<&str>,
     csv: Option<&str>,
-    ltm: bool,
+    period: &str,
     multiples: bool,
     usd: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -510,23 +607,40 @@ fn cmd_benchmark(
     if list.is_empty() {
         return Err("no tickers given (use --tickers AAPL,MSFT,...)".into());
     }
+    let basis: fm_research::PeriodBasis = match period.to_lowercase().as_str() {
+        "annual" => fm_research::PeriodBasis::AnnualFy,
+        "ltm" => fm_research::PeriodBasis::Ltm,
+        "quarter" => fm_research::PeriodBasis::Quarter,
+        "semi" => fm_research::PeriodBasis::SemiAnnual,
+        other => return Err(format!("invalid --period '{other}' (use: annual | ltm | quarter | semi)").into()),
+    };
     let mut tags: Vec<&str> = Vec::new();
-    if ltm { tags.push("LTM"); }
+    if !matches!(basis, fm_research::PeriodBasis::AnnualFy) {
+        tags.push(match basis {
+            fm_research::PeriodBasis::Ltm => "LTM",
+            fm_research::PeriodBasis::Quarter => "quarterly",
+            fm_research::PeriodBasis::SemiAnnual => "semi-annual",
+            fm_research::PeriodBasis::AnnualFy => "",
+        });
+    }
     if multiples { tags.push("+multiples"); }
     if usd { tags.push("USD"); }
-    let basis = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
+    let basis_note = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
     let title = title
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("Peer Benchmark{basis} — {}", list.join(", ")));
-    println!("Benchmarking {} tickers from SEC EDGAR XBRL{basis}...", list.len());
+        .unwrap_or_else(|| format!("Peer Benchmark{basis_note} — {}", list.join(", ")));
+    println!("Benchmarking {} tickers from SEC EDGAR XBRL{basis_note}...", list.len());
 
     let run = fm_research::benchmark_tickers_opts(
         &list,
         &title,
-        fm_research::BenchmarkOpts { ltm, multiples, to_usd: usd },
+        fm_research::BenchmarkOpts { basis, multiples, to_usd: usd },
     )?;
     for (t, why) in &run.failed {
         println!("  ! {t}: {why}");
+    }
+    for w in &run.data_warnings {
+        eprintln!("warning: {w}");
     }
     println!(
         "  {} of {} tickers produced usable filing data",
@@ -568,12 +682,62 @@ fn cmd_filings(
     Ok(())
 }
 
+fn cmd_news(query: &str, limit: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let headlines = fm_fetch::fetch_headlines(query, limit)?;
+    if headlines.is_empty() {
+        println!("  (no headlines)");
+        return Ok(());
+    }
+    for h in &headlines {
+        let src = if h.source.is_empty() { "" } else { &h.source };
+        println!("  {}  [{}]", h.title, src);
+        println!("    {}", h.url);
+    }
+    Ok(())
+}
+fn cmd_deal(query: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let r = fm_research::agent::run_deal_research(query, None);
+    println!("Query type:   {:?}", r.query_type);
+    println!(
+        "Target: {}   Acquirer: {}",
+        r.target,
+        if r.acquirer.is_empty() { "?" } else { &r.acquirer }
+    );
+    println!("Sources read: {}   Sufficient: {}", r.sources_read.len(), r.sufficient);
+    println!("{}", serde_json::to_string_pretty(&r.summary)?);
+    Ok(())
+}
+
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
         Command::Score { ground_truth, model } => cmd_score(&ground_truth, &model),
         Command::Compare { snapshot } => cmd_compare(&snapshot),
-        Command::Build { ticker } => cmd_build(&ticker),
+        Command::Build {
+            ticker, years, sector, risk_free, erp, target_de, cost_of_debt, beta,
+            tax_rate, terminal_growth, exit_multiple, tv_method, share_price, fye, out, set,
+        } => {
+            let d = fm_build::BuildOptions::default();
+            let opts = fm_build::BuildOptions {
+                proj_years: years,
+                sector,
+                risk_free_rate: risk_free.unwrap_or(d.risk_free_rate),
+                equity_risk_premium: erp.unwrap_or(d.equity_risk_premium),
+                target_de_ratio: target_de.unwrap_or(d.target_de_ratio),
+                cost_of_debt_pretax: cost_of_debt,
+                beta: beta.unwrap_or(d.beta),
+                tax_rate_override: tax_rate,
+                terminal_growth: terminal_growth.unwrap_or(d.terminal_growth),
+                exit_ebitda_multiple: exit_multiple,
+                tv_method,
+                share_price,
+                fiscal_year_end: fye,
+                assumption_overrides: parse_overrides(&set),
+                out_path: out,
+            };
+            cmd_build(&ticker, &opts)
+        }
         Command::Verify {} => cmd_verify(),
         Command::Ifrs {
             standard, ebit, ebitda, ebita, revenue,
@@ -598,11 +762,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cash, short_term_investments, equity_investments, nol_dta,
             xlsx.as_deref(), ltm_revenue, ltm_ebitda,
         ),
-        Command::Benchmark { tickers, out, title, csv, ltm, multiples, usd } => {
-            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), ltm, multiples, usd)
+        Command::Benchmark { tickers, out, title, csv, period, multiples, usd } => {
+            cmd_benchmark(&tickers, &out, title.as_deref(), csv.as_deref(), &period, multiples, usd)
         }
         Command::Filings { ticker, form, limit } => {
             cmd_filings(&ticker, form.as_deref(), limit)
         }
+        Command::News { query, limit } => cmd_news(&query, limit),
+        Command::Deal { query } => cmd_deal(&query),
     }
 }

@@ -1,0 +1,546 @@
+{
+  "pick_slide_archetype": [
+    {
+      "in": [
+        "quotes",
+        4,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "quote_wall",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=quotes -> quote_wall"
+        ]
+      }
+    },
+    {
+      "in": [
+        "comparison",
+        5,
+        3,
+        true,
+        false
+      ],
+      "out": {
+        "archetype": "quote_wall",
+        "split_required": true,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=quotes -> quote_wall",
+          "density 5x3 > limit 8x1 -> 1 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "events",
+        6,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "timeline",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "is_dated/events -> timeline"
+        ]
+      }
+    },
+    {
+      "in": [
+        "comparison",
+        5,
+        3,
+        false,
+        true
+      ],
+      "out": {
+        "archetype": "timeline",
+        "split_required": true,
+        "n_slides": 1,
+        "rationale": [
+          "is_dated/events -> timeline",
+          "density 5x3 > limit 10x1 -> 1 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "framework",
+        3,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "strategy_framework",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=framework -> strategy_framework"
+        ]
+      }
+    },
+    {
+      "in": [
+        "strategy",
+        6,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "strategy_framework",
+        "split_required": true,
+        "n_slides": 2,
+        "rationale": [
+          "data_shape=strategy -> strategy_framework",
+          "density 6x1 > limit 5x1 -> 2 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "process",
+        9,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "process_diagram",
+        "split_required": true,
+        "n_slides": 2,
+        "rationale": [
+          "data_shape=process -> process_diagram",
+          "density 9x1 > limit 8x1 -> 2 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "structure",
+        3,
+        1,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "process_diagram",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=structure -> process_diagram"
+        ]
+      }
+    },
+    {
+      "in": [
+        "single_stat",
+        1,
+        5,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "scorecard",
+        "split_required": true,
+        "n_slides": 1,
+        "rationale": [
+          "single entity, multiple metrics -> scorecard",
+          "density 1x5 > limit 9x1 -> 1 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "comparison",
+        1,
+        4,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "scorecard",
+        "split_required": true,
+        "n_slides": 1,
+        "rationale": [
+          "single entity, multiple metrics -> scorecard",
+          "density 1x4 > limit 9x1 -> 1 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "comparison",
+        10,
+        3,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "comparison_matrix",
+        "split_required": true,
+        "n_slides": 2,
+        "rationale": [
+          "data_shape=comparison -> comparison_matrix",
+          "density 10x3 > limit 8x8 -> 2 slides"
+        ]
+      }
+    },
+    {
+      "in": [
+        "breakdown",
+        5,
+        5,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "comparison_matrix",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=breakdown -> comparison_matrix"
+        ]
+      }
+    },
+    {
+      "in": [
+        "comparison",
+        8,
+        8,
+        false,
+        false
+      ],
+      "out": {
+        "archetype": "comparison_matrix",
+        "split_required": false,
+        "n_slides": 1,
+        "rationale": [
+          "data_shape=comparison -> comparison_matrix"
+        ]
+      }
+    }
+  ],
+  "split_into_chunks": [
+    {
+      "in": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "comparison_matrix"
+      ],
+      "out": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        [
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        [
+          16,
+          17,
+          18,
+          19
+        ]
+      ]
+    },
+    {
+      "in": [
+        [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e"
+        ],
+        "scorecard"
+      ],
+      "out": [
+        [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e"
+        ]
+      ]
+    },
+    {
+      "in": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "timeline"
+      ],
+      "out": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ]
+      ]
+    },
+    {
+      "in": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "process_diagram"
+      ],
+      "out": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        [
+          8
+        ]
+      ]
+    }
+  ],
+  "normalize_heading": [
+    {
+      "in": "sandvik trades at a discount to peers",
+      "out": "Sandvik trades at a discount to peers"
+    },
+    {
+      "in": "Investment Of The Year",
+      "out": "Investment of the Year"
+    },
+    {
+      "in": "EBITDA margin expands 200bps in FY26",
+      "out": "EBITDA margin expands 200bps in FY26"
+    },
+    {
+      "in": "the iPhone drives Apple's Q1 growth",
+      "out": "The iPhone drives Apple's Q1 growth"
+    },
+    {
+      "in": "McKinsey and Company vs Bain",
+      "out": "McKinsey and Company vs Bain"
+    },
+    {
+      "in": "u.s. market share of the top 3 players",
+      "out": "U.s. market share of the top 3 players"
+    }
+  ],
+  "fmt_to_numfmt": [
+    {
+      "in": "{:+,.0f}",
+      "out": "+#,##0;-#,##0"
+    },
+    {
+      "in": "{:,.0f}",
+      "out": "#,##0"
+    },
+    {
+      "in": "{:.1f}",
+      "out": "0.0"
+    },
+    {
+      "in": "{:.1%}",
+      "out": "0.0%"
+    },
+    {
+      "in": "{:.1f}%",
+      "out": "0.0\"%\""
+    },
+    {
+      "in": "{:.1f}x",
+      "out": "0.0\"x\""
+    },
+    {
+      "in": "{:,.1f}",
+      "out": "#,##0.0"
+    },
+    {
+      "in": "{:,.2f}",
+      "out": "#,##0.00"
+    },
+    {
+      "in": "{:.0f}",
+      "out": "0"
+    },
+    {
+      "in": "{:.2%}",
+      "out": "0.00%"
+    },
+    {
+      "in": "{:.0%}",
+      "out": "0%"
+    },
+    {
+      "in": "{:,}",
+      "out": "General"
+    },
+    {
+      "in": "{:.2f}x",
+      "out": "0.00\"x\""
+    },
+    {
+      "in": "weird",
+      "out": "General"
+    }
+  ],
+  "format_value": [
+    {
+      "kind": "null",
+      "in": null,
+      "out": "n/a"
+    },
+    {
+      "kind": "str",
+      "in": "Hello",
+      "out": "Hello"
+    },
+    {
+      "kind": "float",
+      "in": 0.25,
+      "out": "25.0%"
+    },
+    {
+      "kind": "float",
+      "in": 0.0,
+      "out": "0.0"
+    },
+    {
+      "kind": "float",
+      "in": 1234.5,
+      "out": "1,234.5"
+    },
+    {
+      "kind": "float",
+      "in": -0.5,
+      "out": "-50.0%"
+    },
+    {
+      "kind": "float",
+      "in": 5.0,
+      "out": "5.0"
+    },
+    {
+      "kind": "float",
+      "in": -1234.6,
+      "out": "-1,234.6"
+    },
+    {
+      "kind": "int",
+      "in": 1000000,
+      "out": "1,000,000"
+    },
+    {
+      "kind": "int",
+      "in": -42,
+      "out": "-42"
+    },
+    {
+      "kind": "float",
+      "in": 12.0,
+      "out": "12.0"
+    },
+    {
+      "kind": "float",
+      "in": 0.125,
+      "out": "12.5%"
+    }
+  ],
+  "parse_deck_markdown": [
+    {
+      "type": "cover",
+      "title": "Sandvik AB Investment Memo",
+      "subtitle": "Industrials | Long",
+      "date": "April 2026"
+    },
+    {
+      "type": "bar_chart",
+      "action_title": "Sandvik trades at a discount to peer median",
+      "labels": [
+        "SAND.ST",
+        "CAT",
+        "KMT",
+        "ITW"
+      ],
+      "values": [
+        10.5,
+        11.0,
+        9.2,
+        11.8
+      ],
+      "target_label": "SAND.ST",
+      "value_format": "{:.1f}x",
+      "x_label": "EV / LTM EBITDA",
+      "source": "Bloomberg, Apr 30 2026"
+    }
+  ]
+}

@@ -1,0 +1,2631 @@
+{
+  "path": "C:\\Users\\vinit\\Documents\\finmodel-rust\\tests\\fixtures\\pptx\\deck.pptx",
+  "fileSizeBytes": 30388,
+  "slideCount": 3,
+  "layoutCount": 11,
+  "masterCount": 1,
+  "dimensions": {
+    "widthIn": 13.33,
+    "heightIn": 7.5,
+    "widthEmu": 12188952,
+    "heightEmu": 6858000
+  },
+  "masters": [
+    {
+      "name": "",
+      "theme": {
+        "colors": {
+          "dk1": {
+            "sys": "windowText",
+            "sysLastClr": "#000000"
+          },
+          "lt1": {
+            "sys": "window",
+            "sysLastClr": "#FFFFFF"
+          },
+          "dk2": {
+            "rgb": "#1F497D"
+          },
+          "lt2": {
+            "rgb": "#EEECE1"
+          },
+          "accent1": {
+            "rgb": "#4F81BD"
+          },
+          "accent2": {
+            "rgb": "#C0504D"
+          },
+          "accent3": {
+            "rgb": "#9BBB59"
+          },
+          "accent4": {
+            "rgb": "#8064A2"
+          },
+          "accent5": {
+            "rgb": "#4BACC6"
+          },
+          "accent6": {
+            "rgb": "#F79646"
+          },
+          "hlink": {
+            "rgb": "#0000FF"
+          },
+          "folHlink": {
+            "rgb": "#800080"
+          }
+        },
+        "fonts": {
+          "majorFont": {
+            "latin": "Calibri",
+            "ea": "",
+            "cs": ""
+          },
+          "minorFont": {
+            "latin": "Calibri",
+            "ea": "",
+            "cs": ""
+          }
+        },
+        "rawXml": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Office Theme\"><a:themeElements><a:clrScheme name=\"Office\"><a:dk1><a:sysClr val=\"windowText\" lastClr=\"000000\"/></a:dk1><a:lt1><a:sysClr val=\"window\" lastClr=\"FFFFFF\"/></a:lt1><a:dk2><a:srgbClr val=\"1F497D\"/></a:dk2><a:lt2><a:srgbClr val=\"EEECE1\"/></a:lt2><a:accent1><a:srgbClr val=\"4F81BD\"/></a:accent1><a:accent2><a:srgbClr val=\"C0504D\"/></a:accent2><a:accent3><a:srgbClr val=\"9BBB59\"/></a:accent3><a:accent4><a:srgbClr val=\"8064A2\"/></a:accent4><a:accent5><a:srgbClr val=\"4BACC6\"/></a:accent5><a:accent6><a:srgbClr val=\"F79646\"/></a:accent6><a:hlink><a:srgbClr val=\"0000FF\"/></a:hlink><a:folHlink><a:srgbClr val=\"800080\"/></a:folHlink></a:clrScheme><a:fontScheme name=\"Office\"><a:majorFont><a:latin typeface=\"Calibri\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/><a:font script=\"Jpan\" typeface=\"ＭＳ Ｐゴシック\"/><a:font script=\"Hang\" typeface=\"맑은 고딕\"/><a:font script=\"Hans\" typeface=\"宋体\"/><a:font script=\"Hant\" typeface=\"新細明體\"/><a:font script=\"Arab\" typeface=\"Times New Roman\"/><a:font script=\"Hebr\" typeface=\"Times New Roman\"/><a:font script=\"Thai\" typeface=\"Angsana New\"/><a:font script=\"Ethi\" typeface=\"Nyala\"/><a:font script=\"Beng\" typeface=\"Vrinda\"/><a:font script=\"Gujr\" typeface=\"Shruti\"/><a:font script=\"Khmr\" typeface=\"MoolBoran\"/><a:font script=\"Knda\" typeface=\"Tunga\"/><a:font script=\"Guru\" typeface=\"Raavi\"/><a:font script=\"Cans\" typeface=\"Euphemia\"/><a:font script=\"Cher\" typeface=\"Plantagenet Cherokee\"/><a:font script=\"Yiii\" typeface=\"Microsoft Yi Baiti\"/><a:font script=\"Tibt\" typeface=\"Microsoft Himalaya\"/><a:font script=\"Thaa\" typeface=\"MV Boli\"/><a:font script=\"Deva\" typeface=\"Mangal\"/><a:font script=\"Telu\" typeface=\"Gautami\"/><a:font script=\"Taml\" typeface=\"Latha\"/><a:font script=\"Syrc\" typeface=\"Estrangelo Edessa\"/><a:font script=\"Orya\" typeface=\"Kalinga\"/><a:font script=\"Mlym\" typeface=\"Kartika\"/><a:font script=\"Laoo\" typeface=\"DokChampa\"/><a:font script=\"Sinh\" typeface=\"Iskoola Pota\"/><a:font script=\"Mong\" typeface=\"Mongolian Baiti\"/><a:font script=\"Viet\" typeface=\"Times New Roman\"/><a:font script=\"Uigh\" typeface=\"Microsoft Uighur\"/><a:font script=\"Geor\" typeface=\"Sylfaen\"/></a:majorFont><a:minorFont><a:latin typeface=\"Calibri\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/><a:font script=\"Jpan\" typeface=\"ＭＳ Ｐゴシック\"/><a:font script=\"Hang\" typeface=\"맑은 고딕\"/><a:font script=\"Hans\" typeface=\"宋体\"/><a:font script=\"Hant\" typeface=\"新細明體\"/><a:font script=\"Arab\" typeface=\"Arial\"/><a:font script=\"Hebr\" typeface=\"Arial\"/><a:font script=\"Thai\" typeface=\"Cordia New\"/><a:font script=\"Ethi\" typeface=\"Nyala\"/><a:font script=\"Beng\" typeface=\"Vrinda\"/><a:font script=\"Gujr\" typeface=\"Shruti\"/><a:font script=\"Khmr\" typeface=\"DaunPenh\"/><a:font script=\"Knda\" typeface=\"Tunga\"/><a:font script=\"Guru\" typeface=\"Raavi\"/><a:font script=\"Cans\" typeface=\"Euphemia\"/><a:font script=\"Cher\" typeface=\"Plantagenet Cherokee\"/><a:font script=\"Yiii\" typeface=\"Microsoft Yi Baiti\"/><a:font script=\"Tibt\" typeface=\"Microsoft Himalaya\"/><a:font script=\"Thaa\" typeface=\"MV Boli\"/><a:font script=\"Deva\" typeface=\"Mangal\"/><a:font script=\"Telu\" typeface=\"Gautami\"/><a:font script=\"Taml\" typeface=\"Latha\"/><a:font script=\"Syrc\" typeface=\"Estrangelo Edessa\"/><a:font script=\"Orya\" typeface=\"Kalinga\"/><a:font script=\"Mlym\" typeface=\"Kartika\"/><a:font script=\"Laoo\" typeface=\"DokChampa\"/><a:font script=\"Sinh\" typeface=\"Iskoola Pota\"/><a:font script=\"Mong\" typeface=\"Mongolian Baiti\"/><a:font script=\"Viet\" typeface=\"Arial\"/><a:font script=\"Uigh\" typeface=\"Microsoft Uighur\"/><a:font script=\"Geor\" typeface=\"Sylfaen\"/></a:minorFont></a:fontScheme><a:fmtScheme name=\"Office\"><a:fillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill><a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:schemeClr val=\"phClr\"><a:tint val=\"50000\"/><a:satMod val=\"300000\"/></a:schemeClr></a:gs><a:gs pos=\"35000\"><a:schemeClr val=\"phClr\"><a:tint val=\"37000\"/><a:satMod val=\"300000\"/></a:schemeClr></a:gs><a:gs pos=\"100000\"><a:schemeClr val=\"phClr\"><a:tint val=\"15000\"/><a:satMod val=\"350000\"/></a:schemeClr></a:gs></a:gsLst><a:lin ang=\"16200000\" scaled=\"1\"/></a:gradFill><a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:schemeClr val=\"phClr\"><a:tint val=\"100000\"/><a:shade val=\"100000\"/><a:satMod val=\"130000\"/></a:schemeClr></a:gs><a:gs pos=\"100000\"><a:schemeClr val=\"phClr\"><a:tint val=\"50000\"/><a:shade val=\"100000\"/><a:satMod val=\"350000\"/></a:schemeClr></a:gs></a:gsLst><a:lin ang=\"16200000\" scaled=\"0\"/></a:gradFill></a:fillStyleLst><a:lnStyleLst><a:ln w=\"9525\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"><a:shade val=\"95000\"/><a:satMod val=\"105000\"/></a:schemeClr></a:solidFill><a:prstDash val=\"solid\"/></a:ln><a:ln w=\"25400\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln><a:ln w=\"38100\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst><a:outerShdw blurRad=\"40000\" dist=\"20000\" dir=\"5400000\" rotWithShape=\"0\"><a:srgbClr val=\"000000\"><a:alpha val=\"38000\"/></a:srgbClr></a:outerShdw></a:effectLst></a:effectStyle><a:effectStyle><a:effectLst><a:outerShdw blurRad=\"40000\" dist=\"23000\" dir=\"5400000\" rotWithShape=\"0\"><a:srgbClr val=\"000000\"><a:alpha val=\"35000\"/></a:srgbClr></a:outerShdw></a:effectLst></a:effectStyle><a:effectStyle><a:effectLst><a:outerShdw blurRad=\"40000\" dist=\"23000\" dir=\"5400000\" rotWithShape=\"0\"><a:srgbClr val=\"000000\"><a:alpha val=\"35000\"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst=\"orthographicFront\"><a:rot lat=\"0\" lon=\"0\" rev=\"0\"/></a:camera><a:lightRig rig=\"threePt\" dir=\"t\"><a:rot lat=\"0\" lon=\"0\" rev=\"1200000\"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w=\"63500\" h=\"25400\"/></a:sp3d></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill><a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:schemeClr val=\"phClr\"><a:tint val=\"40000\"/><a:satMod val=\"350000\"/></a:schemeClr></a:gs><a:gs pos=\"40000\"><a:schemeClr val=\"phClr\"><a:tint val=\"45000\"/><a:shade val=\"99000\"/><a:satMod val=\"350000\"/></a:schemeClr></a:gs><a:gs pos=\"100000\"><a:schemeClr val=\"phClr\"><a:shade val=\"20000\"/><a:satMod val=\"255000\"/></a:schemeClr></a:gs></a:gsLst><a:path path=\"circle\"><a:fillToRect l=\"50000\" t=\"-80000\" r=\"50000\" b=\"180000\"/></a:path></a:gradFill><a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:schemeClr val=\"phClr\"><a:tint val=\"80000\"/><a:satMod val=\"300000\"/></a:schemeClr></a:gs><a:gs pos=\"100000\"><a:schemeClr val=\"phClr\"><a:shade val=\"30000\"/><a:satMod val=\"200000\"/></a:schemeClr></a:gs></a:gsLst><a:path path=\"circle\"><a:fillToRect l=\"50000\" t=\"50000\" r=\"50000\" b=\"50000\"/></a:path></a:gradFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults><a:spDef><a:spPr/><a:bodyPr/><a:lstStyle/><a:style><a:lnRef idx=\"1\"><a:schemeClr val=\"accent1\"/></a:lnRef><a:fillRef idx=\"3\"><a:schemeClr val=\"accent1\"/></a:fillRef><a:effectRef idx=\"2\"><a:schemeClr val=\"accent1\"/></a:effectRef><a:fontRef idx=\"minor\"><a:schemeClr val=\"lt1\"/></a:fontRef></a:style></a:spDef><a:lnDef><a:spPr/><a:bodyPr/><a:lstStyle/><a:style><a:lnRef idx=\"2\"><a:schemeClr val=\"accent1\"/></a:lnRef><a:fillRef idx=\"0\"><a:schemeClr val=\"accent1\"/></a:fillRef><a:effectRef idx=\"1\"><a:schemeClr val=\"accent1\"/></a:effectRef><a:fontRef idx=\"minor\"><a:schemeClr val=\"tx1\"/></a:fontRef></a:style></a:lnDef></a:objectDefaults><a:extraClrSchemeLst/></a:theme>",
+        "clrSchemeName": "Office",
+        "fontSchemeName": "Office"
+      }
+    }
+  ],
+  "layouts": [
+    {
+      "name": "Title Slide",
+      "type": "title",
+      "shapeCount": 5,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.75,
+            "top": 2.3299,
+            "width": 8.5,
+            "height": 1.6076
+          },
+          "xfrm": {
+            "left": 0.75,
+            "top": 2.3299,
+            "width": 8.5,
+            "height": 1.6076
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "CENTER_TITLE (3)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Subtitle 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 1.5,
+            "top": 4.25,
+            "width": 7.0,
+            "height": 1.9167
+          },
+          "xfrm": {
+            "left": 1.5,
+            "top": 4.25,
+            "width": 7.0,
+            "height": 1.9167
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "SUBTITLE (4)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master subtitle style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master subtitle style"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Date Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Footer Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Slide Number Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Title and Content",
+      "type": "obj",
+      "shapeCount": 5,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 9.0,
+            "height": 1.25
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Content Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 1.75,
+            "width": 9.0,
+            "height": 4.9497
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Date Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Footer Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Slide Number Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Section Header",
+      "type": "secHead",
+      "shapeCount": 5,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.7899,
+            "top": 4.8194,
+            "width": 8.5,
+            "height": 1.4896
+          },
+          "xfrm": {
+            "left": 0.7899,
+            "top": 4.8194,
+            "width": 8.5,
+            "height": 1.4896
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "anchor": "t",
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Text Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.7899,
+            "top": 3.1788,
+            "width": 8.5,
+            "height": 1.6406
+          },
+          "xfrm": {
+            "left": 0.7899,
+            "top": 3.1788,
+            "width": 8.5,
+            "height": 1.6406
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "anchor": "b",
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Date Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Footer Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Slide Number Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Two Content",
+      "type": "twoObj",
+      "shapeCount": 6,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 9.0,
+            "height": 1.25
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Content Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 1.75,
+            "width": 4.4167,
+            "height": 4.9497
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 1.75,
+            "width": 4.4167,
+            "height": 4.9497
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Content Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 5.0833,
+            "top": 1.75,
+            "width": 4.4167,
+            "height": 4.9497
+          },
+          "xfrm": {
+            "left": 5.0833,
+            "top": 1.75,
+            "width": 4.4167,
+            "height": 4.9497
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 2,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Date Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Footer Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "name": "Slide Number Placeholder 6",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comparison",
+      "type": "twoTxTwoObj",
+      "shapeCount": 8,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 9.0,
+            "height": 1.25
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Text Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 1.6788,
+            "width": 4.4184,
+            "height": 0.6997
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 1.6788,
+            "width": 4.4184,
+            "height": 0.6997
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "anchor": "b",
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Content Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 2.3785,
+            "width": 4.4184,
+            "height": 4.3212
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 2.3785,
+            "width": 4.4184,
+            "height": 4.3212
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 2,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Text Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 5.0799,
+            "top": 1.6788,
+            "width": 4.4201,
+            "height": 0.6997
+          },
+          "xfrm": {
+            "left": 5.0799,
+            "top": 1.6788,
+            "width": 4.4201,
+            "height": 0.6997
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 3,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "anchor": "b",
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Content Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 5.0799,
+            "top": 2.3785,
+            "width": 4.4201,
+            "height": 4.3212
+          },
+          "xfrm": {
+            "left": 5.0799,
+            "top": 2.3785,
+            "width": 4.4201,
+            "height": 4.3212
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 4,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 7,
+          "name": "Date Placeholder 6",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 8,
+          "name": "Footer Placeholder 7",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "name": "Slide Number Placeholder 8",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Title Only",
+      "type": "titleOnly",
+      "shapeCount": 4,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 9.0,
+            "height": 1.25
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Date Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Footer Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 5,
+          "name": "Slide Number Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blank",
+      "type": "blank",
+      "shapeCount": 3,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Date Placeholder 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Footer Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "name": "Slide Number Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Content with Caption",
+      "type": "objTx",
+      "shapeCount": 6,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.2986,
+            "width": 3.2899,
+            "height": 1.2708
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 0.2986,
+            "width": 3.2899,
+            "height": 1.2708
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "anchor": "b",
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Content Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.9097,
+            "top": 0.2986,
+            "width": 5.5903,
+            "height": 6.401
+          },
+          "xfrm": {
+            "left": 3.9097,
+            "top": 0.2986,
+            "width": 5.5903,
+            "height": 6.401
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "OBJECT (7)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Text Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 1.5694,
+            "width": 3.2899,
+            "height": 5.1302
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 1.5694,
+            "width": 3.2899,
+            "height": 5.1302
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 2,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Date Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Footer Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "name": "Slide Number Placeholder 6",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Picture with Caption",
+      "type": "picTx",
+      "shapeCount": 6,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 1.9601,
+            "top": 5.25,
+            "width": 6.0,
+            "height": 0.6198
+          },
+          "xfrm": {
+            "left": 1.9601,
+            "top": 5.25,
+            "width": 6.0,
+            "height": 0.6198
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "anchor": "b",
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Picture Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 1.9601,
+            "top": 0.6701,
+            "width": 6.0,
+            "height": 4.5
+          },
+          "xfrm": {
+            "left": 1.9601,
+            "top": 0.6701,
+            "width": 6.0,
+            "height": 4.5
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "PICTURE (18)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "name": "Text Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 1.9601,
+            "top": 5.8698,
+            "width": 6.0,
+            "height": 0.8802
+          },
+          "xfrm": {
+            "left": 1.9601,
+            "top": 5.8698,
+            "width": 6.0,
+            "height": 0.8802
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 2,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Date Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 6,
+          "name": "Footer Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "name": "Slide Number Placeholder 6",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Title and Vertical Text",
+      "type": "vertTx",
+      "shapeCount": 5,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 9.0,
+            "height": 1.25
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Vertical Text Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 1.75,
+            "width": 9.0,
+            "height": 4.9497
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "vert": "eaVert",
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Date Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Footer Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Slide Number Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vertical Title and Text",
+      "type": "vertTitleAndTx",
+      "shapeCount": 5,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Vertical Title 1",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.25,
+            "top": 0.3003,
+            "width": 2.25,
+            "height": 6.3993
+          },
+          "xfrm": {
+            "left": 7.25,
+            "top": 0.3003,
+            "width": 2.25,
+            "height": 6.3993
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 0,
+            "type": "TITLE (1)"
+          },
+          "text": {
+            "vert": "eaVert",
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master title style"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master title style"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Vertical Text Placeholder 2",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 6.5833,
+            "height": 6.3993
+          },
+          "xfrm": {
+            "left": 0.5,
+            "top": 0.3003,
+            "width": 6.5833,
+            "height": 6.3993
+          },
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 1,
+            "type": "BODY (2)"
+          },
+          "text": {
+            "vert": "eaVert",
+            "paragraphs": [
+              {
+                "lvl": "0",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Click to edit Master text styles"
+                  }
+                ]
+              },
+              {
+                "lvl": "1",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Second level"
+                  }
+                ]
+              },
+              {
+                "lvl": "2",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Third level"
+                  }
+                ]
+              },
+              {
+                "lvl": "3",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fourth level"
+                  }
+                ]
+              },
+              {
+                "lvl": "4",
+                "runs": [
+                  {
+                    "lang": "en-US",
+                    "text": "Fifth level"
+                  }
+                ]
+              }
+            ],
+            "text": "Click to edit Master text styles\nSecond level\nThird level\nFourth level\nFifth level"
+          }
+        },
+        {
+          "id": 4,
+          "name": "Date Placeholder 3",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 0.5,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 10,
+            "type": "DATE (16)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "datetimeFigureOut",
+                    "text": "1/27/13"
+                  }
+                ]
+              }
+            ],
+            "text": "1/27/13"
+          }
+        },
+        {
+          "id": 5,
+          "name": "Footer Placeholder 4",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 3.4167,
+            "top": 6.9514,
+            "width": 3.1667,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 11,
+            "type": "FOOTER (15)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": []
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Slide Number Placeholder 5",
+          "type": "PLACEHOLDER (14)",
+          "pos": {
+            "left": 7.1667,
+            "top": 6.9514,
+            "width": 2.3333,
+            "height": 0.3993
+          },
+          "xfrm": {},
+          "prstGeom": {},
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {},
+          "placeholder": {
+            "idx": 12,
+            "type": "SLIDE_NUMBER (13)"
+          },
+          "text": {
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "field": "slidenum",
+                    "text": "‹#›"
+                  }
+                ]
+              }
+            ],
+            "text": "‹#›"
+          }
+        }
+      ]
+    }
+  ],
+  "slides": [
+    {
+      "index": 0,
+      "layoutName": "Blank",
+      "background": {
+        "type": "inherit"
+      },
+      "elementCount": 1,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Title",
+          "type": "TEXT_BOX (17)",
+          "pos": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "xfrm": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "prstGeom": {
+            "preset": "rect"
+          },
+          "fill": {
+            "type": "noFill"
+          },
+          "line": {},
+          "text": {
+            "wrap": "none",
+            "autofit": {
+              "spAutoFit": true
+            },
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "text": "Cover Title"
+                  }
+                ]
+              }
+            ],
+            "text": "Cover Title"
+          }
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "layoutName": "Blank",
+      "background": {
+        "type": "inherit"
+      },
+      "elementCount": 2,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Body",
+          "type": "TEXT_BOX (17)",
+          "pos": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "xfrm": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "prstGeom": {
+            "preset": "rect"
+          },
+          "fill": {
+            "type": "noFill"
+          },
+          "line": {},
+          "text": {
+            "wrap": "none",
+            "autofit": {
+              "spAutoFit": true
+            },
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "text": "Q1 revenue grew strongly"
+                  }
+                ]
+              }
+            ],
+            "text": "Q1 revenue grew strongly"
+          }
+        },
+        {
+          "id": 3,
+          "name": "Logo",
+          "type": "PICTURE (13)",
+          "pos": {
+            "left": 8.0,
+            "top": 0.5,
+            "width": 1.5,
+            "height": 1.5
+          },
+          "autoShapeType": "RECTANGLE (1)",
+          "xfrm": {
+            "left": 8.0,
+            "top": 0.5,
+            "width": 1.5,
+            "height": 1.5
+          },
+          "prstGeom": {
+            "preset": "rect"
+          },
+          "fill": {
+            "type": "inherit"
+          },
+          "line": {}
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "layoutName": "Blank",
+      "background": {
+        "type": "inherit"
+      },
+      "elementCount": 1,
+      "elements": [
+        {
+          "id": 2,
+          "name": "Outro",
+          "type": "TEXT_BOX (17)",
+          "pos": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "xfrm": {
+            "left": 1.0,
+            "top": 1.0,
+            "width": 8.0,
+            "height": 1.0
+          },
+          "prstGeom": {
+            "preset": "rect"
+          },
+          "fill": {
+            "type": "noFill"
+          },
+          "line": {},
+          "text": {
+            "wrap": "none",
+            "autofit": {
+              "spAutoFit": true
+            },
+            "paragraphs": [
+              {
+                "runs": [
+                  {
+                    "text": "Thank you — Q1 wrap-up"
+                  }
+                ]
+              }
+            ],
+            "text": "Thank you — Q1 wrap-up"
+          }
+        }
+      ]
+    }
+  ]
+}

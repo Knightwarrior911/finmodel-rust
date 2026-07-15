@@ -43,12 +43,89 @@ pub fn ticker_to_stem(ticker: &str) -> String {
 pub struct BuildOutput {
     pub projected: ProjectedStatements,
     pub workbook: Workbook,
+    /// Non-fatal valuation diagnostics: WACC clamp (1.12), Gordon TV undefined
+    /// (1.11), and DCF structural invariant violations (2.3). Empty on a clean build.
+    pub warnings: Vec<String>,
+    /// Computed DCF (for the app's valuation preview / agent). `None` if absent.
+    pub dcf: Option<fm_value::DCFOutput>,
+    /// Computed WACC (for the valuation preview / agent). `None` if absent.
+    pub wacc_out: Option<fm_value::WACCOutput>,
 }
 
-/// Reconcile an extraction, project it forward, and build the rich workbook.
-///
-/// The single shared core both front-ends call — never duplicated.
+/// Per-driver, per-year assumption override from the analyst grid (Phase 3.3).
+/// `key` is a `ScenarioInputs` field name (e.g. `revenue_growth_pct`); `values`
+/// has one entry per projection year (`None` = keep the engine-derived value).
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+pub struct AssumptionOverride {
+    pub key: String,
+    pub values: Vec<Option<f64>>,
+}
+
+/// Analyst-tunable build options. `Default` reproduces the engine's historical
+/// hardcoded values, so `build(extraction, ticker, n)` is exactly
+/// `build_with(.., &BuildOptions { proj_years: n, ..Default::default() })` and
+/// every parity gate stays byte-identical.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(default)]
+pub struct BuildOptions {
+    pub proj_years: usize,
+    pub sector: String,
+    pub risk_free_rate: f64,
+    pub equity_risk_premium: f64,
+    pub target_de_ratio: f64,
+    /// `None` → engine-derived interest rate.
+    pub cost_of_debt_pretax: Option<f64>,
+    pub beta: f64,
+    /// `None` → engine-derived tax rate.
+    pub tax_rate_override: Option<f64>,
+    pub terminal_growth: f64,
+    /// `None` → sector default exit-multiple table.
+    pub exit_ebitda_multiple: Option<f64>,
+    /// 1 = EBITDA exit multiple (default), 2 = Gordon growth.
+    pub tv_method: u8,
+    /// `None` → live quote / 0.0.
+    pub share_price: Option<f64>,
+    pub fiscal_year_end: String,
+    pub assumption_overrides: Vec<AssumptionOverride>,
+    /// Caller metadata (app Save-As / CLI `--out`); ignored by the engine.
+    pub out_path: Option<String>,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            proj_years: 5,
+            sector: "standard".to_string(),
+            risk_free_rate: 0.045,
+            equity_risk_premium: 0.055,
+            target_de_ratio: 0.30,
+            cost_of_debt_pretax: None,
+            beta: 1.0,
+            tax_rate_override: None,
+            terminal_growth: 0.025,
+            exit_ebitda_multiple: None,
+            tv_method: 1,
+            share_price: None,
+            fiscal_year_end: "Dec".to_string(),
+            assumption_overrides: Vec::new(),
+            out_path: None,
+        }
+    }
+}
+
+/// Reconcile an extraction, project it forward, and build the rich workbook with
+/// default options. Thin wrapper over [`build_with`] (kept for existing callers).
 pub fn build(extraction: &ExtractionResult, ticker: &str, proj_periods: usize) -> BuildOutput {
+    build_with(
+        extraction,
+        ticker,
+        &BuildOptions { proj_years: proj_periods, ..Default::default() },
+    )
+}
+
+/// Reconcile → project → build the rich workbook, honoring analyst [`BuildOptions`].
+/// The single shared core both front-ends call — never duplicated.
+pub fn build_with(extraction: &ExtractionResult, ticker: &str, opts: &BuildOptions) -> BuildOutput {
     let data = ReconciledData {
         income_statement: extraction.income_statement.clone(),
         balance_sheet: extraction.balance_sheet.clone(),
@@ -60,14 +137,62 @@ pub fn build(extraction: &ExtractionResult, ticker: &str, proj_periods: usize) -
         name: ticker.to_string(),
         currency: extraction.currency.clone(),
         hist_periods: extraction.years_found.len(),
-        proj_periods,
+        proj_periods: opts.proj_years,
         ..Default::default()
     };
     let engine = ModelEngine::new(data, config);
     let projected = engine.project(&HashMap::new());
-    let input = build_workbook_input(extraction, &projected, ticker);
+    let (input, mut warnings) = build_workbook_input_with(extraction, &projected, ticker, opts);
     let workbook = fm_excel::sheets::build_workbook(&input);
-    BuildOutput { projected, workbook }
+    // Collect non-fatal valuation warnings (surfaced by the app/CLI).
+    if let Some(w) = &input.wacc {
+        warnings.extend(w.warnings.iter().cloned());
+    }
+    if let Some(d) = &input.dcf {
+        warnings.extend(d.warnings.iter().cloned());
+        let dcf_input = fm_value::DCFInput {
+            fcf: d.fcff_proj.clone(),
+            terminal_growth: d.tv_growth_rate,
+            wacc: d.wacc,
+            projected_periods: d.proj_periods.len(),
+        };
+        warnings.extend(fm_value::invariants::check_dcf_invariants(&dcf_input, d.wacc));
+    }
+    let dcf = input.dcf.clone();
+    let wacc_out = input.wacc.clone();
+    BuildOutput { projected, workbook, warnings, dcf, wacc_out }
+}
+
+/// Light path for the assumptions grid (Phase 3.3): reconcile + project +
+/// derive the assumptions block, WITHOUT assembling the Excel workbook. Returns
+/// the (Base/Upside/Downside) assumptions plus the historical + projection
+/// period labels — everything the driver grid needs, at ~half the cost of a
+/// full [`build_with`].
+pub fn prepare_assumptions(
+    extraction: &ExtractionResult,
+    ticker: &str,
+    opts: &BuildOptions,
+) -> (fm_excel::input::AssumptionsBlock, Vec<String>, Vec<String>) {
+    let data = ReconciledData {
+        income_statement: extraction.income_statement.clone(),
+        balance_sheet: extraction.balance_sheet.clone(),
+        cash_flow_statement: extraction.cash_flow_statement.clone(),
+        periods: extraction.years_found.clone(),
+        currency: extraction.currency.clone(),
+    };
+    let config = CompanyConfig {
+        name: ticker.to_string(),
+        currency: extraction.currency.clone(),
+        hist_periods: extraction.years_found.len(),
+        proj_periods: opts.proj_years,
+        ..Default::default()
+    };
+    let engine = ModelEngine::new(data, config);
+    let projected = engine.project(&HashMap::new());
+    let (input, _warnings) = build_workbook_input_with(extraction, &projected, ticker, opts);
+    let hist = extraction.years_found.clone();
+    let proj = projected.periods.clone();
+    (input.assumptions, hist, proj)
 }
 
 /// Assemble the rich-writer input (model output + derived assumptions + meta)
@@ -77,11 +202,12 @@ pub fn build(extraction: &ExtractionResult, ticker: &str, proj_periods: usize) -
 /// formula cells can cache projected values for offline LibreOffice opens.
 /// Workbook still emits Excel formulas for projected periods. The two external
 /// market inputs (risk-free rate, share price) default until a live feed is wired.
-pub fn build_workbook_input(
+pub fn build_workbook_input_with(
     extraction: &ExtractionResult,
     projected: &ProjectedStatements,
     ticker: &str,
-) -> WorkbookInput {
+    opts: &BuildOptions,
+) -> (WorkbookInput, Vec<String>) {
     use fm_excel::is_structure::{apply_filing_labels, build_is_structure, build_standard_is_detailed, CogsDetail, OpexItem, Segment};
 
     let hist: Vec<String> = extraction.years_found.iter().map(|y| format!("{y}A")).collect();
@@ -89,7 +215,7 @@ pub fn build_workbook_input(
     let mut periods = hist;
     periods.extend(proj);
 
-    let sector = "standard".to_string();
+    let sector = opts.sector.clone();
 
     // XBRL detail from footnotes (US filings): revenue segments, opex line items,
     // detailed COGS. Parse + (for standard sector) remap cogs/rd/sga into their
@@ -165,14 +291,35 @@ pub fn build_workbook_input(
         company: ticker.to_string(),
         ticker: ticker.to_string(),
         currency: extraction.currency.clone(),
-        fiscal_year_end: "Dec".to_string(),
+        fiscal_year_end: opts.fiscal_year_end.clone(),
         sector: sector.clone(),
         as_of: today_iso(),
     };
 
-    // App has no live market feed yet; defaults keep the workbook well-formed.
-    let assumptions: AssumptionsBlock =
-        fm_excel::derive::build_assumptions_block(&model, &meta.sector, 0.045, 0.0);
+    // Valuation params from options (Default reproduces the legacy hardcoded set,
+    // so a default BuildOptions keeps every parity gate byte-identical).
+    let val_params = fm_excel::derive::ValuationParams {
+        risk_free_rate: opts.risk_free_rate,
+        equity_risk_premium: opts.equity_risk_premium,
+        target_de_ratio: opts.target_de_ratio,
+        cost_of_debt_pretax: opts.cost_of_debt_pretax,
+        share_price: opts.share_price.unwrap_or(0.0),
+        terminal_growth: opts.terminal_growth,
+        exit_multiple: opts.exit_ebitda_multiple,
+    };
+    let mut assumptions: AssumptionsBlock =
+        fm_excel::derive::build_assumptions_block(&model, &meta.sector, &val_params);
+    // Overlay analyst grid overrides onto Base (Upside/Downside inherit deltas).
+    let warnings = apply_assumption_overrides(&mut assumptions, &opts.assumption_overrides);
+    // An explicit tax override flows into every scenario (and thus the WACC
+    // unlever tax, which reads base.tax_rate_pct[0]).
+    if let Some(t) = opts.tax_rate_override {
+        for sc in [&mut assumptions.base, &mut assumptions.upside, &mut assumptions.downside] {
+            for x in sc.tax_rate_pct.iter_mut() {
+                *x = t;
+            }
+        }
+    }
     let verification = Verification { passed: true, ..Default::default() };
 
     let nonzero = |k: &str| {
@@ -229,7 +376,7 @@ pub fn build_workbook_input(
         assumptions.cost_of_debt_pretax,
         tax,
         Some(assumptions.target_de_ratio),
-        1.0, // no own-beta feed yet
+        opts.beta,
     );
     let active = match assumptions.active_case {
         2 => &assumptions.upside,
@@ -253,10 +400,10 @@ pub fn build_workbook_input(
         &meta.ticker,
         &wacc,
         &dcf_asmp,
-        1,
+        i32::from(opts.tv_method),
     );
 
-    WorkbookInput {
+    let input = WorkbookInput {
         meta,
         model,
         assumptions,
@@ -266,7 +413,75 @@ pub fn build_workbook_input(
         peer_source: peer_set.source,
         dcf: Some(dcf),
         public_comps: None, // filled when a peer feed exists
+    };
+    (input, warnings)
+}
+
+/// Mutable access to a `ScenarioInputs` driver vector by its field name.
+fn scenario_field_mut<'a>(
+    s: &'a mut fm_excel::input::ScenarioInputs,
+    key: &str,
+) -> Option<&'a mut Vec<f64>> {
+    Some(match key {
+        "revenue_growth_pct" => &mut s.revenue_growth_pct,
+        "gross_margin_pct" => &mut s.gross_margin_pct,
+        "sga_pct_rev" => &mut s.sga_pct_rev,
+        "rd_pct_rev" => &mut s.rd_pct_rev,
+        "da_pct_rev" => &mut s.da_pct_rev,
+        "capex_pct_rev" => &mut s.capex_pct_rev,
+        "tax_rate_pct" => &mut s.tax_rate_pct,
+        "interest_rate_pct" => &mut s.interest_rate_pct,
+        "dso_days" => &mut s.dso_days,
+        "dio_days" => &mut s.dio_days,
+        "dpo_days" => &mut s.dpo_days,
+        "dividend_per_share" => &mut s.dividend_per_share,
+        _ => return None,
+    })
+}
+
+/// Overlay analyst per-year overrides onto the Base scenario, mirroring them onto
+/// Upside/Downside with those scenarios' fixed deltas. A `None` cell keeps the
+/// engine-derived value for that year. Unknown keys produce a warning (not an
+/// error). Returns the collected warnings.
+fn apply_assumption_overrides(
+    block: &mut fm_excel::input::AssumptionsBlock,
+    overrides: &[AssumptionOverride],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for ov in overrides {
+        if scenario_field_mut(&mut block.base, &ov.key).is_none() {
+            warnings.push(format!("unknown assumption key '{}' — ignored", ov.key));
+            continue;
+        }
+        // Deltas the Upside/Downside scenarios apply to this driver (0 for keys
+        // flat across scenarios) — shared with fm-excel so they never desync.
+        use fm_excel::derive::{UPSIDE_CAPEX_DELTA, UPSIDE_GROSS_MARGIN_DELTA, UPSIDE_REVENUE_GROWTH_DELTA};
+        let (up_d, down_d) = match ov.key.as_str() {
+            "revenue_growth_pct" => (UPSIDE_REVENUE_GROWTH_DELTA, -UPSIDE_REVENUE_GROWTH_DELTA),
+            "gross_margin_pct" => (UPSIDE_GROSS_MARGIN_DELTA, -UPSIDE_GROSS_MARGIN_DELTA),
+            "capex_pct_rev" => (UPSIDE_CAPEX_DELTA, -UPSIDE_CAPEX_DELTA),
+            _ => (0.0, 0.0),
+        };
+        for (y, cell) in ov.values.iter().enumerate() {
+            let Some(v) = cell else { continue };
+            if let Some(f) = scenario_field_mut(&mut block.base, &ov.key) {
+                if y < f.len() {
+                    f[y] = *v;
+                }
+            }
+            if let Some(f) = scenario_field_mut(&mut block.upside, &ov.key) {
+                if y < f.len() {
+                    f[y] = *v + up_d;
+                }
+            }
+            if let Some(f) = scenario_field_mut(&mut block.downside, &ov.key) {
+                if y < f.len() {
+                    f[y] = *v + down_d;
+                }
+            }
+        }
     }
+    warnings
 }
 
 /// Today's date as `YYYY-MM-DD` (UTC) for the Cover "As of …" line.
@@ -387,4 +602,62 @@ mod tests {
         assert!(has("  Products"), "segment row missing");
         assert!(has("Total Revenue"), "Total Revenue subtotal missing");
     }
+    #[test]
+    fn overrides_overlay_base_and_mirror_deltas() {
+        use fm_excel::input::{AssumptionsBlock, ScenarioInputs};
+        let sc = |name: &str, rg: f64| ScenarioInputs {
+            name: name.into(),
+            revenue_growth_pct: vec![rg; 3],
+            gross_margin_pct: vec![0.30; 3],
+            sga_pct_rev: vec![0.10; 3],
+            rd_pct_rev: vec![0.05; 3],
+            da_pct_rev: vec![0.04; 3],
+            capex_pct_rev: vec![0.05; 3],
+            tax_rate_pct: vec![0.21; 3],
+            interest_rate_pct: vec![0.035; 3],
+            dso_days: vec![45.0; 3],
+            dio_days: vec![60.0; 3],
+            dpo_days: vec![50.0; 3],
+            dividend_per_share: vec![0.0; 3],
+            terminal_growth_rate: 0.025,
+            exit_ebitda_multiple: 16.0,
+        };
+        let mut block = AssumptionsBlock {
+            proj_periods: vec!["2025E".into(), "2026E".into(), "2027E".into()],
+            active_case: 1,
+            base: sc("Base", 0.05),
+            upside: sc("Upside", 0.07),
+            downside: sc("Downside", 0.03),
+            risk_free_rate: 0.045,
+            equity_risk_premium: 0.055,
+            target_de_ratio: 0.30,
+            cost_of_debt_pretax: 0.035,
+            current_share_price: 0.0,
+            shares_diluted: 100.0,
+            mid_year_convention: true,
+        };
+        let overrides = vec![
+            AssumptionOverride {
+                key: "revenue_growth_pct".into(),
+                values: vec![Some(0.12), None, Some(0.08)],
+            },
+            AssumptionOverride { key: "bogus_key".into(), values: vec![Some(1.0)] },
+        ];
+        let warnings = apply_assumption_overrides(&mut block, &overrides);
+        let approx = |a: &[f64], b: &[f64]| {
+            assert_eq!(a.len(), b.len());
+            for (x, y) in a.iter().zip(b) {
+                assert!((x - y).abs() < 1e-9, "expected {b:?}, got {a:?}");
+            }
+        };
+        // Base: year0/year2 overridden, year1 keeps the derived 0.05.
+        approx(&block.base.revenue_growth_pct, &[0.12, 0.05, 0.08]);
+        // Upside/Downside mirror overridden cells with their ±0.02 delta;
+        // non-overridden cells keep their own derived value.
+        approx(&block.upside.revenue_growth_pct, &[0.14, 0.07, 0.10]);
+        approx(&block.downside.revenue_growth_pct, &[0.10, 0.03, 0.06]);
+        // Unknown key warned, never applied.
+        assert!(warnings.iter().any(|w| w.contains("bogus_key")));
+    }
+
 }

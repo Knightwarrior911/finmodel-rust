@@ -14,12 +14,34 @@ fn default_model() -> String {
     "anthropic/claude-sonnet-4".to_string()
 }
 
+/// A recently generated output file (4.2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentEntry {
+    pub path: String,
+    pub label: String,
+    pub when: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub openrouter_api_key: String,
     #[serde(default = "default_model")]
     pub model: String,
+    /// EDGAR contact (email) for the SEC User-Agent (2.1 / 3.6).
+    #[serde(default)]
+    pub edgar_contact: String,
+    /// Default output folder for generated workbooks (3.2 / 3.6).
+    #[serde(default)]
+    pub out_dir: String,
+    /// Web-research MCP server command + args (Phase 8.2).
+    #[serde(default)]
+    pub mcp_command: String,
+    #[serde(default)]
+    pub mcp_args: Vec<String>,
+    /// Recent generated files, most-recent-first (4.2).
+    #[serde(default)]
+    pub recent: Vec<RecentEntry>,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
@@ -38,10 +60,18 @@ pub fn read_settings(app: &tauri::AppHandle) -> Settings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default(),
         _ => Settings {
-            openrouter_api_key: String::new(),
             model: default_model(),
+            ..Default::default()
         },
     }
+}
+
+/// Persist a full [`Settings`] to disk (used by the recent-files updater).
+pub fn write_settings(app: &tauri::AppHandle, s: &Settings) -> AppResult<()> {
+    let p = settings_path(app)?;
+    std::fs::write(&p, serde_json::to_string_pretty(s)?)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(())
 }
 
 /// Return `{ has_key, model }` — never the raw key.
@@ -51,6 +81,10 @@ pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
     Ok(serde_json::json!({
         "has_key": !s.openrouter_api_key.trim().is_empty(),
         "model": s.model,
+        "edgar_contact": s.edgar_contact,
+        "out_dir": s.out_dir,
+        "mcp_command": s.mcp_command,
+        "mcp_args": s.mcp_args,
         "version": app.package_info().version.to_string(),
     })
     .to_string())
@@ -59,7 +93,15 @@ pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
 /// Save settings. A blank `api_key` keeps the existing one (so the frontend can
 /// send blank to change only the model). A blank `model` keeps the existing one.
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_settings(app: tauri::AppHandle, api_key: String, model: String) -> AppResult<String> {
+pub fn save_settings(
+    app: tauri::AppHandle,
+    api_key: String,
+    model: String,
+    edgar_contact: Option<String>,
+    out_dir: Option<String>,
+    mcp_command: Option<String>,
+    mcp_args: Option<Vec<String>>,
+) -> AppResult<String> {
     let mut s = read_settings(&app);
     if !api_key.trim().is_empty() {
         s.openrouter_api_key = api_key.trim().to_string();
@@ -67,6 +109,32 @@ pub fn save_settings(app: tauri::AppHandle, api_key: String, model: String) -> A
     if !model.trim().is_empty() {
         s.model = model.trim().to_string();
     }
+    // These are set-if-present (blank string clears; absent keeps existing).
+    if let Some(c) = edgar_contact {
+        s.edgar_contact = c.trim().to_string();
+    }
+    if let Some(d) = out_dir {
+        s.out_dir = d.trim().to_string();
+    }
+    if let Some(c) = mcp_command {
+        s.mcp_command = c.trim().to_string();
+    }
+    if let Some(a) = mcp_args {
+        s.mcp_args = a;
+    }
+    let p = settings_path(&app)?;
+    std::fs::write(&p, serde_json::to_string_pretty(&s)?)
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(serde_json::json!({ "ok": true }).to_string())
+}
+
+/// Clear the saved API key (back to offline demo mode), keeping the model.
+/// The only path back to demo mode — a blank `api_key` in [`save_settings`]
+/// deliberately keeps the existing key.
+#[tauri::command(rename_all = "snake_case")]
+pub fn clear_api_key(app: tauri::AppHandle) -> AppResult<String> {
+    let mut s = read_settings(&app);
+    s.openrouter_api_key = String::new();
     let p = settings_path(&app)?;
     std::fs::write(&p, serde_json::to_string_pretty(&s)?)
         .map_err(|e| AppError::Io(e.to_string()))?;

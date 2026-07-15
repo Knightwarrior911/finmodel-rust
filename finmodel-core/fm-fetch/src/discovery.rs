@@ -102,16 +102,28 @@ pub fn find_annual_report_pdf_url(
         2025
     });
 
-    let company_tokens = company_domain_tokens(company_name);
-    let mut fallback_pdf: Option<String> = None;
-
     let queries = [
         format!("{company_name} annual report {year} filetype:pdf"),
         format!("{company_name} {ticker} annual report {year} PDF"),
         format!("{company_name} annual report {year} PDF investor relations"),
     ];
 
-    for query in &queries {
+    find_annual_report_pdf_url_with_queries(company_name, ticker, &queries)
+}
+
+/// Like [`find_annual_report_pdf_url`] but with caller-supplied search queries.
+///
+/// Used by the non-US discovery cascade to try authoritative regulator-site
+/// (`site:{regulator}`) queries before the generic annual-report search.
+pub fn find_annual_report_pdf_url_with_queries(
+    company_name: &str,
+    ticker: &str,
+    queries: &[String],
+) -> Result<String, DiscoveryError> {
+    let company_tokens = company_domain_tokens(company_name);
+    let mut fallback_pdf: Option<String> = None;
+
+    for query in queries {
         let html = match ddg_search(query) {
             Ok(h) => h,
             Err(_) => continue,

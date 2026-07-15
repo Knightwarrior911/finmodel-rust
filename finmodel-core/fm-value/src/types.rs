@@ -43,6 +43,10 @@ pub struct WACCOutput {
     pub equity_weight: f64,
     pub debt_weight: f64,
     pub wacc: f64,
+    /// Non-fatal diagnostics (e.g. WACC clamp bound). Empty by default, so
+    /// snapshot parity is unaffected. `#[serde(default)]` keeps older JSON loadable.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -96,6 +100,10 @@ pub struct DCFOutput {
     pub gordon_growth_range: Vec<f64>,
     pub sensitivity_ebitda: Vec<Vec<f64>>,
     pub sensitivity_gordon: Vec<Vec<f64>>,
+    /// Non-fatal diagnostics (e.g. Gordon TV undefined when g ≥ WACC). Empty by
+    /// default; `#[serde(default)]` keeps older snapshot JSON loadable.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 

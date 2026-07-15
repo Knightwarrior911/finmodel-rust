@@ -1,0 +1,14 @@
+[package]
+name = "fm-pptx"
+version = "0.1.0"
+edition = "2024"
+description = "R.6 PowerPoint subsystem — direct zip+XML OOXML/DrawingML port of the Python pptx_*.py toolchain (inspect / edit / write / render)"
+
+[dependencies]
+zip = "2"
+quick-xml = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+[dev-dependencies]

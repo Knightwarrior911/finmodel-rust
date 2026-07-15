@@ -19,6 +19,13 @@ use fm_excel::model::Workbook;
 use fm_extract::ExtractionResult;
 use fm_types::StatementData;
 
+/// Re-exported so benchmark callers name the basis without depending on fm-extract.
+pub use fm_extract::PeriodBasis;
+
+pub mod scoring;
+pub mod web;
+pub mod agent;
+
 /// One dollar-figure → millions.
 const MILLIONS: f64 = 1_000_000.0;
 
@@ -568,6 +575,8 @@ pub struct BenchmarkRun {
     pub metrics: Vec<BenchmarkMetrics>,
     /// Tickers that returned no XBRL data (reported, never fabricated).
     pub failed: Vec<(String, String)>,
+    /// Non-fatal per-ticker data-quality notes (FX/quote unavailable, EV≈mkt cap).
+    pub data_warnings: Vec<String>,
     pub table: AdHocTable,
 }
 
@@ -578,12 +587,12 @@ pub fn benchmark_tickers(tickers: &[String], title: &str) -> Result<BenchmarkRun
     benchmark_tickers_opts(tickers, title, BenchmarkOpts::default())
 }
 
-/// Benchmark options. `ltm` switches point-in-time metrics to a trailing-twelve-
-/// months basis (growth stays annual); `multiples` adds market-price EV/EBITDA,
-/// EV/Revenue and P/E (the only non-filing input is the live share price).
+/// Benchmark options. `basis` selects the reporting period (annual / LTM /
+/// quarter / semi); `multiples` adds market-price EV/EBITDA, EV/Revenue and P/E
+/// (the only non-filing input is the live share price).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BenchmarkOpts {
-    pub ltm: bool,
+    pub basis: fm_extract::PeriodBasis,
     pub multiples: bool,
     /// Convert absolute monetary metrics to USD at spot FX (global comps).
     pub to_usd: bool,
@@ -596,12 +605,26 @@ pub fn benchmark_tickers_opts(
     title: &str,
     opts: BenchmarkOpts,
 ) -> Result<BenchmarkRun, BenchmarkError> {
+    benchmark_tickers_opts_progress(tickers, title, opts, |_, _, _| {})
+}
+
+/// [`benchmark_tickers_opts`] with a per-ticker progress callback
+/// `(index_1based, total, ticker)` — the app emits it, the CLI prints it.
+pub fn benchmark_tickers_opts_progress(
+    tickers: &[String],
+    title: &str,
+    opts: BenchmarkOpts,
+    progress: impl Fn(usize, usize, &str),
+) -> Result<BenchmarkRun, BenchmarkError> {
     let mut metrics = Vec::new();
     let mut failed = Vec::new();
     let mut fx_cache: HashMap<String, Option<f64>> = HashMap::new();
-    for t in tickers {
+    let mut data_warnings: Vec<String> = Vec::new();
+    let total = tickers.len();
+    for (i, t) in tickers.iter().enumerate() {
+        progress(i + 1, total, t);
         match fm_extract::fetch_xbrl_bundle(t) {
-            Ok((ex, prov, ltm_data)) => {
+            Ok((ex, prov, ltm_data, facts)) => {
                 let mut m = metrics_from_extraction(t, &ex);
                 if m.fiscal_year.is_some() && m.revenue.is_some() {
                     // Best-effort sector tag from EDGAR SIC (never fails the run).
@@ -611,9 +634,17 @@ pub fn benchmark_tickers_opts(
                         .map(|s| s.sic_description)
                         .filter(|s| !s.is_empty());
                     m.provenance = prov; // exact us-gaap tag per canonical key
-                    if opts.ltm {
-                        if let Some(l) = ltm_data {
-                            apply_ltm(&mut m, &l);
+                    // Reporting-period basis: annual keeps the extraction metrics;
+                    // LTM/quarter/semi override via extract_period.
+                    if !matches!(opts.basis, fm_extract::PeriodBasis::AnnualFy) {
+                        match fm_extract::extract_period(&facts, &m.currency, opts.basis) {
+                            Some(pd) => apply_basis(
+                                &mut m, &pd, ltm_data.as_ref(), opts.basis, t, &mut data_warnings,
+                            ),
+                            None => data_warnings.push(format!(
+                                "{t}: {} data unavailable — row left on annual basis",
+                                basis_label(opts.basis)
+                            )),
                         }
                     }
                     // Convert filing figures to USD (before multiples, so EV
@@ -622,15 +653,30 @@ pub fn benchmark_tickers_opts(
                     if opts.to_usd && m.currency != "USD" {
                         let rate = *fx_cache
                             .entry(m.currency.clone())
-                            .or_insert_with(|| fm_fetch::fetch_fx_rate(&m.currency));
-                        if let Some(r) = rate {
-                            apply_fx(&mut m, r);
+                            .or_insert_with(|| fm_fetch::fetch_fx_rate(&m.currency).ok());
+                        match rate {
+                            Some(r) => apply_fx(&mut m, r),
+                            None => data_warnings.push(format!(
+                                "{t}: FX {}→USD unavailable — values left native",
+                                m.currency
+                            )),
                         }
                     }
                     // Trading multiples: filing-derived EV components × live price.
                     if opts.multiples {
-                        if let Some(q) = fm_fetch::fetch_quote(t) {
-                            apply_multiples(&mut m, &q);
+                        match fm_fetch::fetch_quote(t) {
+                            Ok(q) => {
+                                apply_multiples(&mut m, &q, &mut fx_cache);
+                                // EV with no debt data = market cap; disclose it.
+                                if m.enterprise_value.is_some() && m.net_debt.is_none() {
+                                    data_warnings.push(format!(
+                                        "{t}: no debt data in filing — EV shown ≈ market cap"
+                                    ));
+                                }
+                            }
+                            Err(e) => data_warnings.push(format!(
+                                "{t}: quote unavailable ({e}) — multiples blank"
+                            )),
                         }
                     }
                     metrics.push(m);
@@ -650,17 +696,69 @@ pub fn benchmark_tickers_opts(
             "(monetary values in USD millions — converted from reporting currency at spot FX; \
              Ccy column shows a row's value currency; ratios per column; multiples in x)".to_string();
     }
-    Ok(BenchmarkRun { metrics, failed, table })
+    Ok(BenchmarkRun { metrics, failed, data_warnings, table })
 }
 
 /// Trading multiples from a live quote + filing-derived EV components.
-/// Market cap = price × diluted shares; EV = market cap + net debt (both from
-/// filings). Blank when a component is missing — never fabricated.
-fn apply_multiples(m: &mut BenchmarkMetrics, q: &fm_fetch::Quote) {
-    m.share_price = Some(q.price);
-    m.price_currency = Some(q.currency.clone());
+/// The quote price (in `q.currency`) is reconciled into the metric currency
+/// (`m.currency`) BEFORE any arithmetic, so EV never mixes a native-currency
+/// market cap with a converted (e.g. USD) net debt — the cross-currency bug.
+/// `fx_cache` maps `currency → USD per unit` (shared with the `--usd` path).
+fn apply_multiples(
+    m: &mut BenchmarkMetrics,
+    q: &fm_fetch::Quote,
+    fx_cache: &mut HashMap<String, Option<f64>>,
+) {
+    apply_multiples_with_rates(m, q, |ccy| {
+        *fx_cache
+            .entry(ccy.to_string())
+            .or_insert_with(|| fm_fetch::fetch_fx_rate(ccy).ok())
+    });
+}
+
+/// Inner multiples engine with an injectable FX lookup (`ccy → USD per unit`)
+/// for deterministic tests. Market cap / EV / EV multiples / P/E are all
+/// expressed in `m.currency`; a missing FX rate blanks every price-derived
+/// field rather than fabricating a mixed-currency EV. `share_price` /
+/// `price_currency` keep the native quote (the real trading price) when used.
+fn apply_multiples_with_rates(
+    m: &mut BenchmarkMetrics,
+    q: &fm_fetch::Quote,
+    mut fx: impl FnMut(&str) -> Option<f64>,
+) {
+    // Normalize minor-unit quote currencies (LSE "GBp" pence = 1/100 GBP, etc.)
+    // to their major unit BEFORE any FX/arithmetic — else a .L price converts
+    // 100× too high and mixes with GBP net debt.
+    let (q_ccy, q_price) = fm_fetch::normalize_minor_unit(&q.currency, q.price);
+    // Reconcile the quote price into the metric currency before arithmetic.
+    let price = if q_ccy == m.currency {
+        Some(q_price)
+    } else if m.currency == "USD" {
+        fx(&q_ccy).map(|r| q_price * r)
+    } else {
+        // Cross-rate: (USD per quote-ccy) / (USD per metric-ccy).
+        match (fx(&q_ccy), fx(&m.currency)) {
+            (Some(rq), Some(rm)) if rm != 0.0 => Some(q_price * rq / rm),
+            _ => None,
+        }
+    };
+    let Some(price) = price else {
+        // FX unavailable → no currency-consistent price; blank, never mix.
+        m.share_price = None;
+        m.price_currency = None;
+        m.market_cap = None;
+        m.enterprise_value = None;
+        m.ev_revenue = None;
+        m.ev_ebitda = None;
+        m.pe = None;
+        return;
+    };
+    // Report the trading price in its (normalized major-unit) currency; the
+    // m.currency-denominated `price` drives EV arithmetic.
+    m.share_price = Some(q_price);
+    m.price_currency = Some(q_ccy);
     let mc = match m.shares_diluted {
-        Some(sh) if sh > 0.0 => Some(q.price * sh),
+        Some(sh) if sh > 0.0 => Some(price * sh),
         _ => None,
     };
     m.market_cap = mc;
@@ -709,11 +807,32 @@ fn apply_fx(m: &mut BenchmarkMetrics, rate: f64) {
     // current ratio, ND/EBITDA, payout) are FX-invariant — deliberately untouched.
 }
 
-/// Override a company's point-in-time metrics with a last-twelve-months basis
-/// (BS = latest instant). Growth / CAGR stay annual (trend). The period label
-/// becomes `LTM <as-of>` so a comps row never mislabels LTM figures as an FY.
-fn apply_ltm(m: &mut BenchmarkMetrics, l: &fm_extract::LtmData) {
-    // Pure LTM — never blend an annual figure into an LTM-denominated ratio.
+/// Short label for a period basis (for data warnings).
+fn basis_label(b: fm_extract::PeriodBasis) -> &'static str {
+    match b {
+        fm_extract::PeriodBasis::AnnualFy => "annual",
+        fm_extract::PeriodBasis::Ltm => "LTM",
+        fm_extract::PeriodBasis::Quarter => "quarterly",
+        fm_extract::PeriodBasis::SemiAnnual => "semi-annual",
+    }
+}
+
+/// Override a company's metrics with a chosen reporting-period basis. Flows are
+/// period-scoped over the latest-instant balance sheet; **leverage/coverage
+/// ratios (ND/EBITDA, interest coverage) always use LTM flows** regardless of
+/// basis (annualizing a single quarter fabricates) — blanked with a warning when
+/// LTM is unavailable. Growth stays annual only on the LTM basis; on quarter /
+/// semi it is blanked (same-period YoY not derived — never blend). The period
+/// label (e.g. `Q3 FY25`) prevents a comps row mislabelling the figures as an FY.
+fn apply_basis(
+    m: &mut BenchmarkMetrics,
+    pd: &fm_extract::PeriodData,
+    ltm: Option<&fm_extract::LtmData>,
+    basis: fm_extract::PeriodBasis,
+    ticker: &str,
+    warnings: &mut Vec<String>,
+) {
+    let l = &pd.data;
     m.revenue = l.revenue;
     m.gross_profit = l.gross_profit;
     m.ebit = l.ebit;
@@ -731,7 +850,6 @@ fn apply_ltm(m: &mut BenchmarkMetrics, l: &fm_extract::LtmData) {
     m.total_assets = l.total_assets;
     m.total_current_assets = l.total_current_assets;
     m.total_current_liabilities = l.total_current_liabilities;
-    // Recompute derived from LTM.
     m.net_debt = match (m.total_debt, m.cash) {
         (Some(d), Some(c)) => Some(d - c),
         _ => None,
@@ -740,18 +858,14 @@ fn apply_ltm(m: &mut BenchmarkMetrics, l: &fm_extract::LtmData) {
         (Some(c), Some(x)) => Some(c - x.abs()),
         _ => None,
     };
+    // Same-period margins / returns.
     m.gross_margin = ratio(m.gross_profit, m.revenue);
     m.ebit_margin = ratio(m.ebit, m.revenue);
     m.ebitda_margin = ratio(m.ebitda, m.revenue);
     m.net_margin = ratio(m.net_income, m.revenue);
     m.roe = ratio(m.net_income, m.total_equity);
     m.roa = ratio(m.net_income, m.total_assets);
-    m.net_debt_to_ebitda = ratio(m.net_debt, m.ebitda);
     m.fcf_margin = ratio(m.fcf, m.revenue);
-    m.interest_coverage = match (m.ebit, m.interest_expense) {
-        (Some(e), Some(i)) if i.abs() != 0.0 => Some(e / i.abs()),
-        _ => None,
-    };
     m.current_ratio = ratio(m.total_current_assets, m.total_current_liabilities);
     m.payout_ratio = match (m.dividends_paid, m.net_income) {
         (Some(d), Some(ni)) if ni > 0.0 => Some(d.abs() / ni),
@@ -763,12 +877,33 @@ fn apply_ltm(m: &mut BenchmarkMetrics, l: &fm_extract::LtmData) {
         }
         _ => None,
     };
-    if !l.as_of.is_empty() {
-        m.fiscal_year = Some(if l.is_ltm {
-            format!("LTM {}", l.as_of)
-        } else {
-            format!("FY {}", l.as_of)
-        });
+    // Leverage / coverage on LTM flows regardless of basis (comps standard).
+    match ltm {
+        Some(lt) => {
+            let ltm_ebitda = add(lt.ebit, lt.da);
+            m.net_debt_to_ebitda = ratio(m.net_debt, ltm_ebitda);
+            m.interest_coverage = match (lt.ebit, lt.interest_expense) {
+                (Some(e), Some(i)) if i.abs() != 0.0 => Some(e / i.abs()),
+                _ => None,
+            };
+        }
+        None => {
+            m.net_debt_to_ebitda = None;
+            m.interest_coverage = None;
+            warnings.push(format!(
+                "{ticker}: LTM unavailable — leverage/coverage blank on {} basis",
+                basis_label(basis)
+            ));
+        }
+    }
+    // Growth: annual trend only on LTM; blank on quarter/semi (never show annual
+    // growth against a sub-annual level).
+    if !matches!(basis, fm_extract::PeriodBasis::Ltm) {
+        m.revenue_growth = None;
+        m.revenue_cagr_3y = None;
+    }
+    if !pd.label.is_empty() {
+        m.fiscal_year = Some(pd.label.clone());
     }
 }
 
@@ -953,7 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_ltm_overrides_levels_keeps_growth() {
+    fn apply_basis_ltm_overrides_levels_keeps_growth() {
         let mut m = metrics_from_extraction("X", &sample());
         // Annual latest-FY revenue was 1200; growth 0.2.
         approx(m.revenue, 1200.0);
@@ -974,15 +1109,18 @@ mod tests {
             cash: Some(250.0),
             ..Default::default()
         };
-        apply_ltm(&mut m, &l);
+        let pd = fm_extract::PeriodData { data: l.clone(), label: "LTM Sep-25".into() };
+        let mut warns = Vec::new();
+        apply_basis(&mut m, &pd, Some(&l), fm_extract::PeriodBasis::Ltm, "X", &mut warns);
         approx(m.revenue, 1300.0); // LTM level
         approx(m.ebitda, 400.0); // 330 + 70 (pure LTM)
         approx(m.ebitda_margin, 400.0 / 1300.0);
         approx(m.net_margin, 260.0 / 1300.0);
         approx(m.net_debt, 550.0); // (650+150) - 250
         approx(m.roe, 260.0 / 1050.0);
-        assert_eq!(m.fiscal_year.as_deref(), Some("LTM 2025-09-30"));
-        // Growth / CAGR preserved from the annual series (trend, not LTM).
+        approx(m.net_debt_to_ebitda, 550.0 / 400.0); // leverage on LTM EBITDA
+        assert_eq!(m.fiscal_year.as_deref(), Some("LTM Sep-25"));
+        // LTM keeps the annual growth trend.
         assert_eq!(m.revenue_growth, growth_before);
         assert_eq!(m.revenue_cagr_3y, cagr_before);
     }
@@ -1000,7 +1138,7 @@ mod tests {
             week52_low: None,
             as_of_epoch: None,
         };
-        apply_multiples(&mut m, &q);
+        apply_multiples(&mut m, &q, &mut HashMap::new());
         approx(m.market_cap, 5000.0); // 50 × 100 shares
         approx(m.enterprise_value, 5400.0); // 5000 + 400 net debt
         approx(m.ev_revenue, 5400.0 / 1200.0);
@@ -1138,5 +1276,73 @@ mod tests {
         let d = table.decision();
         assert!(d.summary_stats);
         assert!(d.freeze_first_col); // 11 metrics ∈ [9,20]
+    }
+
+    fn quote(ticker: &str, price: f64, currency: &str) -> fm_fetch::Quote {
+        fm_fetch::Quote {
+            ticker: ticker.into(),
+            price,
+            currency: currency.into(),
+            week52_high: None,
+            week52_low: None,
+            as_of_epoch: None,
+        }
+    }
+
+    #[test]
+    fn multiples_same_currency_never_touch_fx() {
+        let mut m = metrics_from_extraction("NESN", &sample());
+        m.currency = "CHF".into(); // filer currency == quote currency
+        let q = quote("NESN", 50.0, "CHF");
+        // FX must never be consulted when currencies already match.
+        apply_multiples_with_rates(&mut m, &q, |_| panic!("FX must not be needed"));
+        approx(m.market_cap, 5000.0); // 50 × 100 diluted shares
+        approx(m.enterprise_value, 5400.0); // 5000 + 400 net debt
+        approx(m.ev_ebitda, 5400.0 / 360.0);
+        approx(m.pe, 5000.0 / 240.0);
+        assert_eq!(m.price_currency.as_deref(), Some("CHF"));
+    }
+
+    #[test]
+    fn multiples_usd_metrics_convert_foreign_quote() {
+        // Post `--usd`: metric currency + net debt are USD; quote is CHF.
+        let mut m = metrics_from_extraction("NESN", &sample());
+        m.currency = "USD".into();
+        let q = quote("NESN", 50.0, "CHF");
+        apply_multiples_with_rates(&mut m, &q, |c| (c == "CHF").then_some(1.10));
+        // price → USD: 50 × 1.10 = 55; mc = 55 × 100 = 5500 (USD, not CHF).
+        approx(m.market_cap, 5500.0);
+        approx(m.enterprise_value, 5900.0); // 5500 + 400 USD net debt
+        approx(m.ev_ebitda, 5900.0 / 360.0);
+        // Native trading price/currency retained for disclosure.
+        approx(m.share_price, 50.0);
+        assert_eq!(m.price_currency.as_deref(), Some("CHF"));
+    }
+
+    #[test]
+    fn multiples_fx_unavailable_blanks_every_price_field() {
+        let mut m = metrics_from_extraction("NESN", &sample());
+        m.currency = "USD".into();
+        let q = quote("NESN", 50.0, "CHF");
+        apply_multiples_with_rates(&mut m, &q, |_| None); // FX unavailable
+        assert_eq!(m.share_price, None);
+        assert_eq!(m.price_currency, None);
+        assert_eq!(m.market_cap, None);
+        assert_eq!(m.enterprise_value, None);
+        assert_eq!(m.ev_revenue, None);
+        assert_eq!(m.ev_ebitda, None);
+        assert_eq!(m.pe, None);
+    }
+
+    #[test]
+    fn multiples_normalizes_lse_pence_quote() {
+        let mut m = metrics_from_extraction("VOD", &sample());
+        m.currency = "GBP".into(); // filer reports GBP
+        let q = quote("VOD.L", 7000.0, "GBp"); // 7000 pence = £70
+        // Same major currency → FX must not be consulted.
+        apply_multiples_with_rates(&mut m, &q, |_| panic!("FX must not be needed"));
+        approx(m.share_price, 70.0); // normalized to major unit (GBP)
+        assert_eq!(m.price_currency.as_deref(), Some("GBP"));
+        approx(m.market_cap, 7000.0); // 70 × 100 shares (not 700,000)
     }
 }

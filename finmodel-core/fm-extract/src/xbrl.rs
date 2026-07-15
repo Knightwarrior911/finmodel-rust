@@ -526,10 +526,10 @@ fn compute_target_years_from(periods_historical: usize, latest_fy: i32) -> Vec<S
         .collect()
 }
 
-/// Compute target years using the wall-clock default (currently assumes 2026).
+/// Compute target years using the wall-clock year (last full FY = `current_year - 1`).
+/// Only a fallback: [`latest_annual_year`] anchors to the filer's own data when present.
 fn compute_target_years(periods_historical: usize) -> Vec<String> {
-    let today_year = 2026; // simplified — in production should use current date logic
-    let latest_fy = today_year - 1;
+    let latest_fy = crate::current_year() - 1;
     compute_target_years_from(periods_historical, latest_fy)
 }
 
@@ -667,14 +667,17 @@ mod tests {
 
     #[test]
     fn test_compute_target_years_produces_valid_years() {
+        // Wall-clock fallback = last full FY and the two prior, in ascending order.
+        let latest = crate::current_year() - 1;
         let years = compute_target_years(3);
-        assert_eq!(years.len(), 3);
-        // All years should be 4-digit strings
-        for y in &years {
-            assert_eq!(y.len(), 4);
-            let n: i32 = y.parse().unwrap_or(0);
-            assert!(n >= 2020 && n <= 2030);
-        }
+        assert_eq!(
+            years,
+            vec![
+                (latest - 2).to_string(),
+                (latest - 1).to_string(),
+                latest.to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -707,7 +710,7 @@ mod deterministic_tests {
 
     #[test]
     fn test_parse_xbrl_to_raw_realistic_fixture() {
-        // Fixture uses years 2023-2025 matching compute_target_years(3) output.
+        // Fixture end-dates (2023-2025) anchor latest_annual_year → wall-clock-independent.
         let facts = serde_json::json!({
             "cik": 12345, "entityName": "Test Corp",
             "facts": { "us-gaap": {

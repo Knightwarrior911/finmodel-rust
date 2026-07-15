@@ -80,15 +80,56 @@ fn hist_slice(stmt: &crate::input::Statement, n_hist: usize) -> fm_types::Statem
         .collect()
 }
 
+/// Upside scenario deltas vs Base for the drivers that diverge across scenarios.
+/// Downside applies the negation. Shared so the analyst grid overlay (fm-build)
+/// mirrors exactly what the derived scenarios use — one source of truth.
+pub const UPSIDE_REVENUE_GROWTH_DELTA: f64 = 0.02;
+pub const UPSIDE_GROSS_MARGIN_DELTA: f64 = 0.01;
+pub const UPSIDE_CAPEX_DELTA: f64 = -0.01;
+/// ±0.5pp terminal-growth spread around the base case.
+pub const TERMINAL_GROWTH_DELTA: f64 = 0.005;
+
+/// Shared valuation inputs for [`build_assumptions_block`]. `Default` reproduces
+/// the engine's historical hardcoded values, so a default-constructed params set
+/// yields byte-identical output to the pre-flexibility code (parity gate).
+#[derive(Clone, Debug)]
+pub struct ValuationParams {
+    pub risk_free_rate: f64,
+    pub equity_risk_premium: f64,
+    pub target_de_ratio: f64,
+    /// `None` → engine-derived interest rate.
+    pub cost_of_debt_pretax: Option<f64>,
+    pub share_price: f64,
+    /// Base-case terminal growth; Upside/Downside are ±0.5pp around it.
+    pub terminal_growth: f64,
+    /// `None` → sector default exit-multiple table.
+    pub exit_multiple: Option<f64>,
+}
+
+impl Default for ValuationParams {
+    fn default() -> Self {
+        Self {
+            risk_free_rate: 0.045,
+            equity_risk_premium: 0.055,
+            target_de_ratio: 0.30,
+            cost_of_debt_pretax: None,
+            share_price: 0.0,
+            terminal_growth: 0.025,
+            exit_multiple: None,
+        }
+    }
+}
+
 /// Build the toggle + Base/Upside/Downside scenarios + shared valuation inputs.
 ///
-/// `risk_free_rate` and `current_share_price` are external market inputs the
-/// writer does not compute (live yfinance in Python); the caller supplies them.
+/// External market inputs (risk-free rate, share price) and analyst overrides
+/// (ERP, target D/E, cost of debt, terminal growth, exit multiple) come from
+/// `params`; the per-scenario drivers still derive from the parity-verified
+/// engine. A [`ValuationParams::default`] reproduces the legacy output exactly.
 pub fn build_assumptions_block(
     model: &ModelOutput,
     sector: &str,
-    risk_free_rate: f64,
-    current_share_price: f64,
+    params: &ValuationParams,
 ) -> AssumptionsBlock {
     let n_hist = model.n_hist();
     let n_proj = model.n_proj();
@@ -109,11 +150,25 @@ pub fn build_assumptions_block(
     };
     let a = ModelEngine::new(data, config).derive_assumptions();
 
-    let (mult_base, mult_up, mult_down) = sector_multiples(sector);
+    // Exit multiples: explicit override → base ±2 (tighter than the legacy sector
+    // spread); otherwise the sector default table.
+    let (mult_base, mult_up, mult_down) = match params.exit_multiple {
+        Some(m) => (m, m + 2.0, m - 2.0),
+        None => sector_multiples(sector),
+    };
+    let tg = params.terminal_growth;
 
-    let base = build_scenario("Base", &a, n_proj, 0.0, 0.0, 0.0, 0.025, mult_base);
-    let upside = build_scenario("Upside", &a, n_proj, 0.02, 0.01, -0.01, 0.030, mult_up);
-    let downside = build_scenario("Downside", &a, n_proj, -0.02, -0.01, 0.01, 0.020, mult_down);
+    let base = build_scenario("Base", &a, n_proj, 0.0, 0.0, 0.0, tg, mult_base);
+    let upside = build_scenario(
+        "Upside", &a, n_proj,
+        UPSIDE_REVENUE_GROWTH_DELTA, UPSIDE_GROSS_MARGIN_DELTA, UPSIDE_CAPEX_DELTA,
+        tg + TERMINAL_GROWTH_DELTA, mult_up,
+    );
+    let downside = build_scenario(
+        "Downside", &a, n_proj,
+        -UPSIDE_REVENUE_GROWTH_DELTA, -UPSIDE_GROSS_MARGIN_DELTA, -UPSIDE_CAPEX_DELTA,
+        tg - TERMINAL_GROWTH_DELTA, mult_down,
+    );
 
     AssumptionsBlock {
         proj_periods,
@@ -121,11 +176,13 @@ pub fn build_assumptions_block(
         base,
         upside,
         downside,
-        risk_free_rate,
-        equity_risk_premium: 0.055,
-        target_de_ratio: 0.30,
-        cost_of_debt_pretax: pick(&a, &["interest_rate_pct"], 0.035),
-        current_share_price,
+        risk_free_rate: params.risk_free_rate,
+        equity_risk_premium: params.equity_risk_premium,
+        target_de_ratio: params.target_de_ratio,
+        cost_of_debt_pretax: params
+            .cost_of_debt_pretax
+            .unwrap_or_else(|| pick(&a, &["interest_rate_pct"], 0.035)),
+        current_share_price: params.share_price,
         shares_diluted: pick(&a, &["shares_diluted"], 0.0),
         mid_year_convention: true,
     }

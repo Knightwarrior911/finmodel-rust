@@ -2,21 +2,47 @@
 //! computes the filings benchmark, and writes an IB-grade comparison workbook to
 //! Documents/finmodel/. Mirrors the CLI `fm benchmark`.
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
+use crate::commands::settings::read_settings;
 use crate::error::{AppError, AppResult};
+
+/// Options for a benchmark run (from the UI Benchmark card).
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(default)]
+pub struct BenchOpts {
+    /// Reporting basis: "annual" | "ltm" | "quarter" | "semi".
+    pub period: String,
+    /// Add trading multiples (live prices).
+    pub multiples: bool,
+    /// Convert monetary metrics to USD at spot FX.
+    pub usd: bool,
+    pub title: Option<String>,
+    /// Explicit output .xlsx path (Save-As); `None` → Documents/finmodel/.
+    pub out_path: Option<String>,
+}
+
+impl Default for BenchOpts {
+    fn default() -> Self {
+        Self { period: "annual".into(), multiples: false, usd: false, title: None, out_path: None }
+    }
+}
 
 /// Benchmark a comma-separated peer set. Returns a JSON summary the UI renders
 /// plus the path to the generated Excel file.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn benchmark_peers(app: tauri::AppHandle, tickers: String) -> AppResult<String> {
-    // Live HTTP fetch + file I/O — run off the IPC thread.
-    tauri::async_runtime::spawn_blocking(move || benchmark_blocking(&app, &tickers))
+pub async fn benchmark_peers(
+    app: tauri::AppHandle,
+    tickers: String,
+    opts: Option<BenchOpts>,
+) -> AppResult<String> {
+    let opts = opts.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || benchmark_blocking(&app, &tickers, opts))
         .await
         .map_err(|e| AppError::Engine(format!("benchmark task failed: {e}")))?
 }
 
-fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str) -> AppResult<String> {
+fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: BenchOpts) -> AppResult<String> {
     let list: Vec<String> = tickers
         .split(',')
         .map(|t| t.trim().to_uppercase())
@@ -28,30 +54,82 @@ fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str) -> AppResult<String
         ));
     }
 
-    let title = format!("Peer Benchmark — {}", list.join(", "));
-    let run = fm_research::benchmark_tickers(&list, &title).map_err(|e| {
+    let settings = read_settings(app);
+    if !settings.edgar_contact.trim().is_empty() {
+        fm_fetch::edgar::set_edgar_contact(settings.edgar_contact.trim().to_string());
+    }
+
+    let basis = match opts.period.to_lowercase().as_str() {
+        "ltm" => fm_research::PeriodBasis::Ltm,
+        "quarter" => fm_research::PeriodBasis::Quarter,
+        "semi" => fm_research::PeriodBasis::SemiAnnual,
+        _ => fm_research::PeriodBasis::AnnualFy,
+    };
+    let title = opts
+        .title
+        .clone()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| format!("Peer Benchmark — {}", list.join(", ")));
+    let run = fm_research::benchmark_tickers_opts_progress(
+        &list,
+        &title,
+        fm_research::BenchmarkOpts { basis, multiples: opts.multiples, to_usd: opts.usd },
+        |i, n, t| {
+            let _ = app.emit(
+                "build_progress",
+                serde_json::json!({ "stage": "fetch", "detail": format!("Fetching {t} ({i} of {n})…") }),
+            );
+        },
+    )
+    .map_err(|e| {
         AppError::Engine(format!(
             "no usable filing data for any ticker ({e}) — US-listed tickers only (SEC EDGAR)"
         ))
     })?;
 
-    // Write to Documents/finmodel/.
-    let out_dir = app
-        .path()
-        .document_dir()
-        .map_err(|e| AppError::Io(format!("no documents dir: {e}")))?
-        .join("finmodel");
-    std::fs::create_dir_all(&out_dir)?;
-    let stem = stem_for(&list);
-    let xlsx_path = out_dir.join(format!("{stem}.xlsx"));
-    let csv_path = out_dir.join(format!("{stem}.csv"));
+    // Write to the chosen path, else Documents/finmodel/.
+    let (xlsx_path, csv_path) =
+        if let Some(p) = opts.out_path.as_ref().filter(|p| !p.trim().is_empty()) {
+            let pb = std::path::PathBuf::from(p);
+            let csv = pb.with_extension("csv");
+            (pb, csv)
+        } else {
+            let out_dir = if !settings.out_dir.trim().is_empty() {
+                std::path::PathBuf::from(settings.out_dir.trim())
+            } else {
+                app.path()
+                    .document_dir()
+                    .map_err(|e| AppError::Io(format!("no documents dir: {e}")))?
+                    .join("finmodel")
+            };
+            std::fs::create_dir_all(&out_dir)?;
+            let stem = stem_for(&list);
+            (out_dir.join(format!("{stem}.xlsx")), out_dir.join(format!("{stem}.csv")))
+        };
+    if let Some(parent) = xlsx_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     let generated = fm_research::generated_stamp(&fm_research::today_iso());
     fm_research::render_benchmark(&run.table, &xlsx_path.to_string_lossy(), &generated)
         .map_err(|e| AppError::Engine(format!("Excel write failed: {e}")))?;
     std::fs::write(&csv_path, run.table.to_csv())?;
 
-    // JSON summary for the UI: per-company headline metrics + any failures.
+    // Record in Recent files (4.2).
+    {
+        use crate::commands::settings::{write_settings, RecentEntry};
+        let mut sset = read_settings(app);
+        let p = xlsx_path.to_string_lossy().to_string();
+        sset.recent.retain(|r| r.path != p);
+        sset.recent.insert(
+            0,
+            RecentEntry { path: p, label: format!("Benchmark — {}", list.join(", ")), when: fm_extract::today_iso() },
+        );
+        sset.recent.truncate(10);
+        let _ = write_settings(app, &sset);
+    }
+
+    // JSON summary for the UI: per-company headline metrics + failures + warnings.
     let rows: Vec<serde_json::Value> = run
         .metrics
         .iter()
@@ -84,6 +162,7 @@ fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str) -> AppResult<String
         "requested": list.len(),
         "rows": rows,
         "failed": failed,
+        "data_warnings": run.data_warnings,
         "xlsx_path": xlsx_path.to_string_lossy(),
         "csv_path": csv_path.to_string_lossy(),
     })

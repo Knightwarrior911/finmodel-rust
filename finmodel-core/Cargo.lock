@@ -511,6 +511,7 @@ dependencies = [
  "fm-extract",
  "fm-types",
  "fm-value",
+ "serde",
  "serde_json",
 ]
 
@@ -576,6 +577,7 @@ dependencies = [
 name = "fm-fetch"
 version = "0.1.0"
 dependencies = [
+ "quick-xml",
  "reqwest",
  "scraper",
  "serde",
@@ -592,13 +594,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm-mcp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "fm-pptx"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "fm-research"
 version = "0.1.0"
 dependencies = [
  "fm-excel",
  "fm-extract",
  "fm-fetch",
+ "fm-mcp",
  "fm-types",
+ "regex",
  "serde",
  "serde_json",
 ]
@@ -1867,6 +1891,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "servo_arc"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2278,6 +2315,12 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

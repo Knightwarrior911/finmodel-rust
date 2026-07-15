@@ -85,8 +85,16 @@ pub fn compute_wacc(
     } else {
         (target_market_cap / total_capital, target_debt / total_capital)
     };
-    let mut wacc = equity_weight * ke + debt_weight * after_tax_kd;
-    wacc = wacc.clamp(0.05, 0.30);
+    let raw_wacc = equity_weight * ke + debt_weight * after_tax_kd;
+    let wacc = raw_wacc.clamp(0.05, 0.30);
+    let mut warnings: Vec<String> = Vec::new();
+    if (wacc - raw_wacc).abs() > 1e-9 {
+        warnings.push(format!(
+            "WACC {:.1}% clamped to the [5%, 30%] sanity band (reported {:.1}%)",
+            raw_wacc * 100.0,
+            wacc * 100.0
+        ));
+    }
 
     WACCOutput {
         peers: peer_set.peers.clone(),
@@ -105,6 +113,7 @@ pub fn compute_wacc(
         equity_weight: round4(equity_weight),
         debt_weight: round4(debt_weight),
         wacc: round4(wacc),
+        warnings,
     }
 }
 

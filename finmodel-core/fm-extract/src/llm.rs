@@ -53,6 +53,45 @@ pub fn llm_complete(system_text: &str, user_text: &str, max_tokens: u32) -> Resu
     llm_complete_via_cli(system_text, user_text)
 }
 
+/// Explicit LLM credentials threaded per-request (no process-global env
+/// mutation — safe under concurrent builds and sound on Windows).
+#[derive(Clone, Debug, Default)]
+pub struct LlmConfig {
+    /// OpenRouter API key.
+    pub api_key: String,
+    /// OpenRouter model id (e.g. `anthropic/claude-sonnet-4`); blank → default.
+    pub model: String,
+}
+
+/// Like [`llm_complete`] but with credentials passed explicitly. When `cfg` is
+/// `Some` with a non-empty key it forces OpenRouter with that key/model,
+/// mutating no shared state. `None` (or an empty key) falls back to the
+/// env-based provider selection ([`llm_complete`]) — CLI path unchanged.
+pub fn llm_complete_with(
+    cfg: Option<&LlmConfig>,
+    system_text: &str,
+    user_text: &str,
+    max_tokens: u32,
+) -> Result<String, LlmError> {
+    if let Some(c) = cfg {
+        if !c.api_key.trim().is_empty() {
+            let model = if c.model.trim().is_empty() {
+                "anthropic/claude-sonnet-4".to_string()
+            } else {
+                c.model.trim().to_string()
+            };
+            return llm_complete_openrouter(
+                system_text,
+                user_text,
+                max_tokens,
+                &model,
+                c.api_key.trim(),
+            );
+        }
+    }
+    llm_complete(system_text, user_text, max_tokens)
+}
+
 /// Build the CLI args shared across both platforms.
 fn claude_args(sys_path: &str, model: &str) -> Vec<String> {
     vec![

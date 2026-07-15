@@ -1,7 +1,67 @@
 # Changelog
 
 
-## Unreleased
+## v0.2.0 — 2026-07-14
+
+### Fixed — correctness bugs (Phase 1)
+- **Cross-currency comps** — `apply_multiples` now reconciles the live quote
+  price into the metric currency before computing market cap / EV, so a USD
+  `--usd` run no longer blends a native-currency market cap with USD-converted
+  net debt (`fm-research`). Native `share_price`/`price_currency` are preserved
+  for disclosure.
+- **Hard-coded calendar year** — the `2024/2025/2026` fallbacks in
+  `fm-extract` (`detect_years`, `build_result`) and `fm-cli`/`src-tauri`
+  period labels are gone; a single civil-date helper (`fm_extract::date`,
+  `current_year`/`today_iso`) drives all year math. `compute_target_years`
+  wall-clock fallback is self-referential (no 2032 breakage).
+- **UI hardening** — all remote/untrusted strings escaped before `innerHTML`;
+  settings errors surface inside the open Settings card; a mistyped US ticker no
+  longer detours to the non-US PDF path; the updater's stuck "installing" state,
+  a non-clearing API key, a silent Gordon `TV=0`, and a silent WACC clamp are
+  all fixed. Stale doc-strings corrected.
+
+### Added — data quality (Phase 2)
+- EDGAR client + Yahoo quote/FX resilience (retries, explicit error surfaces);
+  DCF/statement **invariant checks** wired to user-visible warnings; live market
+  inputs (price/FX) flow into the model with provenance.
+
+### Added — analyst flexibility (Phase 3)
+- `BuildOptions` threaded end-to-end: an **Advanced options** panel and a
+  **per-year editable assumptions grid** (two-step prepare → finalize), CLI
+  parity (`--period`, projection/driver overrides), and a selectable
+  **reporting-period basis** (annual / quarterly / semi / LTM,
+  `fm_extract::PeriodBasis`) across build + benchmark.
+
+### Added — UX + ship (Phase 4)
+- Real-time **build progress events**, a **Recent outputs** list, a compact
+  **valuation preview** strip (implied price / upside / WACC / EV), refreshed
+  copy, and regenerated app icons (finmodel chart glyph).
+
+### Added — research subsystem port (Phases 5–9)
+- **News** (Phase 5) — Google News RSS headlines via `fm-fetch` (quick-xml
+  parser), `fm deal`-adjacent `fm news` CLI + app strip; research scoring
+  helpers (`rank_urls`, `has_deal_content`, `is_sufficient`) ported to
+  `fm-research::scoring`.
+- **PowerPoint** (Phase 6) — new `fm-pptx` crate: OOXML/DrawingML deck
+  inspect / edit / pure writer fns / EV+IFRS deck rendering (zip + quick-xml,
+  no python-pptx), tied out against `tieout/build_pptx_oracle.py` (23 tests).
+- **Non-US extraction** (Phase 7) — regex financial extractor + jurisdiction
+  tables + discovery upgrade in `fm-extract`/`fm-fetch`, tied out vs pinned
+  Python goldens.
+- **In-app web search** (Phase 8) — a new blocking-stdio MCP client crate
+  (`fm-mcp`, mock-server handshake gate), a `fm-research::web` facade (Roam MCP
+  when configured, DDG + tag-strip HTTP fallback) with a web-appropriate ranker
+  (drops SERP chrome, keeps content domains), a **Search** tool card + in-app
+  reader pane (sanitized markdown, find-on-page, open-in-browser), and
+  `web_search`/`read_page`/`test_mcp` Tauri commands.
+- **M&A research agent** (Phase 9) — `fm-research::agent`: NL query routing,
+  target/acquirer parsing, regex **deal synthesis**, and a search→read→
+  synthesize cascade with a sufficiency stop-condition, exposed as `fm deal`.
+
+All ported logic is unit-tested; live network/MCP paths are `#[ignore]`d.
+Full workspace suite green; `src-tauri` + `fm-cli` compile clean.
+
+## v0.1.1 — 2026-07-14 (previously shipped)
 
 ### Added — desktop auto-update
 - **Signed self-update** — the desktop app now checks GitHub Releases on launch

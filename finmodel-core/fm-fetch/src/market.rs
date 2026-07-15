@@ -4,10 +4,22 @@
 //! Every EV component — net debt, diluted shares, EBITDA, net income — comes
 //! from filings; the ONLY market input is the current share price, fetched here.
 //! Provenance downstream marks the price as market-sourced, not a filing figure.
+//!
+//! Resilience: one shared client, query1→query2 host failover, a short retry,
+//! and a typed [`FetchError`] so callers can record *why* a value is blank
+//! (network vs parse vs no-price) rather than silently dropping it.
+
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-const QUOTE_URL: &str = "https://query1.finance.yahoo.com/v8/finance/chart/";
+/// Yahoo chart hosts, tried in order (query2 is the failover mirror).
+const QUOTE_HOSTS: [&str; 2] = [
+    "https://query1.finance.yahoo.com/v8/finance/chart/",
+    "https://query2.finance.yahoo.com/v8/finance/chart/",
+];
 
 /// A market quote for one ticker (price + context).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -21,54 +33,121 @@ pub struct Quote {
     pub as_of_epoch: Option<i64>,
 }
 
-fn client() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder()
-        // Yahoo rejects the default reqwest UA; a browser UA is required.
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) finmodel/0.1")
-        .build()
-        .expect("reqwest client build")
+/// Why a market fetch failed — lets callers record a specific data warning
+/// instead of a silent blank. `Display` gives a human-readable reason.
+#[derive(Debug, thiserror::Error)]
+pub enum FetchError {
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("parse error: {0}")]
+    Parse(String),
+    #[error("no price available for {0}")]
+    NoPrice(String),
 }
 
-/// Fetch the latest market quote for a US ticker. `None` on any network/parse
-/// failure or missing price — callers degrade gracefully, never fabricate.
-pub fn fetch_quote(ticker: &str) -> Option<Quote> {
-    let url = format!("{QUOTE_URL}{}?interval=1d&range=1d", ticker.trim().to_uppercase());
-    let resp = client().get(&url).send().ok()?.error_for_status().ok()?;
-    let v: serde_json::Value = resp.json().ok()?;
-    let meta = v.pointer("/chart/result/0/meta")?;
-    let price = meta.get("regularMarketPrice").and_then(serde_json::Value::as_f64)?;
-    if price <= 0.0 {
-        return None;
+/// Shared blocking client (one TLS pool). Yahoo rejects the default reqwest UA,
+/// so a browser UA is required.
+static MARKET_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) finmodel/0.1")
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+});
+
+/// Fetch the `meta` object of a Yahoo chart response for `sym`, failing over
+/// query1 → query2 with one retry each. The returned `Err` distinguishes a
+/// network failure from a parse failure so callers can report the cause.
+fn fetch_chart_meta(sym: &str) -> Result<Value, FetchError> {
+    let path = format!("{sym}?interval=1d&range=1d");
+    let mut last: Option<FetchError> = None;
+    for host in QUOTE_HOSTS {
+        for attempt in 0..2 {
+            let url = format!("{host}{path}");
+            match MARKET_CLIENT.get(&url).send() {
+                Ok(resp) => match resp.error_for_status() {
+                    Ok(ok) => match ok.json::<Value>() {
+                        Ok(v) => {
+                            if let Some(meta) = v.pointer("/chart/result/0/meta") {
+                                return Ok(meta.clone());
+                            }
+                            last = Some(FetchError::Parse(format!("no chart meta for {sym}")));
+                        }
+                        Err(e) => last = Some(FetchError::Parse(e.to_string())),
+                    },
+                    Err(e) => last = Some(FetchError::Network(e.to_string())),
+                },
+                Err(e) => last = Some(FetchError::Network(e.to_string())),
+            }
+            if attempt == 0 {
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        }
     }
-    Some(Quote {
-        ticker: ticker.trim().to_uppercase(),
+    Err(last.unwrap_or_else(|| FetchError::Network(format!("no response for {sym}"))))
+}
+
+/// Fetch the latest market quote for a ticker. `Err` on network/parse failure
+/// or a missing/non-positive price — callers degrade gracefully (blank), never
+/// fabricate, and can surface the reason.
+pub fn fetch_quote(ticker: &str) -> Result<Quote, FetchError> {
+    let sym = ticker.trim().to_uppercase();
+    let meta = fetch_chart_meta(&sym)?;
+    let price = meta
+        .get("regularMarketPrice")
+        .and_then(Value::as_f64)
+        .filter(|p| *p > 0.0)
+        .ok_or_else(|| FetchError::NoPrice(sym.clone()))?;
+    let raw_ccy = meta.get("currency").and_then(Value::as_str).unwrap_or("USD");
+    // Normalize minor-unit venues (LSE "GBp" pence, JSE "ZAc", TASE "ILA") to the
+    // major unit so every price field in the Quote shares consistent units.
+    let div = minor_unit_divisor(raw_ccy);
+    let (currency, price) = normalize_minor_unit(raw_ccy, price);
+    Ok(Quote {
+        ticker: sym,
         price,
-        currency: meta
-            .get("currency")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("USD")
-            .to_string(),
-        week52_high: meta.get("fiftyTwoWeekHigh").and_then(serde_json::Value::as_f64),
-        week52_low: meta.get("fiftyTwoWeekLow").and_then(serde_json::Value::as_f64),
-        as_of_epoch: meta.get("regularMarketTime").and_then(serde_json::Value::as_i64),
+        currency,
+        week52_high: meta.get("fiftyTwoWeekHigh").and_then(Value::as_f64).map(|v| v / div),
+        week52_low: meta.get("fiftyTwoWeekLow").and_then(Value::as_f64).map(|v| v / div),
+        as_of_epoch: meta.get("regularMarketTime").and_then(Value::as_i64),
     })
 }
 
+/// Divisor mapping a minor-unit quote to its major unit (100 for pence/cents),
+/// else 1.0.
+fn minor_unit_divisor(ccy: &str) -> f64 {
+    match ccy {
+        "GBp" | "GBX" | "ZAc" | "ZAX" | "ILA" => 100.0,
+        _ => 1.0,
+    }
+}
+
+/// Normalize a quote currency reported in a minor unit to its major unit,
+/// scaling the price. LSE "GBp" (pence = 1/100 GBP), JSE "ZAc" (cents), TASE
+/// "ILA" (agorot). Matched case-sensitively on Yahoo's exact (mixed-case) code;
+/// any other code passes through upper-cased.
+pub fn normalize_minor_unit(ccy: &str, price: f64) -> (String, f64) {
+    let major = match ccy {
+        "GBp" | "GBX" => "GBP",
+        "ZAc" | "ZAX" => "ZAR",
+        "ILA" => "ILS",
+        other => return (other.to_uppercase(), price),
+    };
+    (major.to_string(), price / minor_unit_divisor(ccy))
+}
+
 /// Spot FX rate: units of USD per 1 unit of `from` currency (e.g. EUR→~1.08,
-/// TWD→~0.031). `USD` returns 1.0. `None` on failure. Yahoo pair `{FROM}USD=X`.
-pub fn fetch_fx_rate(from: &str) -> Option<f64> {
+/// TWD→~0.031). `USD` returns 1.0. `Err` on failure. Yahoo pair `{FROM}USD=X`.
+pub fn fetch_fx_rate(from: &str) -> Result<f64, FetchError> {
     let from = from.trim().to_uppercase();
     if from == "USD" {
-        return Some(1.0);
+        return Ok(1.0);
     }
     if from.len() != 3 {
-        return None;
+        return Err(FetchError::Parse(format!("invalid currency code {from:?}")));
     }
-    let url = format!("{QUOTE_URL}{from}USD=X?interval=1d&range=1d");
-    let resp = client().get(&url).send().ok()?.error_for_status().ok()?;
-    let v: serde_json::Value = resp.json().ok()?;
-    let rate = v
-        .pointer("/chart/result/0/meta/regularMarketPrice")
-        .and_then(serde_json::Value::as_f64)?;
-    if rate > 0.0 { Some(rate) } else { None }
+    let meta = fetch_chart_meta(&format!("{from}USD=X"))?;
+    meta.get("regularMarketPrice")
+        .and_then(Value::as_f64)
+        .filter(|r| *r > 0.0)
+        .ok_or_else(|| FetchError::NoPrice(format!("{from}USD")))
 }

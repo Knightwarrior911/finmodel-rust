@@ -36,8 +36,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> AppResult<String> {
     }
 }
 
-/// Download and install the pending update, then relaunch. Re-checks so it is
-/// stateless. On success the process restarts and this never returns.
+/// Download and install the pending update. Re-checks so it is stateless.
+/// Returns `Ok("installed")` once the install completes — the relaunch is a
+/// separate [`restart_app`] call the frontend makes AFTER it has rendered
+/// "Restarting…", so the UI never hangs on "Downloading…" and there is no
+/// response/relaunch race.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn install_update(app: tauri::AppHandle) -> AppResult<String> {
     let updater = app
@@ -52,5 +55,12 @@ pub async fn install_update(app: tauri::AppHandle) -> AppResult<String> {
         .download_and_install(|_chunk, _total| {}, || {})
         .await
         .map_err(|e| AppError::Engine(format!("update install failed: {e}")))?;
+    Ok("installed".into())
+}
+
+/// Relaunch the app (terminal — never returns). Called by the frontend after a
+/// successful [`install_update`] once it has shown the "Restarting…" state.
+#[tauri::command(rename_all = "snake_case")]
+pub fn restart_app(app: tauri::AppHandle) -> AppResult<String> {
     app.restart();
 }

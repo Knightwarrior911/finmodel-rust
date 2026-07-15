@@ -603,6 +603,7 @@ pub fn extract_financials_from_pdf(
     pdf_path: &str,
     periods: &[String],
     _ticker: &str,
+    llm_cfg: Option<&crate::llm::LlmConfig>,
 ) -> Result<ExtractionResult, ExtractError> {
     // Step 1: Extract per-page text natively (pure Rust, no Python)
     let pages = extract_pdf_pages(pdf_path)?;
@@ -626,7 +627,7 @@ pub fn extract_financials_from_pdf(
     );
 
     // Step 6: Call LLM (Python uses max_tokens=8192)
-    let raw = crate::llm::llm_complete(system_prompt, &user_prompt, 8192)
+    let raw = crate::llm::llm_complete_with(llm_cfg, system_prompt, &user_prompt, 8192)
         .map_err(|e| ExtractError::Other(format!("LLM call failed: {e}")))?;
 
     // Step 7: Parse JSON response with salvage fallback matching Python lines 604-615.
@@ -677,6 +678,14 @@ fn extract_pdf_pages(pdf_path: &str) -> Result<Vec<String>, ExtractError> {
             "PDF text extraction panicked on {pdf_path} (malformed or unsupported PDF)"
         ))),
     }
+}
+
+/// Extract full PDF text as a single newline-joined string (pure Rust).
+///
+/// Convenience over [`extract_pdf_pages`] for the regex extractor in
+/// [`crate::report`], which operates on whole-document text.
+pub fn extract_pdf_text(pdf_path: &str) -> Result<String, ExtractError> {
+    Ok(extract_pdf_pages(pdf_path)?.join("\n"))
 }
 
 /// Convert a JSON value (from LLM response) into an ExtractionResult.

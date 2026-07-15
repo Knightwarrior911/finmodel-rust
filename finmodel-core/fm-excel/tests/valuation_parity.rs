@@ -99,6 +99,7 @@ fn parse_wacc(v: &serde_json::Value) -> WACCOutput {
         equity_weight: f64_field(v, "equity_weight"),
         debt_weight: f64_field(v, "debt_weight"),
         wacc: f64_field(v, "wacc"),
+        warnings: Vec::new(),
     }
 }
 
@@ -164,6 +165,7 @@ fn parse_dcf(v: &serde_json::Value) -> DCFOutput {
         gordon_growth_range: f64_vec(v, "gordon_growth_range"),
         sensitivity_ebitda: f64_grid(v, "sensitivity_ebitda"),
         sensitivity_gordon: f64_grid(v, "sensitivity_gordon"),
+        warnings: Vec::new(),
     }
 }
 
@@ -277,12 +279,13 @@ fn input_from_val_oracle(snap: &serde_json::Value) -> WorkbookInput {
 
     // Rebuild assumptions from the frozen market block + derived drivers.
     // Sector standard; risk-free / share price frozen to match the oracle.
-    let mut assumptions: AssumptionsBlock = fm_excel::derive::build_assumptions_block(
-        &model,
-        "standard",
-        f64_field(market, "risk_free_rate"),
-        f64_field(market, "current_share_price"),
-    );
+    let params = fm_excel::derive::ValuationParams {
+        risk_free_rate: f64_field(market, "risk_free_rate"),
+        share_price: f64_field(market, "current_share_price"),
+        ..Default::default()
+    };
+    let mut assumptions: AssumptionsBlock =
+        fm_excel::derive::build_assumptions_block(&model, "standard", &params);
     assumptions.mid_year_convention = market
         .get("mid_year_convention")
         .and_then(|x| x.as_bool())

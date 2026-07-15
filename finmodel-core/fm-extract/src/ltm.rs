@@ -46,7 +46,7 @@ pub struct LtmData {
 }
 
 /// Days since a fixed epoch for `YYYY-MM-DD` (Howard Hinnant days_from_civil).
-fn parse_days(date: &str) -> Option<i64> {
+pub(crate) fn parse_days(date: &str) -> Option<i64> {
     let mut it = date.splitn(3, '-');
     let y: i64 = it.next()?.parse().ok()?;
     let m: i64 = it.next()?.parse().ok()?;
@@ -74,15 +74,15 @@ fn unit_array<'a>(entry: &'a Value, currency: &str) -> Option<&'a Vec<Value>> {
 }
 
 #[derive(Clone, Copy)]
-struct Fact {
-    start: Option<i64>,
-    end: i64,
-    val: f64,
-    is_annual: bool, // 10-K / 20-F
-    is_quarterly: bool, // 10-Q
+pub(crate) struct Fact {
+    pub start: Option<i64>,
+    pub end: i64,
+    pub val: f64,
+    pub is_annual: bool, // 10-K / 20-F
+    pub is_quarterly: bool, // 10-Q
 }
 
-fn facts_for(
+pub(crate) fn facts_for(
     gaap: &serde_json::Map<String, Value>,
     tags: &[&str],
     currency: &str,
@@ -177,7 +177,7 @@ fn ltm_flow(
 }
 
 /// Latest reported instant (point-in-time) value for a balance-sheet concept.
-fn latest_instant(
+pub(crate) fn latest_instant(
     gaap: &serde_json::Map<String, Value>,
     tags: &[&str],
     currency: &str,
@@ -198,7 +198,7 @@ fn sum_opt(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     }
 }
 
-fn days_to_iso(days: i64) -> String {
+pub(crate) fn days_to_iso(days: i64) -> String {
     // Inverse civil_from_days.
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

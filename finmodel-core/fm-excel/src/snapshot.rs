@@ -117,8 +117,12 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
     // External market inputs (live yfinance in Python) — read from Assumptions.
     let risk_free = snap_cell_num(snap, "Assumptions", "D86").unwrap_or(0.045);
     let share_price = snap_cell_num(snap, "Assumptions", "D90").unwrap_or(0.0);
-    let assumptions =
-        crate::derive::build_assumptions_block(&model, &sector, risk_free, share_price);
+    let params = crate::derive::ValuationParams {
+        risk_free_rate: risk_free,
+        share_price,
+        ..Default::default()
+    };
+    let assumptions = crate::derive::build_assumptions_block(&model, &sector, &params);
 
     Ok(WorkbookInput {
         meta,

@@ -6,6 +6,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(commands::model::SessionCache::default())
         .setup(|app| {
             // Auto-updater (desktop only) — verifies signed releases against the
             // minisign pubkey in tauri.conf.json before installing.

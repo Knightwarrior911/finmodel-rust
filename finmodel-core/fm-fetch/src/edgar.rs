@@ -3,6 +3,8 @@
 //! Ported from `src/fetcher.py` — `get_cik()` and `fetch_xbrl_facts()`.
 
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +15,57 @@ const EDGAR_USER_AGENT: &str = "FinancialModelBot vinit.paul@gmail.com";
 const COMPANY_TICKERS_URL: &str = "https://www.sec.gov/files/company_tickers.json";
 const COMPANY_FACTS_URL: &str = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json";
 const SUBMISSIONS_URL: &str = "https://data.sec.gov/submissions/CIK{cik}.json";
+
+/// Shared blocking client — one TLS connection pool for every EDGAR call
+/// (replaces the per-call `Client::builder()`). The User-Agent is resolved once
+/// at first use, so [`set_edgar_contact`] must run before the first request.
+static EDGAR_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    reqwest::blocking::Client::builder()
+        .user_agent(edgar_user_agent())
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+});
+
+/// Runtime-set EDGAR contact (SEC policy requires a real contact in the UA).
+/// `OnceLock`, not `LazyLock`: the value is supplied at runtime, not declaration.
+static EDGAR_CONTACT: OnceLock<String> = OnceLock::new();
+
+/// ticker(upper) → 10-digit padded CIK, downloaded once and cached — kills the
+/// ~1 MB `company_tickers.json` re-download on every lookup. Populated from a
+/// fallible network fetch, so `OnceLock` (only a success is cached), not `LazyLock`.
+static TICKER_MAP: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+/// Instant of the last EDGAR request, for the rate-limit gate.
+static EDGAR_GATE: LazyLock<Mutex<Instant>> =
+    LazyLock::new(|| Mutex::new(Instant::now() - Duration::from_secs(1)));
+
+/// Minimum spacing between EDGAR requests (SEC policy is ≤10 req/s).
+const EDGAR_MIN_INTERVAL: Duration = Duration::from_millis(120);
+
+/// Set the EDGAR contact string (e.g. an email). Used in the User-Agent per SEC
+/// policy. Call once at startup / command entry, BEFORE the first EDGAR request
+/// (the client caches the UA on first use). First value wins.
+pub fn set_edgar_contact(contact: String) {
+    let _ = EDGAR_CONTACT.set(contact);
+}
+
+/// The EDGAR User-Agent: the runtime-set contact, else `FINMODEL_EDGAR_CONTACT`
+/// from the environment, else the built-in default.
+pub fn edgar_user_agent() -> String {
+    let contact = EDGAR_CONTACT
+        .get()
+        .filter(|c| !c.trim().is_empty())
+        .cloned()
+        .or_else(|| {
+            std::env::var("FINMODEL_EDGAR_CONTACT")
+                .ok()
+                .filter(|c| !c.trim().is_empty())
+        });
+    match contact {
+        Some(c) => format!("finmodel {}", c.trim()),
+        None => EDGAR_USER_AGENT.to_string(),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -26,6 +79,8 @@ pub enum EdgarError {
     TickerNotFound(String),
     #[error("CIK format error: {0}")]
     CikFormat(String),
+    #[error("EDGAR request failed after retries: {0}")]
+    Request(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -92,34 +147,79 @@ pub struct FactValue {
 // Client helpers
 // ---------------------------------------------------------------------------
 
-fn client() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder()
-        .user_agent(EDGAR_USER_AGENT)
-        .build()
-        .expect("reqwest client build")
+/// Block until at least [`EDGAR_MIN_INTERVAL`] has passed since the last EDGAR
+/// request, then record now as the last request. Serialized via a global mutex.
+fn rate_limit() {
+    let mut last = EDGAR_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    let elapsed = last.elapsed();
+    if elapsed < EDGAR_MIN_INTERVAL {
+        std::thread::sleep(EDGAR_MIN_INTERVAL - elapsed);
+    }
+    *last = Instant::now();
+}
+
+/// GET an EDGAR URL through the shared client, rate-limited, with 3 attempts and
+/// 500ms→1s backoff on 429 / 5xx / transport errors. Other error statuses are
+/// terminal (no retry). Returns the successful response or the last error.
+fn edgar_get(url: &str) -> Result<reqwest::blocking::Response, EdgarError> {
+    let mut backoff = Duration::from_millis(500);
+    let mut last_err: Option<String> = None;
+    for attempt in 0..3 {
+        rate_limit();
+        match EDGAR_CLIENT.get(url).header("Accept", "application/json").send() {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return Ok(resp);
+                }
+                if status.as_u16() == 429 || status.is_server_error() {
+                    last_err = Some(format!("HTTP {status}"));
+                } else {
+                    // Terminal (e.g. 404) — surface immediately, no panic on 3xx.
+                    return Err(EdgarError::Request(format!("HTTP {status} for {url}")));
+                }
+            }
+            Err(e) => last_err = Some(e.to_string()),
+        }
+        if attempt < 2 {
+            std::thread::sleep(backoff);
+            backoff *= 2;
+        }
+    }
+    Err(EdgarError::Request(last_err.unwrap_or_else(|| url.to_string())))
+}
+
+/// ticker(upper) → padded-CIK map, downloaded once and cached. Only a
+/// successful download is cached (a failure returns `Err`, retried next call).
+fn ticker_map() -> Result<&'static HashMap<String, String>, EdgarError> {
+    if let Some(m) = TICKER_MAP.get() {
+        return Ok(m);
+    }
+    let entries: HashMap<String, TickerEntry> = edgar_get(COMPANY_TICKERS_URL)?.json()?;
+    let mut map = HashMap::with_capacity(entries.len());
+    for entry in entries.values() {
+        let cik = match &entry.cik_str {
+            Value::Number(n) => n.as_i64().unwrap_or(0).to_string(),
+            Value::String(s) => s.clone(),
+            _ => continue,
+        };
+        map.insert(entry.ticker.to_uppercase(), format!("{:0>10}", cik));
+    }
+    // First writer wins; a racing thread's identical map is discarded.
+    let _ = TICKER_MAP.set(map);
+    Ok(TICKER_MAP.get().expect("just set"))
 }
 
 /// Look up the 10-digit SEC CIK number for a ticker symbol.
 ///
-/// Ported from Python `get_cik()` in `src/fetcher.py`.
+/// Ported from Python `get_cik()` in `src/fetcher.py`. Backed by the cached
+/// [`ticker_map`], so repeated lookups don't re-download the ~1 MB index.
 pub fn cik_from_ticker(ticker: &str) -> Result<String, EdgarError> {
     let ticker_upper = ticker.trim().to_uppercase();
-    let resp = client()
-        .get(COMPANY_TICKERS_URL)
-        .send()?
-        .error_for_status()?;
-    let entries: HashMap<String, TickerEntry> = resp.json()?;
-    for (_key, entry) in &entries {
-        if entry.ticker == ticker_upper {
-            let cik = match &entry.cik_str {
-                Value::Number(n) => n.as_i64().unwrap_or(0).to_string(),
-                Value::String(s) => s.clone(),
-                _ => return Err(EdgarError::CikFormat(format!("{:?}", entry.cik_str))),
-            };
-            return Ok(format!("{:0>10}", cik));
-        }
-    }
-    Err(EdgarError::TickerNotFound(ticker.to_string()))
+    ticker_map()?
+        .get(&ticker_upper)
+        .cloned()
+        .ok_or_else(|| EdgarError::TickerNotFound(ticker.to_string()))
 }
 
 /// Fetch the full XBRL company facts JSON for a given CIK.
@@ -128,23 +228,13 @@ pub fn cik_from_ticker(ticker: &str) -> Result<String, EdgarError> {
 /// Ported from Python `fetch_xbrl_facts()` in `src/fetcher.py`.
 pub fn fetch_companyfacts(cik: &str) -> Result<CompanyFacts, EdgarError> {
     let url = COMPANY_FACTS_URL.replace("{cik}", cik);
-    let resp = client()
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()?
-        .error_for_status()?;
-    Ok(resp.json()?)
+    Ok(edgar_get(&url)?.json()?)
 }
 
 /// Fetch the raw JSON value of company facts (for flexible downstream parsing).
 pub fn fetch_companyfacts_raw(cik: &str) -> Result<Value, EdgarError> {
     let url = COMPANY_FACTS_URL.replace("{cik}", cik);
-    let resp = client()
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()?
-        .error_for_status()?;
-    Ok(resp.json()?)
+    Ok(edgar_get(&url)?.json()?)
 }
 
 /// SIC industry classification from the SEC submissions endpoint.
@@ -172,12 +262,7 @@ impl SicInfo {
 /// filing-index functions below.
 fn fetch_submissions_value(cik: &str) -> Result<Value, EdgarError> {
     let url = SUBMISSIONS_URL.replace("{cik}", cik);
-    let resp = client()
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()?
-        .error_for_status()?;
-    Ok(resp.json()?)
+    Ok(edgar_get(&url)?.json()?)
 }
 
 /// Fetch a company's SIC industry classification (submissions endpoint).

@@ -1,0 +1,11 @@
+{
+  "op": "replace_text_in_deck",
+  "log": {
+    "op": "replace_text_in_deck",
+    "params": {
+      "replacements": {
+        "Q1": "Q2"
+      }
+    }
+  }
+}

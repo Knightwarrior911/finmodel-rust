@@ -34,7 +34,7 @@ fn main() {
     // Full extraction (needs an LLM key; will fail gracefully without one)
     println!("\nAttempting full extraction (needs OPENROUTER_API_KEY)...");
     let periods = vec!["2023A".to_string(), "2024A".to_string()];
-    match fm_extract::extract_financials_from_pdf(pdf_path, &periods, "SAND.ST") {
+    match fm_extract::extract_financials_from_pdf(pdf_path, &periods, "SAND.ST", None) {
         Ok(result) => {
             println!("=== EXTRACTION SUCCEEDED ===");
             println!("currency: {}  years: {:?}", result.currency, result.years_found);
