@@ -19,9 +19,24 @@ pub struct WebHit {
 }
 
 fn client() -> Result<reqwest::blocking::Client, FetchError> {
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, UPGRADE_INSECURE_REQUESTS};
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        ),
+    );
+    headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
+    headers.insert(UPGRADE_INSECURE_REQUESTS, HeaderValue::from_static("1"));
     reqwest::blocking::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .timeout(Duration::from_secs(15))
+        .user_agent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        )
+        .default_headers(headers)
+        .cookie_store(true)
+        .timeout(Duration::from_secs(20))
         .build()
         .map_err(|e| FetchError::Network(e.to_string()))
 }
@@ -120,18 +135,80 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Fetch a page and reduce it to whitespace-collapsed body text (good enough for
-/// non-protected pages; protected pages need the Roam MCP `read_markdown`).
-pub fn fetch_page_text(url: &str) -> Result<String, FetchError> {
-    let html = client()?
+/// Classification of a page fetch — success, bot-blocked, or too-thin content.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageStatus {
+    #[default]
+    Ok,
+    Blocked,
+    Thin,
+}
+
+/// A fetched page: extracted title, readable text, and a status classification.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FetchedPage {
+    pub title: String,
+    pub text: String,
+    pub status: PageStatus,
+}
+
+/// Map an HTTP status code to a page classification. 403/429/503 are the
+/// canonical bot-block / rate-limit / temporary-unavailable codes.
+pub fn classify_status(code: u16) -> PageStatus {
+    match code {
+        403 | 429 | 503 => PageStatus::Blocked,
+        _ => PageStatus::Ok,
+    }
+}
+
+/// Extract a page title: `<title>` text, else first `<h1>`, else "".
+fn extract_title(html: &str) -> String {
+    let doc = Html::parse_document(html);
+    for sel in ["title", "h1"] {
+        if let Ok(s) = Selector::parse(sel) {
+            if let Some(el) = doc.select(&s).next() {
+                let t = el.text().collect::<String>();
+                let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+/// Fetch a page → title + readable text + status. Bot-blocked responses
+/// (403/429/503) return `Blocked` with empty text rather than erroring; pages
+/// whose extracted text is under 200 chars return `Thin` (partial text kept).
+/// Non-protected static/SSR pages return `Ok`. Protected/JS-only pages that
+/// slip through as `Blocked`/`Thin` need the Roam MCP `read_markdown` path.
+pub fn fetch_page(url: &str) -> Result<FetchedPage, FetchError> {
+    let resp = client()?
         .get(url)
         .send()
-        .map_err(|e| FetchError::Network(e.to_string()))?
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    if classify_status(resp.status().as_u16()) == PageStatus::Blocked {
+        return Ok(FetchedPage {
+            title: String::new(),
+            text: String::new(),
+            status: PageStatus::Blocked,
+        });
+    }
+    let html = resp
         .error_for_status()
         .map_err(|e| FetchError::Network(e.to_string()))?
         .text()
         .map_err(|e| FetchError::Parse(e.to_string()))?;
-    Ok(strip_html(&html))
+    let title = extract_title(&html);
+    let text = strip_html(&html);
+    let status = if text.trim().len() < 200 {
+        PageStatus::Thin
+    } else {
+        PageStatus::Ok
+    };
+    Ok(FetchedPage { title, text, status })
 }
 
 /// Extract the main readable content as lightweight markdown (headings,
@@ -283,5 +360,35 @@ mod tests {
         assert!(!md.contains("Site Banner"));
         assert!(!md.contains("cookie policy"));
         assert!(!md.contains("track()"));
+    }
+
+    #[test]
+    fn classify_status_flags_block_codes() {
+        assert_eq!(classify_status(403), PageStatus::Blocked);
+        assert_eq!(classify_status(429), PageStatus::Blocked);
+        assert_eq!(classify_status(503), PageStatus::Blocked);
+        assert_eq!(classify_status(200), PageStatus::Ok);
+        assert_eq!(classify_status(404), PageStatus::Ok);
+        assert_eq!(classify_status(500), PageStatus::Ok);
+    }
+
+    #[test]
+    fn extract_title_prefers_title_then_h1() {
+        assert_eq!(
+            extract_title("<html><head><title> Hello World </title></head><body><h1>Nope</h1></body></html>"),
+            "Hello World"
+        );
+        assert_eq!(
+            extract_title("<html><body><h1>Fallback H1</h1><p>x</p></body></html>"),
+            "Fallback H1"
+        );
+        assert_eq!(extract_title("<html><body><p>no title</p></body></html>"), "");
+    }
+
+    #[test]
+    fn page_status_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&PageStatus::Ok).unwrap(), "\"ok\"");
+        assert_eq!(serde_json::to_string(&PageStatus::Blocked).unwrap(), "\"blocked\"");
+        assert_eq!(serde_json::to_string(&PageStatus::Thin).unwrap(), "\"thin\"");
     }
 }

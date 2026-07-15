@@ -1,6 +1,77 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — Desktop app shipped + auto-update LIVE (current, 2026-07-14)
+## HANDOVER — Chat-first desktop redesign, v0.3.1 LIVE (current, 2026-07-15)
+**Branch `master`.** Source `finmodel-rust` PRIVATE; releases → PUBLIC
+`finmodel-releases`. **v0.3.1 is the live release** (updater endpoint
+`…/finmodel-releases/releases/latest/download/latest.json` verified serving
+0.3.1). Disk volatile: `df -h /c` before any `cargo`; a signed release build
+needs >6G free — reclaim with `rm -rf src-tauri/target/debug finmodel-core/target/debug`.
+
+The desktop app (`src-tauri/` + `ui/`) is now a **chat-first, claude.ai-style**
+interface (replaced the old two-tool-card workspace). See `src-tauri/CLAUDE.md`
+and `ui/CLAUDE.md` for the per-area maps.
+
+### What shipped (v0.2.1 → v0.3.0 redesign → v0.3.1 fixes)
+- **Chat engine** `src-tauri/src/commands/chat.rs` — conversation store
+  (`app_config_dir()/conversations/<id>.json`; `list/load/delete/rename_conversation`)
+  + an **OpenRouter tool-calling loop with live SSE streaming**. Events (copy
+  `emit_progress` pattern): `chat_delta` (token chunk), `chat_tool`
+  (`start|done|error`, carries `card`), `chat_done`, `chat_reset` (drop a
+  fabricated draft). Single-flight + cancel via managed `ChatGate`
+  (`chat_send`/`chat_cancel`). 8 tools (`build_model`, `benchmark_peers`,
+  `web_search`, `read_page`, `get_news`, `research_deal`, `get_quote`,
+  `list_filings`) call **shared blocking cores directly** — NOT the IPC command
+  wrappers: `model::{build_model_blocking, prepare_model_core, finalize_model_core}`,
+  `benchmark::benchmark_blocking`, `search::mcp_from_settings`, `fm_research`,
+  `fm_fetch`. All are `pub(crate)`.
+- **Deterministic router = weak-model safety net.** `route_fallback(msg)` (keyword
+  rules, ticker regex, benchmark-before-build precedence) runs when there's no API
+  key AND as a safety net when a model rejects `tools` (400/404) or answers an
+  EXPLICIT data request without calling one. This guarantees finance numbers/links
+  come from a tool result, never a fabricated free-form answer. `ai21/jamba-large`
+  is weak at tool-calling but SAFE via this net; a real tool-calling model
+  (Anthropic/OpenAI) is better for full NL. Bare definitional Qs still answer directly.
+- **Read-path hardening** `finmodel-core/fm-fetch/src/websearch.rs` — `client()`
+  now sends full browser headers + cookie store + gzip/brotli + 20s timeout;
+  `fetch_page_text` → **`fetch_page` → `FetchedPage{title,text,status}`**,
+  `PageStatus{Ok,Blocked,Thin}`, pure `classify_status(u16)` (403/429/503→Blocked,
+  <200 chars→Thin). `fm-research/web.rs` adds `read_page_full` (+`read_page` shim
+  keeps `agent.rs` untouched); `search::read_page` command returns
+  `{title,text,status}`. Reader shows an honest blocked/thin prompt, never a dead end.
+- **Frontend** `ui/app.js` DELETED → ES modules `ui/js/{core,sidebar,chat,cards,
+  reader,settings,update,main}.mjs` via `<script type="module">`. 3-region grid
+  (`index.html`), light+dark tokens (`[data-theme="dark"]`), bundled **IBM Plex
+  Sans/Mono** woff2 in `ui/fonts/`. Model control tokens (`<|eom|>`) stripped
+  (`strip_control_tokens` / `stripControlTokens`); streaming caret keyed off a
+  `.streaming` class removed on finalize.
+- **Kept:** every old Tauri command stays registered (CLI/tests/back-compat).
+  `prepare_model`/`finalize_model` reused for the in-chat assumptions grid card.
+
+### Build + release (updated; supersedes the CI=true note below)
+- Set `CI` EXPLICITLY to `true` or `false` for the build — the sandbox's default
+  `CI=1` makes tauri-cli's `--ci` flag reject with "invalid value '1'". Signing
+  key `C:\Users\vinit\.tauri\finmodel.key` (OUTSIDE repo, contents not path).
+  Build via a subprocess with env `{TAURI_SIGNING_PRIVATE_KEY:<contents>,
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD:"", CI:"false"}` → `cargo tauri build
+  --bundles nsis`. Bump `version` in `tauri.conf.json` + `src-tauri/Cargo.toml`,
+  add a CHANGELOG entry, then `gh release create vX.Y.Z --repo
+  Knightwarrior911/finmodel-releases <setup.exe> <latest.json>`. Auto-update needs
+  the new version STRICTLY greater than installed.
+
+### Gates (all green this session)
+- `cd src-tauri && cargo test` — 13 chat unit tests (`build_chat_request`,
+  `sse_accumulate` incl. split tool-call fragments, `route_fallback` + precedence,
+  `strip_control_tokens`, conversation round-trip, `iso_utc`).
+- `cd finmodel-core && cargo test -p fm-fetch -p fm-research` (+ `--workspace`,
+  45 ok/0 failed) — incl. `classify_status`/`FetchedPage` tests.
+- `node --check ui/js/*.mjs`; browser-driven flow tests (ES modules need HTTP,
+  NOT `file://` — serve `ui/` and mock `window.__TAURI__` incl. `event.listen`).
+
+### Not run (needs live env/keys)
+Live `cargo tauri dev` E2E with a real OpenRouter key; Python tie-out / pytest
+release gates (engine correctness, unchanged by this UI/chat work).
+
+## HANDOVER — Desktop app shipped + auto-update LIVE (previous, 2026-07-14)
 **Two repos:** source **`finmodel-rust` is PRIVATE**; releases go to the PUBLIC
 **`finmodel-releases`** (github.com/Knightwarrior911/finmodel-releases). The Tauri
 updater fetches `latest.json` UNAUTHENTICATED, so a private repo 404s — releases

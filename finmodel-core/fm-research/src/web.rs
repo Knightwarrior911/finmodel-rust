@@ -49,14 +49,16 @@ const WEB_JUNK: &[&str] = &[
     "bing.com/search", "bing.com/ck", "duckduckgo.com/l/", "duckduckgo.com/y.js",
 ];
 
-/// Read a page as markdown/text. With an MCP client, Roam's `read_markdown`
-/// (passing the optional BM25 `query` for relevant-passage extraction); else a
-/// plain GET + tag-strip (protected pages need the MCP path — error says so).
-pub fn read_page(
+/// Read a page as a full [`fm_fetch::FetchedPage`] (title + text + status).
+/// With an MCP client, Roam's `read_markdown` (passing the optional BM25
+/// `query`); the result is wrapped as `status: Ok`. Otherwise a plain HTTP
+/// GET + tag-strip via [`fm_fetch::fetch_page`], which classifies bot-blocked
+/// (403/429/503) and thin pages instead of erroring.
+pub fn read_page_full(
     url: &str,
     query: Option<&str>,
     mcp: Option<&mut fm_mcp::McpClient>,
-) -> Result<String, String> {
+) -> Result<fm_fetch::FetchedPage, String> {
     match mcp {
         Some(client) => {
             let mut args = serde_json::json!({ "url": url });
@@ -66,10 +68,27 @@ pub fn read_page(
             let res = client
                 .call_tool("read_markdown", args)
                 .map_err(|e| e.to_string())?;
-            Ok(extract_mcp_text(&res))
+            let text = extract_mcp_text(&res);
+            Ok(fm_fetch::FetchedPage {
+                title: String::new(),
+                text,
+                status: fm_fetch::PageStatus::Ok,
+            })
         }
-        None => fm_fetch::websearch::fetch_page_text(url).map_err(|e| e.to_string()),
+        None => fm_fetch::fetch_page(url).map_err(|e| e.to_string()),
     }
+}
+
+/// Read a page as markdown/text (deal-agent shim over [`read_page_full`]).
+/// With an MCP client, Roam's `read_markdown` (passing the optional BM25
+/// `query` for relevant-passage extraction); else a plain GET + tag-strip
+/// (protected pages surface via the page status in [`read_page_full`]).
+pub fn read_page(
+    url: &str,
+    query: Option<&str>,
+    mcp: Option<&mut fm_mcp::McpClient>,
+) -> Result<String, String> {
+    read_page_full(url, query, mcp).map(|p| p.text)
 }
 
 /// Drop only SERP chrome/junk, then stably float priority (financial/newswire)

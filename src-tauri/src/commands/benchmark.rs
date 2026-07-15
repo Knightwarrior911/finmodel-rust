@@ -42,7 +42,7 @@ pub async fn benchmark_peers(
         .map_err(|e| AppError::Engine(format!("benchmark task failed: {e}")))?
 }
 
-fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: BenchOpts) -> AppResult<String> {
+pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: BenchOpts) -> AppResult<String> {
     let list: Vec<String> = tickers
         .split(',')
         .map(|t| t.trim().to_uppercase())

@@ -1,4 +1,5 @@
 pub mod benchmark;
+pub mod chat;
 pub mod model;
 pub mod news;
 pub mod search;
@@ -20,6 +21,12 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         search::web_search,
         search::read_page,
         search::test_mcp,
+        chat::list_conversations,
+        chat::load_conversation,
+        chat::delete_conversation,
+        chat::rename_conversation,
+        chat::chat_send,
+        chat::chat_cancel,
         settings::load_settings,
         settings::save_settings,
         settings::list_models,

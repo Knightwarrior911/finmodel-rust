@@ -7,456 +7,169 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand" aria-label="finmodel">
-      <span class="brand-mark" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.5"/>
-          <path d="M5 12.5V8.5M9 12.5V5.5M13 12.5V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-      </span>
-      <span class="brand-name">finmodel</span>
-    </div>
-    <div class="topbar-actions">
-      <span id="modePill" class="mode-pill" title="Extraction mode">
-        <span class="mode-dot" aria-hidden="true"></span>
-        <span id="modePillText">Demo mode</span>
-      </span>
-      <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M6.5 2.5h3l.4 1.4a5 5 0 0 1 1.1.6l1.4-.5 1.5 2.6-1.1 1a5 5 0 0 1 0 1.3l1.1 1-1.5 2.6-1.4-.5a5 5 0 0 1-1.1.6L9.5 13.5h-3l-.4-1.4a5 5 0 0 1-1.1-.6l-1.4.5L2.1 9.4l1.1-1a5 5 0 0 1 0-1.3l-1.1-1L3.6 3.5l1.4.5a5 5 0 0 1 1.1-.6L6.5 2.5Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
-          <circle cx="8" cy="8" r="1.75" stroke="currentColor" stroke-width="1.25"/>
-        </svg>
-      </button>
-    </div>
-  </header>
-
-  <main class="main">
-    <section class="intro" aria-labelledby="introTitle">
-      <p class="eyebrow">Financial model builder</p>
-      <h1 id="introTitle">Turn a stock ticker into an analyst-grade Excel model.</h1>
-      <p class="sub">
-        Pick one of the two tools below. finmodel pulls the numbers from public
-        company filings, does the math, and writes a formula-driven
-        <strong>.xlsx</strong> you can open and edit in Excel.
-      </p>
-    </section>
-
-    <div id="updateBanner" class="banner ok" role="status" hidden>
-      <span class="banner-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M8 2.5v7m0 0 3-3m-3 3-3-3M3 12.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </span>
-      <p id="updateBannerText" class="banner-text">An update is available.</p>
-      <button id="updateInstallBtn" class="banner-action" type="button">Restart &amp; update</button>
-    </div>
-
-    <div id="modeBanner" class="banner" role="status">
-      <span class="banner-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"/>
-          <path d="M8 7.2v3.4M8 5.2v.05" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        </svg>
-      </span>
-      <p id="modeBannerText" class="banner-text">Checking mode…</p>
-      <button id="bannerSettingsBtn" class="banner-action" type="button">Open Settings</button>
-    </div>
-
-    <section class="tools" aria-label="Tools">
-      <!-- Tool 1: Build a full model -->
-      <article class="tool-card" aria-labelledby="buildHeading">
-        <div class="tool-head">
-          <span class="tool-num" aria-hidden="true">1</span>
-          <div>
-            <h2 id="buildHeading">Build a full model</h2>
-            <p class="tool-desc">One company → a complete 3-statement model, projected forward (2–10 years), with a DCF valuation and editable assumptions.</p>
-          </div>
-        </div>
-
-        <label class="field-label" for="ticker">Company ticker</label>
-        <div class="build-row">
-          <input id="ticker" class="ticker-input" type="text" placeholder="SAND.ST"
-                 autocomplete="off" spellcheck="false" aria-describedby="tickerHelp" />
-          <button id="buildBtn" class="primary-btn" disabled>
-            <span class="btn-label">Build model</span>
-          </button>
-        </div>
-        <p id="tickerHelp" class="help">
-          One ticker. Use <code>SYMBOL</code> for US companies (<code>AAPL</code>)
-          or <code>SYMBOL.EXCHANGE</code> for international (<code>SAND.ST</code>).
-          <span id="tickerEcho" class="help-echo" hidden></span>
-        </p>
-
-        <div class="chips" id="demoChips">
-          <span class="chip-label">Try one — works offline</span>
-          <button type="button" class="chip" data-t="SAND.ST">Sandvik</button>
-          <button type="button" class="chip" data-t="ASML.AS">ASML</button>
-          <button type="button" class="chip" data-t="NOVO-B.CO">Novo Nordisk</button>
-          <button type="button" class="chip" data-t="NESN.SW">Nestlé</button>
-          <button type="button" class="chip" data-t="ATCO-B.ST">Atlas Copco</button>
-        </div>
-
-        <details id="advOpts" class="adv-opts">
-          <summary>Advanced options</summary>
-          <div class="adv-grid">
-            <label class="adv-field">Projection years
-              <input id="optYears" type="number" min="2" max="10" step="1" value="5" />
-            </label>
-            <label class="adv-field">Sector
-              <select id="optSector">
-                <option value="standard">Standard</option>
-                <option value="utility">Utility</option>
-                <option value="bank">Bank</option>
-                <option value="insurance">Insurance</option>
-                <option value="reit">REIT</option>
-              </select>
-            </label>
-            <label class="adv-field">Risk-free %
-              <input id="optRiskFree" type="number" step="0.1" placeholder="4.5" />
-            </label>
-            <label class="adv-field">Equity risk premium %
-              <input id="optErp" type="number" step="0.1" placeholder="5.5" />
-            </label>
-            <label class="adv-field">Target D/E
-              <input id="optTargetDe" type="number" step="0.05" placeholder="0.30" />
-            </label>
-            <label class="adv-field">Cost of debt %
-              <input id="optCostDebt" type="number" step="0.1" placeholder="derived" />
-            </label>
-            <label class="adv-field">Beta
-              <input id="optBeta" type="number" step="0.1" placeholder="1.0" />
-            </label>
-            <label class="adv-field">Tax rate %
-              <input id="optTaxRate" type="number" step="0.1" placeholder="derived" />
-            </label>
-            <label class="adv-field">Terminal growth %
-              <input id="optTerminalGrowth" type="number" step="0.1" placeholder="2.5" />
-            </label>
-            <label class="adv-field">Exit multiple
-              <input id="optExitMult" type="number" step="0.5" placeholder="sector default" />
-            </label>
-            <label class="adv-field">Share price
-              <input id="optSharePrice" type="number" step="0.01" placeholder="live quote" />
-            </label>
-            <label class="adv-field">FYE month
-              <select id="optFye">
-                <option>Jan</option><option>Feb</option><option>Mar</option><option>Apr</option>
-                <option>May</option><option>Jun</option><option>Jul</option><option>Aug</option>
-                <option>Sep</option><option>Oct</option><option>Nov</option><option selected>Dec</option>
-              </select>
-            </label>
-            <div class="adv-field adv-tv">
-              <span class="field-label">Terminal value</span>
-              <label><input type="radio" name="tvMethod" value="1" checked /> Exit multiple</label>
-              <label><input type="radio" name="tvMethod" value="2" /> Gordon growth</label>
-            </div>
-          </div>
-          <label class="adv-check">
-            <input type="checkbox" id="skipReview" /> Skip the assumptions review (one-click build)
-          </label>
-        </details>
-
-        <div class="save-row">
-          <span class="save-label">Save to</span>
-          <span id="buildOutDir" class="save-path">Documents\finmodel\</span>
-          <button type="button" id="buildChangeDir" class="ghost-btn">Change…</button>
-        </div>
-
-        <div class="outcome">
-          <span class="outcome-label">You get</span>
-          <span class="tag">Income Statement</span>
-          <span class="tag">Balance Sheet</span>
-          <span class="tag">Cash Flow</span>
-          <span class="tag">DCF</span>
-          <span class="tag">WACC</span>
-          <span class="tag">Sensitivities</span>
-        </div>
-
-        <div id="status" class="status" hidden role="status"></div>
-
-        <div id="assumptionsPanel" class="assumptions-panel" hidden>
-          <div class="assumptions-head">
-            <strong>Review assumptions</strong>
-            <span class="assumptions-hint">Edit any projection-year driver; edited cells are highlighted. Blank = keep derived.</span>
-            <div class="assumptions-actions">
-              <button type="button" id="resetAssumptions" class="ghost-btn">Reset to derived</button>
-              <button type="button" id="finalizeBtn" class="primary-btn">Build Excel</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table id="assumptionsTable"><thead></thead><tbody></tbody></table>
-          </div>
-          <div id="assumptionsStatus" class="status" hidden role="status"></div>
-        </div>
-      </article>
-
-      <!-- Tool 2: Benchmark peers -->
-      <article class="tool-card" aria-labelledby="benchHeading">
-        <div class="tool-head">
-          <span class="tool-num" aria-hidden="true">2</span>
-          <div>
-            <h2 id="benchHeading">Benchmark a peer set</h2>
-            <p class="tool-desc">Several companies → a side-by-side comparison of scale, growth, margins, returns and leverage.</p>
-          </div>
-        </div>
-
-        <label class="field-label" for="peers">Peer tickers</label>
-        <div class="build-row">
-          <input id="peers" class="ticker-input" type="text" placeholder="AAPL, MSFT, GOOGL"
-                 autocomplete="off" spellcheck="false" aria-describedby="peersHelp" />
-          <button id="benchBtn" class="primary-btn" disabled>
-            <span class="btn-label-b">Benchmark</span>
-          </button>
-        </div>
-        <p id="peersHelp" class="help">
-          Two or more <strong>US tickers</strong>, comma-separated — read live from
-          public SEC filings, no key needed.
-          <span id="peersEcho" class="help-echo" hidden></span>
-        </p>
-
-        <div class="bench-opts">
-          <label class="adv-field">Period
-            <select id="benchPeriod">
-              <option value="annual">Annual FY</option>
-              <option value="ltm">LTM</option>
-              <option value="quarter">Latest quarter</option>
-              <option value="semi">Latest half</option>
-            </select>
-          </label>
-          <label class="bench-check"><input type="checkbox" id="benchMultiples" /> Trading multiples (live prices)</label>
-          <label class="bench-check"><input type="checkbox" id="benchUsd" /> Convert to USD</label>
-        </div>
-        <label class="field-label" for="benchTitle">Title (optional)</label>
-        <input id="benchTitle" class="ticker-input" type="text" placeholder="Peer Benchmark" autocomplete="off" />
-        <div class="save-row">
-          <span class="save-label">Save to</span>
-          <span id="benchOutDir" class="save-path">Documents\finmodel\</span>
-          <button type="button" id="benchChangeDir" class="ghost-btn">Change…</button>
-        </div>
-
-        <div class="chips" id="peerChips">
-          <span class="chip-label">Preset sets</span>
-          <button type="button" class="chip" data-t="AAPL, MSFT, GOOGL, AMZN, META">Big Tech</button>
-          <button type="button" class="chip" data-t="JPM, BAC, WFC, C">Big Banks</button>
-          <button type="button" class="chip" data-t="WMT, TGT, COST">Retail</button>
-          <button type="button" class="chip" data-t="XOM, CVX, COP">Energy</button>
-        </div>
-
-        <div class="outcome">
-          <span class="outcome-label">You get</span>
-          <span class="tag">18 metrics (10 shown)</span>
-          <span class="tag">Median / Mean</span>
-          <span class="tag">Per-cell filing sources</span>
-          <span class="tag">Excel + CSV</span>
-        </div>
-
-        <div id="benchStatus" class="status" hidden role="status"></div>
-      </article>
-
-      <!-- Tool 3: Web search -->
-      <article class="tool-card" aria-labelledby="searchHeading">
-        <div class="tool-head">
-          <span class="tool-num" aria-hidden="true">3</span>
-          <div>
-            <h2 id="searchHeading">Search the web</h2>
-            <p class="tool-desc">Type a query → ranked results → read any page in-app. Roam browser when configured, basic search otherwise.</p>
-          </div>
-        </div>
-        <label class="field-label" for="searchQuery">Query</label>
-        <div class="build-row">
-          <input id="searchQuery" class="ticker-input" type="text" placeholder="Nestlé annual report 2025"
-                 autocomplete="off" aria-describedby="searchHelp" />
-          <button id="searchBtn" class="primary-btn" disabled>
-            <span class="btn-label-s">Search</span>
-          </button>
-        </div>
-        <p id="searchHelp" class="help">
-          <span id="searchBackendPill" class="mode-pill">basic search</span>
-          <span id="searchEcho" class="help-echo" hidden></span>
-        </p>
-        <div id="searchHistory" class="search-history" hidden></div>
-        <div id="searchStatus" class="status" hidden role="status"></div>
-      </article>
-    </section>
-
-    <p class="save-note">
-      Results appear below and every workbook is saved to
-      <strong>Documents\finmodel\</strong>.
-    </p>
-
-    <div id="recentFiles" class="recent-files" hidden></div>
-
-    <section id="results" class="results" hidden aria-label="Model result">
-      <div class="results-head">
-        <div class="results-title-block">
-          <h2 id="resTitle">—</h2>
-          <div class="meta" id="resMeta">—</div>
-        </div>
-        <button id="openXlsxBtn" class="primary-btn">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3 13.5h10M8 2.5v8M4.5 7.5 8 11l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Open in Excel
+  <div id="app">
+    <!-- ── Sidebar ─────────────────────────────────────────────── -->
+    <nav id="sidebar" aria-label="Conversations">
+      <div class="sidebar-brand">
+        <span class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M5 12.5V8.5M9 12.5V5.5M13 12.5V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="brand-name">finmodel</span>
+        </span>
+        <button type="button" id="sidebarToggle" class="icon-btn" aria-label="Collapse sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
         </button>
       </div>
 
-      <div id="modelWarnings" class="status warn" role="status" hidden></div>
+      <button type="button" id="newChatBtn" class="btn-primary new-chat">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New chat
+      </button>
 
-      <div id="valuationStrip" class="valuation-strip" hidden></div>
+      <div id="convList" class="conv-list"></div>
 
-      <div class="results-panel">
-        <div class="panel-hint">
-          Preview of the numbers below. Blue columns are historical (from the filing);
-          <span class="proj-swatch">indigo</span> columns are the 5-year projection.
-          Open in Excel for the full formula-driven workbook.
-        </div>
-        <div class="tabs" id="tabs" role="tablist">
-          <button type="button" class="tab active" role="tab" aria-selected="true" data-s="income_statement">Income Statement</button>
-          <button type="button" class="tab" role="tab" aria-selected="false" data-s="balance_sheet">Balance Sheet</button>
-          <button type="button" class="tab" role="tab" aria-selected="false" data-s="cash_flow_statement">Cash Flow</button>
-        </div>
-        <div class="table-wrap">
-          <table id="modelTable">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
+      <div class="sidebar-foot">
+        <button type="button" id="themeToggle" class="icon-btn" aria-label="Toggle theme"></button>
+        <button type="button" id="settingsBtn" class="icon-btn" aria-label="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button type="button" id="footUpdateBtn" class="foot-update" data-state="idle">
+          <span id="footUpdateText">Check for updates</span>
+        </button>
       </div>
-      <div id="newsStrip" class="news-strip" hidden></div>
-    </section>
+    </nav>
 
-    <section id="benchResults" class="results" hidden aria-label="Benchmark result">
-      <div class="results-head">
-        <div class="results-title-block">
-          <h2 id="benchTitle">—</h2>
-          <div class="meta" id="benchMeta">—</div>
-        </div>
-        <div class="topbar-actions">
-          <button id="openBenchCsvBtn" class="ghost-btn" title="Open the raw CSV">Open CSV</button>
-          <button id="openBenchBtn" class="primary-btn">Open in Excel</button>
-        </div>
+    <!-- ── Chat main ───────────────────────────────────────────── -->
+    <main id="chatMain">
+      <div id="updateBanner" class="update-banner" hidden>
+        <span id="updateBannerText"></span>
+        <span class="update-banner-actions">
+          <button type="button" id="updateInstallBtn" class="btn-primary">Install</button>
+          <button type="button" id="updateDismiss" class="btn-ghost">Later</button>
+        </span>
       </div>
-      <div id="benchWarnings" class="status warn" role="status" hidden></div>
-      <div class="results-panel">
-        <div class="table-wrap">
-          <table id="benchTable">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
-    <section id="searchResults" class="results" hidden aria-label="Search results">
-      <div class="results-head">
-        <div class="results-title-block">
-          <h2 id="searchResTitle">Results</h2>
-          <div class="results-meta" id="searchResMeta"></div>
-        </div>
-        <div class="topbar-actions">
-          <button id="searchReaderBack" class="ghost-btn" hidden title="Back to results">← Results</button>
-        </div>
+      <div id="chatScroll" class="chat-scroll">
+        <section id="chatEmpty" class="chat-empty">
+          <h1 class="greeting">What are we analyzing today?</h1>
+          <div class="example-chips">
+            <button type="button" class="example-chip">Build a 3-statement model for AAPL</button>
+            <button type="button" class="example-chip">Benchmark AAPL, MSFT, GOOGL</button>
+            <button type="button" class="example-chip">Search the web for Nestlé margin trends</button>
+            <button type="button" class="example-chip">Research the Figma / Adobe deal</button>
+          </div>
+        </section>
       </div>
-      <ul id="searchHitList" class="search-hits"></ul>
-      <article id="searchReader" class="search-reader" hidden>
-        <div class="reader-bar">
-          <a id="readerUrl" class="reader-url" href="#" title=""></a>
-          <div class="reader-actions">
-            <input id="readerFind" class="reader-find" type="text" placeholder="Find on page…" hidden />
-            <button id="readerCopy" class="ghost-btn" title="Copy link">Copy link</button>
-            <button id="readerOpen" class="primary-btn reader-open" title="Open in your browser">Open in browser ↗</button>
+
+      <div id="composer" class="composer">
+        <div class="composer-box">
+          <textarea id="chatInput" rows="1" placeholder="Ask finmodel to build, benchmark, research, or read…" aria-label="Message"></textarea>
+          <div class="composer-btns">
+            <button type="button" id="chatStop" class="icon-btn" aria-label="Stop" hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <button type="button" id="chatSend" class="btn-primary send-btn" aria-label="Send">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
           </div>
         </div>
-        <div id="readerBody" class="reader-body"></div>
-      </article>
-    </section>
-  </main>
+        <button type="button" id="modelPill" class="model-pill" title="Change model in Settings">
+          <span id="modelPillText">model</span>
+        </button>
+      </div>
+    </main>
 
-  <footer class="appfoot">
-    <span class="appfoot-brand" id="appVersion">finmodel</span>
-    <button id="footUpdateBtn" class="foot-update" type="button" data-state="idle" title="Check for updates">
-      <span class="foot-dot" aria-hidden="true"></span>
-      <span id="footUpdateText">Check for updates</span>
-    </button>
-  </footer>
+    <!-- ── Reader panel ────────────────────────────────────────── -->
+    <aside id="readerPanel" class="reader-panel" aria-label="Reader" hidden>
+      <header class="reader-head">
+        <div class="reader-titles">
+          <span id="readerTitle" class="reader-title"></span>
+          <a id="readerUrl" href="#" class="reader-url num"></a>
+        </div>
+        <div class="reader-head-actions">
+          <button type="button" id="readerCopy" class="btn-ghost">Copy link</button>
+          <button type="button" id="readerOpen" class="btn-ghost">Open in browser ↗</button>
+          <button type="button" id="readerClose" class="icon-btn" aria-label="Close reader">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </header>
+      <input id="readerFind" class="reader-find" type="search" placeholder="Find on page…" hidden />
+      <div id="readerBody" class="reader-body"></div>
+    </aside>
+  </div>
 
+  <!-- floating expand button (visible only when the sidebar is collapsed) -->
+  <button type="button" id="sidebarExpand" class="sidebar-expand" aria-label="Expand sidebar">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+  </button>
+
+  <!-- ── Settings modal ─────────────────────────────────────────── -->
   <div id="settingsModal" class="modal" hidden>
     <div class="modal-backdrop" data-close="1"></div>
-    <div class="modal-card" role="dialog" aria-labelledby="settingsTitle" aria-modal="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-label="Settings">
       <div class="modal-head">
-        <h3 id="settingsTitle">Settings</h3>
-        <button id="settingsClose" class="icon-btn" aria-label="Close">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M3 3l8 8M11 3 3 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+        <h2>Settings</h2>
+        <button type="button" id="settingsClose" class="icon-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
-
-      <p class="modal-intro">
-        An OpenRouter key unlocks live extraction beyond the 5 demo companies —
-        any US ticker (from SEC EDGAR) and international companies (from their
-        annual-report PDF). Benchmarking already works without a key.
-      </p>
-
-      <label class="field">
-        <span class="field-label">OpenRouter API key</span>
-        <input id="apiKey" type="password" placeholder="sk-or-…  (leave blank to keep current)" autocomplete="off" />
-        <small id="keyStatus" class="hint">No key set — offline demo tickers only.</small>
-      </label>
-
-      <label class="field">
-        <span class="field-label">Model</span>
-        <div class="model-row">
-          <select id="modelSelect">
-            <option value="">(set a key, then Refresh)</option>
+      <div id="settingsStatus" class="status" hidden></div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">OpenRouter API key</span>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="sk-or-…" />
+          <span id="keyStatus" class="field-hint"></span>
+        </label>
+        <label class="field">
+          <span class="field-label">Model</span>
+          <span class="field-row">
+            <select id="modelSelect"></select>
+            <button type="button" id="refreshModels" class="btn-ghost">Refresh</button>
+          </span>
+        </label>
+        <label class="field">
+          <span class="field-label">Theme</span>
+          <select id="themeSelect">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
           </select>
-          <button id="refreshModels" type="button" class="ghost-btn">Refresh</button>
-        </div>
-        <small class="hint">Model list is fetched live from OpenRouter.</small>
-      </label>
-
-      <label class="field">
-        <span class="field-label">SEC EDGAR contact email</span>
-        <input id="edgarContact" type="text" placeholder="you@example.com" autocomplete="off" />
-        <small class="hint">Sent in the SEC User-Agent (their fair-access policy). Blank uses a default.</small>
-      </label>
-
-      <label class="field">
-        <span class="field-label">Default output folder</span>
-        <div class="model-row">
-          <input id="outDir" type="text" placeholder="Documents\finmodel\" autocomplete="off" />
-          <button id="chooseOutDir" type="button" class="ghost-btn">Choose…</button>
-        </div>
-        <small class="hint">Where generated workbooks are saved. Blank uses Documents\finmodel\.</small>
-      </label>
-
-      <div class="field">
-        <span class="field-label">Web research (Roam MCP)</span>
-        <div class="model-row">
-          <input id="mcpCommand" type="text" placeholder="e.g. uvx roam-mcp" autocomplete="off" />
-          <button id="testMcp" type="button" class="ghost-btn">Test connection</button>
-        </div>
-        <small id="mcpStatus" class="hint">The MCP server command from your Roam install. Blank uses basic search.</small>
+        </label>
+        <label class="field">
+          <span class="field-label">EDGAR contact email</span>
+          <input id="edgarContact" type="email" placeholder="you@example.com" />
+        </label>
+        <label class="field">
+          <span class="field-label">Output folder</span>
+          <span class="field-row">
+            <input id="outDir" type="text" placeholder="Documents/finmodel" />
+            <button type="button" id="chooseOutDir" class="btn-ghost">Choose…</button>
+          </span>
+        </label>
+        <label class="field">
+          <span class="field-label">Roam MCP command (optional)</span>
+          <span class="field-row">
+            <input id="mcpCommand" type="text" placeholder="roam mcp serve" />
+            <button type="button" id="testMcp" class="btn-ghost">Test</button>
+          </span>
+          <span id="mcpStatus" class="field-hint"></span>
+        </label>
       </div>
-
-      <div class="field update-field">
-        <span class="field-label">Updates</span>
-        <div class="model-row">
-          <small id="updateStatus" class="hint update-hint">finmodel checks for updates automatically.</small>
-          <button id="checkUpdateBtn" type="button" class="ghost-btn">Check now</button>
-        </div>
-      </div>
-
-      <div id="settingsStatus" class="status" hidden role="status"></div>
-
-      <div class="modal-actions">
-        <button id="removeKey" type="button" class="ghost-btn">Remove key</button>
-        <button id="saveSettings" type="button" class="primary-btn">Save</button>
+      <div class="modal-foot">
+        <span id="appVersion" class="app-version num"></span>
+        <span class="modal-foot-btns">
+          <button type="button" id="removeKey" class="btn-ghost">Remove key</button>
+          <button type="button" id="saveSettings" class="btn-primary">Save</button>
+        </span>
       </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="js/main.mjs"></script>
 </body>
 </html>

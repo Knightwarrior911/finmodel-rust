@@ -127,7 +127,7 @@ pub async fn build_model(
         .map_err(|e| AppError::Engine(format!("build task failed: {e}")))?
 }
 
-fn build_model_blocking(
+pub(crate) fn build_model_blocking(
     app: &tauri::AppHandle,
     ticker: &str,
     mut opts: fm_build::BuildOptions,
@@ -338,30 +338,21 @@ const DRIVER_LABELS: &[(&str, &str)] = &[
     ("dividend_per_share", "Dividend / share"),
 ];
 
-/// Step 1 of the two-step build: extract + derive drivers (no Excel). Caches the
-/// extraction under a returned `session_id` so [`finalize_model`] reuses it.
-#[tauri::command(rename_all = "snake_case")]
-pub async fn prepare_model(
-    app: tauri::AppHandle,
-    cache: tauri::State<'_, SessionCache>,
-    ticker: String,
-    options: Option<fm_build::BuildOptions>,
+/// Blocking core for step 1 of the two-step build: extract + derive drivers (no
+/// Excel). Caches the extraction under a returned `session_id` so
+/// [`finalize_model_core`] can reuse it. Shared by the [`prepare_model`] command
+/// and the chat `build_model` tool (review path).
+pub(crate) fn prepare_model_core(
+    app: &tauri::AppHandle,
+    ticker: &str,
+    opts: fm_build::BuildOptions,
 ) -> AppResult<String> {
-    let opts = options.unwrap_or_default();
-    let app2 = app.clone();
-    // Heavy work off the IPC thread.
-    let (extraction, source, ticker_t, block, hist, proj) =
-        tauri::async_runtime::spawn_blocking(move || -> AppResult<_> {
-            let t = ticker.trim().to_string();
-            if t.is_empty() {
-                return Err(AppError::Config("Enter a ticker (e.g. SAND.ST).".into()));
-            }
-            let (extraction, source) = obtain_extraction(&app2, &t)?;
-            let (block, hist, proj) = fm_build::prepare_assumptions(&extraction, &t, &opts);
-            Ok((extraction, source.to_string(), t, block, hist, proj))
-        })
-        .await
-        .map_err(|e| AppError::Engine(format!("prepare task failed: {e}")))??;
+    let t = ticker.trim().to_string();
+    if t.is_empty() {
+        return Err(AppError::Config("Enter a ticker (e.g. SAND.ST).".into()));
+    }
+    let (extraction, source) = obtain_extraction(app, &t)?;
+    let (block, hist, proj) = fm_build::prepare_assumptions(&extraction, &t, &opts);
 
     let base = &block.base;
     let field = |k: &str| -> &Vec<f64> {
@@ -386,15 +377,15 @@ pub async fn prepare_model(
         drivers.insert((*k).to_string(), serde_json::json!(field(k)));
         labels.insert((*k).to_string(), serde_json::json!(label));
     }
-    let sid = session_id(&ticker_t);
-    cache
+    let sid = session_id(&t);
+    app.state::<SessionCache>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(sid.clone(), (extraction.clone(), ticker_t.clone(), source.clone()));
+        .insert(sid.clone(), (extraction.clone(), t.clone(), source.to_string()));
     Ok(serde_json::json!({
         "session_id": sid,
-        "ticker": ticker_t,
+        "ticker": t,
         "currency": extraction.currency,
         "source": source,
         "hist_periods": hist,
@@ -405,27 +396,51 @@ pub async fn prepare_model(
     .to_string())
 }
 
+/// Step 1 of the two-step build: extract + derive drivers (no Excel). Caches the
+/// extraction under a returned `session_id` so [`finalize_model`] reuses it.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn prepare_model(
+    app: tauri::AppHandle,
+    ticker: String,
+    options: Option<fm_build::BuildOptions>,
+) -> AppResult<String> {
+    let opts = options.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || prepare_model_core(&app, &ticker, opts))
+        .await
+        .map_err(|e| AppError::Engine(format!("prepare task failed: {e}")))?
+}
+
+/// Blocking core for step 2: pull the cached extraction, apply the grid
+/// overrides in `opts`, build + render. Shared by the [`finalize_model`] command
+/// and the chat assumptions card.
+pub(crate) fn finalize_model_core(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    opts: fm_build::BuildOptions,
+) -> AppResult<String> {
+    let entry = app
+        .state::<SessionCache>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(session_id)
+        .cloned();
+    let (extraction, ticker, source) = entry.ok_or_else(|| {
+        AppError::Config("session expired (app restarted?) — rebuild the model".into())
+    })?;
+    render_build(app, &extraction, &source, &ticker, opts)
+}
+
 /// Step 2: pull the cached extraction, apply the grid overrides in `options`,
 /// build + render, and return the same summary as [`build_model`].
 #[tauri::command(rename_all = "snake_case")]
 pub async fn finalize_model(
     app: tauri::AppHandle,
-    cache: tauri::State<'_, SessionCache>,
     session_id: String,
     options: Option<fm_build::BuildOptions>,
 ) -> AppResult<String> {
     let opts = options.unwrap_or_default();
-    let entry = cache
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&session_id)
-        .cloned();
-    let (extraction, ticker, source) = entry.ok_or_else(|| {
-        AppError::Config("session expired (app restarted?) — rebuild the model".into())
-    })?;
-    let app2 = app.clone();
-    tauri::async_runtime::spawn_blocking(move || render_build(&app2, &extraction, &source, &ticker, opts))
+    tauri::async_runtime::spawn_blocking(move || finalize_model_core(&app, &session_id, opts))
         .await
         .map_err(|e| AppError::Engine(format!("finalize task failed: {e}")))?
 }

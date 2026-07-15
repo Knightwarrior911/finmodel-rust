@@ -8,7 +8,7 @@ use fm_mcp::McpClient;
 
 /// Build an MCP client from settings, if an `mcp_command` is configured and it
 /// connects. `None` → the basic (DDG/HTTP) fallback path.
-fn mcp_from_settings(app: &tauri::AppHandle) -> Option<McpClient> {
+pub(crate) fn mcp_from_settings(app: &tauri::AppHandle) -> Option<McpClient> {
     let s = read_settings(app);
     let cmd = s.mcp_command.trim().to_string();
     if cmd.is_empty() {
@@ -51,9 +51,9 @@ pub async fn web_search(app: tauri::AppHandle, query: String) -> AppResult<Strin
     .map_err(|e| AppError::Engine(format!("search task failed: {e}")))?
 }
 
-/// Read a page as markdown/text. Roam `read_markdown` when configured (degrades
-/// to a tag-stripped GET on failure), else the basic fetch. Returns
-/// `{ "text": "…" }`.
+/// Read a page as markdown/text + status. Roam `read_markdown` when configured
+/// (degrades to the tag-stripped GET on failure), else the basic fetch. Returns
+/// `{ "title": "…", "text": "…", "status": "ok"|"blocked"|"thin" }`.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn read_page(
     app: tauri::AppHandle,
@@ -67,17 +67,21 @@ pub async fn read_page(
     tauri::async_runtime::spawn_blocking(move || {
         let mut client = mcp_from_settings(&app);
         let q = query.as_deref();
-        let text = match client.as_mut() {
-            Some(_) => match fm_research::web::read_page(&url, q, client.as_mut()) {
-                Ok(t) => t,
-                Err(_) => fm_research::web::read_page(&url, q, None)
+        let page = match client.as_mut() {
+            Some(_) => match fm_research::web::read_page_full(&url, q, client.as_mut()) {
+                Ok(p) => p,
+                Err(_) => fm_research::web::read_page_full(&url, q, None)
                     .map_err(|e| AppError::Engine(format!("read failed: {e}")))?,
             },
-            None => fm_research::web::read_page(&url, q, None)
+            None => fm_research::web::read_page_full(&url, q, None)
                 .map_err(|e| AppError::Engine(format!("read failed: {e}")))?,
         };
-        serde_json::to_string(&serde_json::json!({ "text": text }))
-            .map_err(|e| AppError::Engine(e.to_string()))
+        serde_json::to_string(&serde_json::json!({
+            "title": page.title,
+            "text": page.text,
+            "status": page.status,
+        }))
+        .map_err(|e| AppError::Engine(e.to_string()))
     })
     .await
     .map_err(|e| AppError::Engine(format!("read task failed: {e}")))?

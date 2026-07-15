@@ -1,6 +1,61 @@
 # Changelog
 
 
+## v0.3.1 — 2026-07-15
+
+### Fixed — chat robustness with weak / non-tool-calling models
+- **No more fabricated answers.** When the selected model can't (or won't) call
+  tools — e.g. it returns a hand-written list of fake "search results" instead
+  of invoking `web_search` — the turn is now routed deterministically to the
+  real tool so every figure and link comes from a tool result, never the model.
+  Applies both when the model rejects the `tools` parameter and when it answers
+  an explicit data request ("search the web for…", "build AAPL", "benchmark …")
+  without calling a tool; the fabricated draft is dropped before the real card
+  is shown. Bare definitional questions still get a direct model answer.
+- **Control tokens stripped.** Model pseudo-tokens such as `<|eom|>` no longer
+  leak into the displayed / stored assistant text.
+- **Streaming caret stops.** The blinking accent caret now clears when a
+  response finishes instead of pulsing indefinitely under the last message.
+
+## v0.3.0 — 2026-07-15
+
+### Chat-first UI redesign (claude.ai-style)
+- **New shell** — the tool-card app is replaced by a chat-first interface: a
+  left sidebar with conversation history (rename/delete, collapse), a centered
+  chat pane where requests are typed in natural language, and a slide-in reader
+  panel on the right. Vanilla ES modules under `ui/js/` (`core`, `sidebar`,
+  `chat`, `cards`, `reader`, `settings`, `update`, `main`) replace the single
+  `ui/app.js`.
+- **Light + dark mode** — the existing indigo / warm-neutral token system is
+  extended with a `[data-theme="dark"]` palette; a sidebar toggle and a Settings
+  "Theme" select (System / Light / Dark) persist the choice and follow the OS
+  when set to System.
+- **Typography** — IBM Plex Sans (400/500/600) + IBM Plex Mono (400/500) are
+  bundled as woff2 in `ui/fonts/`; all financial figures, tickers and table
+  numerics use the mono face with tabular numerals.
+- **Chat engine** — a new `chat` command module runs an OpenRouter tool-calling
+  loop with live SSE token streaming (`chat_delta`/`chat_tool`/`chat_done`
+  events) over the existing key + model settings, plus a deterministic no-key
+  fallback router. Every engine capability is exposed as a chat tool with a rich
+  inline result card: `build_model`, `benchmark_peers`, `web_search`,
+  `read_page`, `get_news`, `research_deal`, `get_quote`, `list_filings`. Tools
+  call the shared blocking cores directly (no shelling through command wrappers).
+- **Assumptions grid, in chat** — `build_model` presents the editable per-year
+  assumptions grid as an interactive card; "Build with these assumptions"
+  finalizes via the existing `prepare_model`/`finalize_model` session cache.
+- **Conversations** — persisted to `app_config_dir()/conversations/<id>.json`
+  with `list`/`load`/`delete`/`rename` commands; tool results are stored as
+  assistant messages carrying their card.
+
+### Fixed / Improved — web-page read path
+- **Bot-block resilience** — the basic (non-Roam) page fetcher now sends a full
+  browser header set (UA, Accept, Accept-Language, Upgrade-Insecure-Requests),
+  a cookie store, gzip/brotli, and a 20s timeout. Responses are classified as
+  `ok` / `blocked` (403/429/503) / `thin` (<200 chars) instead of a silent
+  dead-end: `fetch_page_text` → `fetch_page`/`FetchedPage`; the reader shows an
+  honest "site blocks automated reading — open externally or configure Roam"
+  prompt (keeping any partial text) rather than a blank pane.
+
 ## v0.2.1 — 2026-07-15
 
 ### Fixed / Improved — web search (post-0.2.0)

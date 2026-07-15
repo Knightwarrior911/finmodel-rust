@@ -1,6 +1,6 @@
 [package]
 name = "finmodel-app"
-version = "0.2.1"
+version = "0.3.1"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"
@@ -25,6 +25,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 thiserror = "2"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+rand = "0.8"
 
 # finmodel engine crates (the port). Path deps into the finmodel-core workspace.
 fm-types = { path = "../finmodel-core/fm-types" }

@@ -18,7 +18,7 @@ pub use edgar::{
 pub use market::{fetch_quote, fetch_fx_rate, normalize_minor_unit, FetchError, Quote};
 pub use pdf::{download_pdf, DownloadConfig};
 pub use news::{fetch_headlines, parse_rss, Headline};
-pub use websearch::{fetch_page_text, parse_ddg_hits, WebHit};
+pub use websearch::{classify_status, fetch_page, parse_ddg_hits, FetchedPage, PageStatus, WebHit};
 pub use jurisdiction::{
     detect_jurisdiction, has_annual_keyword, is_blocked_domain, regulator_candidates,
     regulator_site, Jurisdiction, ANNUAL_KEYWORDS, BLOCKED_DOMAINS, JURISDICTION_PATTERNS,
