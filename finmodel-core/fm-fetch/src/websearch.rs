@@ -134,23 +134,91 @@ pub fn fetch_page_text(url: &str) -> Result<String, FetchError> {
     Ok(strip_html(&html))
 }
 
-/// Body text, whitespace-collapsed, with script/style contents dropped.
+/// Extract the main readable content as lightweight markdown (headings,
+/// paragraphs, list items) with chrome (nav/header/footer/aside/script/style/
+/// forms) dropped. Good enough to render a static/SSR page in the in-app reader;
+/// JS-only pages still need the Roam MCP path. Falls back to flat body text when
+/// structural extraction yields too little.
 pub fn strip_html(html: &str) -> String {
     let doc = Html::parse_document(html);
+    // Main-content root preference: <main>/<article>/[role=main], else <body>.
+    let root = ["main", "article", "[role=main]", "body"]
+        .iter()
+        .find_map(|s| Selector::parse(s).ok().and_then(|sel| doc.select(&sel).next()));
+    let root = match root {
+        Some(r) => r,
+        None => return String::new(),
+    };
+    const SKIP_ANCESTORS: &[&str] = &[
+        "nav", "footer", "aside", "header", "script", "style", "noscript",
+        "form", "svg", "button", "figure", "template",
+    ];
+    let block_sel = Selector::parse("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre").unwrap();
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut total = 0usize;
+    for el in root.select(&block_sel) {
+        // Skip nodes inside chrome ancestors, or nested inside another emitted
+        // block (keep only the outermost — avoids <li><p>… double-emit).
+        const NESTED_BLOCKS: &[&str] = &["p", "li", "blockquote", "pre"];
+        let mut cur = el.parent();
+        let mut skip = false;
+        while let Some(node) = cur {
+            if let Some(e) = node.value().as_element() {
+                let n = e.name();
+                if SKIP_ANCESTORS.contains(&n) || NESTED_BLOCKS.contains(&n) {
+                    skip = true;
+                    break;
+                }
+            }
+            cur = node.parent();
+        }
+        if skip {
+            continue;
+        }
+        let txt = el.text().collect::<String>();
+        let txt = txt.split_whitespace().collect::<Vec<_>>().join(" ");
+        if txt.len() < 2 {
+            continue;
+        }
+        let line = match el.value().name() {
+            "h1" => format!("# {txt}"),
+            "h2" => format!("## {txt}"),
+            "h3" => format!("### {txt}"),
+            "h4" | "h5" | "h6" => format!("#### {txt}"),
+            "li" => format!("- {txt}"),
+            "blockquote" => format!("> {txt}"),
+            _ => txt,
+        };
+        if !seen.insert(line.clone()) {
+            continue; // drop duplicated nav/list lines
+        }
+        total += line.len();
+        out.push(line);
+        if total > 20_000 {
+            break; // cap payload size over the IPC boundary
+        }
+    }
+    // Structural extraction was too thin (JS-only page, odd markup) → flat text.
+    if out.join(" ").trim().len() < 160 {
+        return flat_body_text(&doc);
+    }
+    out.join("\n\n")
+}
+
+/// Whitespace-collapsed body text with script/style/noscript dropped — the
+/// last-resort fallback when structural extraction finds too little.
+pub fn flat_body_text(doc: &Html) -> String {
     let body_sel = Selector::parse("body").unwrap();
     let skip_sel = Selector::parse("script, style, noscript").unwrap();
     let skip: std::collections::HashSet<_> =
         doc.select(&skip_sel).flat_map(|el| el.text()).collect();
-    let root = doc.select(&body_sel).next();
-    let text: String = match root {
-        Some(b) => b
-            .text()
-            .filter(|t| !skip.contains(t))
-            .collect::<Vec<_>>()
-            .join(" "),
+    let text: String = match doc.select(&body_sel).next() {
+        Some(b) => b.text().filter(|t| !skip.contains(t)).collect::<Vec<_>>().join(" "),
         None => String::new(),
     };
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(20_000).collect()
 }
 
 #[cfg(test)]
@@ -182,10 +250,38 @@ mod tests {
 
     #[test]
     fn strips_to_body_text() {
+        // Small doc → structural output is under the 160-char floor → flat fallback.
         let html = "<html><head><style>x{}</style></head><body><h1>Hi</h1><script>bad()</script><p>World</p></body></html>";
         let t = strip_html(html);
         assert!(t.contains("Hi"));
         assert!(t.contains("World"));
         assert!(!t.contains("bad()"));
+    }
+
+    #[test]
+    fn extracts_main_content_as_markdown() {
+        let html = r#"<html><body>
+          <nav><a href="/x">Home</a><a href="/y">Login</a></nav>
+          <header><h1>Site Banner</h1></header>
+          <main>
+            <h1>NVIDIA Annual Report 2025</h1>
+            <p>Revenue for fiscal 2025 grew substantially, driven by data-center demand across the full year of operations and continued platform adoption.</p>
+            <h2>Segment results</h2>
+            <ul><li>Data Center up sharply year over year</li><li>Gaming steady across the period</li></ul>
+            <script>track()</script>
+          </main>
+          <footer><p>Copyright notice and cookie policy and privacy links here.</p></footer>
+        </body></html>"#;
+        let md = strip_html(html);
+        // Main content is captured with markdown structure...
+        assert!(md.contains("# NVIDIA Annual Report 2025"));
+        assert!(md.contains("## Segment results"));
+        assert!(md.contains("- Data Center up sharply"));
+        assert!(md.contains("Revenue for fiscal 2025"));
+        // ...and chrome is dropped.
+        assert!(!md.contains("Login"));
+        assert!(!md.contains("Site Banner"));
+        assert!(!md.contains("cookie policy"));
+        assert!(!md.contains("track()"));
     }
 }

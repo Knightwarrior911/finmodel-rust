@@ -871,9 +871,23 @@ checkForUpdate(true);
 let searchBusy = false;
 let lastHits = [];
 let lastQuery = "";
+let lastBackend = "basic";
+
+function domainOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch (_) { return url; }
+}
+function openExternal(url) {
+  if (url) call("open_url", { url }).catch(() => {});
+}
+function flashBtn(btn, txt) {
+  const orig = btn.dataset.orig || btn.textContent;
+  btn.dataset.orig = orig;
+  btn.textContent = txt;
+  setTimeout(() => { btn.textContent = btn.dataset.orig; }, 1200);
+}
 
 function searchHistoryGet() {
-  try { return JSON.parse(localStorage.getItem("searchHistory") || "[]"); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem("searchHistory") || "[]"); } catch (_) { return []; }
 }
 function searchHistoryPush(q) {
   let h = searchHistoryGet().filter((x) => x !== q);
@@ -892,20 +906,32 @@ function renderSearchHistory() {
 function updateSearchUI() {
   $("searchBtn").disabled = !$("searchQuery").value.trim() || searchBusy;
 }
+
 async function runSearch(query) {
   if (searchBusy || !query) return;
   searchBusy = true; updateSearchUI();
   $("searchStatus").hidden = true;
   const label = $("searchBtn").querySelector(".btn-label-s");
   if (label) label.textContent = "Searching…";
+  // Loading skeleton
+  $("searchResults").hidden = false;
+  $("searchReader").hidden = true;
+  $("searchReaderBack").hidden = true;
+  $("searchHitList").hidden = false;
+  $("searchResTitle").textContent = "Searching…";
+  $("searchResMeta").textContent = `“${query}”`;
+  $("searchHitList").innerHTML =
+    `<li class="search-loading"><span class="spinner"></span> Searching the web…</li>`;
+  $("searchResults").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const res = await call("web_search", { query });
-    lastHits = res.hits || []; lastQuery = query;
-    $("searchBackendPill").textContent = res.backend === "roam" ? "Roam browser" : "basic search";
+    lastHits = res.hits || []; lastQuery = query; lastBackend = res.backend || "basic";
+    $("searchBackendPill").textContent = lastBackend === "roam" ? "Roam browser" : "basic search";
     searchHistoryPush(query);
     renderSearchHits();
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
+    $("searchHitList").innerHTML = "";
     $("searchStatus").textContent = `Search failed: ${msg}`;
     $("searchStatus").className = "status error"; $("searchStatus").hidden = false;
   } finally {
@@ -913,6 +939,7 @@ async function runSearch(query) {
     if (label) label.textContent = "Search";
   }
 }
+
 function renderSearchHits() {
   $("searchResults").hidden = false;
   $("searchReader").hidden = true;
@@ -920,39 +947,75 @@ function renderSearchHits() {
   $("searchHitList").hidden = false;
   $("readerFind").hidden = true;
   $("searchResTitle").textContent = "Results";
-  $("searchResMeta").textContent = `${lastHits.length} results · “${lastQuery}”`;
+  const hint = lastBackend === "roam"
+    ? ""
+    : ` · <button type="button" class="link-btn" id="searchRoamHint">use Roam for richer results</button>`;
+  $("searchResMeta").innerHTML =
+    `${lastHits.length} result${lastHits.length === 1 ? "" : "s"} · “${escapeHtml(lastQuery)}”${hint}`;
   const ul = $("searchHitList");
   if (!lastHits.length) {
-    ul.innerHTML = `<li class="search-empty">No results — try the Roam browser (Settings) for protected sources.</li>`;
-  } else {
-    ul.innerHTML = lastHits
-      .map((h, i) => `
-        <li class="search-hit">
-          <a href="#" class="hit-title" data-i="${i}">${escapeHtml(h.title || h.url)}</a>
-          <span class="hit-url">${escapeHtml(h.url)}</span>
-          ${h.snippet ? `<span class="hit-snippet">${escapeHtml(h.snippet)}</span>` : ""}
-        </li>`)
-      .join("");
+    ul.innerHTML =
+      `<li class="search-empty">No results. Try different terms, or configure the Roam browser in Settings for protected / dynamic sources.</li>`;
+    return;
   }
-  $("searchResults").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  ul.innerHTML = lastHits
+    .map((h, i) => {
+      const dom = domainOf(h.url);
+      return `
+        <li class="search-hit" role="button" tabindex="0" data-i="${i}"
+            aria-label="Read ${escapeHtml(h.title || dom)}">
+          <span class="hit-title">${escapeHtml(h.title || h.url)}</span>
+          <span class="hit-url">${escapeHtml(dom)}</span>
+          ${h.snippet ? `<span class="hit-snippet">${escapeHtml(h.snippet)}</span>` : ""}
+          <div class="hit-actions">
+            <button type="button" class="ghost-btn hit-read" data-i="${i}">Read here</button>
+            <button type="button" class="ghost-btn hit-open" data-i="${i}">Open in browser ↗</button>
+          </div>
+        </li>`;
+    })
+    .join("");
 }
+
+function openCtaHTML(url) {
+  return `<button type="button" class="primary-btn reader-cta" data-url="${escapeHtml(url)}">Open in browser ↗</button>`;
+}
+function thinContentHTML(url) {
+  return `<div class="reader-thin">
+    <p>This page didn't return readable text here — it's likely a JavaScript-heavy or protected site.</p>
+    <p class="reader-hint">Open it in your browser, or set up the Roam browser in Settings for full in-app reading of dynamic and login-gated pages.</p>
+    ${openCtaHTML(url)}
+  </div>`;
+}
+
 async function openReader(i) {
   const hit = lastHits[i]; if (!hit) return;
+  const dom = domainOf(hit.url);
   $("searchHitList").hidden = true;
   $("searchReader").hidden = false;
   $("searchReaderBack").hidden = false;
-  $("searchResTitle").textContent = hit.title || "Reading…";
-  $("readerUrl").textContent = hit.url; $("readerUrl").title = hit.url; $("readerUrl").dataset.url = hit.url;
-  $("readerBody").innerHTML = `<p class="reader-loading">Loading…</p>`;
-  $("readerFind").hidden = false; $("readerFind").value = "";
+  $("searchResTitle").textContent = hit.title || dom;
+  $("readerUrl").textContent = dom;
+  $("readerUrl").title = hit.url;
+  $("readerUrl").dataset.url = hit.url;
+  $("readerFind").hidden = true; $("readerFind").value = "";
+  $("readerBody").innerHTML =
+    `<div class="reader-loading"><span class="spinner"></span> Loading ${escapeHtml(dom)}…</div>`;
   try {
     const res = await call("read_page", { url: hit.url, query: lastQuery });
-    $("readerBody").innerHTML = renderMarkdown(res.text || "") || `<p class="reader-error">Empty page.</p>`;
+    const text = (res.text || "").trim();
+    if (text.length < 80) {
+      $("readerBody").innerHTML = thinContentHTML(hit.url);
+    } else {
+      $("readerBody").innerHTML = renderMarkdown(text);
+      $("readerFind").hidden = false;
+    }
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
-    $("readerBody").innerHTML = `<p class="reader-error">Could not read page: ${escapeHtml(msg)}</p>`;
+    $("readerBody").innerHTML =
+      `<div class="reader-error"><p>Couldn't read this page: ${escapeHtml(msg)}</p>${openCtaHTML(hit.url)}</div>`;
   }
 }
+
 function readerFind(term) {
   const body = $("readerBody");
   body.querySelectorAll("mark.find-hit").forEach((m) => m.replaceWith(document.createTextNode(m.textContent)));
@@ -980,19 +1043,42 @@ $("searchHistory").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (b) { $("searchQuery").value = b.dataset.q; updateSearchUI(); runSearch(b.dataset.q); }
 });
+// Result list: whole-card opens the reader; the Open button goes external.
 $("searchHitList").addEventListener("click", (e) => {
-  const a = e.target.closest(".hit-title");
-  if (a) { e.preventDefault(); openReader(parseInt(a.dataset.i, 10)); }
+  const openBtn = e.target.closest(".hit-open");
+  if (openBtn) { e.stopPropagation(); openExternal(lastHits[+openBtn.dataset.i]?.url); return; }
+  const card = e.target.closest(".search-hit");
+  if (card) openReader(+card.dataset.i);
+});
+$("searchHitList").addEventListener("keydown", (e) => {
+  const card = e.target.closest(".search-hit");
+  if (!card) return;
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openReader(+card.dataset.i); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); card.nextElementSibling?.focus(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); card.previousElementSibling?.focus(); }
+});
+$("searchResMeta").addEventListener("click", (e) => {
+  if (e.target.closest("#searchRoamHint")) openSettings();
 });
 $("searchReaderBack").addEventListener("click", renderSearchHits);
-$("readerOpen").addEventListener("click", () => {
-  const u = $("readerUrl").dataset.url;
-  if (u) call("open_url", { url: u }).catch(() => {});
+// Reader body: external links + inline CTAs (anything carrying data-url).
+$("readerBody").addEventListener("click", (e) => {
+  const el = e.target.closest("[data-url]");
+  if (el) { e.preventDefault(); openExternal(el.dataset.url); }
 });
-$("readerUrl").addEventListener("click", (e) => {
-  e.preventDefault();
-  const u = $("readerUrl").dataset.url;
-  if (u) call("open_url", { url: u }).catch(() => {});
+$("readerOpen").addEventListener("click", () => openExternal($("readerUrl").dataset.url));
+$("readerUrl").addEventListener("click", (e) => { e.preventDefault(); openExternal($("readerUrl").dataset.url); });
+$("readerCopy").addEventListener("click", async () => {
+  const u = $("readerUrl").dataset.url; if (!u) return;
+  try {
+    await navigator.clipboard.writeText(u);
+  } catch (_) {
+    const ta = document.createElement("textarea"); ta.value = u;
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (_) { /* ignore */ }
+    ta.remove();
+  }
+  flashBtn($("readerCopy"), "Copied!");
 });
 $("readerFind").addEventListener("input", (e) => readerFind(e.target.value.trim()));
 renderSearchHistory();

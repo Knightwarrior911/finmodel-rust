@@ -1031,3 +1031,33 @@ body.busy .primary-btn {
 .reader-body a.md-link { color: var(--accent-strong); }
 .reader-loading, .reader-error { color: var(--muted); }
 .reader-body mark.find-hit { background: var(--warn); color: #000; }
+
+/* Web search v2 — interactive result cards + reader states */
+.search-hit {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 12px 14px; border: 1px solid var(--hairline);
+  border-radius: var(--radius); background: var(--element);
+  cursor: pointer; transition: background 120ms ease, border-color 120ms ease;
+}
+.search-hit:hover { background: var(--chrome); border-color: var(--accent-weak); }
+.search-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hit-actions { display: flex; gap: 8px; margin-top: 8px; }
+.hit-actions .ghost-btn { font-size: 12px; padding: 3px 10px; }
+.search-loading, .reader-loading {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--muted); font-size: 14px; padding: 12px 2px; list-style: none;
+}
+.spinner {
+  width: 16px; height: 16px; border-radius: 999px; flex: none;
+  border: 2px solid var(--hairline); border-top-color: var(--accent);
+  animation: fm-spin 0.7s linear infinite;
+}
+@keyframes fm-spin { to { transform: rotate(360deg); } }
+.link-btn {
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--accent-strong); text-decoration: underline;
+}
+.reader-open { font-size: 12px; }
+.reader-thin, .reader-error { padding: 8px 0; color: var(--muted); }
+.reader-thin .reader-hint { font-size: 13px; margin: 6px 0 12px; }
+.reader-cta { margin-top: 6px; }

@@ -1,6 +1,29 @@
 # Changelog
 
 
+## Unreleased
+
+### Fixed / Improved — web search (post-0.2.0)
+- **Results are now interactive.** Previously only the result's title *text* was
+  clickable, so clicking the snippet/URL/card body (the natural target) did
+  nothing. The **entire result card** now opens the in-app reader (hover +
+  focus affordances, `cursor: pointer`), with explicit per-result **Read here**
+  and **Open in browser ↗** buttons and keyboard support (Tab to focus,
+  Enter/Space to open, ↑/↓ to move between results).
+- **Reader upgraded** — loading spinner; full markdown rendering with
+  find-on-page; **Copy link** + **Open in browser** actions; external links and
+  CTAs open in the OS browser. JS-heavy / protected pages that return no
+  readable text now show a clear "open externally / set up Roam" prompt instead
+  of a blank pane.
+- **Better fallback content** — the basic (non-Roam) page reader now extracts
+  the main content as lightweight markdown (headings / paragraphs / lists, with
+  nav / header / footer / scripts stripped and nested-block de-duplication)
+  instead of dumping a whitespace-collapsed nav-junk blob; falls back to flat
+  body text when structural extraction is too thin.
+- **Search UX** — loading skeleton while querying, clearer result count / empty
+  states, and a "use Roam for richer results" hint (opens Settings) when on the
+  basic backend.
+
 ## v0.2.0 — 2026-07-14
 
 ### Fixed — correctness bugs (Phase 1)
