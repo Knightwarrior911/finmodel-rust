@@ -7,7 +7,7 @@ ALL work now happens here, in `finmodel-rust`
 `C:/Users/vinit/Documents/finmodel-rust`.
 
 
-## LATEST SESSION (2026-07-15) — v0.4.0 sellable-feature expansion (unreleased)
+## LATEST SESSION (2026-07-15) — v0.4.0 sellable-feature expansion — SHIPPED / LIVE
 
 Full detail in `CLAUDE.md` (top HANDOVER). Seven independent workstreams, all
 opt/flag-gated so defaults are unchanged and every parity oracle stays green
@@ -20,9 +20,16 @@ opt/flag-gated so defaults are unchanged and every parity oracle stays green
 - **F** `analyze_pdf` — drop a local annual-report PDF, get a model (needs a key).
 - **G** UI polish: copy-message, benchmark scroll + copy-table, sidebar filter +
   delete-confirm, keyboard shortcuts + legend, refreshed chips. Chat = 10 tools.
-- **Next:** signed NSIS build + ship v0.4.0 (`docs/RELEASE_CHECKLIST.md` §6, needs
-  >6G free on C:) once the user okays; optionally thread peers/deck/case through the
-  chat review→finalize path (currently applied on the skip_review build path).
+- **Shipped:** committed (`36203e2`) + tag `v0.4.0` pushed to `origin/master`; signed
+  NSIS installer built + published to public `finmodel-releases` (tag `v0.4.0`,
+  `finmodel_0.4.0_x64-setup.exe` + `latest.json`); updater endpoint verified serving
+  0.4.0 and the installer URL returns 200. v0.3.x clients auto-update on next launch.
+- **Sign gotcha:** build-time `TAURI_SIGNING_PRIVATE_KEY="$(cat …)"` mangled the key
+  in the embedded shell — instead sign the built installer with
+  `cargo tauri signer sign -f C:/Users/vinit/.tauri/finmodel.key -p "" <setup.exe>`.
+- **Next:** rebrand the pdf-panda placeholder icons (`src-tauri/icons/`) before a wider
+  public push; optionally thread peers/deck/case through the chat review→finalize path
+  (currently applied on the skip_review build path).
 
 ## LATEST SESSION (2026-07-14) — Desktop app shipped + auto-update LIVE
 

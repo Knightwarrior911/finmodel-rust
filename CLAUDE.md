@@ -1,12 +1,20 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.4.0 sellable-feature expansion (built 2026-07-15, unreleased)
-**Branch `master`.** v0.3.1 remains the LIVE release; v0.4.0 is code-complete and
-green (`finmodel-core` workspace tests + `src-tauri` tests pass) but NOT yet
-built/signed/shipped — do the signed NSIS build per `docs/RELEASE_CHECKLIST.md` §6
-only after `df -h /c` shows >6G free and the user okays shipping. Seven independent
-workstreams landed (all flag/opt-gated, defaults unchanged so every parity oracle
-stays byte-identical):
+## HANDOVER — v0.4.0 sellable-feature expansion, LIVE (current, 2026-07-15)
+**Branch `master`.** Source `finmodel-rust` PRIVATE; releases → PUBLIC
+`finmodel-releases`. **v0.4.0 is the live release** — committed (`36203e2`) + tagged
+`v0.4.0` + pushed to `origin/master`; signed NSIS installer built and published to
+`finmodel-releases` (tag `v0.4.0`, assets `finmodel_0.4.0_x64-setup.exe` +
+`latest.json`); updater endpoint
+`…/finmodel-releases/releases/latest/download/latest.json` verified serving 0.4.0 and
+the installer URL returns 200. v0.3.x clients auto-update on next launch. Disk volatile:
+`df -h /c` before any `cargo` (>6G for a signed build; reclaim via
+`rm -rf src-tauri/target/debug finmodel-core/target/debug`). Signing key stays at
+`C:\Users\vinit\.tauri\finmodel.key` (NEVER commit). Sign gotcha: build-time
+`TAURI_SIGNING_PRIVATE_KEY="$(cat …)"` mangled the key blob in the embedded shell —
+sign the built installer directly with `cargo tauri signer sign -f C:/Users/vinit/.tauri/finmodel.key -p "" <setup.exe>`.
+Seven independent workstreams shipped (all flag/opt-gated, defaults unchanged so every
+parity oracle stays byte-identical):
 - **A — live WACC inputs.** `fm-fetch/src/market.rs`: `fetch_risk_free_rate` (`^TNX`),
   `fetch_price_history`, `compute_beta` (pure, tested), `fetch_beta` (2y weekly vs
   `^GSPC`). Wired into `model.rs::render_build` + `fm-cli` build, only when the caller
@@ -31,12 +39,12 @@ stays byte-identical):
   + two-step delete confirm, `Ctrl/⌘+N`/`Ctrl/⌘+K`/`Esc`-cancels-stream + Settings
   legend, refreshed chips. Chat now exposes **10 tools**.
 
-## HANDOVER — Chat-first desktop redesign, v0.3.1 LIVE (current, 2026-07-15)
+## HANDOVER — Chat-first desktop redesign, v0.3.1 (superseded by v0.4.0, 2026-07-15)
 **Branch `master`.** Source `finmodel-rust` PRIVATE; releases → PUBLIC
-`finmodel-releases`. **v0.3.1 is the live release** (updater endpoint
-`…/finmodel-releases/releases/latest/download/latest.json` verified serving
-0.3.1). Disk volatile: `df -h /c` before any `cargo`; a signed release build
-needs >6G free — reclaim with `rm -rf src-tauri/target/debug finmodel-core/target/debug`.
+`finmodel-releases`. v0.3.1 was the prior live release (chat-first redesign +
+weak-model safety net); superseded by v0.4.0 above. Disk volatile: `df -h /c` before
+any `cargo`; a signed release build needs >6G free — reclaim with
+`rm -rf src-tauri/target/debug finmodel-core/target/debug`.
 
 The desktop app (`src-tauri/` + `ui/`) is now a **chat-first, claude.ai-style**
 interface (replaced the old two-tool-card workspace). See `src-tauri/CLAUDE.md`
