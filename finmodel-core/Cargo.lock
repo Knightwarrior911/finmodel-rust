@@ -630,6 +630,7 @@ dependencies = [
  "fm-extract",
  "fm-fetch",
  "fm-ifrs",
+ "fm-pptx",
  "fm-research",
  "fm-tieout",
  "fm-types",
@@ -682,6 +683,7 @@ name = "fm-fetch"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "regex",
  "reqwest",
  "scraper",
  "serde",
@@ -726,6 +728,7 @@ dependencies = [
  "fm-fetch",
  "fm-mcp",
  "fm-types",
+ "fm-value",
  "regex",
  "serde",
  "serde_json",

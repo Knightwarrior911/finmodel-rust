@@ -20,11 +20,13 @@ pub struct BenchOpts {
     pub title: Option<String>,
     /// Explicit output .xlsx path (Save-As); `None` → Documents/finmodel/.
     pub out_path: Option<String>,
+    /// Also write a `<stem>_deck.pptx` peer-comparison deck.
+    pub deck: bool,
 }
 
 impl Default for BenchOpts {
     fn default() -> Self {
-        Self { period: "annual".into(), multiples: false, usd: false, title: None, out_path: None }
+        Self { period: "annual".into(), multiples: false, usd: false, title: None, out_path: None, deck: false }
     }
 }
 
@@ -156,6 +158,40 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
         .map(|(t, why)| serde_json::json!({ "ticker": t, "why": why }))
         .collect();
 
+    // Optional one-click peer-comparison PPTX deck.
+    let mut pptx_path = serde_json::Value::Null;
+    if opts.deck {
+        let deck_out = xlsx_path.with_file_name(format!("{}_deck.pptx", stem_for(&list)));
+        let pct = |v: Option<f64>| v.map(|x| format!("{:.1}%", x * 100.0)).unwrap_or_else(|| "—".into());
+        let headers = vec![
+            "Ticker".to_string(),
+            "Revenue (M)".to_string(),
+            "EBITDA margin".to_string(),
+            "Net margin".to_string(),
+            "ROE".to_string(),
+        ];
+        let drows: Vec<Vec<String>> = run
+            .metrics
+            .iter()
+            .take(14)
+            .map(|m| {
+                vec![
+                    m.ticker.clone(),
+                    m.revenue.map(|v| format!("{:.0}", v / 1_000_000.0)).unwrap_or_else(|| "—".into()),
+                    pct(m.ebitda_margin),
+                    pct(m.net_margin),
+                    pct(m.roe),
+                ]
+            })
+            .collect();
+        match fm_pptx::writer::deck::write_benchmark_deck(&title, &headers, &drows, &fm_extract::today_iso())
+            .and_then(|d| d.save(&deck_out.to_string_lossy()))
+        {
+            Ok(p) => pptx_path = serde_json::Value::String(p),
+            Err(e) => eprintln!("warning: benchmark deck not written ({e})"),
+        }
+    }
+
     Ok(serde_json::json!({
         "title": title,
         "count": run.metrics.len(),
@@ -165,6 +201,7 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
         "data_warnings": run.data_warnings,
         "xlsx_path": xlsx_path.to_string_lossy(),
         "csv_path": csv_path.to_string_lossy(),
+        "pptx_path": pptx_path,
     })
     .to_string())
 }

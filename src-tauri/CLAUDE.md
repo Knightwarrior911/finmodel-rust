@@ -6,8 +6,8 @@ step. Every `#[tauri::command]` returns a JSON **string**; errors are
 `error::AppError` (`{kind,message}`), alias `AppResult<T>`.
 
 ## Command modules (`src/commands/`, registered in `mod.rs::handler()`)
-- `model` — `build_model`, `prepare_model`, `finalize_model`, `list_recent`,
-  `open_path`, `open_url`. Blocking **cores** reused by chat tools (all `pub(crate)`):
+- `model` — `build_model`, `prepare_model`, `finalize_model`, `analyze_pdf`,
+  `list_recent`, `open_path`, `open_url`. Blocking **cores** reused by chat tools (all `pub(crate)`):
   `build_model_blocking`, `prepare_model_core`, `finalize_model_core`,
   `obtain_extraction`, `render_build`. `emit_progress(app,stage,detail)` emits
   `build_progress` — copy this pattern for events. `SessionCache` (managed) backs
@@ -33,7 +33,7 @@ step. Every `#[tauri::command]` returns a JSON **string**; errors are
 - **LLM loop** (`run_llm_turn`): `build_chat_request` (pure) → `openrouter_stream`
   (blocking reqwest SSE; `apply_delta`/`sse_accumulate` reassemble content +
   `delta.tool_calls[]` fragments by `index`). Emits `chat_delta` per chunk. Up to
-  `MAX_TOOL_ROUNDS=8`. **8 tools** dispatch through `run_tool` → shared cores (never
+  `MAX_TOOL_ROUNDS=8`. **10 tools** dispatch through `run_tool` → shared cores (never
   the command wrappers). Each: emit `chat_tool start` → run → emit `done`+card.
 - **Weak-model safety net:** on `ToolsUnsupported` (model 400/404s on `tools`) OR an
   Ok turn where round 0 returns no tool_call for an EXPLICIT data request, drop the

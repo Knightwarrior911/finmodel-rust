@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.4.0 — 2026-07-15
+
+### Sellable-feature expansion (seven independent workstreams)
+- **Live WACC inputs.** Live builds now fetch a real risk-free rate (10Y
+  Treasury via `^TNX`) and a 2-year weekly regression beta vs the S&P 500
+  (`^GSPC`), replacing the hardcoded 4.5% / 1.0 defaults. An explicit analyst
+  value always wins; each override records a provenance note, and a failed fetch
+  falls back to the default with a warning — a build never fails over market data.
+- **Trading-comps tabs.** `build_model` accepts a peer set (`--peers "MSFT,GOOGL"`
+  on the CLI, a `peers` array in chat / "build X with peers A, B"). Each peer's
+  EDGAR filing + live quote becomes a `PublicCompPeer`; the previously-gated
+  **Comps Peers** and **Comps Summary** sheets now ship with EV/Revenue,
+  EV/EBITDA and P/E stat blocks plus EV/EBITDA-implied prices. Unreachable peers
+  land in an excluded list; the build still succeeds.
+- **One-click PPTX deck.** `--deck` (CLI) / always-on in chat writes a
+  `<stem>_deck.pptx` beside the workbook: cover, valuation scorecard, revenue +
+  EBITDA trajectory charts, and a trading-comps table (model); cover + peer
+  table + EBITDA-margin chart (benchmark). New `add_table` deck archetype.
+- **Read the actual filing.** New `read_filing` chat tool fetches the latest
+  10-K/10-Q body from EDGAR, splits it into items, and returns a section
+  (risk factors → Item 1A, MD&A → Item 7) — qualitative filing content without
+  fabrication. `filing_doc` card with item chips and an open-in-browser link.
+- **Scenario case from chat.** `build_model` accepts `case: base|upside|downside`
+  (`--case` on the CLI, "build the downside case for X" in chat), driving the
+  existing Base/Upside/Downside scenario engine; the model card tags a non-base case.
+- **Drop a PDF, get a model.** New `analyze_pdf` tool + command runs the annual-
+  report PDF + LLM extraction path on a local file; drag a `.pdf` onto the window
+  to prime the composer. Requires an OpenRouter key.
+- **UI polish.** Hover-to-copy on assistant messages; benchmark card is now
+  horizontally scrollable (no 6-column cap) with a Copy-table (TSV) action;
+  sidebar conversation filter (shown past 6 conversations) and a two-step delete
+  confirm; `Ctrl/⌘+N` new chat, `Ctrl/⌘+K` filter, `Esc` stops a streaming
+  reply, with a shortcut legend in Settings; refreshed example chips.
+
 ## v0.3.1 — 2026-07-15
 
 ### Fixed — chat robustness with weak / non-tool-calling models

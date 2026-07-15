@@ -11,6 +11,8 @@ import {
   fmtPct,
   fmtPrice,
   fmtMoneyM,
+  copyToClipboard,
+  flashBtn,
 } from "./core.mjs";
 import { openReader } from "./reader.mjs";
 
@@ -45,14 +47,28 @@ function valuationStrip(v) {
 
 function renderModel(card) {
   const v = card.valuation || {};
+  const comps = card.comps;
+  const compsNote =
+    comps && comps.count != null
+      ? `<p class="card-note">Comps: ${comps.count} peer${comps.count === 1 ? "" : "s"}${
+          comps.excluded && comps.excluded.length ? ` (${comps.excluded.length} excluded)` : ""
+        }</p>`
+      : "";
+  const caseTag =
+    card.case && card.case !== "base"
+      ? `<span class="card-tag">${escapeHtml(card.case === "upside" ? "Upside case" : "Downside case")}</span>`
+      : "";
   const inner = `
     <div class="card-head">
       <span class="card-title num">${escapeHtml(card.ticker || "")}</span>
       <span class="card-sub">${escapeHtml(card.currency || "")} · model</span>
+      ${caseTag}
     </div>
     ${valuationStrip(v)}
+    ${compsNote}
     <div class="card-actions">
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.xlsx_path || "")}">Open in Excel</button>
+      ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
       <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.xlsx_path || "")}">Show in folder</button>
     </div>`;
   return cardShell("model", inner);
@@ -71,7 +87,7 @@ const BENCH_FMT = {
 };
 
 function renderBenchmark(card) {
-  const headers = (card.headers || []).slice(0, 6);
+  const headers = card.headers || [];
   const rows = card.rows || [];
   const thead = `<tr>${headers.map((h) => `<th>${escapeHtml(h.label)}</th>`).join("")}</tr>`;
   const tbody = rows
@@ -94,13 +110,32 @@ function renderBenchmark(card) {
     <div class="card-head">
       <span class="card-title">${escapeHtml(card.title || "Peer benchmark")}</span>
     </div>
-    <div class="card-table-wrap"><table class="card-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+    <div class="card-table-scroll"><div class="card-table-wrap"><table class="card-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div></div>
     ${failed ? `<p class="card-note warn">Not fetched: ${failed}</p>` : ""}
     <div class="card-actions">
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.xlsx_path || "")}">Open in Excel</button>
       ${card.csv_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.csv_path)}">Open CSV</button>` : ""}
+      ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
+      <button type="button" class="btn-ghost" data-copy-table>Copy table</button>
     </div>`;
-  return cardShell("benchmark", inner);
+  const el = cardShell("benchmark", inner);
+  const tsv = [
+    headers.map((h) => h.label).join("\t"),
+    ...rows.map((r) =>
+      headers
+        .map((h) => (h.key === "ticker" ? r[h.key] || "" : (BENCH_FMT[h.key] || String)(r[h.key])))
+        .join("\t")
+    ),
+  ].join("\n");
+  const copyBtn = el.querySelector("[data-copy-table]");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyToClipboard(tsv);
+      flashBtn(copyBtn, "Copied");
+    });
+  }
+  return el;
 }
 
 // ── search ──────────────────────────────────────────────────────────
@@ -219,6 +254,30 @@ function renderFilings(card) {
   return cardShell("filings", inner);
 }
 
+// ── filing_doc (10-K/10-Q reader) ───────────────────────────────────
+function renderFilingDoc(card) {
+  const items = card.items || [];
+  const chips = items.map((id) => `<span class="filing-item-chip num">Item ${escapeHtml(id)}</span>`).join("");
+  const sub = [
+    escapeHtml(card.form || ""),
+    card.item ? `Item ${escapeHtml(card.item)}` : null,
+    card.filing_date ? escapeHtml(card.filing_date) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const inner = `
+    <div class="card-head">
+      <span class="card-title num">${escapeHtml(card.ticker || "")}</span>
+      <span class="card-sub">${sub}</span>
+    </div>
+    ${chips ? `<div class="filing-items">${chips}</div>` : ""}
+    ${card.chars ? `<p class="card-note">${escapeHtml(String(card.chars))} characters extracted.</p>` : ""}
+    <div class="card-actions">
+      <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url || "")}">Open in browser ↗</button>
+    </div>`;
+  return cardShell("filing_doc", inner);
+}
+
 // ── assumptions (interactive build grid) ────────────────────────────
 function renderAssumptions(card) {
   const proj = card.proj_periods || [];
@@ -286,6 +345,7 @@ export function renderCard(card) {
     case "deal": el = renderDeal(card); break;
     case "quote": el = renderQuote(card); break;
     case "filings": el = renderFilings(card); break;
+    case "filing_doc": el = renderFilingDoc(card); break;
     case "assumptions": el = renderAssumptions(card); break;
     case "error":
       el = cardShell("error", `<p class="card-note err">${escapeHtml(card.message || "Tool failed.")}</p>`);

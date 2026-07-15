@@ -1,6 +1,6 @@
 // chat.mjs — the chat pane: composer, streaming send flow, message rendering.
 
-import { $, call, on, escapeHtml, renderMarkdown, stripControlTokens } from "./core.mjs";
+import { $, call, on, escapeHtml, renderMarkdown, stripControlTokens, copyToClipboard, flashBtn } from "./core.mjs";
 import { renderCard } from "./cards.mjs";
 
 let currentId = null;
@@ -60,10 +60,12 @@ function appendAssistant(text, live) {
     prose.dataset.raw = text || "";
     prose.textContent = text || "";
   } else {
+    prose.dataset.raw = text || "";
     prose.innerHTML = renderMarkdown(stripControlTokens(text || ""));
   }
   div.appendChild(prose);
   scrollEl().appendChild(div);
+  if (!live) addCopyAction(div, text || "");
   return div;
 }
 
@@ -74,6 +76,21 @@ function appendCard(card) {
   scrollEl().appendChild(div);
   scrollToBottom();
   return div;
+}
+
+// Hover Copy action on an assistant message — copies the raw markdown source.
+function addCopyAction(node, raw) {
+  if (!raw || node.querySelector(".msg-copy")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "msg-copy icon-btn";
+  btn.textContent = "Copy";
+  btn.title = "Copy message";
+  btn.addEventListener("click", () => {
+    copyToClipboard(raw);
+    flashBtn(btn, "Copied");
+  });
+  node.appendChild(btn);
 }
 
 function toolStatusNode(name) {
@@ -142,6 +159,7 @@ function finalizeLive() {
       activeTurn.assistantNode.remove();
     } else {
       prose.innerHTML = renderMarkdown(clean);
+      addCopyAction(activeTurn.assistantNode, clean);
     }
   }
   activeTurn = null;
@@ -247,6 +265,24 @@ export function initChat(opts = {}) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send(ta.value);
+    }
+  });
+  // Webview drag-drop: a single .pdf primes the composer with an analyze command.
+  on("tauri://drag-drop", (e) => {
+    const paths = (e && e.payload && e.payload.paths) || [];
+    const pdfs = paths.filter((p) => /\.pdf$/i.test(p));
+    if (paths.length === 1 && pdfs.length === 1) {
+      const path = pdfs[0];
+      const stem = (path.split(/[\\/]/).pop() || "PDF").replace(/\.pdf$/i, "");
+      ta.value = `Analyze the filing PDF at "${path}" for ${stem}`;
+      autoGrow();
+      ta.focus();
+    } else if (paths.length) {
+      const orig = ta.placeholder;
+      ta.placeholder = "Drop one .pdf to analyze";
+      setTimeout(() => {
+        ta.placeholder = orig;
+      }, 2500);
     }
   });
   $("chatSend").addEventListener("click", () => send(ta.value));

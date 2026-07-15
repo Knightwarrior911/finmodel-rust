@@ -89,6 +89,20 @@ pub struct BuildOptions {
     pub assumption_overrides: Vec<AssumptionOverride>,
     /// Caller metadata (app Save-As / CLI `--out`); ignored by the engine.
     pub out_path: Option<String>,
+    /// Optional peer tickers for a trading-comps tab. Network assembly happens
+    /// in the caller (app / CLI); the engine only consumes `public_comps`.
+    #[serde(default)]
+    pub peers: Vec<String>,
+    /// Pre-assembled public comps (caller fills it; `None` ⇒ no comps tabs).
+    #[serde(skip)]
+    pub public_comps: Option<fm_value::PublicCompsOutput>,
+    /// Active scenario case: 1=Base (default), 2=Upside, 3=Downside.
+    #[serde(default = "default_case")]
+    pub active_case: u8,
+    /// When true, callers also emit a `<stem>_deck.pptx` summary (app/CLI only;
+    /// the engine ignores it).
+    #[serde(default)]
+    pub deck: bool,
 }
 
 impl Default for BuildOptions {
@@ -109,8 +123,17 @@ impl Default for BuildOptions {
             fiscal_year_end: "Dec".to_string(),
             assumption_overrides: Vec::new(),
             out_path: None,
+            peers: Vec::new(),
+            public_comps: None,
+            active_case: default_case(),
+            deck: false,
         }
     }
+}
+
+/// Default active scenario case (1 = Base).
+fn default_case() -> u8 {
+    1
 }
 
 /// Reconcile an extraction, project it forward, and build the rich workbook with
@@ -320,6 +343,9 @@ pub fn build_workbook_input_with(
             }
         }
     }
+    // Analyst-selected scenario case (1=Base/2=Upside/3=Downside) drives the
+    // AssumptionsBlock CHOOSE toggle and the DCF `active` pick below.
+    assumptions.active_case = opts.active_case.clamp(1, 3) as i64;
     let verification = Verification { passed: true, ..Default::default() };
 
     let nonzero = |k: &str| {
@@ -412,7 +438,7 @@ pub fn build_workbook_input_with(
         wacc: Some(wacc),
         peer_source: peer_set.source,
         dcf: Some(dcf),
-        public_comps: None, // filled when a peer feed exists
+        public_comps: opts.public_comps.clone(),
     };
     (input, warnings)
 }

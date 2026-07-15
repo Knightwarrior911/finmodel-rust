@@ -13,6 +13,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         model::build_model,
         model::prepare_model,
         model::finalize_model,
+        model::analyze_pdf,
         model::list_recent,
         model::open_path,
         model::open_url,

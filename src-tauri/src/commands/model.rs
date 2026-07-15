@@ -111,6 +111,95 @@ fn stmt_to_json(sd: &fm_types::StatementData) -> serde_json::Value {
     serde_json::Value::Object(m)
 }
 
+/// A per-period series for `key` from a statement (missing → 0.0).
+fn stmt_series(sd: &fm_types::StatementData, key: &str) -> Vec<f64> {
+    sd.get(key)
+        .map(|v| v.iter().map(|x| x.unwrap_or(0.0)).collect())
+        .unwrap_or_default()
+}
+
+/// EBITDA series: prefer the `ebitda` line, else `ebit + da`.
+fn ebitda_series(sd: &fm_types::StatementData, n: usize) -> Vec<f64> {
+    let direct = stmt_series(sd, "ebitda");
+    if direct.iter().any(|v| *v != 0.0) {
+        return direct;
+    }
+    let ebit = stmt_series(sd, "ebit");
+    let da = stmt_series(sd, "da");
+    (0..n)
+        .map(|i| ebit.get(i).copied().unwrap_or(0.0) + da.get(i).copied().unwrap_or(0.0))
+        .collect()
+}
+
+/// Trading-comps table (headers + rows) for the deck, from assembled comps.
+fn comps_deck_table(pc: &fm_value::PublicCompsOutput) -> (Vec<String>, Vec<Vec<String>>) {
+    let headers = vec![
+        "Ticker".to_string(),
+        "EV/Rev".to_string(),
+        "EV/EBITDA".to_string(),
+        "P/E".to_string(),
+    ];
+    let mult = |m: Option<f64>| m.map(|v| format!("{v:.1}x")).unwrap_or_else(|| "—".into());
+    let rows: Vec<Vec<String>> = pc
+        .peers
+        .iter()
+        .take(14)
+        .map(|p| {
+            vec![
+                p.ticker.clone(),
+                mult(p.ev_rev_ltm),
+                mult(p.ev_ebitda_ltm),
+                mult(p.pe_ltm),
+            ]
+        })
+        .collect();
+    (headers, rows)
+}
+
+/// Assemble a [`fm_pptx::writer::deck::ModelDeckInput`] from a completed build.
+fn model_deck_input(
+    ticker: &str,
+    currency: &str,
+    extraction: &fm_extract::ExtractionResult,
+    opts: &fm_build::BuildOptions,
+    out: &fm_build::BuildOutput,
+) -> fm_pptx::writer::deck::ModelDeckInput {
+    let hist_n = extraction.years_found.len();
+    let mut periods = extraction.years_found.clone();
+    periods.extend(out.projected.periods.iter().cloned());
+    let mut revenue = stmt_series(&extraction.income_statement, "revenue");
+    revenue.extend(stmt_series(&out.projected.income_statement, "revenue"));
+    let proj_n = out.projected.periods.len();
+    let mut ebitda = ebitda_series(&extraction.income_statement, hist_n);
+    ebitda.extend(ebitda_series(&out.projected.income_statement, proj_n));
+    let dcf = out.dcf.as_ref();
+    let (comps_headers, comps_rows) = match &opts.public_comps {
+        Some(pc) if !pc.peers.is_empty() => comps_deck_table(pc),
+        _ => (Vec::new(), Vec::new()),
+    };
+    let tv_method = dcf
+        .map(|d| if d.tv_method == 1 { "EBITDA exit multiple" } else { "Gordon growth" })
+        .unwrap_or("—")
+        .to_string();
+    fm_pptx::writer::deck::ModelDeckInput {
+        ticker: ticker.to_string(),
+        company: ticker.to_string(),
+        currency: currency.to_string(),
+        periods,
+        revenue,
+        ebitda,
+        hist_n,
+        implied_price: dcf.map(|d| d.implied_price).unwrap_or(0.0),
+        current_price: dcf.map(|d| d.current_share_price).unwrap_or(0.0),
+        upside_pct: dcf.map(|d| d.upside_downside_pct).unwrap_or(0.0),
+        wacc: out.wacc_out.as_ref().map(|w| w.wacc).unwrap_or(0.0),
+        ev: dcf.map(|d| d.enterprise_value).unwrap_or(0.0),
+        tv_method,
+        comps_headers,
+        comps_rows,
+    }
+}
+
 /// Build a model for `ticker`. Returns a JSON summary the UI renders + the path
 /// to the generated Excel file.
 #[tauri::command(rename_all = "snake_case")]
@@ -182,6 +271,64 @@ fn render_build(
         }
     }
 
+    // Live WACC inputs (real risk-free + regression beta) — only for LIVE
+    // extractions and only when the caller left the defaults (an explicit user
+    // value always wins). Never fail the build over a market fetch.
+    if source.starts_with("live") {
+        if opts.risk_free_rate == 0.045 {
+            match fm_fetch::market::fetch_risk_free_rate() {
+                Ok(rf) => {
+                    opts.risk_free_rate = rf;
+                    warnings.push(format!("Risk-free rate {:.2}% from ^TNX (live)", rf * 100.0));
+                }
+                Err(_) => warnings
+                    .push("Risk-free rate defaulted to 4.5% (live 10Y fetch failed)".into()),
+            }
+        }
+        if opts.beta == 1.0 {
+            match fm_fetch::market::fetch_beta(ticker) {
+                Ok(beta) => {
+                    opts.beta = beta;
+                    warnings.push(format!(
+                        "Beta {beta:.2} from 2y weekly regression vs S&P 500"
+                    ));
+                }
+                Err(_) => {
+                    warnings.push("Beta defaulted to 1.0 (history fetch failed)".into())
+                }
+            }
+        }
+    }
+
+    // Trading-comps peer assembly (network stays out of fm-build). Each peer
+    // failure lands in `excluded`, never fatal. Peers require EDGAR.
+    let mut comps_summary = serde_json::Value::Null;
+    if !opts.peers.is_empty() {
+        let mut peers: Vec<fm_value::PublicCompPeer> = Vec::new();
+        let mut excluded: Vec<(String, String)> = Vec::new();
+        for t in &opts.peers {
+            emit_progress(app, "comps", &format!("Fetching peer {t}"));
+            match fm_extract::fetch_xbrl(t) {
+                Ok(ex) => {
+                    let m = fm_research::metrics_from_extraction(t, &ex);
+                    let quote = fm_fetch::fetch_quote(t).ok();
+                    peers.push(fm_research::comps::peer_from_metrics(&m, quote.as_ref()));
+                }
+                Err(e) => excluded.push((t.clone(), e.to_string())),
+            }
+        }
+        let target_metrics = fm_research::metrics_from_extraction(ticker, extraction);
+        let count = peers.len();
+        let excluded_names: Vec<String> = excluded.iter().map(|(t, _)| t.clone()).collect();
+        opts.public_comps = Some(fm_research::comps::build_public_comps(
+            &target_metrics,
+            &peers,
+            excluded,
+            &fm_extract::today_iso(),
+        ));
+        comps_summary = serde_json::json!({ "count": count, "excluded": excluded_names });
+    }
+
     // Shared core: reconcile + project + assemble sheets (honoring options).
     emit_progress(app, "project", "Projecting the forecast…");
     let out = fm_build::build_with(extraction, ticker, &opts);
@@ -207,6 +354,27 @@ fn render_build(
         .map_err(|e| AppError::Engine(format!("Excel write failed: {e}")))?;
     // Record in Recent files (4.2).
     push_recent(app, &xlsx_path.to_string_lossy(), &format!("{ticker} model"));
+
+    // Optional one-click PPTX deck beside the workbook (pure OOXML write, no
+    // LibreOffice). Deck failure is a warning, never fatal.
+    let mut pptx_path = serde_json::Value::Null;
+    if opts.deck {
+        emit_progress(app, "deck", "Writing the summary deck…");
+        let deck_out = xlsx_path.with_file_name(format!(
+            "{}_deck.pptx",
+            fm_build::ticker_to_stem(ticker)
+        ));
+        let input = model_deck_input(ticker, &extraction.currency, extraction, &opts, &out);
+        match fm_pptx::writer::deck::write_model_deck(&input, &fm_extract::today_iso())
+            .and_then(|d| d.save(&deck_out.to_string_lossy()))
+        {
+            Ok(p) => {
+                push_recent(app, &p, &format!("{ticker} deck"));
+                pptx_path = serde_json::Value::String(p);
+            }
+            Err(e) => warnings.push(format!("Deck not written ({e})")),
+        }
+    }
 
     let val_method = out
         .dcf
@@ -235,6 +403,9 @@ fn render_build(
         },
         "warnings": warnings,
         "xlsx_path": xlsx_path.to_string_lossy(),
+        "comps": comps_summary,
+        "pptx_path": pptx_path,
+        "case": match opts.active_case { 2 => "upside", 3 => "downside", _ => "base" },
         "valuation": {
             "has_dcf": out.workbook.sheet("DCF").is_some(),
             "has_wacc": out.workbook.sheet("WACC").is_some(),
@@ -300,6 +471,63 @@ fn obtain_extraction(
             ))),
         }
     }
+}
+
+/// Analyze a local annual-report PDF into a model (workstream F). Reuses the
+/// non-US PDF + LLM extraction path for a file the analyst supplies directly.
+/// Requires an OpenRouter key; `source = "pdf"` so no live quote/beta fetch runs.
+pub(crate) fn analyze_pdf_blocking(
+    app: &tauri::AppHandle,
+    path: &str,
+    label: &str,
+    opts: fm_build::BuildOptions,
+) -> AppResult<String> {
+    let p = std::path::Path::new(path);
+    if !p.is_file() {
+        return Err(AppError::Config(format!("PDF not found: {path}")));
+    }
+    let is_pdf = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err(AppError::Config(format!("Not a .pdf file: {path}")));
+    }
+    let label = label.trim();
+    let label = if label.is_empty() { "PDF" } else { label };
+
+    let s = read_settings(app);
+    if s.openrouter_api_key.trim().is_empty() {
+        return Err(AppError::Config(
+            "PDF analysis needs an OpenRouter API key (Settings)".into(),
+        ));
+    }
+    let llm_cfg = fm_extract::LlmConfig {
+        api_key: s.openrouter_api_key.trim().to_string(),
+        model: s.model.trim().to_string(),
+    };
+    // Mirror fetch_non_us_filing's periods: the last full year and the two prior.
+    let year = fm_extract::current_year() - 1;
+    let periods = [(year - 2).to_string(), (year - 1).to_string(), year.to_string()];
+    emit_progress(app, "extract", "Extracting financials from the PDF…");
+    let extraction = fm_extract::extract_financials_from_pdf(path, &periods, label, Some(&llm_cfg))
+        .map_err(|e| AppError::Engine(format!("PDF extraction failed: {e}")))?;
+    render_build(app, &extraction, "pdf", label, opts)
+}
+
+/// Analyze a local annual-report PDF into a model (chat + drag-drop entry).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn analyze_pdf(
+    app: tauri::AppHandle,
+    path: String,
+    label: String,
+    options: Option<fm_build::BuildOptions>,
+) -> AppResult<String> {
+    let opts = options.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || analyze_pdf_blocking(&app, &path, &label, opts))
+        .await
+        .map_err(|e| AppError::Engine(format!("analyze_pdf task failed: {e}")))?
 }
 
 /// In-memory prepare→finalize session cache (lost on app restart — acceptable;

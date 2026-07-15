@@ -24,7 +24,7 @@ const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions
 const MAX_TOOL_ROUNDS: usize = 8;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR, benchmark peers, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
 
 const FALLBACK_HELP: &str = "I couldn't map that to a tool. Try 'build AAPL', 'benchmark AAPL, MSFT', 'news NVDA', 'search …', or add an OpenRouter API key in Settings for full natural-language chat.";
 
@@ -810,35 +810,76 @@ fn route_fallback(msg: &str) -> Option<(ToolName, Value)> {
     let tickers = ticker_tokens(msg);
     let has = |kws: &[&str]| kws.iter().any(|k| m.contains(k));
 
+    // 0. A quoted local path ending .pdf → analyze it directly.
+    if let Some(path) = quoted_pdf_path(msg) {
+        let label = std::path::Path::new(&path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("PDF")
+            .to_string();
+        return Some((ToolName::AnalyzePdf, json!({ "path": path, "label": label })));
+    }
     // 1. benchmark / comps with >= 2 tickers.
-    if has(&["benchmark", "compare", "peers", "comps"]) && tickers.len() >= 2 {
+    if has(&["benchmark", "compare", "peers", "comps"]) && tickers.len() >= 2 && !m.contains("build") {
         return Some((ToolName::BenchmarkPeers, json!({ "tickers": tickers })));
     }
-    // 2. build / model / dcf with >= 1 ticker.
+    // 2. build / model / dcf with >= 1 ticker (extra tickers → peers; case tags).
     if has(&["build", "model", "dcf", "3-statement", "three statement"]) && !tickers.is_empty() {
-        return Some((ToolName::BuildModel, json!({ "ticker": tickers[0] })));
+        let mut args = json!({ "ticker": tickers[0] });
+        let peers: Vec<String> = tickers.iter().skip(1).cloned().collect();
+        if (has(&["with peers", " vs ", "versus", " with "]) || m.contains("peers")) && !peers.is_empty() {
+            args["peers"] = json!(peers);
+        }
+        if has(&["downside", "bear"]) {
+            args["case"] = json!("downside");
+        } else if has(&["upside", "bull"]) {
+            args["case"] = json!("upside");
+        }
+        return Some((ToolName::BuildModel, args));
     }
-    // 3. news / headlines.
+    // 3. qualitative filing content (10-K/10-Q text) with a ticker — before the
+    //    generic web-search rule so it wins over "latest".
+    if has(&["10-k", "10k", "10-q", "10q", "annual report", "md&a", "mda", "risk factors"])
+        && !tickers.is_empty()
+    {
+        let form = if has(&["10-q", "10q"]) { "10-Q" } else { "10-K" };
+        let mut args = json!({ "ticker": tickers[0], "form": form });
+        if has(&["risk factors"]) {
+            args["item"] = json!("1A");
+        } else if has(&["md&a", "mda", "management discussion", "discussion and analysis"]) {
+            args["item"] = json!("7");
+        }
+        return Some((ToolName::ReadFiling, args));
+    }
+    // 4. news / headlines.
     if has(&["news", "headlines"]) {
         let q = strip_keywords(msg, &["news", "headlines"]);
         return Some((ToolName::GetNews, json!({ "query": q })));
     }
-    // 4. deal / M&A.
+    // 5. deal / M&A.
     if has(&["acqui", "merger", "deal", "takeover", "buyout"]) {
         return Some((ToolName::ResearchDeal, json!({ "query": msg.trim() })));
     }
-    // 5. general web search.
+    // 6. general web search.
     if has(&["search", "find", "look up", "what is", "who is", "latest"]) {
         return Some((ToolName::WebSearch, json!({ "query": msg.trim() })));
     }
-    // 6. quote / filings with a ticker.
+    // 7. quote / filings with a ticker.
     if has(&["quote", "price"]) && !tickers.is_empty() {
         return Some((ToolName::GetQuote, json!({ "ticker": tickers[0] })));
     }
-    if has(&["filings", "10-k", "10-q", "20-f"]) && !tickers.is_empty() {
+    if has(&["filings", "20-f"]) && !tickers.is_empty() {
         return Some((ToolName::ListFilings, json!({ "ticker": tickers[0] })));
     }
     None
+}
+
+/// First double-quoted substring ending in `.pdf` (case-insensitive), if any.
+fn quoted_pdf_path(msg: &str) -> Option<String> {
+    msg.split('"')
+        .enumerate()
+        .find(|(i, p)| i % 2 == 1 && p.trim().to_lowercase().ends_with(".pdf"))
+        .map(|(_, p)| p.trim().to_string())
 }
 
 /// Extract ticker-like tokens: `[A-Z]{1,5}(\.[A-Z]{1,2})?`. The English words
@@ -904,6 +945,8 @@ enum ToolName {
     ResearchDeal,
     GetQuote,
     ListFilings,
+    ReadFiling,
+    AnalyzePdf,
 }
 
 impl ToolName {
@@ -917,6 +960,8 @@ impl ToolName {
             ToolName::ResearchDeal => "research_deal",
             ToolName::GetQuote => "get_quote",
             ToolName::ListFilings => "list_filings",
+            ToolName::ReadFiling => "read_filing",
+            ToolName::AnalyzePdf => "analyze_pdf",
         }
     }
     fn from_str(s: &str) -> Option<Self> {
@@ -929,6 +974,8 @@ impl ToolName {
             "research_deal" => ToolName::ResearchDeal,
             "get_quote" => ToolName::GetQuote,
             "list_filings" => ToolName::ListFilings,
+            "read_filing" => ToolName::ReadFiling,
+            "analyze_pdf" => ToolName::AnalyzePdf,
             _ => return None,
         })
     }
@@ -953,7 +1000,9 @@ fn tool_schemas() -> Vec<Value> {
                     "ticker": { "type": "string", "description": "Ticker, e.g. AAPL or SAND.ST" },
                     "period": { "type": "string", "enum": ["annual", "quarter", "semi", "ltm"] },
                     "years": { "type": "integer", "description": "Projection years (1-10)" },
-                    "skip_review": { "type": "boolean", "description": "Build immediately, skipping the assumptions grid" }
+                    "skip_review": { "type": "boolean", "description": "Build immediately, skipping the assumptions grid" },
+                    "peers": { "type": "array", "items": { "type": "string" }, "description": "Optional peer tickers for a trading-comps tab" },
+                    "case": { "type": "string", "enum": ["base", "upside", "downside"], "description": "Scenario case (default base)" }
                 },
                 "required": ["ticker"]
             }),
@@ -1010,6 +1059,31 @@ fn tool_schemas() -> Vec<Value> {
                 "required": ["ticker"]
             }),
         ),
+        f(
+            "read_filing",
+            "Read the actual text of a company's latest SEC filing (10-K/10-Q). Use for qualitative content — risk factors (item 1A), MD&A (item 7), business description. Never use web_search for filing content.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "ticker": { "type": "string" },
+                    "form": { "type": "string", "description": "e.g. 10-K, 10-Q (default 10-K)" },
+                    "item": { "type": "string", "description": "Item id, e.g. 1A (risk factors), 7 (MD&A)" }
+                },
+                "required": ["ticker"]
+            }),
+        ),
+        f(
+            "analyze_pdf",
+            "Analyze a local annual-report PDF file into a 3-statement + DCF model. Requires an OpenRouter API key.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to a .pdf file" },
+                    "label": { "type": "string", "description": "Company/ticker label for the workbook" }
+                },
+                "required": ["path", "label"]
+            }),
+        ),
     ]
 }
 
@@ -1034,6 +1108,8 @@ fn run_tool(app: &tauri::AppHandle, tool: ToolName, args: &Value) -> Result<(Str
         ToolName::ResearchDeal => tool_research_deal(app, args),
         ToolName::GetQuote => tool_get_quote(args),
         ToolName::ListFilings => tool_list_filings(args),
+        ToolName::ReadFiling => tool_read_filing(app, args),
+        ToolName::AnalyzePdf => tool_analyze_pdf(app, args),
     }
 }
 
@@ -1049,6 +1125,20 @@ fn tool_build_model(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
             opts.proj_years = y as usize;
         }
     }
+    opts.deck = true;
+    if let Some(peers) = args["peers"].as_array() {
+        opts.peers = peers
+            .iter()
+            .filter_map(|t| t.as_str())
+            .map(|t| t.trim().to_uppercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+    }
+    opts.active_case = match args["case"].as_str() {
+        Some("upside") => 2,
+        Some("downside") => 3,
+        _ => 1,
+    };
 
     if skip_review {
         let summary = crate::commands::model::build_model_blocking(app, &ticker, opts)
@@ -1060,6 +1150,9 @@ fn tool_build_model(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
             "ticker": v["ticker"],
             "currency": v["currency"],
             "xlsx_path": v["xlsx_path"],
+            "pptx_path": v["pptx_path"],
+            "comps": v["comps"],
+            "case": v["case"],
             "valuation": val,
         });
         let text = format!(
@@ -1117,6 +1210,7 @@ fn tool_benchmark(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value
         usd: args["usd"].as_bool().unwrap_or(false),
         title: None,
         out_path: None,
+        deck: true,
     };
     let summary = crate::commands::benchmark::benchmark_blocking(app, &tickers.join(","), opts)
         .map_err(|e| e.to_string())?;
@@ -1141,6 +1235,7 @@ fn tool_benchmark(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value
         "failed": v["failed"],
         "xlsx_path": v["xlsx_path"],
         "csv_path": v["csv_path"],
+        "pptx_path": v["pptx_path"],
     });
     let count = v["count"].as_u64().unwrap_or(0);
     let requested = v["requested"].as_u64().unwrap_or(0);
@@ -1295,6 +1390,105 @@ fn tool_list_filings(args: &Value) -> Result<(String, Value), String> {
     Ok((truncate(&text, 1800), card))
 }
 
+fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
+    let ticker = args["ticker"].as_str().unwrap_or("").trim().to_string();
+    if ticker.is_empty() {
+        return Err("read_filing requires a ticker".into());
+    }
+    let form = args["form"]
+        .as_str()
+        .map(|s| s.trim().to_uppercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "10-K".into());
+    let item = args["item"]
+        .as_str()
+        .map(|s| s.trim().to_uppercase())
+        .filter(|s| !s.is_empty());
+
+    let s = read_settings(app);
+    if !s.edgar_contact.trim().is_empty() {
+        fm_fetch::edgar::set_edgar_contact(s.edgar_contact.trim().to_string());
+    }
+    let cik = fm_fetch::cik_from_ticker(&ticker).map_err(|e| e.to_string())?;
+    let filings = fm_fetch::recent_filings(&cik, &form, 1).map_err(|e| e.to_string())?;
+    let filing = filings
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("No recent {form} for {ticker}"))?;
+    let text = fm_fetch::fetch_filing_doc(&filing.url).map_err(|e| e.to_string())?;
+    let items = fm_fetch::split_filing_items(&text);
+    let ids: Vec<String> = items.iter().map(|(id, _)| id.clone()).collect();
+
+    let (llm_text, item_val, chars) = if let Some(want) = &item {
+        match items.iter().find(|(id, _)| id == want) {
+            Some((_, body)) => {
+                let clipped = truncate(body, 20_000);
+                let n = clipped.chars().count();
+                (format!("{form} Item {want} for {ticker}:\n\n{clipped}"), json!(want), n)
+            }
+            None => (
+                format!("Item {want} not found in {ticker} {form}. Available items: {}", ids.join(", ")),
+                Value::Null,
+                0,
+            ),
+        }
+    } else {
+        let head = truncate(&text, 4_000);
+        let n = head.chars().count();
+        (format!("{form} for {ticker}. Items: {}\n\nExcerpt:\n{head}", ids.join(", ")), Value::Null, n)
+    };
+    let card = json!({
+        "type": "filing_doc",
+        "ticker": ticker,
+        "form": form,
+        "filing_date": filing.filing_date,
+        "url": filing.url,
+        "item": item_val,
+        "items": ids,
+        "chars": chars,
+    });
+    Ok((truncate(&llm_text, 20_500), card))
+}
+
+fn tool_analyze_pdf(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
+    let path = args["path"].as_str().unwrap_or("").trim().to_string();
+    if path.is_empty() {
+        return Err("analyze_pdf requires a path".into());
+    }
+    let label = args["label"].as_str().unwrap_or("").trim().to_string();
+    let label = if label.is_empty() {
+        std::path::Path::new(&path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("PDF")
+            .to_string()
+    } else {
+        label
+    };
+    let mut opts = fm_build::BuildOptions::default();
+    opts.deck = true;
+    let summary = crate::commands::model::analyze_pdf_blocking(app, &path, &label, opts)
+        .map_err(|e| e.to_string())?;
+    let v: Value = serde_json::from_str(&summary).map_err(|e| e.to_string())?;
+    let val = &v["valuation"];
+    let card = json!({
+        "type": "model",
+        "ticker": v["ticker"],
+        "currency": v["currency"],
+        "xlsx_path": v["xlsx_path"],
+        "pptx_path": v["pptx_path"],
+        "valuation": val,
+    });
+    let text = format!(
+        "Built model from PDF {}. Implied price {}, upside {}%. Excel: {}",
+        label,
+        fmt_opt(&val["price_per_share"]),
+        fmt_opt(&val["upside_pct"]),
+        v["xlsx_path"].as_str().unwrap_or(""),
+    );
+    Ok((text, card))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1387,6 +1581,47 @@ mod tests {
     #[test]
     fn route_no_match_returns_none() {
         assert!(route_fallback("tell me a joke about accounting").is_none());
+    }
+
+    #[test]
+    fn route_build_with_peers() {
+        let (tool, args) = route_fallback("Build NVDA with peers AMD, INTC, AVGO").unwrap();
+        assert_eq!(tool, ToolName::BuildModel);
+        assert_eq!(args["ticker"], json!("NVDA"));
+        assert_eq!(args["peers"], json!(["AMD", "INTC", "AVGO"]));
+    }
+
+    #[test]
+    fn route_build_downside_case() {
+        let (tool, args) = route_fallback("Build the downside case for AMZN").unwrap();
+        assert_eq!(tool, ToolName::BuildModel);
+        assert_eq!(args["ticker"], json!("AMZN"));
+        assert_eq!(args["case"], json!("downside"));
+    }
+
+    #[test]
+    fn route_read_filing_risk_factors() {
+        let (tool, args) = route_fallback("Read the risk factors in TSLA's latest 10-K").unwrap();
+        assert_eq!(tool, ToolName::ReadFiling);
+        assert_eq!(args["ticker"], json!("TSLA"));
+        assert_eq!(args["form"], json!("10-K"));
+        assert_eq!(args["item"], json!("1A"));
+    }
+
+    #[test]
+    fn route_read_filing_mda() {
+        let (tool, args) = route_fallback("show me the MD&A in AAPL's 10-K").unwrap();
+        assert_eq!(tool, ToolName::ReadFiling);
+        assert_eq!(args["item"], json!("7"));
+    }
+
+    #[test]
+    fn route_analyze_pdf_quoted_path() {
+        let (tool, args) =
+            route_fallback("Analyze the filing PDF at \"C:/tmp/annual.pdf\" for TESTCO").unwrap();
+        assert_eq!(tool, ToolName::AnalyzePdf);
+        assert_eq!(args["path"], json!("C:/tmp/annual.pdf"));
+        assert_eq!(args["label"], json!("annual"));
     }
 
     #[test]

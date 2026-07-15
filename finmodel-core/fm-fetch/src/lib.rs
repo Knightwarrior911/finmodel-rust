@@ -12,8 +12,8 @@ pub mod websearch;
 
 pub use discovery::{find_annual_report_pdf_url, DiscoveryError};
 pub use edgar::{
-    cik_from_ticker, fetch_companyfacts, fetch_company_sic, recent_filings, search_filings,
-    CompanyFacts, Filing, SicInfo, DEFAULT_FORM_TYPES,
+    cik_from_ticker, fetch_companyfacts, fetch_company_sic, fetch_filing_doc, recent_filings,
+    search_filings, split_filing_items, CompanyFacts, Filing, SicInfo, DEFAULT_FORM_TYPES,
 };
 pub use market::{fetch_quote, fetch_fx_rate, normalize_minor_unit, FetchError, Quote};
 pub use pdf::{download_pdf, DownloadConfig};

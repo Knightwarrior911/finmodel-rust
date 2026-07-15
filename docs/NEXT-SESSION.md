@@ -7,6 +7,23 @@ ALL work now happens here, in `finmodel-rust`
 `C:/Users/vinit/Documents/finmodel-rust`.
 
 
+## LATEST SESSION (2026-07-15) — v0.4.0 sellable-feature expansion (unreleased)
+
+Full detail in `CLAUDE.md` (top HANDOVER). Seven independent workstreams, all
+opt/flag-gated so defaults are unchanged and every parity oracle stays green
+(`finmodel-core` workspace tests + `src-tauri` tests pass):
+- **A** live WACC inputs (10Y `^TNX` risk-free + 2y weekly regression beta vs `^GSPC`).
+- **B** trading-comps tabs (`--peers` / chat `peers`) filling the gated Comps sheets.
+- **C** one-click PPTX deck (`--deck` / chat always-on; model + benchmark).
+- **D** `read_filing` — real 10-K/10-Q item text in chat.
+- **E** scenario case from chat/CLI (`--case base|upside|downside`).
+- **F** `analyze_pdf` — drop a local annual-report PDF, get a model (needs a key).
+- **G** UI polish: copy-message, benchmark scroll + copy-table, sidebar filter +
+  delete-confirm, keyboard shortcuts + legend, refreshed chips. Chat = 10 tools.
+- **Next:** signed NSIS build + ship v0.4.0 (`docs/RELEASE_CHECKLIST.md` §6, needs
+  >6G free on C:) once the user okays; optionally thread peers/deck/case through the
+  chat review→finalize path (currently applied on the skip_review build path).
+
 ## LATEST SESSION (2026-07-14) — Desktop app shipped + auto-update LIVE
 
 Full detail in `CLAUDE.md` (top HANDOVER). Summary:

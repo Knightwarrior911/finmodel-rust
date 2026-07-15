@@ -1,5 +1,36 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.4.0 sellable-feature expansion (built 2026-07-15, unreleased)
+**Branch `master`.** v0.3.1 remains the LIVE release; v0.4.0 is code-complete and
+green (`finmodel-core` workspace tests + `src-tauri` tests pass) but NOT yet
+built/signed/shipped — do the signed NSIS build per `docs/RELEASE_CHECKLIST.md` §6
+only after `df -h /c` shows >6G free and the user okays shipping. Seven independent
+workstreams landed (all flag/opt-gated, defaults unchanged so every parity oracle
+stays byte-identical):
+- **A — live WACC inputs.** `fm-fetch/src/market.rs`: `fetch_risk_free_rate` (`^TNX`),
+  `fetch_price_history`, `compute_beta` (pure, tested), `fetch_beta` (2y weekly vs
+  `^GSPC`). Wired into `model.rs::render_build` + `fm-cli` build, only when the caller
+  left the 4.5%/1.0 defaults; provenance/fallback warnings; never fatal.
+- **B — trading comps.** `fm-research/src/comps.rs` (`peer_from_metrics`,
+  `build_public_comps`, tested). `BuildOptions` gains `peers`/`public_comps`; peer
+  assembly (EDGAR + quote, excluded list) in `render_build` + CLI `--peers`. Fills
+  the gated Comps Peers / Comps Summary sheets. Chat `build_model` `peers` array.
+- **C — one-click PPTX deck.** `fm-pptx/src/writer/deck.rs`: `add_table` archetype +
+  `write_model_deck`/`write_benchmark_deck` (+`ModelDeckInput`), inspect-tested.
+  `BuildOptions.deck` / `BenchOpts.deck`, CLI `--deck`, chat always-on; `pptx_path`
+  in the model/benchmark cards ("Open deck").
+- **D — read the filing.** `fm-fetch/src/edgar.rs`: `fetch_filing_doc` + pure
+  `split_filing_items` (tested). Chat tool `read_filing` (item 1A/7 clip), `filing_doc`
+  card. Router: 10-K/risk-factors/MD&A + ticker → read_filing.
+- **E — scenario case.** `BuildOptions.active_case` drives the existing scenario
+  engine; chat `case` enum, CLI `--case`, router bear/bull, model card case tag.
+- **F — analyze a PDF.** `model.rs::analyze_pdf_blocking` + `analyze_pdf` command/tool
+  (reuses the non-US PDF+LLM path, `source="pdf"`, needs a key); webview drag-drop of
+  a `.pdf` primes the composer; router on a quoted `.pdf` path.
+- **G — UI polish.** copy-message, benchmark scroll + Copy-table (TSV), sidebar filter
+  + two-step delete confirm, `Ctrl/⌘+N`/`Ctrl/⌘+K`/`Esc`-cancels-stream + Settings
+  legend, refreshed chips. Chat now exposes **10 tools**.
+
 ## HANDOVER — Chat-first desktop redesign, v0.3.1 LIVE (current, 2026-07-15)
 **Branch `master`.** Source `finmodel-rust` PRIVATE; releases → PUBLIC
 `finmodel-releases`. **v0.3.1 is the live release** (updater endpoint

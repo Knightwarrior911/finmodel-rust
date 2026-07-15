@@ -756,6 +756,58 @@ impl PptxDeckWriter {
         Ok(())
     }
 
+    /// `add_table` — a simple grid: header row (brand-dark fill, white bold) over
+    /// body rows alternating WHITE / LIGHT_GRAY with hairline row rules. Columns
+    /// are evenly divided across the content width.
+    pub fn add_table(
+        &mut self,
+        action_title: &str,
+        headers: &[String],
+        rows: &[Vec<String>],
+        source: &str,
+    ) -> Result<(), String> {
+        let at = self.validate_action_title(action_title)?;
+        if headers.is_empty() {
+            return Err("table requires at least one column".into());
+        }
+        if headers.len() > 8 {
+            return Err(format!("table supports up to 8 columns, got {}", headers.len()));
+        }
+        if rows.len() > 14 {
+            return Err(format!("table supports up to 14 rows, got {}", rows.len()));
+        }
+        self.content_slide_with_title(&at);
+        let ncols = headers.len();
+        let table_left = MARGIN_IN;
+        let table_w = self.slide_w_in - 2.0 * MARGIN_IN;
+        let col_w = table_w / ncols as f64;
+        let top0 = 1.2;
+        let row_h = 0.4;
+        // Header row.
+        let dark = self.brand_dark.clone();
+        self.add_rect(table_left, top0, table_w, row_h, &dark, None, true);
+        for (c, h) in headers.iter().enumerate() {
+            let x = table_left + c as f64 * col_w;
+            self.add_text(x + 0.08, top0, col_w - 0.16, row_h, h, 11, true, false, Some(WHITE), "l", None, Some("ctr"));
+        }
+        // Body rows.
+        for (r, row) in rows.iter().enumerate() {
+            let y = top0 + (r as f64 + 1.0) * row_h;
+            let fill = if r % 2 == 0 { WHITE } else { LIGHT_GRAY };
+            self.add_rect(table_left, y, table_w, row_h, fill, None, true);
+            for (c, cell) in row.iter().take(ncols).enumerate() {
+                let x = table_left + c as f64 * col_w;
+                let bd = self.brand_dark.clone();
+                self.add_text(x + 0.08, y, col_w - 0.16, row_h, cell, 10, false, false, Some(&bd), "l", None, Some("ctr"));
+            }
+            self.add_line(table_left, y, table_left + table_w, y, BORDER_GRAY, 0.5);
+        }
+        self.add_source_line(source, "");
+        self.page += 1;
+        self.add_footer();
+        Ok(())
+    }
+
     // ── package assembly ────────────────────────────────────────────────────────
 
     /// Build the deck into an in-memory OOXML package.
@@ -1022,6 +1074,129 @@ pub fn write_ifrs_bridge_deck(
     }
     if !tiles.is_empty() {
         deck.add_scorecard(&format!("{company} IFRS 16 adjustment summary ({period})"), &tiles, "Annual report, company filings", "")?;
+    }
+    Ok(deck)
+}
+
+/// Inputs for [`write_model_deck`] — a one-click summary of a built model.
+#[derive(Debug, Clone, Default)]
+pub struct ModelDeckInput {
+    pub ticker: String,
+    pub company: String,
+    pub currency: String,
+    pub periods: Vec<String>,
+    pub revenue: Vec<f64>,
+    pub ebitda: Vec<f64>,
+    pub hist_n: usize,
+    pub implied_price: f64,
+    pub current_price: f64,
+    pub upside_pct: f64,
+    pub wacc: f64,
+    pub ev: f64,
+    pub tv_method: String,
+    pub comps_headers: Vec<String>,
+    pub comps_rows: Vec<Vec<String>>,
+}
+
+/// Parse the leading numeric value out of a formatted cell (e.g. "23.4%",
+/// "$1,234M" → 23.4 / 1234.0). Returns `None` when no number is present.
+fn parse_leading_number(s: &str) -> Option<f64> {
+    let cleaned: String = s
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    cleaned.parse::<f64>().ok()
+}
+
+/// One-click model summary deck: cover, valuation scorecard, revenue + EBITDA
+/// trajectory charts, and an optional trading-comps table.
+pub fn write_model_deck(inp: &ModelDeckInput, deck_date: &str) -> Result<PptxDeckWriter, String> {
+    let company = if inp.company.is_empty() { inp.ticker.as_str() } else { inp.company.as_str() };
+    let currency = if inp.currency.is_empty() { "USD" } else { inp.currency.as_str() };
+    let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
+    deck.add_cover(
+        &format!("{} — Financial model summary", inp.ticker),
+        &format!("{company} | {deck_date}"),
+    );
+
+    let tiles = vec![
+        ScorecardTile { metric: "Implied price".into(), value: fmt_v(Some(inp.implied_price), currency), ..Default::default() },
+        ScorecardTile { metric: "Current price".into(), value: fmt_v(Some(inp.current_price), currency), ..Default::default() },
+        ScorecardTile { metric: "Upside / downside".into(), value: format!("{:+.1}%", inp.upside_pct), ..Default::default() },
+        ScorecardTile { metric: "WACC".into(), value: format!("{:.1}%", inp.wacc * 100.0), ..Default::default() },
+        ScorecardTile { metric: "Enterprise value".into(), value: fmt_v(Some(inp.ev), currency), ..Default::default() },
+        ScorecardTile { metric: "TV method".into(), value: inp.tv_method.clone(), ..Default::default() },
+    ];
+    deck.add_scorecard(&format!("{company} valuation snapshot at a glance"), &tiles, "finmodel — SEC EDGAR, Yahoo Finance", "")?;
+
+    // Highlight the forecast boundary (first projected period) on both charts.
+    let boundary = inp.periods.get(inp.hist_n).cloned().unwrap_or_default();
+    if !inp.periods.is_empty() && inp.periods.len() == inp.revenue.len() && inp.periods.len() <= 12 {
+        deck.add_bar_chart(
+            &format!("{company} revenue trajectory across the forecast"),
+            &inp.periods,
+            &inp.revenue,
+            "{:,.0f}",
+            &boundary,
+            currency,
+            "finmodel projection",
+            "",
+        )?;
+    }
+    if !inp.periods.is_empty() && inp.periods.len() == inp.ebitda.len() && inp.periods.len() <= 12 {
+        deck.add_bar_chart(
+            &format!("{company} EBITDA trajectory across the forecast"),
+            &inp.periods,
+            &inp.ebitda,
+            "{:,.0f}",
+            &boundary,
+            currency,
+            "finmodel projection",
+            "",
+        )?;
+    }
+
+    if !inp.comps_rows.is_empty() && !inp.comps_headers.is_empty() {
+        deck.add_table(
+            &format!("{company} trading comparables versus its peer set"),
+            &inp.comps_headers,
+            &inp.comps_rows,
+            "finmodel — SEC EDGAR, Yahoo Finance",
+        )?;
+    }
+    Ok(deck)
+}
+
+/// One-click benchmark deck: cover + peer table + (when present) an EBITDA-margin
+/// dispersion bar chart across peers.
+pub fn write_benchmark_deck(
+    title: &str,
+    headers: &[String],
+    rows: &[Vec<String>],
+    deck_date: &str,
+) -> Result<PptxDeckWriter, String> {
+    let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
+    deck.add_cover(title, "Peer benchmarking");
+    if !headers.is_empty() && !rows.is_empty() {
+        deck.add_table(&format!("{title}: side-by-side peer comparison"), headers, rows, "finmodel — SEC EDGAR, Yahoo Finance")?;
+    }
+    // Optional EBITDA-margin dispersion chart (col 0 assumed to be the label).
+    if let Some(col) = headers.iter().position(|h| h.to_lowercase().contains("ebitda margin")) {
+        let labels: Vec<String> = rows.iter().map(|r| r.first().cloned().unwrap_or_default()).collect();
+        let values: Vec<f64> = rows.iter().map(|r| r.get(col).and_then(|s| parse_leading_number(s)).unwrap_or(0.0)).collect();
+        if !labels.is_empty() && labels.len() == values.len() && labels.len() <= 12 {
+            // Best-effort: a malformed chart must not sink the whole deck.
+            let _ = deck.add_bar_chart(
+                &format!("{title}: EBITDA margin dispersion across peers"),
+                &labels,
+                &values,
+                "{:,.1f}",
+                "",
+                "EBITDA margin (%)",
+                "finmodel — SEC EDGAR filings",
+                "",
+            );
+        }
     }
     Ok(deck)
 }

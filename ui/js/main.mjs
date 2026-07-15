@@ -31,6 +31,29 @@ function boot() {
   });
   initSettings({ onSaved: () => loadModelPill() });
   initUpdate();
+
+  // Global shortcuts: Ctrl/Cmd+N new chat, Ctrl/Cmd+K filter, Esc stops a reply.
+  document.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === "n" || e.key === "N")) {
+      e.preventDefault();
+      newChat();
+      return;
+    }
+    if (mod && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      const f = document.getElementById("convFilter");
+      if (f && !f.hidden) f.focus();
+      return;
+    }
+    if (e.key === "Escape") {
+      const stop = document.getElementById("chatStop");
+      if (stop && !stop.hidden) {
+        e.stopPropagation();
+        call("chat_cancel", { conversation_id: getCurrentId() }).catch(() => {});
+      }
+    }
+  });
   refreshSidebar();
   loadModelPill();
   newChat();

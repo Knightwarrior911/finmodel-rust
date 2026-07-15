@@ -25,6 +25,7 @@ pub use fm_extract::PeriodBasis;
 pub mod scoring;
 pub mod web;
 pub mod agent;
+pub mod comps;
 
 /// One dollar-figure → millions.
 const MILLIONS: f64 = 1_000_000.0;

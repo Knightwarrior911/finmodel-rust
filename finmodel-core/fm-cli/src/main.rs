@@ -67,6 +67,15 @@ enum Command {
         /// empty comma slots keep the derived value: `--set tax_rate_pct=,,0.20`).
         #[arg(long = "set")]
         set: Vec<String>,
+        /// Peer tickers for a trading-comps tab, e.g. `--peers "MSFT,GOOGL"`.
+        #[arg(long)]
+        peers: Option<String>,
+        /// Scenario case: base | upside | downside.
+        #[arg(long, default_value = "base")]
+        case: String,
+        /// Also write a `<STEM>_deck.pptx` summary alongside the workbook.
+        #[arg(long)]
+        deck: bool,
     },
     /// Verify all committed snapshots reproduce to zero diffs
     Verify {},
@@ -312,7 +321,89 @@ fn parse_overrides(set: &[String]) -> Vec<fm_build::AssumptionOverride> {
         .collect()
 }
 
-fn cmd_build(ticker: &str, opts: &fm_build::BuildOptions) -> Result<(), Box<dyn std::error::Error>> {
+/// A per-period series for `key` from a statement (missing → 0.0).
+fn stmt_series(sd: &fm_types::StatementData, key: &str) -> Vec<f64> {
+    sd.get(key)
+        .map(|v| v.iter().map(|x| x.unwrap_or(0.0)).collect())
+        .unwrap_or_default()
+}
+
+/// EBITDA series: prefer the `ebitda` line, else `ebit + da`.
+fn ebitda_series(sd: &fm_types::StatementData, n: usize) -> Vec<f64> {
+    let direct = stmt_series(sd, "ebitda");
+    if direct.iter().any(|v| *v != 0.0) {
+        return direct;
+    }
+    let ebit = stmt_series(sd, "ebit");
+    let da = stmt_series(sd, "da");
+    (0..n)
+        .map(|i| ebit.get(i).copied().unwrap_or(0.0) + da.get(i).copied().unwrap_or(0.0))
+        .collect()
+}
+
+/// Trading-comps table (headers + rows) for the deck, from assembled comps.
+fn comps_deck_table(pc: &fm_value::PublicCompsOutput) -> (Vec<String>, Vec<Vec<String>>) {
+    let headers = vec![
+        "Ticker".to_string(),
+        "EV/Rev".to_string(),
+        "EV/EBITDA".to_string(),
+        "P/E".to_string(),
+    ];
+    let mult = |m: Option<f64>| m.map(|v| format!("{v:.1}x")).unwrap_or_else(|| "—".into());
+    let rows: Vec<Vec<String>> = pc
+        .peers
+        .iter()
+        .take(14)
+        .map(|p| vec![p.ticker.clone(), mult(p.ev_rev_ltm), mult(p.ev_ebitda_ltm), mult(p.pe_ltm)])
+        .collect();
+    (headers, rows)
+}
+
+/// Assemble a [`fm_pptx::writer::deck::ModelDeckInput`] from a completed build.
+fn model_deck_input(
+    ticker: &str,
+    currency: &str,
+    extraction: &fm_extract::ExtractionResult,
+    opts: &fm_build::BuildOptions,
+    out: &fm_build::BuildOutput,
+) -> fm_pptx::writer::deck::ModelDeckInput {
+    let hist_n = extraction.years_found.len();
+    let mut periods = extraction.years_found.clone();
+    periods.extend(out.projected.periods.iter().cloned());
+    let mut revenue = stmt_series(&extraction.income_statement, "revenue");
+    revenue.extend(stmt_series(&out.projected.income_statement, "revenue"));
+    let proj_n = out.projected.periods.len();
+    let mut ebitda = ebitda_series(&extraction.income_statement, hist_n);
+    ebitda.extend(ebitda_series(&out.projected.income_statement, proj_n));
+    let dcf = out.dcf.as_ref();
+    let (comps_headers, comps_rows) = match &opts.public_comps {
+        Some(pc) if !pc.peers.is_empty() => comps_deck_table(pc),
+        _ => (Vec::new(), Vec::new()),
+    };
+    let tv_method = dcf
+        .map(|d| if d.tv_method == 1 { "EBITDA exit multiple" } else { "Gordon growth" })
+        .unwrap_or("—")
+        .to_string();
+    fm_pptx::writer::deck::ModelDeckInput {
+        ticker: ticker.to_string(),
+        company: ticker.to_string(),
+        currency: currency.to_string(),
+        periods,
+        revenue,
+        ebitda,
+        hist_n,
+        implied_price: dcf.map(|d| d.implied_price).unwrap_or(0.0),
+        current_price: dcf.map(|d| d.current_share_price).unwrap_or(0.0),
+        upside_pct: dcf.map(|d| d.upside_downside_pct).unwrap_or(0.0),
+        wacc: out.wacc_out.as_ref().map(|w| w.wacc).unwrap_or(0.0),
+        ev: dcf.map(|d| d.enterprise_value).unwrap_or(0.0),
+        tv_method,
+        comps_headers,
+        comps_rows,
+    }
+}
+
+fn cmd_build(ticker: &str, opts: &fm_build::BuildOptions, deck: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Build pipeline for {ticker}");
 
     // Step 1: Obtain extraction — live-first when key, else committed fixture.
@@ -360,6 +451,58 @@ fn cmd_build(ticker: &str, opts: &fm_build::BuildOptions) -> Result<(), Box<dyn 
             Err(_) => eprintln!("warning: live quote unavailable — pass --share-price for DCF upside"),
         }
     }
+    // Live WACC inputs (real risk-free + regression beta) for live extractions,
+    // only when the caller left the defaults. Never fatal.
+    if live {
+        if opts.risk_free_rate == 0.045 {
+            match fm_fetch::market::fetch_risk_free_rate() {
+                Ok(rf) => {
+                    opts.risk_free_rate = rf;
+                    eprintln!("warning: Risk-free rate {:.2}% from ^TNX (live)", rf * 100.0);
+                }
+                Err(_) => eprintln!(
+                    "warning: Risk-free rate defaulted to 4.5% (live 10Y fetch failed)"
+                ),
+            }
+        }
+        if opts.beta == 1.0 {
+            match fm_fetch::market::fetch_beta(ticker) {
+                Ok(beta) => {
+                    opts.beta = beta;
+                    eprintln!("warning: Beta {beta:.2} from 2y weekly regression vs S&P 500");
+                }
+                Err(_) => eprintln!("warning: Beta defaulted to 1.0 (history fetch failed)"),
+            }
+        }
+    }
+
+    // Trading-comps peer assembly (network stays out of fm-build). Peer failures
+    // land in `excluded`, never fatal. Peers require EDGAR.
+    if !opts.peers.is_empty() {
+        let mut peers: Vec<fm_value::PublicCompPeer> = Vec::new();
+        let mut excluded: Vec<(String, String)> = Vec::new();
+        for t in &opts.peers {
+            println!("  fetching peer {t}...");
+            match fm_extract::fetch_xbrl(t) {
+                Ok(ex) => {
+                    let m = fm_research::metrics_from_extraction(t, &ex);
+                    let quote = fm_fetch::fetch_quote(t).ok();
+                    peers.push(fm_research::comps::peer_from_metrics(&m, quote.as_ref()));
+                }
+                Err(e) => {
+                    eprintln!("warning: peer {t} excluded ({e})");
+                    excluded.push((t.clone(), e.to_string()));
+                }
+            }
+        }
+        let target_metrics = fm_research::metrics_from_extraction(ticker, &extraction);
+        opts.public_comps = Some(fm_research::comps::build_public_comps(
+            &target_metrics,
+            &peers,
+            excluded,
+            &fm_extract::today_iso(),
+        ));
+    }
     // reconcile + project + assemble sheets (SHARED fm-build core).
     println!("  reconcile -> project...");
     let out = fm_build::build_with(&extraction, ticker, &opts);
@@ -376,6 +519,18 @@ fn cmd_build(ticker: &str, opts: &fm_build::BuildOptions) -> Result<(), Box<dyn 
         .unwrap_or_else(|| format!("{stem}_model.xlsx"));
     fm_excel::render::render(&out.workbook, &xlsx_path)?;
     println!("  \u{2713} wrote Excel model -> {xlsx_path}");
+
+    // Optional one-click PPTX summary deck beside the workbook.
+    if deck {
+        let deck_out = format!("{stem}_deck.pptx");
+        let input = model_deck_input(ticker, &extraction.currency, &extraction, &opts, &out);
+        match fm_pptx::writer::deck::write_model_deck(&input, &fm_extract::today_iso())
+            .and_then(|d| d.save(&deck_out))
+        {
+            Ok(p) => println!("  \u{2713} wrote deck -> {p}"),
+            Err(e) => eprintln!("warning: deck not written ({e})"),
+        }
+    }
 
     // Step 4: Save the projection JSON for inspection.
     let model_path = format!("{stem}_projection.json");
@@ -717,8 +872,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Build {
             ticker, years, sector, risk_free, erp, target_de, cost_of_debt, beta,
             tax_rate, terminal_growth, exit_multiple, tv_method, share_price, fye, out, set,
+            peers, case, deck,
         } => {
             let d = fm_build::BuildOptions::default();
+            let active_case = match case.to_lowercase().as_str() {
+                "upside" => 2,
+                "downside" => 3,
+                _ => 1,
+            };
+            let peer_list: Vec<String> = peers
+                .as_deref()
+                .unwrap_or("")
+                .split(',')
+                .map(|s| s.trim().to_uppercase())
+                .filter(|s| !s.is_empty())
+                .collect();
             let opts = fm_build::BuildOptions {
                 proj_years: years,
                 sector,
@@ -735,8 +903,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fiscal_year_end: fye,
                 assumption_overrides: parse_overrides(&set),
                 out_path: out,
+                peers: peer_list,
+                public_comps: None,
+                active_case,
+                deck,
             };
-            cmd_build(&ticker, &opts)
+            cmd_build(&ticker, &opts, deck)
         }
         Command::Verify {} => cmd_verify(),
         Command::Ifrs {

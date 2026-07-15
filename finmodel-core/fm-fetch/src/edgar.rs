@@ -397,12 +397,107 @@ pub fn recent_filings(
 }
 
 // ---------------------------------------------------------------------------
+// Filing body (full 10-K/10-Q text)
+// ---------------------------------------------------------------------------
+
+/// Maximum filing body we will download / parse (25 MB) — a guard against a
+/// pathological document exhausting memory.
+const MAX_FILING_BYTES: u64 = 25 * 1024 * 1024;
+
+/// GET a filing document by its EDGAR Archives URL and return it as plain text
+/// (HTML stripped via [`crate::websearch::strip_html`]). Uses the required
+/// EDGAR User-Agent and caps the response body at 25 MB.
+pub fn fetch_filing_doc(url: &str) -> Result<String, EdgarError> {
+    let resp = edgar_get(url)?;
+    if let Some(len) = resp.content_length() {
+        if len > MAX_FILING_BYTES {
+            return Err(EdgarError::Request(format!("filing too large ({len} bytes) for {url}")));
+        }
+    }
+    let body = resp.text()?;
+    if body.len() as u64 > MAX_FILING_BYTES {
+        return Err(EdgarError::Request(format!("filing too large for {url}")));
+    }
+    Ok(crate::websearch::strip_html(&body))
+}
+
+/// Split filing text into `(item_id, body)` sections, anchored on line-leading
+/// `Item N` / `Item NA` headings. When an item id appears more than once (e.g.
+/// a table-of-contents entry and the real body), the occurrence with the longer
+/// body wins. Output is ordered by first appearance (numeric item order).
+pub fn split_filing_items(text: &str) -> Vec<(String, String)> {
+    let re = regex::Regex::new(r"(?im)^\s*item\s+(\d{1,2}[A-C]?)\b[\s.:—-]").unwrap();
+    // (id, body_start) for each anchor.
+    let mut anchors: Vec<(String, usize, usize)> = Vec::new();
+    for m in re.captures_iter(text) {
+        let whole = m.get(0).unwrap();
+        let id = m.get(1).unwrap().as_str().to_uppercase();
+        anchors.push((id, whole.start(), whole.end()));
+    }
+    let mut best: HashMap<String, String> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for (i, (id, _start, body_start)) in anchors.iter().enumerate() {
+        let end = anchors.get(i + 1).map(|n| n.1).unwrap_or(text.len());
+        let body = text[*body_start..end].trim().to_string();
+        match best.get(id) {
+            Some(existing) if existing.len() >= body.len() => {}
+            _ => {
+                if !best.contains_key(id) {
+                    order.push(id.clone());
+                }
+                best.insert(id.clone(), body);
+            }
+        }
+    }
+    order
+        .into_iter()
+        .map(|id| {
+            let body = best.remove(&id).unwrap_or_default();
+            (id, body)
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Fixture: a table-of-contents block followed by the real item bodies.
+    const FILING_FIXTURE: &str = "\
+UNITED STATES SECURITIES AND EXCHANGE COMMISSION\n\
+TABLE OF CONTENTS\n\
+Item 1. Business\n\
+Item 1A. Risk Factors\n\
+Item 7. Management's Discussion\n\
+\n\
+PART I\n\
+Item 1. Business\n\
+We design and sell consumer electronics worldwide, including phones and computers.\n\
+Item 1A. Risk Factors\n\
+The company faces intense competition and supply-chain risks that could harm results.\n\
+Item 7. Management's Discussion and Analysis\n\
+Revenue grew during the fiscal year, driven by strong product demand across all regions.\n";
+
+    #[test]
+    fn split_filing_items_dedups_toc_and_keeps_bodies() {
+        let items = split_filing_items(FILING_FIXTURE);
+        let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["1", "1A", "7"], "unique items in order");
+        let risk = &items.iter().find(|(id, _)| id == "1A").unwrap().1;
+        assert!(risk.contains("intense competition"), "kept real body, got: {risk}");
+        assert!(!risk.contains("Management"), "1A body must not bleed into item 7");
+        let mda = &items.iter().find(|(id, _)| id == "7").unwrap().1;
+        assert!(mda.contains("Revenue grew"), "item 7 body missing");
+    }
+
+    #[test]
+    fn split_filing_items_empty_on_no_items() {
+        assert!(split_filing_items("just some prose with no headings").is_empty());
+    }
 
     #[test]
     #[ignore]

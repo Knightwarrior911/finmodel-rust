@@ -30,6 +30,7 @@
         New chat
       </button>
 
+      <input id="convFilter" class="conv-filter" type="search" placeholder="Filter conversations" aria-label="Filter conversations" hidden />
       <div id="convList" class="conv-list"></div>
 
       <div class="sidebar-foot">
@@ -57,10 +58,10 @@
         <section id="chatEmpty" class="chat-empty">
           <h1 class="greeting">What are we analyzing today?</h1>
           <div class="example-chips">
-            <button type="button" class="example-chip">Build a 3-statement model for AAPL</button>
-            <button type="button" class="example-chip">Benchmark AAPL, MSFT, GOOGL</button>
-            <button type="button" class="example-chip">Search the web for Nestlé margin trends</button>
-            <button type="button" class="example-chip">Research the Figma / Adobe deal</button>
+            <button type="button" class="example-chip">Build NVDA with peers AMD, INTC, AVGO</button>
+            <button type="button" class="example-chip">Read the risk factors in TSLA's latest 10-K</button>
+            <button type="button" class="example-chip">Benchmark AAPL, MSFT, GOOGL — deck included</button>
+            <button type="button" class="example-chip">Build the downside case for AMZN</button>
           </div>
         </section>
       </div>
@@ -159,6 +160,7 @@
           </span>
           <span id="mcpStatus" class="field-hint"></span>
         </label>
+        <p class="field-hint shortcut-legend">Shortcuts: Ctrl/⌘+N new chat · Ctrl/⌘+K filter conversations · Esc stops a streaming reply</p>
       </div>
       <div class="modal-foot">
         <span id="appVersion" class="app-version num"></span>
