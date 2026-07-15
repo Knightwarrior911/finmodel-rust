@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased
+## v0.2.1 — 2026-07-15
 
 ### Fixed / Improved — web search (post-0.2.0)
 - **Results are now interactive.** Previously only the result's title *text* was
