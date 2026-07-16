@@ -290,13 +290,13 @@ def oracle_pure() -> None:
 def _pin_date():
     """Pin date.today() -> 2026-01-01 so cover date text is deterministic."""
     import datetime as _dt
-    import src.research.pptx_writer as W
+    from src.research import pptx_writer
 
     class _FixedDate(_dt.date):
         @classmethod
         def today(cls):
             return _dt.date(2026, 1, 1)
-    W.date = _FixedDate
+    pptx_writer.date = _FixedDate
 
 
 def _ev_input():

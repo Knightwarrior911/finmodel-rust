@@ -112,7 +112,7 @@ def build(safe: str, meta: dict, sector: str = "standard") -> None:
     has_sga = any(v and v != 0 for v in (_is.get("sga") or []))
     is_structure = build_is_structure(cfg.sector, has_cogs=has_cogs, has_rd=has_rd, has_sga=has_sga)
 
-    suffix = "_full" if sector == "standard" else f"_{sector}_full";
+    suffix = "_full" if sector == "standard" else f"_{sector}_full"
     xlsx = XLSX_DIR / f"{safe}{suffix}.xlsx"
     ExcelWriter(mo, report, meta["name"], str(xlsx), sources={}, currency=meta["ccy"],
                 dcf=None, comps=None, assumptions=assumptions, ticker=meta["ticker"],

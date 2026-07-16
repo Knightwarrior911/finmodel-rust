@@ -1,7 +1,7 @@
 # Finmodel — Financial Model Engine
 
 ## HANDOVER — v0.5.0 research-first copilot, COMMITTED (current)
-**Branch `master`, commit `f1f45e8`.** The research-first roadmap (Phases 0–7) is
+**Branch `master`, release candidate.** The research-first roadmap (Phases 0–7) is
 committed on `master` — tagged `v0.5.0` once the signed build is published.
 `v0.4.0` remains the live release until the signed 0.5.0 installer ships.
 `cargo test` on `finmodel-core` (workspace) and the `src-tauri` app lib (72),

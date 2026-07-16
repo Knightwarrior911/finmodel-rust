@@ -30,6 +30,8 @@ screenshots/
 snapshots/
 *.docx
 *.pptx
+# The PPTX fixture deck IS tracked (needed by fm-pptx edit oracle tests).
+!tests/fixtures/pptx/deck.pptx
 
 # local build artifact (Tauri exe copy)
 finmodel-app/
