@@ -1,9 +1,9 @@
 # Changelog
 
 
-## Unreleased — research-first release line
+## v0.5.0 — 2026-07-17 (research-first copilot)
 
-The next release turns finmodel from a model-builder into a **research-first
+This release turns finmodel from a model-builder into a **research-first
 copilot**: a factual/current question returns a source-grounded, cited answer
 that stays reliable even when the selected model has weak or no native
 tool-calling. The same line closes verified data-integrity, latency,
