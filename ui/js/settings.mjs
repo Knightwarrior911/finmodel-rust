@@ -1,9 +1,10 @@
 // settings.mjs — settings modal: API key, model, EDGAR contact, output dir,
 // Roam MCP command, and theme selection.
 
-import { $, call, TAURI, escapeHtml, setTheme, themeChoice } from "./core.mjs";
+import { $, call, TAURI, escapeHtml, setTheme, themeChoice, activateDialog } from "./core.mjs";
 
 let onSaved = () => {};
+let deactivateDialog = null;
 
 function setStatus(msg, kind = "info") {
   const el = $("settingsStatus");
@@ -30,17 +31,39 @@ export async function openSettings() {
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
     if ($("appVersion") && s.version) $("appVersion").textContent = `v${s.version}`;
+    renderCaps(s.model_capability);
   } catch (_) {
     /* offline / first launch */
   }
   $("themeSelect").value = themeChoice();
   $("settingsModal").hidden = false;
-  $("apiKey").focus();
+  const card = $("settingsModal").querySelector(".modal-card");
+  deactivateDialog = activateDialog(card, {
+    initialFocus: "#apiKey",
+    onEscape: closeSettings,
+  });
+}
+
+function renderCaps(cap) {
+  const el = $("modelCaps");
+  if (!el) return;
+  if (!cap || !cap.model_id) {
+    el.textContent = "Capabilities untested — app routing + plain JSON until you run Test model.";
+    return;
+  }
+  const tools = cap.native_tools ? "tools ✓" : "tools ✗";
+  const json = cap.strict_json ? "strict JSON ✓" : "strict JSON ✗";
+  const when = cap.tested_at ? ` · tested ${cap.tested_at}` : "";
+  el.textContent = `${cap.model_id}: ${tools}, ${json}${when}`;
 }
 
 function closeSettings() {
   clearStatus();
   $("settingsModal").hidden = true;
+  if (deactivateDialog) {
+    deactivateDialog();
+    deactivateDialog = null;
+  }
 }
 
 export function initSettings(opts = {}) {
@@ -133,13 +156,50 @@ export function initSettings(opts = {}) {
       const models = await call("list_models");
       const sel = $("modelSelect");
       sel.innerHTML = models
-        .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`)
+        .map((m) => {
+          const badges = [
+            m.native_tools ? "tools" : null,
+            m.strict_json ? "json" : null,
+          ]
+            .filter(Boolean)
+            .join(",");
+          const label = badges ? `${m.id} [${badges}]` : m.id;
+          return `<option value="${escapeHtml(m.id)}">${escapeHtml(label)}</option>`;
+        })
         .join("");
     } catch (e) {
       setStatus(`Model list failed: ${e.message || e}`, "error");
     } finally {
       btn.disabled = false;
       btn.textContent = "Refresh";
+    }
+  });
+
+  $("testModel").addEventListener("click", async () => {
+    const btn = $("testModel");
+    btn.disabled = true;
+    btn.textContent = "Testing…";
+    try {
+      // Persist any typed key/model first so the probe uses current values.
+      await call("save_settings", {
+        api_key: $("apiKey").value,
+        model: $("modelSelect").value || "",
+      });
+      $("apiKey").value = "";
+      const cap = await call("test_model", {
+        model_id: $("modelSelect").value || null,
+      });
+      renderCaps(cap);
+      setStatus(
+        `Tested ${cap.model_id}: tools=${cap.native_tools}, strict JSON=${cap.strict_json}`,
+        "ok",
+      );
+    } catch (e) {
+      renderCaps(null);
+      setStatus(`Test model failed: ${e.message || e}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Test model";
     }
   });
 }

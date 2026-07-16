@@ -46,6 +46,21 @@ pub fn today_iso() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Parse a strict `YYYY-MM-DD` civil date into `(year, month, day)`. Returns
+/// `None` for a missing component, non-numeric text, or an out-of-range month or
+/// day — so a caller can reject a malformed reporting period instead of matching
+/// on a fragile year substring (and never panics on a too-short string).
+pub fn parse_iso_date(s: &str) -> Option<(i32, u32, u32)> {
+    let mut it = s.trim().splitn(3, '-');
+    let y: i32 = it.next()?.trim().parse().ok()?;
+    let m: u32 = it.next()?.trim().parse().ok()?;
+    let d: u32 = it.next()?.trim().parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some((y, m, d))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +75,16 @@ mod tests {
         assert_eq!(year_from_unix_secs(1_798_761_599), 2026);
         // 1970-01-01 boundary
         assert_eq!(year_from_unix_secs(0), 1970);
+    }
+
+    #[test]
+    fn parse_iso_date_accepts_valid_and_rejects_malformed() {
+        assert_eq!(parse_iso_date("2024-12-31"), Some((2024, 12, 31)));
+        assert_eq!(parse_iso_date(" 2023-01-01 "), Some((2023, 1, 1)));
+        assert_eq!(parse_iso_date("2025-13-45"), None); // month/day out of range
+        assert_eq!(parse_iso_date("2025-00-10"), None); // month 0
+        assert_eq!(parse_iso_date("2025-12"), None); // missing day
+        assert_eq!(parse_iso_date("not-a-date"), None);
+        assert_eq!(parse_iso_date("20"), None); // too short (no panic)
     }
 }

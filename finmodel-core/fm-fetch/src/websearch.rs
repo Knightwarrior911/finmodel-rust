@@ -3,12 +3,15 @@
 //! discovery) → structured hits; a page fetch + minimal tag-strip good enough
 //! for non-protected pages (protected pages need the Roam MCP path).
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
+use crate::cache::{SEARCH_CACHE, search_key};
 use crate::market::FetchError;
+use crate::retry::{RetryClass, classify_status as retry_class, with_retries};
 
 /// A ranked web search result.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -18,8 +21,11 @@ pub struct WebHit {
     pub snippet: String,
 }
 
-fn client() -> Result<reqwest::blocking::Client, FetchError> {
-    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, UPGRADE_INSECURE_REQUESTS};
+/// Shared blocking client (one TLS/cookie pool) for BasicHttp search + page fetch.
+static WEB_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    use reqwest::header::{
+        ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderValue, UPGRADE_INSECURE_REQUESTS,
+    };
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -38,21 +44,57 @@ fn client() -> Result<reqwest::blocking::Client, FetchError> {
         .cookie_store(true)
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| FetchError::Network(e.to_string()))
+        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+});
+
+fn client() -> &'static reqwest::blocking::Client {
+    &WEB_CLIENT
 }
 
 /// DuckDuckGo HTML search → up to `limit` structured hits.
 pub fn web_search(query: &str, limit: usize) -> Result<Vec<WebHit>, FetchError> {
-    let html = client()?
-        .post("https://html.duckduckgo.com/html/")
-        .form(&[("q", query), ("kl", "us-en")])
-        .send()
-        .map_err(|e| FetchError::Network(e.to_string()))?
-        .error_for_status()
-        .map_err(|e| FetchError::Network(e.to_string()))?
-        .text()
-        .map_err(|e| FetchError::Parse(e.to_string()))?;
+    let key = search_key("basic", query);
+    if let Some(cached) = SEARCH_CACHE.get(&key)
+        && let Ok(mut hits) = serde_json::from_str::<Vec<WebHit>>(&cached)
+    {
+        hits.truncate(limit);
+        return Ok(hits);
+    }
+    let html = with_retries(|| {
+        match client()
+            .post("https://html.duckduckgo.com/html/")
+            .form(&[("q", query), ("kl", "us-en")])
+            .send()
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                let code = status.as_u16();
+                match retry_class(code) {
+                    RetryClass::Success => resp
+                        .text()
+                        .map_err(|e| (false, None, FetchError::Parse(e.to_string()))),
+                    RetryClass::Retriable => {
+                        let ra = resp
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                        drop(resp);
+                        Err((true, ra, FetchError::Network(format!("HTTP {status}"))))
+                    }
+                    RetryClass::Terminal => {
+                        drop(resp);
+                        Err((false, None, FetchError::Network(format!("HTTP {status}"))))
+                    }
+                }
+            }
+            Err(e) => Err((true, None, FetchError::Network(e.to_string()))),
+        }
+    })?;
     let mut hits = parse_ddg_hits(&html);
+    if let Ok(blob) = serde_json::to_string(&hits) {
+        SEARCH_CACHE.insert(key, blob);
+    }
     hits.truncate(limit);
     Ok(hits)
 }
@@ -82,7 +124,11 @@ pub fn parse_ddg_hits(html: &str) -> Vec<WebHit> {
             .next()
             .map(|s| s.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
-        out.push(WebHit { title, url, snippet });
+        out.push(WebHit {
+            title,
+            url,
+            snippet,
+        });
     }
     out
 }
@@ -166,13 +212,13 @@ pub fn classify_status(code: u16) -> PageStatus {
 fn extract_title(html: &str) -> String {
     let doc = Html::parse_document(html);
     for sel in ["title", "h1"] {
-        if let Ok(s) = Selector::parse(sel) {
-            if let Some(el) = doc.select(&s).next() {
-                let t = el.text().collect::<String>();
-                let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !t.is_empty() {
-                    return t;
-                }
+        if let Ok(s) = Selector::parse(sel)
+            && let Some(el) = doc.select(&s).next()
+        {
+            let t = el.text().collect::<String>();
+            let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !t.is_empty() {
+                return t;
             }
         }
     }
@@ -185,10 +231,27 @@ fn extract_title(html: &str) -> String {
 /// Non-protected static/SSR pages return `Ok`. Protected/JS-only pages that
 /// slip through as `Blocked`/`Thin` need the Roam MCP `read_markdown` path.
 pub fn fetch_page(url: &str) -> Result<FetchedPage, FetchError> {
-    let resp = client()?
-        .get(url)
-        .send()
-        .map_err(|e| FetchError::Network(e.to_string()))?;
+    // Page caching deferred until the fetch path returns a validated canonical
+    // final URL (redirects must not cache public→private content under the
+    // request URL). Shared client still pools TLS connections.
+    //
+    // Bounded retry (Phase 3.4) covers ONLY the initial send: connection
+    // failure and 408 / 500 / 502 / 504. 403/429/503 remain the terminal
+    // "blocked" outcome (bot detection — retrying the same client won't help),
+    // and body decode / thin / parse stay terminal below.
+    let resp = with_retries(|| match client().get(url).send() {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            let is_blocked = classify_status(code) == PageStatus::Blocked;
+            let transient = !is_blocked && matches!(retry_class(code), RetryClass::Retriable);
+            if transient {
+                Err((true, None, FetchError::Network(format!("HTTP {code}"))))
+            } else {
+                Ok(resp)
+            }
+        }
+        Err(e) => Err((true, None, FetchError::Network(e.to_string()))),
+    })?;
     if classify_status(resp.status().as_u16()) == PageStatus::Blocked {
         return Ok(FetchedPage {
             title: String::new(),
@@ -208,7 +271,11 @@ pub fn fetch_page(url: &str) -> Result<FetchedPage, FetchError> {
     } else {
         PageStatus::Ok
     };
-    Ok(FetchedPage { title, text, status })
+    Ok(FetchedPage {
+        title,
+        text,
+        status,
+    })
 }
 
 /// Extract the main readable content as lightweight markdown (headings,
@@ -221,14 +288,18 @@ pub fn strip_html(html: &str) -> String {
     // Main-content root preference: <main>/<article>/[role=main], else <body>.
     let root = ["main", "article", "[role=main]", "body"]
         .iter()
-        .find_map(|s| Selector::parse(s).ok().and_then(|sel| doc.select(&sel).next()));
+        .find_map(|s| {
+            Selector::parse(s)
+                .ok()
+                .and_then(|sel| doc.select(&sel).next())
+        });
     let root = match root {
         Some(r) => r,
         None => return String::new(),
     };
     const SKIP_ANCESTORS: &[&str] = &[
-        "nav", "footer", "aside", "header", "script", "style", "noscript",
-        "form", "svg", "button", "figure", "template",
+        "nav", "footer", "aside", "header", "script", "style", "noscript", "form", "svg", "button",
+        "figure", "template",
     ];
     let block_sel = Selector::parse("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre").unwrap();
     let mut out: Vec<String> = Vec::new();
@@ -291,7 +362,11 @@ pub fn flat_body_text(doc: &Html) -> String {
     let skip: std::collections::HashSet<_> =
         doc.select(&skip_sel).flat_map(|el| el.text()).collect();
     let text: String = match doc.select(&body_sel).next() {
-        Some(b) => b.text().filter(|t| !skip.contains(t)).collect::<Vec<_>>().join(" "),
+        Some(b) => b
+            .text()
+            .filter(|t| !skip.contains(t))
+            .collect::<Vec<_>>()
+            .join(" "),
         None => String::new(),
     };
     let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -375,20 +450,31 @@ mod tests {
     #[test]
     fn extract_title_prefers_title_then_h1() {
         assert_eq!(
-            extract_title("<html><head><title> Hello World </title></head><body><h1>Nope</h1></body></html>"),
+            extract_title(
+                "<html><head><title> Hello World </title></head><body><h1>Nope</h1></body></html>"
+            ),
             "Hello World"
         );
         assert_eq!(
             extract_title("<html><body><h1>Fallback H1</h1><p>x</p></body></html>"),
             "Fallback H1"
         );
-        assert_eq!(extract_title("<html><body><p>no title</p></body></html>"), "");
+        assert_eq!(
+            extract_title("<html><body><p>no title</p></body></html>"),
+            ""
+        );
     }
 
     #[test]
     fn page_status_serializes_lowercase() {
         assert_eq!(serde_json::to_string(&PageStatus::Ok).unwrap(), "\"ok\"");
-        assert_eq!(serde_json::to_string(&PageStatus::Blocked).unwrap(), "\"blocked\"");
-        assert_eq!(serde_json::to_string(&PageStatus::Thin).unwrap(), "\"thin\"");
+        assert_eq!(
+            serde_json::to_string(&PageStatus::Blocked).unwrap(),
+            "\"blocked\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PageStatus::Thin).unwrap(),
+            "\"thin\""
+        );
     }
 }

@@ -15,6 +15,7 @@ import {
   flashBtn,
 } from "./core.mjs";
 import { openReader } from "./reader.mjs";
+import { openAnalyst } from "./analyst.mjs";
 
 function parentDir(p) {
   return String(p || "").replace(/[\\/][^\\/]+$/, "");
@@ -70,6 +71,7 @@ function renderModel(card) {
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.xlsx_path || "")}">Open in Excel</button>
       ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
       <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.xlsx_path || "")}">Show in folder</button>
+      <button type="button" class="btn-ghost" data-analyst="1">Analyst tools</button>
     </div>`;
   return cardShell("model", inner);
 }
@@ -89,7 +91,7 @@ const BENCH_FMT = {
 function renderBenchmark(card) {
   const headers = card.headers || [];
   const rows = card.rows || [];
-  const thead = `<tr>${headers.map((h) => `<th>${escapeHtml(h.label)}</th>`).join("")}</tr>`;
+  const thead = `<tr>${headers.map((h) => `<th scope="col">${escapeHtml(h.label)}</th>`).join("")}</tr>`;
   const tbody = rows
     .map((r) => {
       const cells = headers
@@ -248,7 +250,7 @@ function renderFilings(card) {
     .join("");
   const inner = `
     <div class="card-head"><span class="card-title num">${escapeHtml(card.ticker || "")}</span><span class="card-sub">filings</span></div>
-    <div class="card-table-wrap"><table class="card-table"><thead><tr><th>Form</th><th>Filed</th><th>Period end</th></tr></thead><tbody>${
+    <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Form</th><th scope="col">Filed</th><th scope="col">Period end</th></tr></thead><tbody>${
       rows || '<tr><td colspan="3" class="card-note">No filings.</td></tr>'
     }</tbody></table></div>`;
   return cardShell("filings", inner);
@@ -285,7 +287,7 @@ function renderAssumptions(card) {
   const drivers = card.drivers || {};
   const keys = Object.keys(labels);
   const cols = ["Driver", ...proj];
-  const thead = `<tr>${cols.map((c) => `<th${c === "Driver" ? "" : ' class="num"'}>${escapeHtml(c)}</th>`).join("")}</tr>`;
+  const thead = `<tr>${cols.map((c) => `<th scope="col"${c === "Driver" ? "" : ' class="num"'}>${escapeHtml(c)}</th>`).join("")}</tr>`;
   const body = keys
     .map((key) => {
       const vals = drivers[key] || [];
@@ -332,6 +334,109 @@ function collectOverrides(cardEl) {
   return overrides;
 }
 
+// ── research (cited answer + source digest) ─────────────────────────
+// All source-derived strings pass through escapeHtml (the established XSS
+// defense); clickable URLs come ONLY from the trusted ledger and must be
+// http(s). Untrusted model text never becomes a URL or raw HTML.
+function safeHttpUrl(u) {
+  const s = String(u || "");
+  return /^https?:\/\//i.test(s) ? s : "";
+}
+
+function citeRefs(citations, srcById) {
+  return (citations || [])
+    .map((c) => {
+      const src = srcById[c.source_id] || {};
+      const url = safeHttpUrl(src.final_url || src.requested_url || "");
+      const attrs = url ? ` data-url="${escapeHtml(url)}"` : "";
+      return `<button type="button" class="cite-ref"${attrs} title="${escapeHtml(
+        c.quote || ""
+      )}" aria-label="Source ${escapeHtml(c.source_id || "")}: ${escapeHtml(
+        c.quote || ""
+      )}">[${escapeHtml(c.source_id || "")}]</button>`;
+    })
+    .join("");
+}
+
+function citedPara(p, srcById) {
+  return `<p class="cited-para">${escapeHtml(p.text || "")} ${citeRefs(p.citations, srcById)}</p>`;
+}
+
+function renderResearchAnswer(card) {
+  const a = card.answer || {};
+  const srcById = {};
+  for (const s of a.sources || []) srcById[s.id] = s;
+  const sections = (a.sections || [])
+    .map(
+      (s) =>
+        `<section class="answer-section"><h4 class="answer-heading">${escapeHtml(
+          s.heading || ""
+        )}</h4>${(s.paragraphs || []).map((p) => citedPara(p, srcById)).join("")}</section>`
+    )
+    .join("");
+  const srcRows = (a.sources || [])
+    .map((s) => {
+      const url = safeHttpUrl(s.final_url || s.requested_url || "");
+      const openBtn = url
+        ? `<button type="button" class="btn-ghost src-open" data-url="${escapeHtml(url)}">Open ↗</button>`
+        : "";
+      return `<li class="src-row">
+        <span class="src-id num">${escapeHtml(s.id || "")}</span>
+        <span class="src-domain">${escapeHtml(s.domain || domainOf(url))}</span>
+        <span class="src-status src-status-${escapeHtml(String(s.status || ""))}">${escapeHtml(
+          String(s.status || "")
+        )} · ${escapeHtml(String(s.kind || ""))}</span>
+        ${openBtn}
+      </li>`;
+    })
+    .join("");
+  const lims = (a.limitations || []).map((l) => `<li>${escapeHtml(l)}</li>`).join("");
+  const inner = `
+    <div class="card-head">
+      <span class="card-title">Research</span>
+      <span class="card-sub">confidence: ${escapeHtml(String(a.confidence || ""))}</span>
+    </div>
+    <p class="answer-summary">${escapeHtml(a.summary?.text || "")} ${citeRefs(
+    a.summary?.citations,
+    srcById
+  )}</p>
+    ${sections}
+    ${lims ? `<div class="answer-limitations"><span class="card-note">Limitations</span><ul>${lims}</ul></div>` : ""}
+    <details class="source-tray">
+      <summary>Consulted sources (${(a.sources || []).length})</summary>
+      <ul class="src-list">${srcRows}</ul>
+    </details>`;
+  return cardShell("research_answer", inner);
+}
+
+function renderResearchDigest(card) {
+  const d = card.digest || {};
+  const rows = (d.items || [])
+    .map((it) => {
+      const url = safeHttpUrl(it.url || "");
+      const openBtn = url
+        ? `<button type="button" class="btn-ghost src-open" data-url="${escapeHtml(url)}">Open ↗</button>`
+        : "";
+      return `<li class="hit-row">
+        <div class="hit-main">
+          <span class="hit-title">${escapeHtml(it.title || domainOf(url))}</span>
+          <span class="src-status src-status-${escapeHtml(String(it.status || ""))}">${escapeHtml(
+        String(it.status || "")
+      )}</span>
+        </div>
+        ${it.snippet ? `<p class="hit-snippet">${escapeHtml(it.snippet)}</p>` : ""}
+        ${openBtn}
+      </li>`;
+    })
+    .join("");
+  const lims = (d.limitations || []).map((l) => `<li>${escapeHtml(l)}</li>`).join("");
+  const inner = `
+    <div class="card-head"><span class="card-title">Source digest — no synthesis</span></div>
+    <ul class="hit-list">${rows || '<li class="card-note">No sources.</li>'}</ul>
+    ${lims ? `<div class="answer-limitations"><ul>${lims}</ul></div>` : ""}`;
+  return cardShell("research_digest", inner);
+}
+
 // ── dispatch + interaction ──────────────────────────────────────────
 export function renderCard(card) {
   if (!card || typeof card !== "object") return document.createComment("empty card");
@@ -347,8 +452,13 @@ export function renderCard(card) {
     case "filings": el = renderFilings(card); break;
     case "filing_doc": el = renderFilingDoc(card); break;
     case "assumptions": el = renderAssumptions(card); break;
+    case "research_answer": el = renderResearchAnswer(card); break;
+    case "research_digest": el = renderResearchDigest(card); break;
     case "error":
       el = cardShell("error", `<p class="card-note err">${escapeHtml(card.message || "Tool failed.")}</p>`);
+      break;
+    case "tool_contract":
+      el = cardShell("error", `<p class="card-note err">${escapeHtml(card.message || "Invalid tool arguments.")}</p>`);
       break;
     default:
       el = cardShell("unknown", `<p class="card-note">${escapeHtml(card.type || "result")}</p>`);
@@ -377,6 +487,13 @@ function wireCard(el) {
     if (folder) {
       e.stopPropagation();
       openPath(parentDir(folder.dataset.showFolder));
+      return;
+    }
+    // Analyst tools (Phase 6.5): EV / IFRS / tie-out.
+    const analyst = e.target.closest("[data-analyst]");
+    if (analyst) {
+      e.stopPropagation();
+      openAnalyst();
       return;
     }
     // External link/button (checked before reader row so the Open button wins).

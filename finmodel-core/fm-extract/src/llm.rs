@@ -236,6 +236,25 @@ pub struct OpenRouterModel {
     /// Pricing info (per-token strings, USD).
     #[serde(default)]
     pub pricing: Option<OpenRouterPricing>,
+    /// Parameters the model/provider advertises support for (OpenRouter
+    /// `/models` `supported_parameters`), e.g. `tools`, `structured_outputs`.
+    #[serde(default)]
+    pub supported_parameters: Vec<String>,
+}
+
+impl OpenRouterModel {
+    /// Whether the model advertises support for `param`.
+    pub fn supports(&self, param: &str) -> bool {
+        self.supported_parameters.iter().any(|p| p == param)
+    }
+    /// Native OpenRouter tool-calling support (`tools` parameter).
+    pub fn native_tools(&self) -> bool {
+        self.supports("tools")
+    }
+    /// Strict structured-output support (`response_format` json_schema).
+    pub fn strict_json(&self) -> bool {
+        self.supports("structured_outputs") || self.supports("response_format")
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -454,5 +473,28 @@ mod tests {
         assert_eq!(parse_models_response(&body).len(), 0);
         let body2 = serde_json::json!({});
         assert_eq!(parse_models_response(&body2).len(), 0);
+    }
+
+    #[test]
+    fn model_capabilities_from_supported_parameters() {
+        let body = serde_json::json!({
+            "data": [
+                { "id": "a/native", "supported_parameters": ["tools", "tool_choice", "structured_outputs", "temperature"] },
+                { "id": "b/textonly", "supported_parameters": ["temperature", "max_tokens"] },
+                { "id": "c/unknown" }
+            ]
+        });
+        let models = parse_models_response(&body);
+        let native = models.iter().find(|m| m.id == "a/native").unwrap();
+        assert!(native.native_tools());
+        assert!(native.strict_json());
+        let text_only = models.iter().find(|m| m.id == "b/textonly").unwrap();
+        assert!(!text_only.native_tools());
+        assert!(!text_only.strict_json());
+        // A model with no advertised params defaults to no capabilities → the
+        // application-controlled typed-JSON path (never assume native support).
+        let unknown = models.iter().find(|m| m.id == "c/unknown").unwrap();
+        assert!(unknown.supported_parameters.is_empty());
+        assert!(!unknown.native_tools());
     }
 }

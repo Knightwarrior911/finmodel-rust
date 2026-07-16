@@ -1,6 +1,6 @@
 [package]
 name = "finmodel-app"
-version = "0.4.0"
+version = "0.5.0"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"
@@ -25,8 +25,13 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 thiserror = "2"
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "json", "stream"] }
 rand = "0.8"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["time", "rt", "macros", "sync"] }
+futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["rt"] }
+keyring = "3"
 
 # finmodel engine crates (the port). Path deps into the finmodel-core workspace.
 fm-types = { path = "../finmodel-core/fm-types" }
@@ -39,6 +44,8 @@ fm-research = { path = "../finmodel-core/fm-research" }
 fm-fetch = { path = "../finmodel-core/fm-fetch" }
 fm-mcp = { path = "../finmodel-core/fm-mcp" }
 fm-pptx = { path = "../finmodel-core/fm-pptx" }
+fm-ifrs = { path = "../finmodel-core/fm-ifrs" }
+fm-tieout = { path = "../finmodel-core/fm-tieout" }
 
 # Lean release build — smaller target + exe (disk-constrained machine).
 [profile.release]
@@ -49,3 +56,7 @@ lto = false
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+fm-research = { path = "../finmodel-core/fm-research" }

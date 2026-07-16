@@ -32,7 +32,11 @@ pub fn web_search(
         None => fm_fetch::websearch::web_search(query, 25)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|h| SearchHit { title: h.title, url: h.url, snippet: h.snippet })
+            .map(|h| SearchHit {
+                title: h.title,
+                url: h.url,
+                snippet: h.snippet,
+            })
             .collect(),
     };
     Ok(rank_hits(hits))
@@ -43,10 +47,20 @@ pub fn web_search(
 /// youtube, …) are deliberately KEPT here — unlike the filings-discovery
 /// ranker, general search must not drop them.
 const WEB_JUNK: &[&str] = &[
-    "gstatic.com", "googleapis.com", "accounts.google", "maps.google",
-    "translate.google", "google.com/search", "google.com/sorry",
-    "google.com/webhp", "google.com/preferences", "google.com/intl",
-    "bing.com/search", "bing.com/ck", "duckduckgo.com/l/", "duckduckgo.com/y.js",
+    "gstatic.com",
+    "googleapis.com",
+    "accounts.google",
+    "maps.google",
+    "translate.google",
+    "google.com/search",
+    "google.com/sorry",
+    "google.com/webhp",
+    "google.com/preferences",
+    "google.com/intl",
+    "bing.com/search",
+    "bing.com/ck",
+    "duckduckgo.com/l/",
+    "duckduckgo.com/y.js",
 ];
 
 /// Read a page as a full [`fm_fetch::FetchedPage`] (title + text + status).
@@ -97,7 +111,11 @@ fn rank_hits(hits: Vec<SearchHit>) -> Vec<SearchHit> {
     let is_junk = |u: &str| WEB_JUNK.iter().any(|d| u.contains(d));
     let is_priority = |u: &str| PRIORITY_DOMAINS.iter().any(|d| u.contains(d));
     let kept: Vec<SearchHit> = hits.into_iter().filter(|h| !is_junk(&h.url)).collect();
-    let mut out: Vec<SearchHit> = kept.iter().filter(|h| is_priority(&h.url)).cloned().collect();
+    let mut out: Vec<SearchHit> = kept
+        .iter()
+        .filter(|h| is_priority(&h.url))
+        .cloned()
+        .collect();
     out.extend(kept.into_iter().filter(|h| !is_priority(&h.url)));
     out
 }
@@ -121,13 +139,19 @@ pub fn parse_mcp_search(result: &serde_json::Value) -> Vec<SearchHit> {
             result
                 .get("content")
                 .and_then(|c| c.as_array())
-                .and_then(|items| items.iter().find_map(|it| it.get("data").and_then(|d| d.as_array()).cloned())
-                    .or_else(|| items.iter().find_map(|it| {
-                        it.get("text")
-                            .and_then(|t| t.as_str())
-                            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                            .and_then(|v| arr_from(&v).cloned())
-                    })))
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find_map(|it| it.get("data").and_then(|d| d.as_array()).cloned())
+                        .or_else(|| {
+                            items.iter().find_map(|it| {
+                                it.get("text")
+                                    .and_then(|t| t.as_str())
+                                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                                    .and_then(|v| arr_from(&v).cloned())
+                            })
+                        })
+                })
         })
         .unwrap_or_default();
     structured
@@ -149,7 +173,11 @@ pub fn parse_mcp_search(result: &serde_json::Value) -> Vec<SearchHit> {
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(SearchHit { title, url, snippet })
+            Some(SearchHit {
+                title,
+                url,
+                snippet,
+            })
         })
         .collect()
 }
@@ -182,10 +210,26 @@ mod tests {
     #[test]
     fn ranks_fallback_hits_priority_first() {
         let hits = vec![
-            SearchHit { title: "a".into(), url: "https://example.com/x".into(), snippet: String::new() },
-            SearchHit { title: "r".into(), url: "https://www.reuters.com/y".into(), snippet: String::new() },
-            SearchHit { title: "wiki".into(), url: "https://en.wikipedia.org/z".into(), snippet: String::new() },
-            SearchHit { title: "junk".into(), url: "https://duckduckgo.com/l/?uddg=x".into(), snippet: String::new() },
+            SearchHit {
+                title: "a".into(),
+                url: "https://example.com/x".into(),
+                snippet: String::new(),
+            },
+            SearchHit {
+                title: "r".into(),
+                url: "https://www.reuters.com/y".into(),
+                snippet: String::new(),
+            },
+            SearchHit {
+                title: "wiki".into(),
+                url: "https://en.wikipedia.org/z".into(),
+                snippet: String::new(),
+            },
+            SearchHit {
+                title: "junk".into(),
+                url: "https://duckduckgo.com/l/?uddg=x".into(),
+                snippet: String::new(),
+            },
         ];
         let ranked = rank_hits(hits);
         // SERP junk dropped; content domains (wikipedia) KEPT — unlike the

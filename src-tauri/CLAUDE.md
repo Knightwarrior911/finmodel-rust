@@ -13,6 +13,10 @@ step. Every `#[tauri::command]` returns a JSON **string**; errors are
   `build_progress` — copy this pattern for events. `SessionCache` (managed) backs
   prepare→finalize; both cores get it via `app.state::<SessionCache>()`.
 - `benchmark` — `benchmark_peers` cmd + `pub(crate) benchmark_blocking(app,tickers,BenchOpts)`.
+- `analysis` — post-build analyst actions (Phase 6.5), each returning a JSON
+  string: `ev_bridge` (`fm_value::ev_bridge`), `ifrs_bridge` (`fm_ifrs::auto_convert`),
+  `tie_out` (`fm_tieout::score_from_json`). UI-invoked only (Analyst-tools panel);
+  deliberately NOT in the chat tool list / intent router.
 - `news` — `get_news` → `fm_fetch::fetch_headlines`.
 - `search` — `web_search`, `read_page` (returns `{title,text,status}`), `test_mcp`;
   `pub(crate) mcp_from_settings(app) -> Option<McpClient>` (Roam MCP first, HTTP fallback).

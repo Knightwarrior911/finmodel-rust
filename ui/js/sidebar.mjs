@@ -22,6 +22,39 @@ function updateThemeIcon() {
   btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
 }
 
+/// Announce a sidebar failure with a keyboard-reachable Retry / Dismiss. Keeps
+/// the list intact (never silently discards selection). Phase 4.3.
+function announce(message, onRetry) {
+  const a = $("sidebarAlert");
+  if (!a) return;
+  a.innerHTML = "";
+  const note = document.createElement("span");
+  note.textContent = message;
+  a.appendChild(note);
+  if (onRetry) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "btn-ghost";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => {
+      a.hidden = true;
+      a.innerHTML = "";
+      onRetry();
+    });
+    a.appendChild(retry);
+  }
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "btn-ghost";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("click", () => {
+    a.hidden = true;
+    a.innerHTML = "";
+  });
+  a.appendChild(dismiss);
+  a.hidden = false;
+}
+
 export async function refresh() {
   try {
     allItems = await call("list_conversations");
@@ -47,48 +80,65 @@ function renderRows(items) {
     list.innerHTML = `<p class="conv-empty">${allItems.length ? "No matches." : "No conversations yet."}</p>`;
     return;
   }
+  // Non-interactive row container; a real <button> selects it (no nested
+  // interactive controls). aria-current marks the open conversation (Phase 4.4).
   list.innerHTML = items
-    .map(
-      (c) => `<div class="conv-row${c.id === active ? " active" : ""}" data-id="${escapeHtml(c.id)}" role="button" tabindex="0">
-        <div class="conv-main">
-          <span class="conv-title">${escapeHtml(c.title || "New conversation")}</span>
+    .map((c) => {
+      const isActive = c.id === active;
+      const title = escapeHtml(c.title || "New conversation");
+      return `<div class="conv-row${isActive ? " active" : ""}" data-id="${escapeHtml(c.id)}">
+        <button type="button" class="conv-open" data-id="${escapeHtml(c.id)}"${
+          isActive ? ' aria-current="true"' : ""
+        }>
+          <span class="conv-title">${title}</span>
           <span class="conv-time num">${escapeHtml(relTime(c.updated))}</span>
-        </div>
+        </button>
         <div class="conv-actions">
           <button type="button" class="icon-btn conv-rename" data-id="${escapeHtml(c.id)}" aria-label="Rename conversation">${PENCIL}</button>
           <button type="button" class="icon-btn conv-delete" data-id="${escapeHtml(c.id)}" aria-label="Delete conversation">${TRASH}</button>
         </div>
-      </div>`
-    )
+      </div>`;
+    })
     .join("");
 }
 
 export function setActive(id) {
   document.querySelectorAll("#convList .conv-row").forEach((row) => {
-    row.classList.toggle("active", row.dataset.id === id);
+    const on = row.dataset.id === id;
+    row.classList.toggle("active", on);
+    const open = row.querySelector(".conv-open");
+    if (open) {
+      if (on) open.setAttribute("aria-current", "true");
+      else open.removeAttribute("aria-current");
+    }
   });
 }
 
 function beginRename(row) {
   const id = row.dataset.id;
-  const titleEl = row.querySelector(".conv-title");
-  const old = titleEl.textContent;
+  const openBtn = row.querySelector(".conv-open");
+  const old = (openBtn.querySelector(".conv-title") || {}).textContent || "";
   const input = document.createElement("input");
   input.className = "conv-rename-input";
   input.value = old;
-  titleEl.replaceWith(input);
+  input.setAttribute("aria-label", "Rename conversation");
+  // Replace the whole select button (no input nested in a button).
+  openBtn.hidden = true;
+  openBtn.after(input);
   input.focus();
   input.select();
   const commit = async (save) => {
     const val = input.value.trim();
-    input.replaceWith(titleEl);
+    input.remove();
+    openBtn.hidden = false;
     if (save && val && val !== old) {
       try {
         await call("rename_conversation", { id, title: val });
-      } catch (_) {
-        /* ignore */
+        await refresh();
+      } catch (e) {
+        // Retain the old title; announce + offer retry (Phase 4.3).
+        announce((e && e.message) || "Rename failed.", () => beginRename(row));
       }
-      await refresh();
     }
   };
   input.addEventListener("keydown", (e) => {
@@ -100,6 +150,15 @@ function beginRename(row) {
 
 function applyCollapsed(collapsed) {
   document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const toggle = $("sidebarToggle");
+  const sidebar = $("sidebar");
+  if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  // Collapsed descendants are inert (not focusable/announced); the floating
+  // expand button lives outside #sidebar so it stays reachable.
+  if (sidebar) {
+    if (collapsed) sidebar.setAttribute("inert", "");
+    else sidebar.removeAttribute("inert");
+  }
 }
 
 export function initSidebar(opts = {}) {
@@ -148,12 +207,22 @@ export function initSidebar(opts = {}) {
     const yesBtn = e.target.closest(".conv-del-yes");
     if (yesBtn) {
       e.stopPropagation();
-      call("delete_conversation", { id: yesBtn.dataset.id })
+      const delId = yesBtn.dataset.id;
+      call("delete_conversation", { id: delId })
         .then(() => {
-          if (getCurrentId() === yesBtn.dataset.id) onNew();
+          if (getCurrentId() === delId) onNew();
           return refresh();
         })
-        .catch(() => {});
+        .catch((err) => {
+          announce((err && err.message) || "Delete failed.", () => {
+            call("delete_conversation", { id: delId })
+              .then(() => {
+                if (getCurrentId() === delId) onNew();
+                return refresh();
+              })
+              .catch(() => {});
+          });
+        });
       return;
     }
     const noBtn = e.target.closest(".conv-del-no");
@@ -165,12 +234,7 @@ export function initSidebar(opts = {}) {
     const row = e.target.closest(".conv-row");
     if (row) onSelect(row.dataset.id);
   });
-  $("convList").addEventListener("keydown", (e) => {
-    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("conv-row")) {
-      e.preventDefault();
-      onSelect(e.target.dataset.id);
-    }
-  });
+  // (Row selection is a native <button>; Enter/Space fire click automatically.)
   const convFilter = $("convFilter");
   if (convFilter) convFilter.addEventListener("input", applyFilter);
 }

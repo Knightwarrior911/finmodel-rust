@@ -211,6 +211,22 @@ body.sidebar-collapsed #sidebar { border-right: none; overflow: hidden; }
 }
 .conv-row:hover { background: var(--element); }
 .conv-row.active { background: var(--accent-soft); }
+.conv-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+.conv-open[aria-current="true"] .conv-title { font-weight: 600; }
 .conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .conv-title {
   font-size: 14px;
@@ -583,6 +599,34 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
 .assumptions-table input.edited { border-color: var(--accent); background: var(--accent-soft); }
 .assumptions-status { font-size: 13px; color: var(--muted); }
 
+/* Research answer / digest cards */
+.answer-summary { font-size: 14px; color: var(--ink); line-height: 1.55; margin: 4px 0 0; }
+.answer-section { margin-top: 12px; }
+.answer-heading { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0 0 4px; }
+.cited-para { font-size: 14px; color: var(--ink); line-height: 1.55; margin: 0 0 6px; }
+.cite-ref {
+  font-family: var(--font-num); font-size: 11px; font-weight: 600;
+  color: var(--accent-strong); background: var(--accent-soft); border: none;
+  border-radius: var(--radius-sm); padding: 1px 5px; margin-left: 2px; cursor: pointer;
+  vertical-align: super; line-height: 1;
+}
+.cite-ref:hover { background: var(--accent-weak); }
+.answer-limitations { margin-top: 12px; }
+.answer-limitations ul { margin: 4px 0 0; padding-left: 18px; }
+.answer-limitations li { font-size: 13px; color: var(--muted); }
+.source-tray { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 8px; }
+.source-tray > summary { font-size: 13px; color: var(--muted); cursor: pointer; }
+.src-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.src-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: var(--radius-sm); }
+.src-row:hover { background: var(--element); }
+.src-id { font-family: var(--font-num); font-size: 12px; font-weight: 600; color: var(--accent-strong); }
+.src-domain { font-size: 13px; color: var(--ink); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.src-status { font-size: 12px; color: var(--muted); }
+.src-status-read { color: var(--ok); }
+.src-status-blocked, .src-status-thin { color: var(--warn); }
+.src-status-failed { color: var(--err); }
+.src-open { opacity: 0.85; }
+
 /* ── Reader panel ────────────────────────────────────────────────── */
 .reader-panel {
   position: fixed;
@@ -685,3 +729,129 @@ mark.find-hit { background: var(--accent-weak); color: inherit; border-radius: 2
   }
   .reader-panel { transition: none; }
 }
+
+/* ── Live regions + reader states (Phase 4.2–4.4) ─────────────────── */
+.chat-progress {
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.chat-alert,
+.sidebar-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+.sidebar-alert { margin: 6px 8px; }
+.chat-alert .btn-ghost,
+.sidebar-alert .btn-ghost { min-height: 32px; }
+.reader-state {
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reader-state .reader-cta-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reader-nomatch { color: var(--muted); font-size: 13px; }
+
+/* ── Responsive desktop shell (Phase 4.5) ─────────────────────────── */
+/* Hard minimum: below 800px the whole shell scrolls horizontally rather
+   than collapsing a primary action. */
+html,
+body {
+  min-width: 800px;
+}
+
+/* Docked reader ≥1025px: the reader shares the row (side-by-side), never an
+   overlay. The grid gains a third track only while a reader is open. */
+@media (min-width: 1025px) {
+  body.reader-open #app {
+    grid-template-columns: var(--sidebar-w) 1fr min(560px, 40vw);
+  }
+  body.reader-open .reader-panel {
+    position: static;
+    width: auto;
+    transform: none;
+    box-shadow: none;
+    z-index: auto;
+  }
+}
+
+/* Reader overlay 841–1024px. */
+@media (max-width: 1024px) {
+  .reader-panel {
+    width: min(560px, 90vw);
+  }
+  /* Sidebar becomes a fixed overlay (does not consume a grid column). */
+  #app {
+    grid-template-columns: 0 1fr;
+  }
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 272px;
+    z-index: 40;
+    background: var(--canvas);
+    box-shadow: var(--shadow-pop);
+    transform: translateX(0);
+    transition: transform 200ms ease;
+  }
+  body.sidebar-collapsed #sidebar {
+    transform: translateX(-100%);
+  }
+}
+
+/* Reader full-width ≤840px. */
+@media (max-width: 840px) {
+  .reader-panel {
+    width: 100vw;
+  }
+}
+
+/* Cards / tables / sources never clip — always scroll within their box. */
+.card-table-scroll,
+.card-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.src-list {
+  overflow-x: hidden;
+}
+
+/* Honest onboarding capability note (Phase 4.6). */
+.capability-note {
+  max-width: 620px;
+  margin: 0 auto 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Analyst tools modal (Phase 6.5). */
+.analyst-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--hairline); }
+.analyst-tab {
+  background: transparent; border: none; padding: 8px 12px; cursor: pointer;
+  color: var(--muted); font-size: 13px; border-bottom: 2px solid transparent;
+}
+.analyst-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.analyst-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-bottom: 12px; }
+.analyst-panel textarea { width: 100%; font-family: inherit; font-size: 12px; }
+.analyst-result { margin-top: 14px; }
+.analyst-row { display: grid; grid-template-columns: 2fr 1fr 1.5fr; gap: 8px; padding: 3px 0; font-size: 13px; }
+.analyst-row .num { text-align: right; }
+.analyst-src { color: var(--muted); font-size: 12px; }
+.analyst-sec { font-weight: 600; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.analyst-total { font-weight: 600; border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 6px; }

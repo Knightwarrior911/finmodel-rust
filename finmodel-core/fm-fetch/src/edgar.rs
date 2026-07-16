@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::cache::EDGAR_CACHE;
+use crate::retry::{RetryClass, classify_status, with_retries};
+
 /// HTTP User-Agent required by SEC EDGAR rate-limiting policy.
 /// Matches Python `EDGAR_HEADERS`.
 const EDGAR_USER_AGENT: &str = "FinancialModelBot vinit.paul@gmail.com";
@@ -162,31 +165,43 @@ fn rate_limit() {
 /// 500ms→1s backoff on 429 / 5xx / transport errors. Other error statuses are
 /// terminal (no retry). Returns the successful response or the last error.
 fn edgar_get(url: &str) -> Result<reqwest::blocking::Response, EdgarError> {
-    let mut backoff = Duration::from_millis(500);
-    let mut last_err: Option<String> = None;
-    for attempt in 0..3 {
+    // Phase 3.4: retry only connection failure / 408 / 429 / 5xx, twice max.
+    with_retries(|| {
         rate_limit();
-        match EDGAR_CLIENT.get(url).header("Accept", "application/json").send() {
+        match EDGAR_CLIENT
+            .get(url)
+            .header("Accept", "application/json")
+            .send()
+        {
             Ok(resp) => {
                 let status = resp.status();
-                if status.is_success() {
-                    return Ok(resp);
-                }
-                if status.as_u16() == 429 || status.is_server_error() {
-                    last_err = Some(format!("HTTP {status}"));
-                } else {
-                    // Terminal (e.g. 404) — surface immediately, no panic on 3xx.
-                    return Err(EdgarError::Request(format!("HTTP {status} for {url}")));
+                let code = status.as_u16();
+                match classify_status(code) {
+                    RetryClass::Success => Ok(resp),
+                    RetryClass::Retriable => {
+                        let ra = resp
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                        // Must drop body before retry; reconstruct error.
+                        drop(resp);
+                        Err((
+                            true,
+                            ra,
+                            EdgarError::Request(format!("HTTP {status} for {url}")),
+                        ))
+                    }
+                    RetryClass::Terminal => Err((
+                        false,
+                        None,
+                        EdgarError::Request(format!("HTTP {status} for {url}")),
+                    )),
                 }
             }
-            Err(e) => last_err = Some(e.to_string()),
+            Err(e) => Err((true, None, EdgarError::Http(e))),
         }
-        if attempt < 2 {
-            std::thread::sleep(backoff);
-            backoff *= 2;
-        }
-    }
-    Err(EdgarError::Request(last_err.unwrap_or_else(|| url.to_string())))
+    })
 }
 
 /// ticker(upper) → padded-CIK map, downloaded once and cached. Only a
@@ -227,14 +242,34 @@ pub fn cik_from_ticker(ticker: &str) -> Result<String, EdgarError> {
 /// The CIK should be a 10-digit zero-padded string.
 /// Ported from Python `fetch_xbrl_facts()` in `src/fetcher.py`.
 pub fn fetch_companyfacts(cik: &str) -> Result<CompanyFacts, EdgarError> {
+    let key = format!("facts|{}", cik.trim());
+    if let Some(cached) = EDGAR_CACHE.get(&key)
+        && let Ok(facts) = serde_json::from_str::<CompanyFacts>(&cached)
+    {
+        return Ok(facts);
+    }
     let url = COMPANY_FACTS_URL.replace("{cik}", cik);
-    Ok(edgar_get(&url)?.json()?)
+    let facts: CompanyFacts = edgar_get(&url)?.json()?;
+    if let Ok(blob) = serde_json::to_string(&facts) {
+        EDGAR_CACHE.insert(key, blob);
+    }
+    Ok(facts)
 }
 
 /// Fetch the raw JSON value of company facts (for flexible downstream parsing).
 pub fn fetch_companyfacts_raw(cik: &str) -> Result<Value, EdgarError> {
+    let key = format!("facts_raw|{}", cik.trim());
+    if let Some(cached) = EDGAR_CACHE.get(&key)
+        && let Ok(v) = serde_json::from_str::<Value>(&cached)
+    {
+        return Ok(v);
+    }
     let url = COMPANY_FACTS_URL.replace("{cik}", cik);
-    Ok(edgar_get(&url)?.json()?)
+    let v: Value = edgar_get(&url)?.json()?;
+    if let Ok(blob) = serde_json::to_string(&v) {
+        EDGAR_CACHE.insert(key, blob);
+    }
+    Ok(v)
 }
 
 /// SIC industry classification from the SEC submissions endpoint.
@@ -268,17 +303,23 @@ fn fetch_submissions_value(cik: &str) -> Result<Value, EdgarError> {
 /// Fetch a company's SIC industry classification (submissions endpoint).
 pub fn fetch_company_sic(cik: &str) -> Result<SicInfo, EdgarError> {
     let v = fetch_submissions_value(cik)?;
-    let sic = v.get("sic").and_then(|s| match s {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    }).unwrap_or_default();
+    let sic = v
+        .get("sic")
+        .and_then(|s| match s {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .unwrap_or_default();
     let sic_description = v
         .get("sicDescription")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    Ok(SicInfo { sic, sic_description })
+    Ok(SicInfo {
+        sic,
+        sic_description,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -353,9 +394,7 @@ fn parse_recent_filings(
         let accession_number = str_at("accessionNumber", i);
         let acc_nodash = accession_number.replace('-', "");
         let doc = str_at("primaryDocument", i);
-        let url = format!(
-            "https://www.sec.gov/Archives/edgar/data/{cik_num}/{acc_nodash}/{doc}"
-        );
+        let url = format!("https://www.sec.gov/Archives/edgar/data/{cik_num}/{acc_nodash}/{doc}");
         out.push(Filing {
             form_type: form.to_string(),
             filing_date: str_at("filingDate", i),
@@ -388,11 +427,7 @@ pub fn search_filings(
 
 /// Fetch the most recent filings of a single form type (e.g. `"10-K"`), up to
 /// `limit`. Ported from `get_recent_filings` in `src/research/sec_edgar.py`.
-pub fn recent_filings(
-    cik: &str,
-    form_type: &str,
-    limit: usize,
-) -> Result<Vec<Filing>, EdgarError> {
+pub fn recent_filings(cik: &str, form_type: &str, limit: usize) -> Result<Vec<Filing>, EdgarError> {
     search_filings(cik, &[form_type], limit)
 }
 
@@ -409,10 +444,12 @@ const MAX_FILING_BYTES: u64 = 25 * 1024 * 1024;
 /// EDGAR User-Agent and caps the response body at 25 MB.
 pub fn fetch_filing_doc(url: &str) -> Result<String, EdgarError> {
     let resp = edgar_get(url)?;
-    if let Some(len) = resp.content_length() {
-        if len > MAX_FILING_BYTES {
-            return Err(EdgarError::Request(format!("filing too large ({len} bytes) for {url}")));
-        }
+    if let Some(len) = resp.content_length()
+        && len > MAX_FILING_BYTES
+    {
+        return Err(EdgarError::Request(format!(
+            "filing too large ({len} bytes) for {url}"
+        )));
     }
     let body = resp.text()?;
     if body.len() as u64 > MAX_FILING_BYTES {
@@ -488,8 +525,14 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
         let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
         assert_eq!(ids, vec!["1", "1A", "7"], "unique items in order");
         let risk = &items.iter().find(|(id, _)| id == "1A").unwrap().1;
-        assert!(risk.contains("intense competition"), "kept real body, got: {risk}");
-        assert!(!risk.contains("Management"), "1A body must not bleed into item 7");
+        assert!(
+            risk.contains("intense competition"),
+            "kept real body, got: {risk}"
+        );
+        assert!(
+            !risk.contains("Management"),
+            "1A body must not bleed into item 7"
+        );
         let mda = &items.iter().find(|(id, _)| id == "7").unwrap().1;
         assert!(mda.contains("Revenue grew"), "item 7 body missing");
     }
@@ -536,7 +579,8 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
         let cik = cik_from_ticker("MSFT").expect("CIK lookup");
         let facts = fetch_companyfacts(&cik).expect("company facts fetch");
         let gaap = facts.facts.us_gaap.expect("us-gaap facts");
-        let revenue = gaap.get("RevenueFromContractWithCustomerExcludingAssessedTax")
+        let revenue = gaap
+            .get("RevenueFromContractWithCustomerExcludingAssessedTax")
             .or_else(|| gaap.get("Revenues"))
             .or_else(|| gaap.get("RevenueFromContractWithCustomer"))
             .expect("revenue concept should exist");
@@ -621,6 +665,10 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
         let cik = cik_from_ticker("AAPL").expect("CIK lookup");
         let filings = search_filings(&cik, &["10-K", "10-Q"], 5).expect("filings");
         assert_eq!(filings.len(), 5, "AAPL has plenty of 10-K/10-Q filings");
-        assert!(filings.iter().all(|f| f.form_type == "10-K" || f.form_type == "10-Q"));
+        assert!(
+            filings
+                .iter()
+                .all(|f| f.form_type == "10-K" || f.form_type == "10-Q")
+        );
     }
 }

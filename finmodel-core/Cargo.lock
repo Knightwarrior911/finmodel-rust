@@ -635,6 +635,7 @@ dependencies = [
  "fm-tieout",
  "fm-types",
  "fm-value",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",
@@ -732,6 +733,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

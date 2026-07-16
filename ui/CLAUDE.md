@@ -24,6 +24,9 @@ NO framework, NO bundler — edit the `.mjs` files directly.
   (interactive grid → `finalize_model`), `error`. Cards are the ONLY card treatment.
 - `reader.mjs` — right slide-in panel; `read_page` result rendered by `status`
   (`ok`→markdown, `blocked`/`thin`→honest prompt, never a dead end). Esc closes.
+- `analyst.mjs` — Analyst-tools modal (Phase 6.5): EV / IFRS / tie-out forms →
+  `ev_bridge`/`ifrs_bridge`/`tie_out` commands, launched from the model card.
+  Each submit is one selected action (never a flat tool list); focus-trapped dialog.
 - `settings.mjs`, `update.mjs` — modal + footer updater. `main.mjs` — boot wiring.
 
 ## Design language (binding — professional finance, no AI slop)

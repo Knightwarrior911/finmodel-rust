@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "app_version": "0.4.0",
+  "corpus_hash": "ef7f3acaa6b12d9b",
+  "recorded_note": "Frozen baseline recorded BEFORE the research engine exists (Phase 0.1). v0.4.0 exposed ten OpenRouter tools with tool_choice:auto; web_search returned ranked links, read_page was a separate call, malformed streamed arguments silently became {}, and the weak-model fallback executed one routed tool and stopped. These outcomes are the honest starting point; later phases must demonstrate improvement against them and must NEVER weaken a corpus assertion because v0.4.0 fails it.",
+  "stage_timings_ms": {
+    "note": "v0.4.0 has no staged research pipeline (planning/searching/reading/synthesizing); stage timings begin with Phase 2's ResearchTrace.",
+    "planning": null,
+    "searching": null,
+    "reading": null,
+    "synthesizing": null
+  },
+  "case_outcomes": {
+    "direct_definition": "direct_supported",
+    "web_current_factual": "links_only_no_synthesis",
+    "company_brief": "links_only_no_synthesis",
+    "earnings_review": "links_only_no_synthesis",
+    "filing_qa": "read_filing_clip_no_citations",
+    "deal_analysis": "research_deal_domain_strings",
+    "comparison": "benchmark_or_links_no_synthesis",
+    "build_model": "supported_v0_4_0",
+    "benchmark_peers": "supported_v0_4_0",
+    "analyze_pdf": "supported_v0_4_0",
+    "raw_filing_read": "supported_v0_4_0",
+    "raw_news_list": "supported_v0_4_0",
+    "quote_lookup": "quote_supported_no_synthesis",
+    "malformed_tool_call": "empty_args_silent_fallback",
+    "all_blocked_sources": "no_research_engine",
+    "conflicting_sources": "no_research_engine",
+    "duplicate_domain": "no_research_engine",
+    "prompt_injection": "unbounded_page_text_as_context",
+    "ssrf_redirect": "no_ssrf_policy",
+    "timeout_deadline": "no_depth_deadline",
+    "cancellation": "coarse_cancel_only",
+    "twice_invalid_synthesis": "no_synthesis_validation",
+    "no_key_digest": "route_fallback_links"
+  }
+}

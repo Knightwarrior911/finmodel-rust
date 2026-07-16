@@ -3,31 +3,66 @@
 
 /// Domains never worth reading (social, search chrome, encyclopedic).
 const SKIP_DOMAINS: &[&str] = &[
-    "gstatic.com", "googleapis.com", "youtube.com",
-    "facebook.com", "twitter.com", "instagram.com",
-    "maps.google", "translate.google", "accounts.google",
-    "google.com/search", "google.com/webhp", "google.com/intl",
-    "google.com/sorry", "google.com/preferences",
-    "reddit.com", "quora.com", "wikipedia.org",
-    "bing.com/images", "bing.com/videos", "bing.com/maps",
-    "bing.com/news?", "bing.com/search", "bing.com/ck",
+    "gstatic.com",
+    "googleapis.com",
+    "youtube.com",
+    "facebook.com",
+    "twitter.com",
+    "instagram.com",
+    "maps.google",
+    "translate.google",
+    "accounts.google",
+    "google.com/search",
+    "google.com/webhp",
+    "google.com/intl",
+    "google.com/sorry",
+    "google.com/preferences",
+    "reddit.com",
+    "quora.com",
+    "wikipedia.org",
+    "bing.com/images",
+    "bing.com/videos",
+    "bing.com/maps",
+    "bing.com/news?",
+    "bing.com/search",
+    "bing.com/ck",
     "duckduckgo.com",
 ];
 
 /// High-signal financial/newswire/deal sources, floated to the top.
 pub const PRIORITY_DOMAINS: &[&str] = &[
-    "businesswire.com", "prnewswire.com", "globenewswire.com",
-    "reuters.com", "bloomberg.com", "ft.com", "wsj.com",
-    "sec.gov", "aircargonews.net", "freightwaves.com",
-    "logisticsmgmt.com", "supplychaindive.com", "joc.com",
-    "pitchbook.com", "preqin.com", "mergermarket.com",
-    "yahoo.com", "marketwatch.com",
+    "businesswire.com",
+    "prnewswire.com",
+    "globenewswire.com",
+    "reuters.com",
+    "bloomberg.com",
+    "ft.com",
+    "wsj.com",
+    "sec.gov",
+    "aircargonews.net",
+    "freightwaves.com",
+    "logisticsmgmt.com",
+    "supplychaindive.com",
+    "joc.com",
+    "pitchbook.com",
+    "preqin.com",
+    "mergermarket.com",
+    "yahoo.com",
+    "marketwatch.com",
 ];
 
 /// M&A keywords; ≥2 present ⇒ text likely covers a deal.
 const DEAL_KW: &[&str] = &[
-    "acquisition", "acquired", "merger", "stake", "deal",
-    "transaction", "equity", "buyout", "partnership", "announced",
+    "acquisition",
+    "acquired",
+    "merger",
+    "stake",
+    "deal",
+    "transaction",
+    "equity",
+    "buyout",
+    "partnership",
+    "announced",
 ];
 
 /// Filter out skip-domains, then float priority-domains to the front (stable
@@ -73,11 +108,11 @@ mod tests {
     #[test]
     fn rank_urls_drops_skip_and_floats_priority() {
         let urls = v(&[
-            "https://reddit.com/r/x",                 // skip
-            "https://example.com/article",            // rest
-            "https://www.reuters.com/deal",           // priority
-            "https://youtube.com/watch",              // skip
-            "https://businesswire.com/pr",            // priority
+            "https://reddit.com/r/x",       // skip
+            "https://example.com/article",  // rest
+            "https://www.reuters.com/deal", // priority
+            "https://youtube.com/watch",    // skip
+            "https://businesswire.com/pr",  // priority
         ]);
         let ranked = rank_urls(&urls);
         assert_eq!(
@@ -92,7 +127,9 @@ mod tests {
 
     #[test]
     fn has_deal_content_needs_two_keywords() {
-        assert!(has_deal_content("The acquisition and merger were announced"));
+        assert!(has_deal_content(
+            "The acquisition and merger were announced"
+        ));
         assert!(!has_deal_content("A single acquisition rumor")); // only 1 kw
         assert!(!has_deal_content("nothing relevant here"));
     }

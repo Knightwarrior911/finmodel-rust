@@ -28,7 +28,7 @@ impl AdjustmentDirection {
 }
 
 /// Inputs extracted from the lease note (Phase 3 of the IFRS workflow).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct IfrsAdjustmentInput {
     pub rou_depreciation: f64,
     pub lease_interest: f64,
@@ -53,7 +53,7 @@ impl IfrsAdjustmentInput {
 }
 
 /// Adjusted EBIT/EBITDA/EBITA + margins, deltas, and provenance.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct IfrsAdjustmentOutput {
     pub direction: AdjustmentDirection,
     pub adjusted_ebit: f64,
@@ -79,7 +79,11 @@ fn items_excluded() -> Vec<String> {
     vec!["Short-term rent (already OPEX in both frameworks)".into()]
 }
 
-fn with_margins(mut out: IfrsAdjustmentOutput, inp: &IfrsAdjustmentInput, revenue: f64) -> IfrsAdjustmentOutput {
+fn with_margins(
+    mut out: IfrsAdjustmentOutput,
+    inp: &IfrsAdjustmentInput,
+    revenue: f64,
+) -> IfrsAdjustmentOutput {
     if revenue > 0.0 {
         out.reported_ebit_margin = inp.reported_ebit / revenue * 100.0;
         out.adjusted_ebit_margin = out.adjusted_ebit / revenue * 100.0;

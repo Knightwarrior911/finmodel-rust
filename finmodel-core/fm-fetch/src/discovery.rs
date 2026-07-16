@@ -10,8 +10,12 @@ use url::Url;
 
 /// Domains to skip when evaluating search results.
 const SKIP_DOMAINS: &[&str] = &[
-    "duckduckgo.com", "google.com", "bing.com",
-    "youtube.com", "facebook.com", "twitter.com",
+    "duckduckgo.com",
+    "google.com",
+    "bing.com",
+    "youtube.com",
+    "facebook.com",
+    "twitter.com",
 ];
 
 /// Errors from PDF discovery operations.
@@ -97,10 +101,8 @@ pub fn find_annual_report_pdf_url(
     ticker: &str,
     year: Option<i32>,
 ) -> Result<String, DiscoveryError> {
-    let year = year.unwrap_or_else(|| {
-        // Default: most recently completed fiscal year (assumes current date)
-        2025
-    });
+    // Default: most recently completed fiscal year (assumes current date).
+    let year = year.unwrap_or(2025);
 
     let queries = [
         format!("{company_name} annual report {year} filetype:pdf"),
@@ -135,7 +137,8 @@ pub fn find_annual_report_pdf_url_with_queries(
         }
 
         // First pass: direct PDF links
-        let direct_pdfs: Vec<&str> = links.iter()
+        let direct_pdfs: Vec<&str> = links
+            .iter()
             .filter(|h| is_pdf_url(h))
             .filter(|h| !is_skippable(h))
             .map(|s| s.as_str())
@@ -250,15 +253,27 @@ mod tests {
     #[test]
     fn test_url_matches_company_positive() {
         let tokens = company_domain_tokens("Sandvik AB");
-        assert!(url_matches_company("https://www.sandvik.com/report.pdf", &tokens));
-        assert!(url_matches_company("https://home.sandvik/en/investors", &tokens));
+        assert!(url_matches_company(
+            "https://www.sandvik.com/report.pdf",
+            &tokens
+        ));
+        assert!(url_matches_company(
+            "https://home.sandvik/en/investors",
+            &tokens
+        ));
     }
 
     #[test]
     fn test_url_matches_company_negative() {
         let tokens = company_domain_tokens("Sandvik AB");
-        assert!(!url_matches_company("https://www.siemens.com/report.pdf", &tokens));
-        assert!(!url_matches_company("https://example.com/sandvik_fake.pdf", &tokens));
+        assert!(!url_matches_company(
+            "https://www.siemens.com/report.pdf",
+            &tokens
+        ));
+        assert!(!url_matches_company(
+            "https://example.com/sandvik_fake.pdf",
+            &tokens
+        ));
     }
 
     #[test]

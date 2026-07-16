@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
 use fm_types::StatementData;
+use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // XBRL Tag Map
@@ -19,291 +19,371 @@ pub fn xbrl_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     let mut m: HashMap<&str, &[&str]> = HashMap::new();
 
     // ── Income Statement ────────────────────────────────────────────────
-    m.insert("revenue", &[
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "SalesRevenueNet",
-        "RevenueFromContractWithCustomerIncludingAssessedTax",
-        "RegulatedAndUnregulatedOperatingRevenue",
-        "HealthCareOrganizationRevenue",
-        "RealEstateRevenueNet",
-        "Revenues",
-        "RevenueNotFromContractWithCustomer",
-        "InterestAndFeeIncomeLoansAndLeases",
-        "NoninterestIncome",
-        "BrokerageCommissionsRevenue",
-        "RevenuesNetOfInterestExpense",
-        "BankingFees",
-        "NetInvestmentIncome",
-        "PremiumsEarnedNet",
-    ]);
-    m.insert("cogs", &[
-        "CostOfGoodsAndServicesSold",
-        "CostOfRevenue",
-        "CostOfGoodsSold",
-        "CostOfServices",
-        "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
-        "CostsAndExpenses",
-        "OperatingCostsAndExpenses",
-        "CostOfPurchasedPower",
-        "DirectCostsOfLeasedAndRentedPropertyOrEquipment",
-        "CostOfOtherPropertyOperatingExpense",
-        "PolicyholderBenefitsAndClaimsIncurredNet",
-        "BenefitsLossesAndExpenses",
-        "InterestExpenseOperating",
-        "InterestExpense",
-        "InterestExpenseDeposits",
-    ]);
-    m.insert("gross_profit", &[
-        "GrossProfit",
-        "EquityMethodInvestmentSummarizedFinancialInformationGrossProfitLoss",
-        "GrossInvestmentIncomeOperating",
-    ]);
-    m.insert("sga", &[
-        "SellingGeneralAndAdministrativeExpense",
-        "GeneralAndAdministrativeExpense",
-        "SellingAndMarketingExpense",
-        "NoninterestExpense",
-        "MarketingExpense",
-        "OtherGeneralExpense",
-    ]);
-    m.insert("rd", &[
-        "ResearchAndDevelopmentExpense",
-        "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
-        "ProvisionForLoanLeaseAndOtherLosses",
-        "FinancingReceivableExcludingAccruedInterestCreditLossExpenseReversal",
-        "ProvisionForCreditLosses",
-        "ProvisionForLoanAndLeaseLosses",
-        "ProvisionForLoanLeaseAndOtherCreditLosses",
-        "RestructuringCharges",
-    ]);
-    m.insert("utility_om", &[
-        "UtilitiesOperatingExpenseMaintenanceAndOperations",
-        "OperationsAndMaintenanceExpense",
-        "UtilitiesOperatingExpenseOperationsAndMaintenance",
-    ]);
-    m.insert("utility_taxes_other", &[
-        "TaxesExcludingIncomeAndExciseTaxes",
-        "UtilitiesOperatingExpenseTaxes",
-    ]);
-    m.insert("utility_fuel", &[
-        "UtilitiesOperatingExpenseFuelPurchasedPower",
-        "CostOfPurchasedPower",
-        "UtilitiesOperatingExpenseFuel",
-        "FuelCosts",
-    ]);
+    m.insert(
+        "revenue",
+        &[
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "SalesRevenueNet",
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            "RegulatedAndUnregulatedOperatingRevenue",
+            "HealthCareOrganizationRevenue",
+            "RealEstateRevenueNet",
+            "Revenues",
+            "RevenueNotFromContractWithCustomer",
+            "InterestAndFeeIncomeLoansAndLeases",
+            "NoninterestIncome",
+            "BrokerageCommissionsRevenue",
+            "RevenuesNetOfInterestExpense",
+            "BankingFees",
+            "NetInvestmentIncome",
+            "PremiumsEarnedNet",
+        ],
+    );
+    m.insert(
+        "cogs",
+        &[
+            "CostOfGoodsAndServicesSold",
+            "CostOfRevenue",
+            "CostOfGoodsSold",
+            "CostOfServices",
+            "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
+            "CostsAndExpenses",
+            "OperatingCostsAndExpenses",
+            "CostOfPurchasedPower",
+            "DirectCostsOfLeasedAndRentedPropertyOrEquipment",
+            "CostOfOtherPropertyOperatingExpense",
+            "PolicyholderBenefitsAndClaimsIncurredNet",
+            "BenefitsLossesAndExpenses",
+            "InterestExpenseOperating",
+            "InterestExpense",
+            "InterestExpenseDeposits",
+        ],
+    );
+    m.insert(
+        "gross_profit",
+        &[
+            "GrossProfit",
+            "EquityMethodInvestmentSummarizedFinancialInformationGrossProfitLoss",
+            "GrossInvestmentIncomeOperating",
+        ],
+    );
+    m.insert(
+        "sga",
+        &[
+            "SellingGeneralAndAdministrativeExpense",
+            "GeneralAndAdministrativeExpense",
+            "SellingAndMarketingExpense",
+            "NoninterestExpense",
+            "MarketingExpense",
+            "OtherGeneralExpense",
+        ],
+    );
+    m.insert(
+        "rd",
+        &[
+            "ResearchAndDevelopmentExpense",
+            "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
+            "ProvisionForLoanLeaseAndOtherLosses",
+            "FinancingReceivableExcludingAccruedInterestCreditLossExpenseReversal",
+            "ProvisionForCreditLosses",
+            "ProvisionForLoanAndLeaseLosses",
+            "ProvisionForLoanLeaseAndOtherCreditLosses",
+            "RestructuringCharges",
+        ],
+    );
+    m.insert(
+        "utility_om",
+        &[
+            "UtilitiesOperatingExpenseMaintenanceAndOperations",
+            "OperationsAndMaintenanceExpense",
+            "UtilitiesOperatingExpenseOperationsAndMaintenance",
+        ],
+    );
+    m.insert(
+        "utility_taxes_other",
+        &[
+            "TaxesExcludingIncomeAndExciseTaxes",
+            "UtilitiesOperatingExpenseTaxes",
+        ],
+    );
+    m.insert(
+        "utility_fuel",
+        &[
+            "UtilitiesOperatingExpenseFuelPurchasedPower",
+            "CostOfPurchasedPower",
+            "UtilitiesOperatingExpenseFuel",
+            "FuelCosts",
+        ],
+    );
     m.insert("ebit", &[
         "OperatingIncomeLoss",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
         "NoninterestExpense",
     ]);
-    m.insert("interest_expense", &[
-        "InterestExpense",
-        "InterestAndDebtExpense",
-        "InterestExpenseDebt",
-        "InterestExpenseDeposits",
-        "InterestExpenseBorrowings",
-        "FinanceLeaseInterestExpense",
-    ]);
-    m.insert("interest_income", &[
-        "InvestmentIncomeInterest",
-        "InterestAndDividendIncomeOperating",
-        "InterestIncomeOperating",
-        "InterestIncomeExpenseNet",
-    ]);
-    m.insert("income_tax", &[
-        "IncomeTaxExpenseBenefit",
-    ]);
-    m.insert("net_income", &[
-        "NetIncomeLoss",
-        "NetIncomeLossAttributableToParent",
-        "ProfitLoss",
-        "NetIncomeLossAvailableToCommonStockholdersBasic",
-    ]);
-    m.insert("eps_basic", &[
-        "EarningsPerShareBasic",
-        "EarningsPerShareBasicAndDiluted",
-    ]);
-    m.insert("eps_diluted", &[
-        "EarningsPerShareDiluted",
-        "EarningsPerShareBasicAndDiluted",
-    ]);
-    m.insert("shares_basic", &[
-        "WeightedAverageNumberOfSharesOutstandingBasic",
-        "CommonStockSharesOutstanding",
-    ]);
-    m.insert("shares_diluted", &[
-        "WeightedAverageNumberOfDilutedSharesOutstanding",
-        "WeightedAverageNumberOfSharesOutstandingBasic",
-        "CommonStockSharesOutstanding",
-    ]);
-    m.insert("da", &[
-        "DepreciationAndAmortization",
-        "DepreciationDepletionAndAmortization",
-        "DepreciationAmortizationAndAccretionNet",
-        "DepreciationDepletionAndAmortizationExcludingDiscontinuedOperations",
-        "DepreciationAndAmortizationDiscontinuedOperations",
-        "AmortizationOfIntangibleAssets",
-        "Depreciation",
-        "DepreciationNonproduction",
-    ]);
+    m.insert(
+        "interest_expense",
+        &[
+            "InterestExpense",
+            "InterestAndDebtExpense",
+            "InterestExpenseDebt",
+            "InterestExpenseDeposits",
+            "InterestExpenseBorrowings",
+            "FinanceLeaseInterestExpense",
+        ],
+    );
+    m.insert(
+        "interest_income",
+        &[
+            "InvestmentIncomeInterest",
+            "InterestAndDividendIncomeOperating",
+            "InterestIncomeOperating",
+            "InterestIncomeExpenseNet",
+        ],
+    );
+    m.insert("income_tax", &["IncomeTaxExpenseBenefit"]);
+    m.insert(
+        "net_income",
+        &[
+            "NetIncomeLoss",
+            "NetIncomeLossAttributableToParent",
+            "ProfitLoss",
+            "NetIncomeLossAvailableToCommonStockholdersBasic",
+        ],
+    );
+    m.insert(
+        "eps_basic",
+        &["EarningsPerShareBasic", "EarningsPerShareBasicAndDiluted"],
+    );
+    m.insert(
+        "eps_diluted",
+        &["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
+    );
+    m.insert(
+        "shares_basic",
+        &[
+            "WeightedAverageNumberOfSharesOutstandingBasic",
+            "CommonStockSharesOutstanding",
+        ],
+    );
+    m.insert(
+        "shares_diluted",
+        &[
+            "WeightedAverageNumberOfDilutedSharesOutstanding",
+            "WeightedAverageNumberOfSharesOutstandingBasic",
+            "CommonStockSharesOutstanding",
+        ],
+    );
+    m.insert(
+        "da",
+        &[
+            "DepreciationAndAmortization",
+            "DepreciationDepletionAndAmortization",
+            "DepreciationAmortizationAndAccretionNet",
+            "DepreciationDepletionAndAmortizationExcludingDiscontinuedOperations",
+            "DepreciationAndAmortizationDiscontinuedOperations",
+            "AmortizationOfIntangibleAssets",
+            "Depreciation",
+            "DepreciationNonproduction",
+        ],
+    );
 
     // ── Balance Sheet — Assets ──────────────────────────────────────────
-    m.insert("cash", &[
-        "CashAndCashEquivalentsAtCarryingValue",
-        "CashCashEquivalentsAndShortTermInvestments",
-        "CashAndCashEquivalents",
-        "Cash",
-        "CashAndDueFromBanks",
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
-    ]);
-    m.insert("accounts_receivable", &[
-        "AccountsReceivableNetCurrent",
-        "AccountsReceivableNet",
-        "ReceivablesNetCurrent",
-        "TradeAndOtherReceivablesNetCurrent",
-        "NotesAndLoansReceivableNetCurrent",
-        "LoansAndLeasesReceivableNetReportedAmount",
-        "LoansAndLeasesReceivableNetOfDeferredIncome",
-        "PremiumsAndOtherReceivablesNet",
-        "ReceivablesFromBrokersDealersAndClearingOrganizations",
-        "AccountsReceivableNetNoncurrent",
-        "ReinsuranceRecoverables",
-    ]);
-    m.insert("inventory", &[
-        "InventoryNet",
-        "Inventories",
-        "InventoryFinishedGoodsNetOfReserves",
-        "InventoryRawMaterialsAndSupplies",
-        "EnergyRelatedInventory",
-        "EnergyRelatedInventoryOtherFossilFuel",
-        "InventoryRawMaterials",
-        "InventoryWorkInProcess",
-        "RealEstateInventory",
-        "InventoryRealEstate",
-        "InventoryOperativeBuilders",
-        "InventoryOperativeBuildersOther",
-        "InventoryHomesUnderConstruction",
-        "InventoryLandHeldForDevelopmentAndSale",
-        "OtherInventorySupplies",
-    ]);
-    m.insert("total_current_assets", &[
-        "AssetsCurrent",
-    ]);
+    m.insert(
+        "cash",
+        &[
+            "CashAndCashEquivalentsAtCarryingValue",
+            "CashCashEquivalentsAndShortTermInvestments",
+            "CashAndCashEquivalents",
+            "Cash",
+            "CashAndDueFromBanks",
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        ],
+    );
+    m.insert(
+        "accounts_receivable",
+        &[
+            "AccountsReceivableNetCurrent",
+            "AccountsReceivableNet",
+            "ReceivablesNetCurrent",
+            "TradeAndOtherReceivablesNetCurrent",
+            "NotesAndLoansReceivableNetCurrent",
+            "LoansAndLeasesReceivableNetReportedAmount",
+            "LoansAndLeasesReceivableNetOfDeferredIncome",
+            "PremiumsAndOtherReceivablesNet",
+            "ReceivablesFromBrokersDealersAndClearingOrganizations",
+            "AccountsReceivableNetNoncurrent",
+            "ReinsuranceRecoverables",
+        ],
+    );
+    m.insert(
+        "inventory",
+        &[
+            "InventoryNet",
+            "Inventories",
+            "InventoryFinishedGoodsNetOfReserves",
+            "InventoryRawMaterialsAndSupplies",
+            "EnergyRelatedInventory",
+            "EnergyRelatedInventoryOtherFossilFuel",
+            "InventoryRawMaterials",
+            "InventoryWorkInProcess",
+            "RealEstateInventory",
+            "InventoryRealEstate",
+            "InventoryOperativeBuilders",
+            "InventoryOperativeBuildersOther",
+            "InventoryHomesUnderConstruction",
+            "InventoryLandHeldForDevelopmentAndSale",
+            "OtherInventorySupplies",
+        ],
+    );
+    m.insert("total_current_assets", &["AssetsCurrent"]);
     m.insert("ppe_net", &[
         "PropertyPlantAndEquipmentNet",
         "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization",
         "RealEstateInvestmentPropertyNet",
         "RealEstateAndAccumulatedDepreciation",
     ]);
-    m.insert("goodwill", &[
-        "Goodwill",
-    ]);
-    m.insert("intangibles_net", &[
-        "FiniteLivedIntangibleAssetsNet",
-        "IntangibleAssetsNetExcludingGoodwill",
-        "IntangibleAssetsNetIncludingGoodwill",
-    ]);
-    m.insert("total_assets", &[
-        "Assets",
-    ]);
+    m.insert("goodwill", &["Goodwill"]);
+    m.insert(
+        "intangibles_net",
+        &[
+            "FiniteLivedIntangibleAssetsNet",
+            "IntangibleAssetsNetExcludingGoodwill",
+            "IntangibleAssetsNetIncludingGoodwill",
+        ],
+    );
+    m.insert("total_assets", &["Assets"]);
 
     // ── Balance Sheet — Liabilities & Equity ────────────────────────────
-    m.insert("accounts_payable", &[
-        "AccountsPayableCurrent",
-        "AccountsPayableAndAccruedLiabilitiesCurrent",
-        "AccountsPayable",
-        "AccountsPayableTradeCurrent",
-        "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent",
-        "AccountsPayableCurrentAndNoncurrent",
-        "AccountsPayableTradeCurrentAndNoncurrent",
-        "OtherAccountsPayableAndAccruedLiabilities",
-    ]);
-    m.insert("total_current_liabilities", &[
-        "LiabilitiesCurrent",
-    ]);
-    m.insert("long_term_debt", &[
-        "LongTermDebtNoncurrent",
-        "LongTermDebt",
-        "LongTermDebtAndCapitalLeaseObligations",
-        "LongTermNotesPayable",
-        "SeniorLongTermNotes",
-        "ConvertibleLongTermNotesPayable",
-        "LongTermDebtFairValue",
-        "UnsecuredDebt",
-        "SecuredDebt",
-        "SubordinatedLongTermDebt",
-        "JuniorSubordinatedNotes",
-        "FinanceLeaseLiabilityNoncurrent",
-        "Deposits",
-        "InterestBearingDeposits",
-        "PolicyholderFunds",
-        "LiabilityForFuturePolicyBenefits",
-    ]);
-    m.insert("short_term_debt", &[
-        "DebtCurrent",
-        "LongTermDebtCurrent",
-        "ShortTermBorrowings",
-        "CommercialPaper",
-        "OtherShortTermBorrowings",
-        "FinanceLeaseLiabilityCurrent",
-        "LinesOfCreditCurrent",
-        "NotesPayableCurrent",
-    ]);
-    m.insert("total_liabilities", &[
-        // "Liabilities" — if absent, derivation computes: total_assets - total_equity - rnci
-        "Liabilities",
-    ]);
-    m.insert("retained_earnings", &[
-        "RetainedEarningsAccumulatedDeficit",
-        "RetainedEarnings",
-    ]);
-    m.insert("total_equity", &[
-        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-        "StockholdersEquity",
-        "PartnersCapital",
-        "MembersEquity",
-    ]);
-    m.insert("redeemable_nci", &[
-        "RedeemableNoncontrollingInterestEquityCarryingAmount",
-        "RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
-        "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
-    ]);
+    m.insert(
+        "accounts_payable",
+        &[
+            "AccountsPayableCurrent",
+            "AccountsPayableAndAccruedLiabilitiesCurrent",
+            "AccountsPayable",
+            "AccountsPayableTradeCurrent",
+            "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent",
+            "AccountsPayableCurrentAndNoncurrent",
+            "AccountsPayableTradeCurrentAndNoncurrent",
+            "OtherAccountsPayableAndAccruedLiabilities",
+        ],
+    );
+    m.insert("total_current_liabilities", &["LiabilitiesCurrent"]);
+    m.insert(
+        "long_term_debt",
+        &[
+            "LongTermDebtNoncurrent",
+            "LongTermDebt",
+            "LongTermDebtAndCapitalLeaseObligations",
+            "LongTermNotesPayable",
+            "SeniorLongTermNotes",
+            "ConvertibleLongTermNotesPayable",
+            "LongTermDebtFairValue",
+            "UnsecuredDebt",
+            "SecuredDebt",
+            "SubordinatedLongTermDebt",
+            "JuniorSubordinatedNotes",
+            "FinanceLeaseLiabilityNoncurrent",
+            "Deposits",
+            "InterestBearingDeposits",
+            "PolicyholderFunds",
+            "LiabilityForFuturePolicyBenefits",
+        ],
+    );
+    m.insert(
+        "short_term_debt",
+        &[
+            "DebtCurrent",
+            "LongTermDebtCurrent",
+            "ShortTermBorrowings",
+            "CommercialPaper",
+            "OtherShortTermBorrowings",
+            "FinanceLeaseLiabilityCurrent",
+            "LinesOfCreditCurrent",
+            "NotesPayableCurrent",
+        ],
+    );
+    m.insert(
+        "total_liabilities",
+        &[
+            // "Liabilities" — if absent, derivation computes: total_assets - total_equity - rnci
+            "Liabilities",
+        ],
+    );
+    m.insert(
+        "retained_earnings",
+        &["RetainedEarningsAccumulatedDeficit", "RetainedEarnings"],
+    );
+    m.insert(
+        "total_equity",
+        &[
+            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "StockholdersEquity",
+            "PartnersCapital",
+            "MembersEquity",
+        ],
+    );
+    m.insert(
+        "redeemable_nci",
+        &[
+            "RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
+            "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
+        ],
+    );
 
     // ── Cash Flow Statement ─────────────────────────────────────────────
-    m.insert("cfo", &[
-        "NetCashProvidedByUsedInOperatingActivities",
-        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
-    ]);
-    m.insert("capex", &[
-        "PaymentsToAcquirePropertyPlantAndEquipment",
-        "PaymentsToAcquireProductiveAssets",
-        "PaymentsForCapitalImprovements",
-        "PaymentsToAcquireOtherPropertyPlantAndEquipment",
-        "PaymentsToAcquireRealEstate",
-        "PaymentsToAcquireAndDevelopRealEstate",
-        "PaymentsForConstructionInProcessAndProductiveAssets",
-        "PurchaseOfPropertyAndEquipment",
-    ]);
-    m.insert("cfi", &[
-        "NetCashProvidedByUsedInInvestingActivities",
-        "NetCashProvidedByUsedInInvestingActivitiesContinuingOperations",
-    ]);
-    m.insert("cff", &[
-        "NetCashProvidedByUsedInFinancingActivities",
-        "NetCashProvidedByUsedInFinancingActivitiesContinuingOperations",
-    ]);
-    m.insert("dividends_paid", &[
-        "PaymentsOfDividends",
-        "PaymentsOfDividendsCommonStock",
-        "PaymentsOfOrdinaryDividends",
-        "PaymentsForDividends",
-    ]);
-    m.insert("buybacks", &[
-        "PaymentsForRepurchaseOfCommonStock",
-        "PaymentsForRepurchaseOfEquity",
-        "TreasuryStockValueAcquiredCostMethod",
-    ]);
+    m.insert(
+        "cfo",
+        &[
+            "NetCashProvidedByUsedInOperatingActivities",
+            "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+        ],
+    );
+    m.insert(
+        "capex",
+        &[
+            "PaymentsToAcquirePropertyPlantAndEquipment",
+            "PaymentsToAcquireProductiveAssets",
+            "PaymentsForCapitalImprovements",
+            "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+            "PaymentsToAcquireRealEstate",
+            "PaymentsToAcquireAndDevelopRealEstate",
+            "PaymentsForConstructionInProcessAndProductiveAssets",
+            "PurchaseOfPropertyAndEquipment",
+        ],
+    );
+    m.insert(
+        "cfi",
+        &[
+            "NetCashProvidedByUsedInInvestingActivities",
+            "NetCashProvidedByUsedInInvestingActivitiesContinuingOperations",
+        ],
+    );
+    m.insert(
+        "cff",
+        &[
+            "NetCashProvidedByUsedInFinancingActivities",
+            "NetCashProvidedByUsedInFinancingActivitiesContinuingOperations",
+        ],
+    );
+    m.insert(
+        "dividends_paid",
+        &[
+            "PaymentsOfDividends",
+            "PaymentsOfDividendsCommonStock",
+            "PaymentsOfOrdinaryDividends",
+            "PaymentsForDividends",
+        ],
+    );
+    m.insert(
+        "buybacks",
+        &[
+            "PaymentsForRepurchaseOfCommonStock",
+            "PaymentsForRepurchaseOfEquity",
+            "TreasuryStockValueAcquiredCostMethod",
+        ],
+    );
     m.insert("net_change_cash", &[
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
         "CashAndCashEquivalentsPeriodIncreaseDecrease",
@@ -317,28 +397,40 @@ pub fn xbrl_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     ]);
 
     // ── Additional ──────────────────────────────────────────────────────
-    m.insert("nci_income_loss", &[
-        "NetIncomeLossAttributableToNoncontrollingInterest",
-        "MinorityInterestInNetIncomeLossOfConsolidatedEntities",
-        "IncomeLossFromContinuingOperationsAttributableToNoncontrollingEntity",
-    ]);
-    m.insert("deferred_revenue_current", &[
-        "DeferredRevenueCurrent",
-        "ContractWithCustomerLiabilityCurrent",
-        "DeferredRevenueAndCreditsCurrent",
-    ]);
-    m.insert("deferred_revenue_lt", &[
-        "DeferredRevenueNoncurrent",
-        "ContractWithCustomerLiabilityNoncurrent",
-        "DeferredRevenueAndCreditsNoncurrent",
-    ]);
-    m.insert("investments_net_cfi", &[
-        "PaymentsToAcquireAvailableForSaleSecurities",
-        "PaymentsToAcquireShortTermInvestments",
-        "PaymentsToAcquireInvestments",
-        "ProceedsFromSaleMaturityAndCollectionOfShorttermInvestments",
-        "ProceedsFromSaleAndMaturityOfAvailableForSaleSecurities",
-    ]);
+    m.insert(
+        "nci_income_loss",
+        &[
+            "NetIncomeLossAttributableToNoncontrollingInterest",
+            "MinorityInterestInNetIncomeLossOfConsolidatedEntities",
+            "IncomeLossFromContinuingOperationsAttributableToNoncontrollingEntity",
+        ],
+    );
+    m.insert(
+        "deferred_revenue_current",
+        &[
+            "DeferredRevenueCurrent",
+            "ContractWithCustomerLiabilityCurrent",
+            "DeferredRevenueAndCreditsCurrent",
+        ],
+    );
+    m.insert(
+        "deferred_revenue_lt",
+        &[
+            "DeferredRevenueNoncurrent",
+            "ContractWithCustomerLiabilityNoncurrent",
+            "DeferredRevenueAndCreditsNoncurrent",
+        ],
+    );
+    m.insert(
+        "investments_net_cfi",
+        &[
+            "PaymentsToAcquireAvailableForSaleSecurities",
+            "PaymentsToAcquireShortTermInvestments",
+            "PaymentsToAcquireInvestments",
+            "ProceedsFromSaleMaturityAndCollectionOfShorttermInvestments",
+            "ProceedsFromSaleAndMaturityOfAvailableForSaleSecurities",
+        ],
+    );
 
     m
 }
@@ -352,13 +444,39 @@ pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     m.insert("revenue", &["Revenue", "RevenueFromContractsWithCustomers"]);
     m.insert("cogs", &["CostOfSales", "CostOfMerchandiseSold"]);
     m.insert("gross_profit", &["GrossProfit"]);
-    m.insert("sga", &["SellingGeneralAndAdministrativeExpense", "AdministrativeExpense", "DistributionCosts"]);
+    m.insert(
+        "sga",
+        &[
+            "SellingGeneralAndAdministrativeExpense",
+            "AdministrativeExpense",
+            "DistributionCosts",
+        ],
+    );
     m.insert("rd", &["ResearchAndDevelopmentExpense"]);
-    m.insert("ebit", &["ProfitLossFromOperatingActivities", "OperatingIncomeLoss"]);
-    m.insert("interest_expense", &["FinanceCosts", "InterestExpenseOnBorrowings", "InterestExpense"]);
+    m.insert(
+        "ebit",
+        &["ProfitLossFromOperatingActivities", "OperatingIncomeLoss"],
+    );
+    m.insert(
+        "interest_expense",
+        &[
+            "FinanceCosts",
+            "InterestExpenseOnBorrowings",
+            "InterestExpense",
+        ],
+    );
     m.insert("interest_income", &["FinanceIncome", "RevenueFromInterest"]);
-    m.insert("income_tax", &["IncomeTaxExpenseContinuingOperations", "TaxExpenseIncomeRelatingToProfitLossFromOrdinaryActivities"]);
-    m.insert("net_income", &["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"]);
+    m.insert(
+        "income_tax",
+        &[
+            "IncomeTaxExpenseContinuingOperations",
+            "TaxExpenseIncomeRelatingToProfitLossFromOrdinaryActivities",
+        ],
+    );
+    m.insert(
+        "net_income",
+        &["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
+    );
     m.insert("da", &[
         "DepreciationAndAmortisationExpense",
         "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
@@ -366,24 +484,56 @@ pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     ]);
     m.insert("eps_basic", &["BasicEarningsLossPerShare"]);
     m.insert("eps_diluted", &["DilutedEarningsLossPerShare"]);
-    m.insert("shares_basic", &["WeightedAverageShares", "NumberOfSharesOutstanding"]);
-    m.insert("shares_diluted", &["AdjustedWeightedAverageShares", "WeightedAverageSharesDiluted"]);
+    m.insert(
+        "shares_basic",
+        &["WeightedAverageShares", "NumberOfSharesOutstanding"],
+    );
+    m.insert(
+        "shares_diluted",
+        &[
+            "AdjustedWeightedAverageShares",
+            "WeightedAverageSharesDiluted",
+        ],
+    );
     // Balance sheet
     m.insert("cash", &["CashAndCashEquivalents"]);
-    m.insert("accounts_receivable", &["TradeAndOtherCurrentReceivables", "CurrentTradeReceivables"]);
+    m.insert(
+        "accounts_receivable",
+        &["TradeAndOtherCurrentReceivables", "CurrentTradeReceivables"],
+    );
     m.insert("inventory", &["Inventories"]);
     m.insert("total_current_assets", &["CurrentAssets"]);
     m.insert("ppe_net", &["PropertyPlantAndEquipment"]);
     m.insert("goodwill", &["Goodwill"]);
     m.insert("intangibles_net", &["IntangibleAssetsOtherThanGoodwill"]);
     m.insert("total_assets", &["Assets"]);
-    m.insert("accounts_payable", &["TradeAndOtherCurrentPayables", "CurrentTradePayables"]);
+    m.insert(
+        "accounts_payable",
+        &["TradeAndOtherCurrentPayables", "CurrentTradePayables"],
+    );
     m.insert("total_current_liabilities", &["CurrentLiabilities"]);
-    m.insert("long_term_debt", &["NoncurrentBorrowings", "LongtermBorrowings", "NoncurrentPortionOfNoncurrentBorrowings"]);
-    m.insert("short_term_debt", &["CurrentBorrowings", "ShorttermBorrowings", "CurrentPortionOfLongtermBorrowings"]);
+    m.insert(
+        "long_term_debt",
+        &[
+            "NoncurrentBorrowings",
+            "LongtermBorrowings",
+            "NoncurrentPortionOfNoncurrentBorrowings",
+        ],
+    );
+    m.insert(
+        "short_term_debt",
+        &[
+            "CurrentBorrowings",
+            "ShorttermBorrowings",
+            "CurrentPortionOfLongtermBorrowings",
+        ],
+    );
     m.insert("total_liabilities", &["Liabilities"]);
     m.insert("retained_earnings", &["RetainedEarnings"]);
-    m.insert("total_equity", &["Equity", "EquityAttributableToOwnersOfParent"]);
+    m.insert(
+        "total_equity",
+        &["Equity", "EquityAttributableToOwnersOfParent"],
+    );
     // Cash flow
     m.insert("cfo", &["CashFlowsFromUsedInOperatingActivities"]);
     m.insert("capex", &[
@@ -392,10 +542,31 @@ pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     ]);
     m.insert("cfi", &["CashFlowsFromUsedInInvestingActivities"]);
     m.insert("cff", &["CashFlowsFromUsedInFinancingActivities"]);
-    m.insert("dividends_paid", &["DividendsPaidClassifiedAsFinancingActivities", "DividendsPaid"]);
-    m.insert("buybacks", &["PaymentsToAcquireOrRedeemEntitysShares", "PaymentsForRepurchaseOfEntitysEquityInstruments"]);
-    m.insert("net_change_cash", &["IncreaseDecreaseInCashAndCashEquivalents", "IncreaseDecreaseInCashAndCashEquivalentsBeforeEffectOfExchangeRateChanges"]);
-    m.insert("fx_effect_on_cash", &["EffectOfExchangeRateChangesOnCashAndCashEquivalents"]);
+    m.insert(
+        "dividends_paid",
+        &[
+            "DividendsPaidClassifiedAsFinancingActivities",
+            "DividendsPaid",
+        ],
+    );
+    m.insert(
+        "buybacks",
+        &[
+            "PaymentsToAcquireOrRedeemEntitysShares",
+            "PaymentsForRepurchaseOfEntitysEquityInstruments",
+        ],
+    );
+    m.insert(
+        "net_change_cash",
+        &[
+            "IncreaseDecreaseInCashAndCashEquivalents",
+            "IncreaseDecreaseInCashAndCashEquivalentsBeforeEffectOfExchangeRateChanges",
+        ],
+    );
+    m.insert(
+        "fx_effect_on_cash",
+        &["EffectOfExchangeRateChangesOnCashAndCashEquivalents"],
+    );
     m
 }
 
@@ -404,9 +575,15 @@ pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
 /// concept map, the matching canonical tag map, and the taxonomy name.
 pub fn select_taxonomy(
     facts: &Value,
-) -> Option<(&serde_json::Map<String, Value>, HashMap<&'static str, &'static [&'static str]>, &'static str)> {
+) -> Option<(
+    &serde_json::Map<String, Value>,
+    HashMap<&'static str, &'static [&'static str]>,
+    &'static str,
+)> {
     let us = facts.pointer("/facts/us-gaap").and_then(|v| v.as_object());
-    let ifrs = facts.pointer("/facts/ifrs-full").and_then(|v| v.as_object());
+    let ifrs = facts
+        .pointer("/facts/ifrs-full")
+        .and_then(|v| v.as_object());
     // Pick the taxonomy the company actually reports in — the one with more
     // concepts — so residual us-gaap stubs on an IFRS filer don't win.
     match (us, ifrs) {
@@ -459,8 +636,7 @@ pub fn parse_xbrl_to_raw_with_provenance(
     periods_historical: usize,
     currency: &str,
 ) -> Result<(ParsedXbrlData, HashMap<String, String>), XbrlParseError> {
-    let (gaap, tag_map, taxonomy) =
-        select_taxonomy(facts).ok_or(XbrlParseError::MissingGaap)?;
+    let (gaap, tag_map, taxonomy) = select_taxonomy(facts).ok_or(XbrlParseError::MissingGaap)?;
     // Anchor the target-year window to the company's latest reported annual FY
     // (from revenue), not the wall clock — so filers that haven't yet filed the
     // calendar-latest FY still extract. Fall back to the wall-clock default.
@@ -478,26 +654,56 @@ pub fn parse_xbrl_to_raw_with_provenance(
 
     // Define which canonical keys go to which statement
     let is_keys: &[&str] = &[
-        "revenue", "cogs", "gross_profit", "sga", "rd",
-        "ebit", "interest_expense", "interest_income", "income_tax",
-        "net_income", "da", "eps_basic", "eps_diluted",
-        "shares_basic", "shares_diluted",
+        "revenue",
+        "cogs",
+        "gross_profit",
+        "sga",
+        "rd",
+        "ebit",
+        "interest_expense",
+        "interest_income",
+        "income_tax",
+        "net_income",
+        "da",
+        "eps_basic",
+        "eps_diluted",
+        "shares_basic",
+        "shares_diluted",
     ];
     let bs_keys: &[&str] = &[
-        "cash", "accounts_receivable", "inventory", "total_current_assets",
-        "ppe_net", "goodwill", "intangibles_net", "total_assets",
-        "accounts_payable", "total_current_liabilities", "long_term_debt", "short_term_debt",
-        "total_liabilities", "retained_earnings", "total_equity", "redeemable_nci",
+        "cash",
+        "accounts_receivable",
+        "inventory",
+        "total_current_assets",
+        "ppe_net",
+        "goodwill",
+        "intangibles_net",
+        "total_assets",
+        "accounts_payable",
+        "total_current_liabilities",
+        "long_term_debt",
+        "short_term_debt",
+        "total_liabilities",
+        "retained_earnings",
+        "total_equity",
+        "redeemable_nci",
     ];
     let cfs_keys: &[&str] = &[
-        "cfo", "capex", "cfi", "cff", "dividends_paid",
-        "buybacks", "net_change_cash", "fx_effect_on_cash",
+        "cfo",
+        "capex",
+        "cfi",
+        "cff",
+        "dividends_paid",
+        "buybacks",
+        "net_change_cash",
+        "fx_effect_on_cash",
     ];
 
     // Extract each canonical key, recording the matched tag for provenance.
     for (keys, stmt) in [(is_keys, &mut is), (bs_keys, &mut bs), (cfs_keys, &mut cfs)] {
         for key in keys {
-            if let Some((tag, v)) = extract_tag_named(gaap, key, &tag_map, &target_years, currency) {
+            if let Some((tag, v)) = extract_tag_named(gaap, key, &tag_map, &target_years, currency)
+            {
                 stmt.insert(key.to_string(), v);
                 prov.insert(key.to_string(), format!("{taxonomy}:{tag}"));
             }
@@ -533,6 +739,35 @@ fn compute_target_years(periods_historical: usize) -> Vec<String> {
     compute_target_years_from(periods_historical, latest_fy)
 }
 
+/// A share-count line — its XBRL unit is `shares`, not a currency.
+fn is_share_count_key(key: &str) -> bool {
+    matches!(key, "shares_basic" | "shares_diluted")
+}
+
+/// A per-share ratio line (EPS) — its unit is e.g. `USD/shares`.
+fn is_per_share_key(key: &str) -> bool {
+    matches!(key, "eps_basic" | "eps_diluted")
+}
+
+/// Whether `unit_name` is an acceptable unit for `canonical_key` reported in
+/// `currency`. Monetary lines REQUIRE a currency-compatible monetary unit (the
+/// reporting currency code, never a `.../shares` ratio or a bare share count)
+/// even for USD, so a mixed USD/shares fact set selects the monetary fact rather
+/// than blindly taking whichever unit appears first.
+fn unit_is_acceptable(unit_name: &str, currency: &str, canonical_key: &str) -> bool {
+    if is_share_count_key(canonical_key) {
+        return unit_name.eq_ignore_ascii_case("shares");
+    }
+    if is_per_share_key(canonical_key) {
+        // A per-share ratio in the reporting currency, e.g. "USD/shares".
+        return unit_name.contains(currency) && unit_name.contains("shares");
+    }
+    // Monetary: names the currency and is neither a per-share ratio nor a count.
+    unit_name.contains(currency)
+        && !unit_name.contains('/')
+        && !unit_name.eq_ignore_ascii_case("shares")
+}
+
 /// Latest completed annual fiscal year present in the filings for `key` — the
 /// max end-year among ~1-year-duration 10-K/20-F facts. Anchors the target-year
 /// window to the company's own data, so a filer that hasn't yet filed the
@@ -551,10 +786,15 @@ fn latest_annual_year(
     };
     let mut latest: Option<i32> = None;
     for tag in tags {
-        let Some(entry) = gaap.get(*tag) else { continue };
-        let Some(units) = entry.get("units").and_then(|u| u.as_object()) else { continue };
+        let Some(entry) = gaap.get(*tag) else {
+            continue;
+        };
+        let Some(units) = entry.get("units").and_then(|u| u.as_object()) else {
+            continue;
+        };
         for (unit_name, vals) in units {
-            if !unit_name.contains(currency) && currency != "USD" {
+            // Anchor off a currency-compatible MONETARY revenue fact only.
+            if !unit_is_acceptable(unit_name, currency, "revenue") {
                 continue;
             }
             let Some(arr) = vals.as_array() else { continue };
@@ -572,7 +812,9 @@ fn latest_annual_year(
                 if let (Some(s), Some(e)) = (day(start), day(end)) {
                     let dur = e - s;
                     if (330..=400).contains(&dur) {
-                        if let Ok(y) = end[..4].parse::<i32>() {
+                        // Match on the PARSED end-date year (rejects malformed dates,
+                        // never panics on a short string, no year-substring guessing).
+                        if let Some((y, _, _)) = crate::date::parse_iso_date(end) {
                             latest = Some(latest.map_or(y, |m| m.max(y)));
                         }
                     }
@@ -598,31 +840,38 @@ fn extract_tag_named(
             if let Some(units) = entry.get("units").and_then(|u| u.as_object()) {
                 // Find the right unit (USD, EUR, etc.)
                 for (unit_name, values) in units {
-                    if !unit_name.contains(currency) && currency != "USD" {
+                    if !unit_is_acceptable(unit_name, currency, canonical_key) {
                         continue;
                     }
                     if let Some(arr) = values.as_array() {
-                        // Collect annual (10-K) values for target years
+                        // Collect annual (10-K/20-F) values for target years.
                         let mut result: Vec<Option<f64>> = Vec::new();
                         let mut all_found = true;
 
                         for year_str in target_years {
-                            let _year_val: i32 = year_str.parse().unwrap_or(0);
+                            let target_year: i32 = year_str.parse().unwrap_or(0);
                             let mut found = false;
                             for v in arr {
-                                if let Some(end) = v.get("end").and_then(|e| e.as_str()) {
-                                    // Check if this value is for the target year (FY end in that year)
-                                    if end.starts_with(year_str) || end.ends_with(year_str) {
-                                        if let Some(val) = v.get("val").and_then(|x| x.as_f64()) {
-                                            // Only accept 10-K filings
-                                            let form = v.get("form").and_then(|f| f.as_str()).unwrap_or("");
-                                            if form == "10-K" || form == "20-F" {
-                                                result.push(Some(val));
-                                                found = true;
-                                                break;
-                                            }
-                                        }
-                                    }
+                                let Some(end) = v.get("end").and_then(|e| e.as_str()) else {
+                                    continue;
+                                };
+                                // Match on the PARSED fiscal-year-end year, never a
+                                // year substring; a malformed reporting date is skipped.
+                                let Some((end_year, _, _)) = crate::date::parse_iso_date(end)
+                                else {
+                                    continue;
+                                };
+                                if end_year != target_year {
+                                    continue;
+                                }
+                                let form = v.get("form").and_then(|f| f.as_str()).unwrap_or("");
+                                if form != "10-K" && form != "20-F" {
+                                    continue;
+                                }
+                                if let Some(val) = v.get("val").and_then(|x| x.as_f64()) {
+                                    result.push(Some(val));
+                                    found = true;
+                                    break;
                                 }
                             }
                             if !found {
@@ -662,7 +911,10 @@ mod tests {
         let map = xbrl_tag_map();
         let rev_tags = map.get("revenue").expect("revenue entry");
         assert!(!rev_tags.is_empty());
-        assert_eq!(rev_tags[0], "RevenueFromContractWithCustomerExcludingAssessedTax");
+        assert_eq!(
+            rev_tags[0],
+            "RevenueFromContractWithCustomerExcludingAssessedTax"
+        );
     }
 
     #[test]
@@ -935,7 +1187,10 @@ mod deterministic_tests {
             prov.get("revenue").map(String::as_str),
             Some("us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax")
         );
-        assert_eq!(prov.get("net_income").map(String::as_str), Some("us-gaap:NetIncomeLoss"));
+        assert_eq!(
+            prov.get("net_income").map(String::as_str),
+            Some("us-gaap:NetIncomeLoss")
+        );
         // A key with no matching fact has no provenance entry.
         assert!(prov.get("goodwill").is_none());
         // parse_xbrl_to_raw (no-provenance wrapper) yields identical data.
@@ -972,6 +1227,80 @@ mod deterministic_tests {
             prov.get("net_income").map(String::as_str),
             Some("ifrs-full:ProfitLossAttributableToOwnersOfParent")
         );
-        assert_eq!(prov.get("revenue").map(String::as_str), Some("ifrs-full:Revenue"));
+        assert_eq!(
+            prov.get("revenue").map(String::as_str),
+            Some("ifrs-full:Revenue")
+        );
+    }
+
+    #[test]
+    fn unit_acceptance_requires_monetary_unit_even_for_usd() {
+        assert!(unit_is_acceptable("USD", "USD", "revenue"));
+        // Monetary line must NOT accept a share count or a per-share ratio.
+        assert!(!unit_is_acceptable("shares", "USD", "revenue"));
+        assert!(!unit_is_acceptable("USD/shares", "USD", "revenue"));
+        // Share-count line needs the "shares" unit, never the currency.
+        assert!(unit_is_acceptable("shares", "USD", "shares_diluted"));
+        assert!(!unit_is_acceptable("USD", "USD", "shares_diluted"));
+        // EPS is a per-share ratio in the reporting currency.
+        assert!(unit_is_acceptable("USD/shares", "USD", "eps_diluted"));
+        // Foreign monetary unit.
+        assert!(unit_is_acceptable("TWD", "TWD", "revenue"));
+    }
+
+    #[test]
+    fn extract_selects_monetary_unit_over_shares() {
+        // Revenue carries BOTH a bogus "shares" unit and the real "USD" monetary
+        // unit; the parser must pick the monetary fact, never the shares one.
+        let facts = serde_json::json!({
+            "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                "units": {
+                    "shares": [ {"end": "2024-12-31", "val": 222, "form": "10-K", "fp": "FY"} ],
+                    "USD":    [ {"end": "2024-12-31", "val": 5500, "form": "10-K", "fp": "FY"} ]
+                }
+            },
+            "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                "units": { "shares": [ {"end": "2024-12-31", "val": 920, "form": "10-K", "fp": "FY"} ] }
+            }
+        });
+        let gaap = facts.as_object().unwrap();
+        let map = xbrl_tag_map();
+        let years = ["2024".to_string()];
+        let rev = extract_tag_named(gaap, "revenue", &map, &years, "USD");
+        assert_eq!(
+            rev.map(|(_, v)| v),
+            Some(vec![Some(5500.0)]),
+            "must take the USD monetary fact"
+        );
+        let sh = extract_tag_named(gaap, "shares_diluted", &map, &years, "USD");
+        assert_eq!(
+            sh.map(|(_, v)| v),
+            Some(vec![Some(920.0)]),
+            "share count from the shares unit"
+        );
+    }
+
+    #[test]
+    fn extract_rejects_malformed_end_date() {
+        // A well-formed 2024 fact and a malformed 2025 fact ("month 13"). Old code
+        // matched target 2025 via `end.starts_with("2025")`; the parsed-date path
+        // must reject the malformed period entirely.
+        let facts = serde_json::json!({
+            "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                "units": { "USD": [
+                    {"end": "2024-12-31", "val": 100, "form": "10-K", "fp": "FY"},
+                    {"end": "2025-13-45", "val": 120, "form": "10-K", "fp": "FY"}
+                ]}
+            }
+        });
+        let gaap = facts.as_object().unwrap();
+        let map = xbrl_tag_map();
+        let ok = extract_tag_named(gaap, "revenue", &map, &["2024".to_string()], "USD");
+        assert_eq!(ok.map(|(_, v)| v), Some(vec![Some(100.0)]));
+        let bad = extract_tag_named(gaap, "revenue", &map, &["2025".to_string()], "USD");
+        assert!(
+            bad.is_none(),
+            "malformed 2025 end date must not match target 2025"
+        );
     }
 }

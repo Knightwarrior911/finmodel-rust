@@ -2,7 +2,7 @@ pub mod engine;
 pub mod ledger;
 pub mod recon;
 
-pub use engine::ModelEngine;
+pub use engine::{ModelEngine, default_driver};
 pub use fm_types::{
     CompanyConfig, Ledger, LedgerEntry, ProjectedStatements, ReconciledData, StatementData,
     TrustTier,

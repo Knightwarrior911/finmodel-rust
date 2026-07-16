@@ -4,8 +4,30 @@
 //! Derives assumptions from historical data, then projects forward with WC days,
 //! capex, D&A, and A = L + E discipline.
 
-use std::collections::HashMap;
 use fm_types::{CompanyConfig, ProjectedStatements, ReconciledData, StatementData};
+use std::collections::HashMap;
+
+/// Per-key fallback used when the engine derived no scalar for a projection
+/// driver. This is the ONE definition of the projection defaults — `project`
+/// expands it and `fm_build::resolve_projection_drivers` consumes it, so the two
+/// can never drift apart.
+pub fn default_driver(key: &str) -> f64 {
+    match key {
+        "revenue_growth" => 0.03,
+        "gross_margin" => 0.30,
+        "sga_pct_rev" => 0.10,
+        "rd_pct_rev" => 0.05,
+        "da_pct_rev" => 0.04,
+        "capex_pct_rev" => 0.05,
+        "tax_rate" => 0.21,
+        "interest_rate_pct" => 0.035,
+        "dso_days" => 45.0,
+        "dio_days" => 60.0,
+        "dpo_days" => 50.0,
+        "dividend_per_share" => 0.0,
+        _ => 0.0,
+    }
+}
 
 pub struct ModelEngine {
     pub data: ReconciledData,
@@ -21,23 +43,37 @@ impl ModelEngine {
     fn avg(values: &[f64]) -> f64 {
         // Matches engine.py _avg: mean of the last 3 values (all, if fewer).
         let s = &values[values.len().saturating_sub(3)..];
-        if s.is_empty() { 0.0 } else { s.iter().sum::<f64>() / s.len() as f64 }
+        if s.is_empty() {
+            0.0
+        } else {
+            s.iter().sum::<f64>() / s.len() as f64
+        }
     }
 
     fn pct_growth_avg(values: &[Option<f64>]) -> f64 {
         let valid: Vec<f64> = values.iter().filter_map(|v| *v).collect();
-        if valid.len() < 2 { return 0.0; }
+        if valid.len() < 2 {
+            return 0.0;
+        }
         let mut total = 0.0;
         let mut cnt = 0;
         for i in 1..valid.len() {
             let prev = valid[i - 1];
-            if prev.abs() > 1e-9 { total += (valid[i] - prev) / prev; cnt += 1; }
+            if prev.abs() > 1e-9 {
+                total += (valid[i] - prev) / prev;
+                cnt += 1;
+            }
         }
         if cnt == 0 { 0.0 } else { total / cnt as f64 }
     }
 
     fn last_or(values: &[Option<f64>], default: f64) -> f64 {
-        values.iter().rev().filter_map(|v| *v).next().unwrap_or(default)
+        values
+            .iter()
+            .rev()
+            .filter_map(|v| *v)
+            .next()
+            .unwrap_or(default)
     }
 
     #[allow(dead_code)]
@@ -49,16 +85,21 @@ impl ModelEngine {
         // Average of per-year ratios (matches engine.py _days), not just the
         // last year — otherwise DSO/DIO/DPO diverge on companies whose latest
         // year differs from the historical average.
-        let ratios: Vec<f64> = bal.iter().zip(flow.iter())
+        let ratios: Vec<f64> = bal
+            .iter()
+            .zip(flow.iter())
             .filter_map(|(b, f)| match (b, f) {
                 (Some(bv), Some(fv)) if *fv != 0.0 => Some(bv / fv * 365.0),
                 _ => None,
-            }).collect();
+            })
+            .collect();
         Self::avg(&ratios)
     }
 
     #[allow(dead_code)]
-    fn vec_or(def: f64, len: usize) -> Vec<f64> { vec![def; len] }
+    fn vec_or(def: f64, len: usize) -> Vec<f64> {
+        vec![def; len]
+    }
 
     // ── Assumption derivation ──────────────────────────────────────────
     pub fn derive_assumptions(&self) -> HashMap<String, f64> {
@@ -67,8 +108,12 @@ impl ModelEngine {
         let bs = &self.data.balance_sheet;
         let cf = &self.data.cash_flow_statement;
         let rev = is.get("revenue").or_else(|| is.get("total_revenue"));
-        let rv = rev.map(|r| r.iter().filter_map(|v| *v).collect::<Vec<_>>()).unwrap_or_default();
-        if rv.len() < 2 { return a; }
+        let rv = rev
+            .map(|r| r.iter().filter_map(|v| *v).collect::<Vec<_>>())
+            .unwrap_or_default();
+        if rv.len() < 2 {
+            return a;
+        }
 
         let base_growth = Self::pct_growth_avg(rev.unwrap()).max(-0.10);
         a.insert("revenue_growth".into(), base_growth);
@@ -78,80 +123,132 @@ impl ModelEngine {
         // gross_margin = 0, which projects a low/negative-margin scenario — this
         // is the NESN case where the reference projects a loss.
         if let Some(gp) = is.get("gross_profit") {
-            let r: Vec<f64> = rv.iter().zip(gp.iter())
-                .filter_map(|(r, g)| match g { Some(gv) if *r > 1e-9 => Some(gv / r), _ => None }).collect();
-            a.insert("gross_margin".into(), if r.is_empty() { 0.0 } else { Self::avg(&r) });
+            let r: Vec<f64> = rv
+                .iter()
+                .zip(gp.iter())
+                .filter_map(|(r, g)| match g {
+                    Some(gv) if *r > 1e-9 => Some(gv / r),
+                    _ => None,
+                })
+                .collect();
+            a.insert(
+                "gross_margin".into(),
+                if r.is_empty() { 0.0 } else { Self::avg(&r) },
+            );
         } else {
             a.insert("gross_margin".into(), 0.0);
         }
 
         for (key, src) in &[("sga_pct_rev", "sga"), ("rd_pct_rev", "rd")] {
             if let Some(vals) = is.get(*src) {
-                let r: Vec<f64> = rv.iter().zip(vals.iter())
-                    .filter_map(|(r, v)| match v { Some(vv) if *r > 1e-9 => Some(vv / r), _ => None }).collect();
-                if !r.is_empty() { a.insert(key.to_string(), Self::avg(&r)); }
+                let r: Vec<f64> = rv
+                    .iter()
+                    .zip(vals.iter())
+                    .filter_map(|(r, v)| match v {
+                        Some(vv) if *r > 1e-9 => Some(vv / r),
+                        _ => None,
+                    })
+                    .collect();
+                if !r.is_empty() {
+                    a.insert(key.to_string(), Self::avg(&r));
+                }
             }
         }
 
         // D&A from income_statement "da", fallback cash_flow "depreciation"/"da_add_back"
         let da_is = is.get("da");
         if let Some(da) = da_is {
-            let r: Vec<f64> = rv.iter().zip(da.iter())
-                .filter_map(|(r, d)| match d { Some(dv) if *r > 1e-9 => Some(dv / r), _ => None }).collect();
-            if !r.is_empty() { a.insert("da_pct_rev".into(), Self::avg(&r)); }
+            let r: Vec<f64> = rv
+                .iter()
+                .zip(da.iter())
+                .filter_map(|(r, d)| match d {
+                    Some(dv) if *r > 1e-9 => Some(dv / r),
+                    _ => None,
+                })
+                .collect();
+            if !r.is_empty() {
+                a.insert("da_pct_rev".into(), Self::avg(&r));
+            }
         }
         if !a.contains_key("da_pct_rev") {
             for alt_key in &["depreciation", "da_add_back"] {
-                if let Some(_depr) = cf.get(*alt_key) {
-                }
+                if let Some(_depr) = cf.get(*alt_key) {}
             }
         }
 
         // Capex from cash flow (handle negative values)
         if let Some(capex) = cf.get("capex") {
-            let r: Vec<f64> = rv.iter().zip(capex.iter())
+            let r: Vec<f64> = rv
+                .iter()
+                .zip(capex.iter())
                 .filter_map(|(r, c)| match c {
                     Some(cv) if *r > 1e-9 => Some(if *cv < 0.0 { -cv / r } else { cv / r }),
-                    _ => None
-                }).collect();
-            if !r.is_empty() { a.insert("capex_pct_rev".into(), Self::avg(&r)); }
+                    _ => None,
+                })
+                .collect();
+            if !r.is_empty() {
+                a.insert("capex_pct_rev".into(), Self::avg(&r));
+            }
         }
 
         // Effective tax rate = tax / (net_income + tax) averaged over history
         // (matches engine.py). Using the extracted pre_tax_income field instead
         // diverges when it isn't exactly net_income + income_tax.
         if let (Some(ni), Some(tax)) = (is.get("net_income"), is.get("income_tax")) {
-            let r: Vec<f64> = ni.iter().zip(tax.iter())
+            let r: Vec<f64> = ni
+                .iter()
+                .zip(tax.iter())
                 .filter_map(|(n, t)| match (n, t) {
                     (Some(nv), Some(tv)) => {
                         let denom = nv + tv;
-                        if denom != 0.0 && tv / denom >= 0.0 { Some(tv / denom) } else { None }
+                        if denom != 0.0 && tv / denom >= 0.0 {
+                            Some(tv / denom)
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
-                }).collect();
-            a.insert("tax_rate".into(), (if r.is_empty() { 0.21 } else { Self::avg(&r) }).max(0.05));
-        } else { a.insert("tax_rate".into(), 0.21); }
+                })
+                .collect();
+            a.insert(
+                "tax_rate".into(),
+                (if r.is_empty() { 0.21 } else { Self::avg(&r) }).max(0.05),
+            );
+        } else {
+            a.insert("tax_rate".into(), 0.21);
+        }
 
         a.insert("interest_rate_pct".into(), 0.035);
 
-        if let Some(ar) = bs.get("accounts_receivable") { a.insert("dso_days".into(), Self::days(ar, rev.unwrap())); }
+        if let Some(ar) = bs.get("accounts_receivable") {
+            a.insert("dso_days".into(), Self::days(ar, rev.unwrap()));
+        }
         if let (Some(inv), Some(cgs)) = (bs.get("inventory"), is.get("cogs")) {
-            let d = Self::days(inv, cgs); a.insert("dio_days".into(), if d > 365.0 { 0.0 } else { d });
+            let d = Self::days(inv, cgs);
+            a.insert("dio_days".into(), if d > 365.0 { 0.0 } else { d });
         }
         if let (Some(ap), Some(cgs)) = (bs.get("accounts_payable"), is.get("cogs")) {
-            let d = Self::days(ap, cgs); a.insert("dpo_days".into(), if d > 365.0 { 0.0 } else { d });
+            let d = Self::days(ap, cgs);
+            a.insert("dpo_days".into(), if d > 365.0 { 0.0 } else { d });
         }
-        if let Some(sh) = is.get("shares_diluted") { a.insert("shares_diluted".into(), Self::last_or(sh, 0.0)); }
+        if let Some(sh) = is.get("shares_diluted") {
+            a.insert("shares_diluted".into(), Self::last_or(sh, 0.0));
+        }
         // dividend_per_share = avg over history of dividends_paid / shares_diluted
         // (matches engine.py). Without it the engine pays no dividends, so cash
         // and equity drift high vs the Python reference.
         if let (Some(divs), Some(sh)) = (cf.get("dividends_paid"), is.get("shares_diluted")) {
-            let r: Vec<f64> = divs.iter().zip(sh.iter())
+            let r: Vec<f64> = divs
+                .iter()
+                .zip(sh.iter())
                 .filter_map(|(d, s)| match s {
                     Some(sv) if *sv != 0.0 => Some(d.unwrap_or(0.0) / sv),
                     _ => None,
-                }).collect();
-            if !r.is_empty() { a.insert("dividend_per_share".into(), Self::avg(&r)); }
+                })
+                .collect();
+            if !r.is_empty() {
+                a.insert("dividend_per_share".into(), Self::avg(&r));
+            }
         }
 
         a
@@ -164,41 +261,70 @@ impl ModelEngine {
         let np = proj_years;
 
         let last_period = self.data.periods.last().cloned().unwrap_or_default();
-        let base_year: i32 = last_period.chars().take(4).collect::<String>().parse().unwrap_or(2024);
-        let periods: Vec<String> = (1..=np as i32).map(|i| format!("{}", base_year + i)).collect();
+        let base_year: i32 = last_period
+            .chars()
+            .take(4)
+            .collect::<String>()
+            .parse()
+            .unwrap_or(2024);
+        let periods: Vec<String> = (1..=np as i32)
+            .map(|i| format!("{}", base_year + i))
+            .collect();
 
         // Per-year vectors from assumptions, or expand scalar default
-        let vec_or = |key: &str, def: f64| -> Vec<f64> {
-            assumptions.get(key).cloned().unwrap_or_else(|| vec![scalar.get(key).copied().unwrap_or(def); np])
+        let vec_or = |key: &str| -> Vec<f64> {
+            assumptions.get(key).cloned().unwrap_or_else(|| {
+                vec![
+                    scalar
+                        .get(key)
+                        .copied()
+                        .unwrap_or_else(|| default_driver(key));
+                    np
+                ]
+            })
         };
 
-        let rev_growth = vec_or("revenue_growth", 0.03);
-        let gross_margin = vec_or("gross_margin", 0.30);
-        let sga_pct = vec_or("sga_pct_rev", 0.10);
-        let rd_pct = vec_or("rd_pct_rev", 0.05);
-        let da_pct = vec_or("da_pct_rev", 0.04);
-        let capex_pct = vec_or("capex_pct_rev", 0.05);
-        let tax_rate = vec_or("tax_rate", 0.21);
-        let int_rate = vec_or("interest_rate_pct", 0.035);
-        let dso_days = vec_or("dso_days", 45.0);
-        let dio_days = vec_or("dio_days", 60.0);
-        let dpo_days = vec_or("dpo_days", 50.0);
-        let div_per_share = vec_or("dividend_per_share", 0.0);
+        let rev_growth = vec_or("revenue_growth");
+        let gross_margin = vec_or("gross_margin");
+        let sga_pct = vec_or("sga_pct_rev");
+        let rd_pct = vec_or("rd_pct_rev");
+        let da_pct = vec_or("da_pct_rev");
+        let capex_pct = vec_or("capex_pct_rev");
+        let tax_rate = vec_or("tax_rate");
+        let int_rate = vec_or("interest_rate_pct");
+        let dso_days = vec_or("dso_days");
+        let dio_days = vec_or("dio_days");
+        let dpo_days = vec_or("dpo_days");
+        let div_per_share = vec_or("dividend_per_share");
         let shares = scalar.get("shares_diluted").copied().unwrap_or(0.0);
 
         // Last historical values
         let hist_is = &self.data.income_statement;
         let hist_bs = &self.data.balance_sheet;
-        let lr = Self::last_or(hist_is.get("revenue").or_else(|| hist_is.get("total_revenue")).unwrap_or(&vec![]), 0.0);
+        let lr = Self::last_or(
+            hist_is
+                .get("revenue")
+                .or_else(|| hist_is.get("total_revenue"))
+                .unwrap_or(&vec![]),
+            0.0,
+        );
         let lc = Self::last_or(hist_bs.get("cash").unwrap_or(&vec![]), 0.0);
         let lar = Self::last_or(hist_bs.get("accounts_receivable").unwrap_or(&vec![]), 0.0);
         let linv = Self::last_or(hist_bs.get("inventory").unwrap_or(&vec![]), 0.0);
         let lap = Self::last_or(hist_bs.get("accounts_payable").unwrap_or(&vec![]), 0.0);
-        let lppe = Self::last_or(hist_bs.get("ppe_net").or_else(|| hist_bs.get("pp_and_e")).unwrap_or(&vec![]), 0.0);
+        let lppe = Self::last_or(
+            hist_bs
+                .get("ppe_net")
+                .or_else(|| hist_bs.get("pp_and_e"))
+                .unwrap_or(&vec![]),
+            0.0,
+        );
         let lltd = Self::last_or(hist_bs.get("long_term_debt").unwrap_or(&vec![]), 0.0);
         let lgdwl = Self::last_or(hist_bs.get("goodwill").unwrap_or(&vec![]), 0.0);
 
-        let a = |m: &mut StatementData, k: &str, v: Vec<Option<f64>>| { m.insert(k.into(), v); };
+        let a = |m: &mut StatementData, k: &str, v: Vec<Option<f64>>| {
+            m.insert(k.into(), v);
+        };
         let mut is_out = StatementData::new();
         let mut bs_out = StatementData::new();
         let mut cf_out = StatementData::new();
@@ -247,11 +373,23 @@ impl ModelEngine {
             let ni = ebt - tax;
 
             let dso = dso_days[i];
-            let ar = if dso > 0.0 { rev / 365.0 * dso } else { prev_ar };
+            let ar = if dso > 0.0 {
+                rev / 365.0 * dso
+            } else {
+                prev_ar
+            };
             let dio = dio_days[i];
-            let inv = if cogs > 0.0 && dio > 0.0 { cogs / 365.0 * dio } else { prev_inv };
+            let inv = if cogs > 0.0 && dio > 0.0 {
+                cogs / 365.0 * dio
+            } else {
+                prev_inv
+            };
             let dpo_val = dpo_days[i];
-            let ap = if cogs > 0.0 && dpo_val > 0.0 { cogs / 365.0 * dpo_val } else { prev_ap };
+            let ap = if cogs > 0.0 && dpo_val > 0.0 {
+                cogs / 365.0 * dpo_val
+            } else {
+                prev_ap
+            };
 
             let capex = rev * capex_pct[i];
             let ppe = prev_ppe + capex - da;
@@ -313,7 +451,11 @@ impl ModelEngine {
         a(&mut bs_out, "inventory", inv_v);
         a(&mut bs_out, "accounts_payable", ap_v);
         a(&mut bs_out, "pp_and_e", ppe_v);
-        a(&mut bs_out, "goodwill", (0..np).map(|_| Some(lgdwl)).collect());
+        a(
+            &mut bs_out,
+            "goodwill",
+            (0..np).map(|_| Some(lgdwl)).collect(),
+        );
 
         // Balance-sheet aggregates — match the Python reference (engine.py) exactly:
         //   total_liabilities = AP + LTD + other_liab_hist  (non-modeled liabs held flat)
@@ -348,7 +490,12 @@ impl ModelEngine {
         a(&mut cf_out, "depreciation", da_v);
         a(&mut cf_out, "capex", capex_v);
 
-        ProjectedStatements { periods, income_statement: is_out, balance_sheet: bs_out, cash_flow: cf_out }
+        ProjectedStatements {
+            periods,
+            income_statement: is_out,
+            balance_sheet: bs_out,
+            cash_flow: cf_out,
+        }
     }
 }
 
@@ -359,32 +506,67 @@ mod tests {
 
     fn sample_data() -> ReconciledData {
         let mut is = StatementData::new();
-        is.insert("revenue".into(), vec![Some(1000.0), Some(1100.0), Some(1210.0)]);
+        is.insert(
+            "revenue".into(),
+            vec![Some(1000.0), Some(1100.0), Some(1210.0)],
+        );
         is.insert("cogs".into(), vec![Some(600.0), Some(660.0), Some(726.0)]);
         is.insert("sga".into(), vec![Some(100.0), Some(110.0), Some(121.0)]);
         is.insert("rd".into(), vec![Some(50.0), Some(55.0), Some(60.0)]);
         is.insert("da".into(), vec![Some(40.0), Some(44.0), Some(48.0)]);
-        is.insert("pre_tax_income".into(), vec![Some(210.0), Some(231.0), Some(255.0)]);
-        is.insert("income_tax".into(), vec![Some(42.0), Some(46.0), Some(51.0)]);
-        is.insert("gross_profit".into(), vec![Some(400.0), Some(440.0), Some(484.0)]);
+        is.insert(
+            "pre_tax_income".into(),
+            vec![Some(210.0), Some(231.0), Some(255.0)],
+        );
+        is.insert(
+            "income_tax".into(),
+            vec![Some(42.0), Some(46.0), Some(51.0)],
+        );
+        is.insert(
+            "gross_profit".into(),
+            vec![Some(400.0), Some(440.0), Some(484.0)],
+        );
 
         let mut bs = StatementData::new();
         bs.insert("cash".into(), vec![Some(100.0), Some(150.0), Some(200.0)]);
-        bs.insert("accounts_receivable".into(), vec![Some(80.0), Some(90.0), Some(100.0)]);
+        bs.insert(
+            "accounts_receivable".into(),
+            vec![Some(80.0), Some(90.0), Some(100.0)],
+        );
         bs.insert("inventory".into(), vec![Some(60.0), Some(65.0), Some(70.0)]);
-        bs.insert("accounts_payable".into(), vec![Some(40.0), Some(45.0), Some(50.0)]);
-        bs.insert("total_assets".into(), vec![Some(500.0), Some(550.0), Some(600.0)]);
-        bs.insert("total_liabilities".into(), vec![Some(250.0), Some(270.0), Some(300.0)]);
-        bs.insert("total_equity".into(), vec![Some(250.0), Some(280.0), Some(300.0)]);
-        bs.insert("long_term_debt".into(), vec![Some(150.0), Some(150.0), Some(150.0)]);
-        bs.insert("ppe_net".into(), vec![Some(200.0), Some(210.0), Some(220.0)]);
+        bs.insert(
+            "accounts_payable".into(),
+            vec![Some(40.0), Some(45.0), Some(50.0)],
+        );
+        bs.insert(
+            "total_assets".into(),
+            vec![Some(500.0), Some(550.0), Some(600.0)],
+        );
+        bs.insert(
+            "total_liabilities".into(),
+            vec![Some(250.0), Some(270.0), Some(300.0)],
+        );
+        bs.insert(
+            "total_equity".into(),
+            vec![Some(250.0), Some(280.0), Some(300.0)],
+        );
+        bs.insert(
+            "long_term_debt".into(),
+            vec![Some(150.0), Some(150.0), Some(150.0)],
+        );
+        bs.insert(
+            "ppe_net".into(),
+            vec![Some(200.0), Some(210.0), Some(220.0)],
+        );
         bs.insert("goodwill".into(), vec![Some(50.0), Some(50.0), Some(50.0)]);
 
         let mut cf = StatementData::new();
         cf.insert("capex".into(), vec![Some(-30.0), Some(-35.0), Some(-40.0)]);
 
         ReconciledData {
-            income_statement: is, balance_sheet: bs, cash_flow_statement: cf,
+            income_statement: is,
+            balance_sheet: bs,
+            cash_flow_statement: cf,
             periods: vec!["2023".into(), "2024".into(), "2025".into()],
             currency: "USD".into(),
         }
@@ -392,11 +574,25 @@ mod tests {
 
     #[test]
     fn derive_all_assumptions() {
-        let engine = ModelEngine::new(sample_data(), CompanyConfig {
-            name: "TestCo".into(), hist_periods: 3, proj_periods: 3, ..Default::default()
-        });
+        let engine = ModelEngine::new(
+            sample_data(),
+            CompanyConfig {
+                name: "TestCo".into(),
+                hist_periods: 3,
+                proj_periods: 3,
+                ..Default::default()
+            },
+        );
         let a = engine.derive_assumptions();
-        for key in &["revenue_growth", "gross_margin", "sga_pct_rev", "da_pct_rev", "tax_rate", "dso_days", "capex_pct_rev"] {
+        for key in &[
+            "revenue_growth",
+            "gross_margin",
+            "sga_pct_rev",
+            "da_pct_rev",
+            "tax_rate",
+            "dso_days",
+            "capex_pct_rev",
+        ] {
             assert!(a.contains_key(*key), "missing {}", key);
         }
         assert!((a["revenue_growth"] - 0.10).abs() < 0.01);
@@ -405,18 +601,32 @@ mod tests {
 
     #[test]
     fn project_balance_sheet_sanity() {
-        let engine = ModelEngine::new(sample_data(), CompanyConfig {
-            name: "TestCo".into(), hist_periods: 3, proj_periods: 3, ..Default::default()
-        });
+        let engine = ModelEngine::new(
+            sample_data(),
+            CompanyConfig {
+                name: "TestCo".into(),
+                hist_periods: 3,
+                proj_periods: 3,
+                ..Default::default()
+            },
+        );
         let s = engine.derive_assumptions();
-        let ass: HashMap<String, Vec<f64>> = s.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
+        let ass: HashMap<String, Vec<f64>> =
+            s.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
         let p = engine.project(&ass);
         assert_eq!(p.periods.len(), 3);
         for i in 0..3 {
             let ta = p.balance_sheet["total_assets"][i].unwrap_or(0.0);
             let tl = p.balance_sheet["total_liabilities"][i].unwrap_or(0.0);
             let te = p.balance_sheet["total_equity"][i].unwrap_or(0.0);
-            assert!((ta - tl - te).abs() < 0.05, "A != L+E at {}: {} != {} + {}", p.periods[i], ta, tl, te);
+            assert!(
+                (ta - tl - te).abs() < 0.05,
+                "A != L+E at {}: {} != {} + {}",
+                p.periods[i],
+                ta,
+                tl,
+                te
+            );
         }
     }
 }

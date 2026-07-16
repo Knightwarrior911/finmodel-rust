@@ -26,7 +26,14 @@ pub struct BenchOpts {
 
 impl Default for BenchOpts {
     fn default() -> Self {
-        Self { period: "annual".into(), multiples: false, usd: false, title: None, out_path: None, deck: false }
+        Self {
+            period: "annual".into(),
+            multiples: false,
+            usd: false,
+            title: None,
+            out_path: None,
+            deck: false,
+        }
     }
 }
 
@@ -44,7 +51,11 @@ pub async fn benchmark_peers(
         .map_err(|e| AppError::Engine(format!("benchmark task failed: {e}")))?
 }
 
-pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: BenchOpts) -> AppResult<String> {
+pub(crate) fn benchmark_blocking(
+    app: &tauri::AppHandle,
+    tickers: &str,
+    opts: BenchOpts,
+) -> AppResult<String> {
     let list: Vec<String> = tickers
         .split(',')
         .map(|t| t.trim().to_uppercase())
@@ -106,7 +117,10 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
             };
             std::fs::create_dir_all(&out_dir)?;
             let stem = stem_for(&list);
-            (out_dir.join(format!("{stem}.xlsx")), out_dir.join(format!("{stem}.csv")))
+            (
+                out_dir.join(format!("{stem}.xlsx")),
+                out_dir.join(format!("{stem}.csv")),
+            )
         };
     if let Some(parent) = xlsx_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -125,7 +139,11 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
         sset.recent.retain(|r| r.path != p);
         sset.recent.insert(
             0,
-            RecentEntry { path: p, label: format!("Benchmark — {}", list.join(", ")), when: fm_extract::today_iso() },
+            RecentEntry {
+                path: p,
+                label: format!("Benchmark — {}", list.join(", ")),
+                when: fm_extract::today_iso(),
+            },
         );
         sset.recent.truncate(10);
         let _ = write_settings(app, &sset);
@@ -162,7 +180,10 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
     let mut pptx_path = serde_json::Value::Null;
     if opts.deck {
         let deck_out = xlsx_path.with_file_name(format!("{}_deck.pptx", stem_for(&list)));
-        let pct = |v: Option<f64>| v.map(|x| format!("{:.1}%", x * 100.0)).unwrap_or_else(|| "—".into());
+        let pct = |v: Option<f64>| {
+            v.map(|x| format!("{:.1}%", x * 100.0))
+                .unwrap_or_else(|| "—".into())
+        };
         let headers = vec![
             "Ticker".to_string(),
             "Revenue (M)".to_string(),
@@ -177,15 +198,22 @@ pub(crate) fn benchmark_blocking(app: &tauri::AppHandle, tickers: &str, opts: Be
             .map(|m| {
                 vec![
                     m.ticker.clone(),
-                    m.revenue.map(|v| format!("{:.0}", v / 1_000_000.0)).unwrap_or_else(|| "—".into()),
+                    m.revenue
+                        .map(|v| format!("{:.0}", v / 1_000_000.0))
+                        .unwrap_or_else(|| "—".into()),
                     pct(m.ebitda_margin),
                     pct(m.net_margin),
                     pct(m.roe),
                 ]
             })
             .collect();
-        match fm_pptx::writer::deck::write_benchmark_deck(&title, &headers, &drows, &fm_extract::today_iso())
-            .and_then(|d| d.save(&deck_out.to_string_lossy()))
+        match fm_pptx::writer::deck::write_benchmark_deck(
+            &title,
+            &headers,
+            &drows,
+            &fm_extract::today_iso(),
+        )
+        .and_then(|d| d.save(&deck_out.to_string_lossy()))
         {
             Ok(p) => pptx_path = serde_json::Value::String(p),
             Err(e) => eprintln!("warning: benchmark deck not written ({e})"),
@@ -211,7 +239,11 @@ fn stem_for(list: &[String]) -> String {
     let joined: String = list
         .iter()
         .take(4)
-        .map(|t| t.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>())
+        .map(|t| {
+            t.chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("_");
     if joined.is_empty() {

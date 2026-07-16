@@ -1,6 +1,70 @@
 # Changelog
 
 
+## Unreleased — research-first release line
+
+The next release turns finmodel from a model-builder into a **research-first
+copilot**: a factual/current question returns a source-grounded, cited answer
+that stays reliable even when the selected model has weak or no native
+tool-calling. The same line closes verified data-integrity, latency,
+accessibility, CI, and release-safety gaps. Workspace, desktop-app, and mock-DOM
+UI test suites are green; the current desktop debug build was smoke-tested over
+CDP (WebView2) — direct IPC and the analyst UI path, not yet the signed installer.
+
+### Research copilot (tool execution + research engine + latency)
+- **Typed intent router with precedence + weak-model fallback.** Each turn is
+  resolved to a typed intent (research / filing / news / build / benchmark /
+  quote / direct answer); a model that can't call tools is routed deterministically
+  to the same real action instead of emitting a fabricated answer. One tool
+  registry owns schemas, typed args, validation, and execution; OpenRouter tool
+  exposure is capability-gated on `supported_parameters`.
+- **Pure `ResearchMachine` reducer + async driver.** A bounded search→read→
+  synthesize cascade over the existing fetch/MCP infrastructure, with
+  untrusted-page SSRF/injection neutralization, bounded weak-model synthesis with
+  validation, deterministic `S#`-ordered events/cards, run ownership with
+  streaming + cancellation, pooled clients, bounded caches, bounded parallelism,
+  and retry-as-new-run.
+
+### Analyst UX + workflows
+- Cited answers render as normal assistant messages with a consulted-source tray
+  and an in-app reader (loading / blocked / no-match / recovery states). Dialogs,
+  sidebar, and conversation controls carry full modal a11y (role/aria-modal,
+  focus trap + return, Escape, `aria-expanded`/`inert`, live-region announcements).
+  Responsive desktop shell; honest onboarding that states what the current model
+  and key can and cannot do. Filing Q&A, company brief, earnings review, and
+  comparison/deal modes plus an `fm research` CLI; a suggested-assumption review
+  bridge carries research provenance chat→workbook.
+
+### Data integrity (Phase 6)
+- **Two-outcome extraction gate.** Unsafe extractions (non-finite values,
+  inconsistent vectors, empty / duplicate / out-of-order / unparseable periods,
+  invalid currency) BLOCK workbook creation; a merely-imbalanced-but-finite
+  extraction still builds but is flagged.
+- **Real Verification.** The workbook's Verification report is now computed —
+  balance-sheet identity `A = L + E` over each historical period, extraction
+  discrepancies, and DCF/WACC structural checks — `passed` is true only when there
+  are no critical failures, never a default placeholder.
+- **Unified source-audit.** The Sources tab renders a typed audit row per
+  research-sourced driver (line item, period, value, origin, `S#` evidence,
+  per-row verification status); empty by default so committed snapshots stay
+  byte-identical.
+- **Sector honesty.** Bank / insurer / REIT / utility builds declare "layout
+  supported; projection methodology not yet sector-specific" in both the workbook
+  and the returned warnings — no half-built sector projection ships.
+- **EV / IFRS / tie-out are desktop-reachable.** The enterprise-value bridge, the
+  IFRS↔US-GAAP lease bridge, and the ground-truth tie-out score (previously
+  CLI-only) are exposed as an Analyst-tools panel backed by `fm-value` /
+  `fm-ifrs` / `fm-tieout`, kept out of the flat LLM tool list.
+
+### CI, evals, and release safety (Phase 7)
+- CI runs least-privilege (`permissions: contents: read`), with a research-eval
+  **hard gate**, a Windows job exercising the desktop app's Tauri IPC layer, and
+  the jsdom UI regression suite.
+- Release checklist corrected end-to-end: Tauri version lockstep as the source of
+  truth, tag-only-after-green-CI ordering, post-release endpoint verification, and
+  an executable rollback procedure (stop-the-bleed via re-flagging Latest + roll
+  forward with a signed hotfix).
+
 ## v0.4.0 — 2026-07-15
 
 ### Sellable-feature expansion (seven independent workstreams)

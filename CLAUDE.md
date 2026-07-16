@@ -1,6 +1,42 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.4.0 sellable-feature expansion, LIVE (current, 2026-07-15)
+## HANDOVER — research-first release line, WORKING TREE (current)
+**Branch `master`, uncommitted.** The research-first roadmap (Phases 0–7) is
+implemented in the working tree — NOT yet committed, tagged, or released. `v0.4.0`
+remains the live release until a signed build ships. All test suites are green:
+`cargo test` on `finmodel-core` (workspace) and the `src-tauri` app lib (72),
+`node --test` in `ui/` (34, incl. the analyst-modal regression), and the
+research-eval hard gate (`cargo test -p fm-research --test research_eval`, 13).
+The current desktop **debug** build was smoke-tested over CDP/WebView2 (direct IPC
+`ev_bridge` + the full Analyst-tools UI path); the signed installer is NOT yet built.
+Key surfaces added this line:
+- **Research copilot** — typed intent router + single tool registry + capability-gated
+  OpenRouter in `src-tauri/src/commands/chat.rs`; `ResearchMachine` reducer + async
+  driver + bounded collector in `finmodel-core/fm-research`.
+- **Data integrity (Phase 6)** — `fm-build/src/lib.rs`: `validate_extraction`
+  (two-outcome BLOCK gate), `verify_balance_identity` + folded DCF/WACC into a real
+  `Verification`, `period_key` parser, `SourceAuditRow` population, sector-honesty
+  note. `fm-excel/src/sheets/sources.rs` renders the audit rows (empty ⇒ snapshot
+  parity). `SourceAuditRow` type in `fm-excel/src/input.rs`.
+- **Analyst actions (Phase 6.5)** — `src-tauri/src/commands/analysis.rs` (`ev_bridge`,
+  `ifrs_bridge`, `tie_out` Tauri commands over `fm-value`/`fm-ifrs`/`fm-tieout`;
+  new deps in `src-tauri/Cargo.toml`); UI in `ui/js/analyst.mjs` + the analyst modal
+  in `ui/index.html`, launched from the model card. Deliberately NOT in the flat LLM
+  tool list. Tests: `analysis.rs` unit tests, `fm-excel/tests/source_audit.rs`,
+  `ui/tests/analyst.test.mjs`.
+- **CI/release (Phase 7)** — `.github/workflows/ci.yml`: least-privilege permissions,
+  research-eval hard gate, Windows app-lib job, UI job. `docs/RELEASE_CHECKLIST.md`
+  corrected (version lockstep, tag-after-green-CI, post-release verify, executable
+  rollback).
+
+**Next:** review the diff, commit, bump the Tauri version (`tauri.conf.json` +
+`src-tauri/Cargo.toml` in lockstep) for the research-first release, then follow
+`docs/RELEASE_CHECKLIST.md` for the signed build + publish. Toolchain note: local
+`cargo fmt --check`/`clippy` on the whole workspace flags PRE-EXISTING drift in
+untouched files (e.g. `fm-value` clippy lints, `adhoc.rs` import ordering) — this
+session formatted only its touched files with `rustfmt --edition 2021`.
+
+## HANDOVER — v0.4.0 sellable-feature expansion, LIVE RELEASE (2026-07-15)
 **Branch `master`.** Source `finmodel-rust` PRIVATE; releases → PUBLIC
 `finmodel-releases`. **v0.4.0 is the live release** — committed (`36203e2`) + tagged
 `v0.4.0` + pushed to `origin/master`; signed NSIS installer built and published to

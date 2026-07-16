@@ -7,7 +7,7 @@
 //! is a checklist: only present, material, disclosed items are included.
 
 /// One line in the bridge, with a provenance label.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct EvLineItem {
     pub item: String,
     pub amount: f64,
@@ -15,7 +15,7 @@ pub struct EvLineItem {
 }
 
 /// Result of an EV-bridge build.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct EvBridge {
     pub market_cap: Option<f64>,
     pub additions: Vec<EvLineItem>,
@@ -24,7 +24,8 @@ pub struct EvBridge {
 }
 
 /// EV-bridge inputs (checklist — only non-zero items are applied).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct EvBridgeInput {
     pub company: String,
     pub period: String,
@@ -89,36 +90,81 @@ pub fn build_ev_bridge(inp: &EvBridgeInput) -> EvBridge {
     // (value, label, source) — order mirrors the Python checklist.
     let add_items: [(Option<f64>, &str, &str); 6] = [
         (inp.total_debt, "Total Debt", "Balance sheet / debt note"),
-        (inp.finance_leases, "Finance Leases", "ASC 842 / IFRS 16 note"),
-        (inp.operating_leases, "Operating Leases", "ASC 842 / IFRS 16 note (R-016)"),
-        (inp.underfunded_pension, "Underfunded Pension", "Pension footnote (R-015)"),
+        (
+            inp.finance_leases,
+            "Finance Leases",
+            "ASC 842 / IFRS 16 note",
+        ),
+        (
+            inp.operating_leases,
+            "Operating Leases",
+            "ASC 842 / IFRS 16 note (R-016)",
+        ),
+        (
+            inp.underfunded_pension,
+            "Underfunded Pension",
+            "Pension footnote (R-015)",
+        ),
         (inp.minority_interest, "Minority Interest", "Balance sheet"),
         (inp.preferred_stock, "Preferred Stock", "Balance sheet"),
     ];
     for (v, label, source) in add_items {
         if let Some(amount) = present(v) {
             ev += amount;
-            additions.push(EvLineItem { item: label.into(), amount, source: source.into() });
+            additions.push(EvLineItem {
+                item: label.into(),
+                amount,
+                source: source.into(),
+            });
         }
     }
 
     let sub_items: [(Option<f64>, &str, &str); 7] = [
         (inp.cash, "Cash & Equivalents", "Balance sheet"),
-        (inp.short_term_investments, "Short-Term Investments", "Balance sheet"),
-        (inp.equity_investments, "Equity-Method Investments", "Balance sheet (R-014)"),
-        (inp.financial_investments, "Financial Investments", "Balance sheet"),
-        (inp.assets_held_for_sale, "Assets Held for Sale", "Balance sheet"),
-        (inp.discontinued_ops_assets, "Discontinued Ops Assets", "Balance sheet"),
+        (
+            inp.short_term_investments,
+            "Short-Term Investments",
+            "Balance sheet",
+        ),
+        (
+            inp.equity_investments,
+            "Equity-Method Investments",
+            "Balance sheet (R-014)",
+        ),
+        (
+            inp.financial_investments,
+            "Financial Investments",
+            "Balance sheet",
+        ),
+        (
+            inp.assets_held_for_sale,
+            "Assets Held for Sale",
+            "Balance sheet",
+        ),
+        (
+            inp.discontinued_ops_assets,
+            "Discontinued Ops Assets",
+            "Balance sheet",
+        ),
         (inp.nol_dta, "NOL / DTA", "Tax footnote"),
     ];
     for (v, label, source) in sub_items {
         if let Some(amount) = present(v) {
             ev -= amount;
-            subtractions.push(EvLineItem { item: label.into(), amount, source: source.into() });
+            subtractions.push(EvLineItem {
+                item: label.into(),
+                amount,
+                source: source.into(),
+            });
         }
     }
 
-    EvBridge { market_cap: mc, additions, subtractions, total_ev: ev }
+    EvBridge {
+        market_cap: mc,
+        additions,
+        subtractions,
+        total_ev: ev,
+    }
 }
 
 /// Underfunded pension for the EV bridge (R-015 + F-018/F-019). Returns 0 when
@@ -190,9 +236,18 @@ mod tests {
 
     #[test]
     fn unfunded_pension_cases() {
-        approx(compute_unfunded_pension(Some(5000.0), Some(4200.0), 0.0, false), 800.0);
-        approx(compute_unfunded_pension(Some(3000.0), Some(3500.0), 0.0, false), 0.0);
-        approx(compute_unfunded_pension(Some(5000.0), Some(4200.0), 0.25, true), 600.0);
+        approx(
+            compute_unfunded_pension(Some(5000.0), Some(4200.0), 0.0, false),
+            800.0,
+        );
+        approx(
+            compute_unfunded_pension(Some(3000.0), Some(3500.0), 0.0, false),
+            0.0,
+        );
+        approx(
+            compute_unfunded_pension(Some(5000.0), Some(4200.0), 0.25, true),
+            600.0,
+        );
         approx(compute_unfunded_pension(None, Some(1.0), 0.0, false), 0.0);
     }
 }

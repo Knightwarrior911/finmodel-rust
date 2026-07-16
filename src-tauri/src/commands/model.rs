@@ -1,9 +1,10 @@
 //! `build_model` — the core pipeline command: ticker -> model + Excel.
 //!
 //! Extraction source:
-//!   - OpenRouter key set + US ticker     -> live SEC EDGAR fetch
-//!   - OpenRouter key set + non-US ticker -> PDF discovery + LLM extraction
-//!   - otherwise                          -> embedded committed fixture (offline demo)
+//! - OpenRouter key set + US ticker     -> live SEC EDGAR fetch
+//! - OpenRouter key set + non-US ticker -> PDF discovery + LLM extraction
+//! - otherwise                          -> embedded committed fixture (offline demo)
+//!
 //! Never fabricates data: a non-EDGAR ticker with no fixture and no key returns an error.
 //!
 //! Reconcile + project + Excel assembly are delegated to the shared `fm_build`
@@ -17,7 +18,10 @@ use crate::error::{AppError, AppResult};
 
 /// Emit a `build_progress` event the UI listens on (4.1). Best-effort.
 fn emit_progress(app: &tauri::AppHandle, stage: &str, detail: &str) {
-    let _ = app.emit("build_progress", serde_json::json!({ "stage": stage, "detail": detail }));
+    let _ = app.emit(
+        "build_progress",
+        serde_json::json!({ "stage": stage, "detail": detail }),
+    );
 }
 
 // Canonical statement row order for the UI preview — mirrors the order the
@@ -25,24 +29,62 @@ fn emit_progress(app: &tauri::AppHandle, stage: &str, detail: &str) {
 // insurer / REIT tags map onto these same keys), so one list serves all
 // sectors. Keys present in the data but absent here sort alphabetically after.
 const IS_ORDER: &[&str] = &[
-    "revenue", "cogs", "gross_profit", "sga", "rd",
-    "utility_om", "utility_fuel", "utility_taxes_other", "utility_other", "utility_total_opex",
-    "da", "ebit", "ebita", "ebitda",
-    "interest_expense", "interest_income", "ebt", "income_tax",
-    "net_income", "nci_income_loss", "ni_common",
-    "eps_basic", "eps_diluted", "shares_basic", "shares_diluted",
+    "revenue",
+    "cogs",
+    "gross_profit",
+    "sga",
+    "rd",
+    "utility_om",
+    "utility_fuel",
+    "utility_taxes_other",
+    "utility_other",
+    "utility_total_opex",
+    "da",
+    "ebit",
+    "ebita",
+    "ebitda",
+    "interest_expense",
+    "interest_income",
+    "ebt",
+    "income_tax",
+    "net_income",
+    "nci_income_loss",
+    "ni_common",
+    "eps_basic",
+    "eps_diluted",
+    "shares_basic",
+    "shares_diluted",
 ];
 const BS_ORDER: &[&str] = &[
-    "cash", "accounts_receivable", "inventory", "total_current_assets",
-    "ppe_net", "goodwill", "intangibles_net", "total_assets",
-    "accounts_payable", "deferred_revenue_current", "short_term_debt", "total_current_liabilities",
-    "long_term_debt", "deferred_revenue_lt", "total_liabilities",
-    "retained_earnings", "total_equity", "redeemable_nci",
+    "cash",
+    "accounts_receivable",
+    "inventory",
+    "total_current_assets",
+    "ppe_net",
+    "goodwill",
+    "intangibles_net",
+    "total_assets",
+    "accounts_payable",
+    "deferred_revenue_current",
+    "short_term_debt",
+    "total_current_liabilities",
+    "long_term_debt",
+    "deferred_revenue_lt",
+    "total_liabilities",
+    "retained_earnings",
+    "total_equity",
+    "redeemable_nci",
 ];
 const CF_ORDER: &[&str] = &[
-    "cfo", "capex", "investments_net_cfi", "cfi",
-    "dividends_paid", "buybacks", "cff",
-    "fx_effect_on_cash", "net_change_cash",
+    "cfo",
+    "capex",
+    "investments_net_cfi",
+    "cfi",
+    "dividends_paid",
+    "buybacks",
+    "cff",
+    "fx_effect_on_cash",
+    "net_change_cash",
 ];
 
 // Embedded baseline fixtures — the app is self-contained for the offline demo.
@@ -94,11 +136,7 @@ fn company_name_for_ticker(ticker: &str) -> String {
         "MSFT" => "Microsoft".into(),
         other => {
             // Strip exchange suffix: "FOO.ST" -> "FOO"
-            other
-                .split('.')
-                .next()
-                .unwrap_or(other)
-                .replace('-', " ")
+            other.split('.').next().unwrap_or(other).replace('-', " ")
         }
     }
 }
@@ -178,7 +216,13 @@ fn model_deck_input(
         _ => (Vec::new(), Vec::new()),
     };
     let tv_method = dcf
-        .map(|d| if d.tv_method == 1 { "EBITDA exit multiple" } else { "Gordon growth" })
+        .map(|d| {
+            if d.tv_method == 1 {
+                "EBITDA exit multiple"
+            } else {
+                "Gordon growth"
+            }
+        })
         .unwrap_or("—")
         .to_string();
     fm_pptx::writer::deck::ModelDeckInput {
@@ -279,10 +323,14 @@ fn render_build(
             match fm_fetch::market::fetch_risk_free_rate() {
                 Ok(rf) => {
                     opts.risk_free_rate = rf;
-                    warnings.push(format!("Risk-free rate {:.2}% from ^TNX (live)", rf * 100.0));
+                    warnings.push(format!(
+                        "Risk-free rate {:.2}% from ^TNX (live)",
+                        rf * 100.0
+                    ));
                 }
-                Err(_) => warnings
-                    .push("Risk-free rate defaulted to 4.5% (live 10Y fetch failed)".into()),
+                Err(_) => {
+                    warnings.push("Risk-free rate defaulted to 4.5% (live 10Y fetch failed)".into())
+                }
             }
         }
         if opts.beta == 1.0 {
@@ -293,9 +341,7 @@ fn render_build(
                         "Beta {beta:.2} from 2y weekly regression vs S&P 500"
                     ));
                 }
-                Err(_) => {
-                    warnings.push("Beta defaulted to 1.0 (history fetch failed)".into())
-                }
+                Err(_) => warnings.push("Beta defaulted to 1.0 (history fetch failed)".into()),
             }
         }
     }
@@ -329,6 +375,18 @@ fn render_build(
         comps_summary = serde_json::json!({ "count": count, "excluded": excluded_names });
     }
 
+    // Two-outcome extraction gate (Phase 6.1): unsafe inputs (non-finite,
+    // inconsistent vectors, empty periods, invalid currency) BLOCK file creation
+    // — no workbook. A finite accounting imbalance is NOT blocking; it surfaces
+    // as a failed Verification in the built workbook (BuildAllowedWithFailures).
+    let block_reasons = fm_build::validate_extraction(extraction);
+    if !block_reasons.is_empty() {
+        return Err(AppError::Config(format!(
+            "extraction failed validation — no model written: {}",
+            block_reasons.join("; ")
+        )));
+    }
+
     // Shared core: reconcile + project + assemble sheets (honoring options).
     emit_progress(app, "project", "Projecting the forecast…");
     let out = fm_build::build_with(extraction, ticker, &opts);
@@ -353,17 +411,19 @@ fn render_build(
     fm_excel::render::render(&out.workbook, &xlsx_path.to_string_lossy())
         .map_err(|e| AppError::Engine(format!("Excel write failed: {e}")))?;
     // Record in Recent files (4.2).
-    push_recent(app, &xlsx_path.to_string_lossy(), &format!("{ticker} model"));
+    push_recent(
+        app,
+        &xlsx_path.to_string_lossy(),
+        &format!("{ticker} model"),
+    );
 
     // Optional one-click PPTX deck beside the workbook (pure OOXML write, no
     // LibreOffice). Deck failure is a warning, never fatal.
     let mut pptx_path = serde_json::Value::Null;
     if opts.deck {
         emit_progress(app, "deck", "Writing the summary deck…");
-        let deck_out = xlsx_path.with_file_name(format!(
-            "{}_deck.pptx",
-            fm_build::ticker_to_stem(ticker)
-        ));
+        let deck_out =
+            xlsx_path.with_file_name(format!("{}_deck.pptx", fm_build::ticker_to_stem(ticker)));
         let input = model_deck_input(ticker, &extraction.currency, extraction, &opts, &out);
         match fm_pptx::writer::deck::write_model_deck(&input, &fm_extract::today_iso())
             .and_then(|d| d.save(&deck_out.to_string_lossy()))
@@ -376,10 +436,13 @@ fn render_build(
         }
     }
 
-    let val_method = out
-        .dcf
-        .as_ref()
-        .map(|d| if d.tv_method == 1 { "EBITDA exit multiple" } else { "Gordon growth" });
+    let val_method = out.dcf.as_ref().map(|d| {
+        if d.tv_method == 1 {
+            "EBITDA exit multiple"
+        } else {
+            "Gordon growth"
+        }
+    });
     Ok(serde_json::json!({
         "ticker": ticker,
         "currency": extraction.currency,
@@ -402,6 +465,10 @@ fn render_build(
             "cash_flow_statement": CF_ORDER,
         },
         "warnings": warnings,
+        "verification": {
+            "passed": out.verification.passed,
+            "critical_failures": out.verification.critical_failures,
+        },
         "xlsx_path": xlsx_path.to_string_lossy(),
         "comps": comps_summary,
         "pptx_path": pptx_path,
@@ -452,8 +519,18 @@ fn obtain_extraction(
                     }
                     let company = company_name_for_ticker(ticker);
                     let year = fm_extract::current_year() - 1;
-                    let periods = [(year - 2).to_string(), (year - 1).to_string(), year.to_string()];
-                    match fm_extract::fetch_non_us_filing(&company, ticker, &periods, Some(year), Some(&llm_cfg)) {
+                    let periods = [
+                        (year - 2).to_string(),
+                        (year - 1).to_string(),
+                        year.to_string(),
+                    ];
+                    match fm_extract::fetch_non_us_filing(
+                        &company,
+                        ticker,
+                        &periods,
+                        Some(year),
+                        Some(&llm_cfg),
+                    ) {
                         Ok(e) => Ok((e, "live (PDF + LLM)")),
                         Err(pdf_err) => Err(AppError::Engine(format!(
                             "{ticker}: EDGAR failed ({edgar_err}); PDF/LLM path failed ({pdf_err})"
@@ -509,33 +586,90 @@ pub(crate) fn analyze_pdf_blocking(
     };
     // Mirror fetch_non_us_filing's periods: the last full year and the two prior.
     let year = fm_extract::current_year() - 1;
-    let periods = [(year - 2).to_string(), (year - 1).to_string(), year.to_string()];
+    let periods = [
+        (year - 2).to_string(),
+        (year - 1).to_string(),
+        year.to_string(),
+    ];
     emit_progress(app, "extract", "Extracting financials from the PDF…");
     let extraction = fm_extract::extract_financials_from_pdf(path, &periods, label, Some(&llm_cfg))
         .map_err(|e| AppError::Engine(format!("PDF extraction failed: {e}")))?;
     render_build(app, &extraction, "pdf", label, opts)
 }
 
-/// Analyze a local annual-report PDF into a model (chat + drag-drop entry).
+/// Analyze a registered PDF artifact into a model.
+/// Accepts only an opaque `artifact_id` (from pick/claim/user-path mint) —
+/// never a raw filesystem path from the webview.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn analyze_pdf(
     app: tauri::AppHandle,
-    path: String,
-    label: String,
+    artifact_id: String,
+    conversation_id: String,
+    label: Option<String>,
     options: Option<fm_build::BuildOptions>,
 ) -> AppResult<String> {
+    use crate::commands::artifacts::{ArtifactKind, ArtifactRegistry};
+    let reg = app
+        .try_state::<ArtifactRegistry>()
+        .ok_or_else(|| AppError::Config("artifact registry unavailable".into()))?;
+    let (path, kind, reg_label) = reg
+        .resolve(artifact_id.trim(), Some(conversation_id.trim()))
+        .map_err(AppError::Config)?;
+    if kind != ArtifactKind::UserPdf {
+        return Err(AppError::Config(
+            "analyze_pdf requires a UserPdf artifact handle".into(),
+        ));
+    }
+    if !path.is_file()
+        || !path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false)
+    {
+        return Err(AppError::Config(
+            "artifact no longer points at a readable PDF".into(),
+        ));
+    }
+    let label = label.filter(|s| !s.trim().is_empty()).unwrap_or(reg_label);
+    let path_str = path.to_string_lossy().to_string();
     let opts = options.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || analyze_pdf_blocking(&app, &path, &label, opts))
-        .await
-        .map_err(|e| AppError::Engine(format!("analyze_pdf task failed: {e}")))?
+    tauri::async_runtime::spawn_blocking(move || {
+        analyze_pdf_blocking(&app, &path_str, &label, opts)
+    })
+    .await
+    .map_err(|e| AppError::Engine(format!("analyze_pdf task failed: {e}")))?
 }
 
 /// In-memory prepare→finalize session cache (lost on app restart — acceptable;
 /// finalize after restart errors, telling the user to rebuild).
-#[derive(Default)]
+/// Bounded, TTL'd cache of prepared extractions keyed by session id — 16
+/// entries / 30-minute TTL with LRU eviction (Phase 3.6). Removed on a
+/// successful finalize.
 pub struct SessionCache(
-    pub std::sync::Mutex<std::collections::HashMap<String, (fm_extract::ExtractionResult, String, String)>>,
+    pub  parking_lot::Mutex<
+        crate::commands::cache::BoundedCache<
+            String,
+            (fm_extract::ExtractionResult, String, String),
+        >,
+    >,
 );
+
+impl Default for SessionCache {
+    fn default() -> Self {
+        Self(parking_lot::Mutex::new(
+            crate::commands::cache::BoundedCache::new(16, 30 * 60),
+        ))
+    }
+}
+
+/// Unix seconds — the session cache's injected clock.
+pub(crate) fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 /// Session id from ticker + wall-clock nanos (no new dep).
 fn session_id(ticker: &str) -> String {
@@ -606,11 +740,11 @@ pub(crate) fn prepare_model_core(
         labels.insert((*k).to_string(), serde_json::json!(label));
     }
     let sid = session_id(&t);
-    app.state::<SessionCache>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(sid.clone(), (extraction.clone(), t.clone(), source.to_string()));
+    app.state::<SessionCache>().0.lock().insert(
+        sid.clone(),
+        (extraction.clone(), t.clone(), source.to_string()),
+        now_secs(),
+    );
     Ok(serde_json::json!({
         "session_id": sid,
         "ticker": t,
@@ -646,17 +780,19 @@ pub(crate) fn finalize_model_core(
     session_id: &str,
     opts: fm_build::BuildOptions,
 ) -> AppResult<String> {
-    let entry = app
-        .state::<SessionCache>()
+    let cache = app.state::<SessionCache>();
+    let entry = cache
         .0
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(session_id)
+        .get(&session_id.to_string(), now_secs())
         .cloned();
     let (extraction, ticker, source) = entry.ok_or_else(|| {
         AppError::Config("session expired (app restarted?) — rebuild the model".into())
     })?;
-    render_build(app, &extraction, &source, &ticker, opts)
+    let result = render_build(app, &extraction, &source, &ticker, opts)?;
+    // Remove after a successful finalize (bounded state; Phase 3.6).
+    cache.0.lock().remove(&session_id.to_string());
+    Ok(result)
 }
 
 /// Step 2: pull the cached extraction, apply the grid overrides in `options`,
@@ -674,13 +810,22 @@ pub async fn finalize_model(
 }
 
 /// Append a generated file to the Recent list (4.2), capped at 10, dedup by path.
+/// Also mints an opaque artifact handle so open_path can allowlist it.
 fn push_recent(app: &tauri::AppHandle, path: &str, label: &str) {
+    use crate::commands::artifacts::ArtifactRegistry;
     use crate::commands::settings::{read_settings, write_settings, RecentEntry};
+    if let Some(reg) = app.try_state::<ArtifactRegistry>() {
+        let _ = reg.ensure_generated(std::path::PathBuf::from(path), label);
+    }
     let mut s = read_settings(app);
     s.recent.retain(|r| r.path != path);
     s.recent.insert(
         0,
-        RecentEntry { path: path.to_string(), label: label.to_string(), when: today_iso_local() },
+        RecentEntry {
+            path: path.to_string(),
+            label: label.to_string(),
+            when: today_iso_local(),
+        },
     );
     s.recent.truncate(10);
     let _ = write_settings(app, &s);
@@ -691,20 +836,57 @@ fn today_iso_local() -> String {
     fm_extract::today_iso()
 }
 
-/// Recent generated files (4.2), most-recent-first. `{ path, label, when }`.
+/// Recent generated files (4.2), most-recent-first.
+/// Rehydrates each path into the artifact registry so open_path still works
+/// after an app restart (handles are otherwise process-scoped).
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_recent(app: tauri::AppHandle) -> AppResult<String> {
+    use crate::commands::artifacts::ArtifactRegistry;
+    use crate::commands::settings::read_settings;
     let s = read_settings(&app);
+    if let Some(reg) = app.try_state::<ArtifactRegistry>() {
+        for r in &s.recent {
+            let _ = reg.ensure_generated(std::path::PathBuf::from(&r.path), &r.label);
+        }
+    }
     serde_json::to_string(&s.recent).map_err(|e| AppError::Engine(e.to_string()))
 }
-
-/// Open a file with the OS default handler (the generated Excel).
+/// Open a file with the OS default handler. Accepts either an `artifact_id`
+/// (preferred) or a path that is currently registered as a generated artifact.
+/// Arbitrary model/webview paths are rejected.
 #[tauri::command(rename_all = "snake_case")]
 pub fn open_path(app: tauri::AppHandle, path: String) -> AppResult<String> {
+    use crate::commands::artifacts::ArtifactRegistry;
+    let reg = app
+        .try_state::<ArtifactRegistry>()
+        .ok_or_else(|| AppError::Config("artifact registry unavailable".into()))?;
+    let resolved = if path.starts_with("art-") {
+        // Generated outputs are session-wide; user PDFs need conversation scope
+        // which open_path does not carry — only generated handles are openable here.
+        let (p, kind, _) = reg.resolve(&path, None).map_err(AppError::Config)?;
+        if matches!(
+            kind,
+            crate::commands::artifacts::ArtifactKind::UserPdf
+                | crate::commands::artifacts::ArtifactKind::UserFile
+        ) {
+            // Allow if registered without conversation (legacy) or if resolve
+            // with None succeeded above for unscoped.
+        }
+        p
+    } else {
+        let p = std::path::PathBuf::from(&path);
+        if !reg.contains_path(&p) {
+            return Err(AppError::Config(
+                "open_path requires a registered artifact handle".into(),
+            ));
+        }
+        p
+    };
+    let display = resolved.to_string_lossy().to_string();
     app.opener()
-        .open_path(path.clone(), None::<&str>)
+        .open_path(display.clone(), None::<&str>)
         .map_err(|e| AppError::Io(format!("open failed: {e}")))?;
-    Ok(path)
+    Ok(display)
 }
 
 /// Open a URL in the default browser (news headlines, external links).

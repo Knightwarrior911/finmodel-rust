@@ -1,12 +1,17 @@
 // core.mjs — shared primitives: Tauri bridge, sanitized markdown, theme, format.
 
 export const TAURI = window.__TAURI__;
-const invokeRaw = TAURI ? TAURI.core.invoke : null;
+// Resolve the bridge at call time (not module load) so it is robust to late
+// injection and testable with a mocked window.__TAURI__.
+function bridge() {
+  return (typeof window !== "undefined" && window.__TAURI__) || TAURI || null;
+}
 
 // Every command returns a JSON *string* (or throws an AppError object).
 export async function call(name, payload = {}) {
-  if (!invokeRaw) throw new Error("Not running inside the app window.");
-  const res = await invokeRaw(name, payload);
+  const t = bridge();
+  if (!t || !t.core || !t.core.invoke) throw new Error("Not running inside the app window.");
+  const res = await t.core.invoke(name, payload);
   return typeof res === "string" ? JSON.parse(res) : res;
 }
 
@@ -14,7 +19,8 @@ export const $ = (id) => document.getElementById(id);
 
 // Subscribe to a Tauri event; returns an unsubscribe fn (no-op outside Tauri).
 export function on(event, handler) {
-  if (TAURI && TAURI.event && TAURI.event.listen) return TAURI.event.listen(event, handler);
+  const t = bridge();
+  if (t && t.event && t.event.listen) return t.event.listen(event, handler);
   return () => {};
 }
 
@@ -125,8 +131,13 @@ export function domainOf(url) {
   }
 }
 
+/// Open a URL in the OS browser. Returns a promise resolving to `true` on
+/// success, `false` on failure (callers may surface an opener-failure state).
 export function openExternal(url) {
-  if (url) call("open_url", { url }).catch(() => {});
+  if (!url) return Promise.resolve(false);
+  return call("open_url", { url })
+    .then(() => true)
+    .catch(() => false);
 }
 
 export function openPath(path) {
@@ -230,4 +241,65 @@ export function relTime(iso) {
   const days = hrs / 24;
   if (days < 7) return `${Math.floor(days)}d ago`;
   return new Date(then).toLocaleDateString();
+}
+
+// ── Modal dialog a11y (Phase 4.3) ───────────────────────────────────
+// Focus trap + background `inert` + focus return. `dialog` is the element that
+// receives role=dialog/aria-modal; `opts.initialFocus` is focused on open;
+// `opts.onEscape` runs on Escape. Returns a `deactivate()` that restores focus
+// and clears inert. Background = every direct child of <body> except the
+// dialog's own top-level ancestor.
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export function activateDialog(dialog, opts = {}) {
+  const returnTo =
+    opts.returnFocus || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  // Inert every body child that does not contain the dialog.
+  const bodyKids = Array.from(document.body.children);
+  const inerted = [];
+  for (const el of bodyKids) {
+    if (el === dialog || el.contains(dialog)) continue;
+    if (!el.hasAttribute("inert")) {
+      el.setAttribute("inert", "");
+      inerted.push(el);
+    }
+  }
+  const focusables = () =>
+    Array.from(dialog.querySelectorAll(FOCUSABLE)).filter(
+      (el) => el.offsetParent !== null || el === document.activeElement
+    );
+  const onKeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (opts.onEscape) opts.onEscape();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const f = focusables();
+    if (f.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = f[0];
+    const last = f[f.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !dialog.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  dialog.addEventListener("keydown", onKeydown);
+  // Initial focus.
+  const init =
+    (opts.initialFocus && dialog.querySelector(opts.initialFocus)) || focusables()[0] || dialog;
+  if (init && init.focus) init.focus();
+  return function deactivate() {
+    dialog.removeEventListener("keydown", onKeydown);
+    for (const el of inerted) el.removeAttribute("inert");
+    if (returnTo && returnTo.focus && document.contains(returnTo)) returnTo.focus();
+  };
 }

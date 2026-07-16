@@ -1,0 +1,22 @@
+﻿{
+    "commit":  "c452f07",
+    "os":  "Microsoft Windows 11 Pro",
+    "cpu":  "12th Gen Intel(R) Core(TM) i5-1245U",
+    "generated_at":  "2026-07-16T15:20:24Z",
+    "warmups":  3,
+    "measured":  30,
+    "pipeline_ms":  {
+                        "p50":  0.0225,
+                        "p95":  0.0466,
+                        "min":  0.0217,
+                        "max":  0.1283
+                    },
+    "gates":  {
+                  "app_overhead_p95_le_500ms":  true,
+                  "cached_pipeline_p95_le_5s":  true
+              },
+    "browser_marks":  {
+                          "status":  "skipped: requires live app (-Live with CDP :9222)"
+                      },
+    "note":  "Offline pipeline bench: no network/model/generation. Browser-mark gates need the live app."
+}

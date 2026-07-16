@@ -61,7 +61,11 @@ pub fn download_pdf(config: &DownloadConfig) -> Result<PathBuf, PdfError> {
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if !content_type.is_empty() && !content_type.contains("pdf") && !content_type.contains("octet-stream") && !content_type.contains("application/") {
+    if !content_type.is_empty()
+        && !content_type.contains("pdf")
+        && !content_type.contains("octet-stream")
+        && !content_type.contains("application/")
+    {
         // Allow octet-stream and generic binary — some servers serve PDFs as octet-stream
     }
 
@@ -86,7 +90,9 @@ pub fn download_pdf(config: &DownloadConfig) -> Result<PathBuf, PdfError> {
 /// Simple timestamp for temp filenames (no chrono dependency).
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let d = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     format!("{}", d.as_millis())
 }
 

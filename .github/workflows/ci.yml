@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [master]
 
+# Least-privilege by default (Phase 7.2): every job gets only read access to the
+# repo contents unless it explicitly requests more. No job here writes to the
+# repo, comments, or publishes, so read-only is sufficient.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +33,8 @@ jobs:
 
   ruff:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,8 +44,11 @@ jobs:
         run: pip install ruff
       - name: Check formatting
         run: ruff check --output-format=github
+
   rust:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: finmodel-core
@@ -46,3 +59,40 @@ jobs:
         run: cargo build --workspace
       - name: Test
         run: cargo test --workspace
+      # Repo-local evals HARD GATE (Phase 7.1): the deterministic research corpus
+      # + reducer contract must pass on its own, explicitly, so a corpus/baseline
+      # regression fails CI unambiguously and can never be silently skipped.
+      - name: Research eval hard gate
+        run: cargo test -p fm-research --test research_eval -- --nocapture
+
+  # The shipped desktop app targets Windows/WebView2; its Tauri IPC command layer
+  # (e.g. the Phase 6.5 analysis commands) lives in `src-tauri` and is excluded by
+  # the core-only `rust` job. Run the app's lib unit tests on the real target OS so
+  # a command/registration regression fails CI instead of only surfacing at runtime.
+  app:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: App lib tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+  ui:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install UI test deps
+        run: npm ci --no-audit --no-fund
+      # Mock-DOM regression suite (Phase 4.7 / 6.5): jsdom, no browser, no network.
+      - name: UI regression tests
+        run: npm test

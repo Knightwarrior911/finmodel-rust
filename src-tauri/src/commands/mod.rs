@@ -1,8 +1,16 @@
+pub mod analysis;
+pub mod artifacts;
 pub mod benchmark;
+pub mod cache;
 pub mod chat;
+pub mod mcp;
 pub mod model;
 pub mod news;
+pub mod research;
+pub mod research_state;
+pub mod run;
 pub mod search;
+pub mod secrets;
 pub mod settings;
 pub mod update;
 
@@ -18,6 +26,9 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         model::open_path,
         model::open_url,
         benchmark::benchmark_peers,
+        analysis::ev_bridge,
+        analysis::ifrs_bridge,
+        analysis::tie_out,
         news::get_news,
         search::web_search,
         search::read_page,
@@ -28,10 +39,15 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         chat::rename_conversation,
         chat::chat_send,
         chat::chat_cancel,
+        research_state::research_retry,
+        research::review_suggested_assumptions,
         settings::load_settings,
         settings::save_settings,
         settings::list_models,
+        settings::test_model,
         settings::clear_api_key,
+        artifacts::pick_pdf_artifact,
+        artifacts::claim_dropped_pdf,
         update::check_for_update,
         update::install_update,
         update::restart_app,

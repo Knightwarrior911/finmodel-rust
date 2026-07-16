@@ -18,7 +18,10 @@ const K_PE: &str = "P/E (LTM)";
 /// [`PublicCompPeer`]. LTM fields map 1:1 from the filing; multiples come from
 /// the already-derived `m.ev_revenue/ev_ebitda/pe`; NTM/FY fields stay default.
 pub fn peer_from_metrics(m: &BenchmarkMetrics, quote: Option<&fm_fetch::Quote>) -> PublicCompPeer {
-    let share_price = m.share_price.or_else(|| quote.map(|q| q.price)).unwrap_or(0.0);
+    let share_price = m
+        .share_price
+        .or_else(|| quote.map(|q| q.price))
+        .unwrap_or(0.0);
     let shares_diluted = m.shares_diluted.unwrap_or(0.0);
     let total_debt = m.total_debt.unwrap_or(0.0);
     let cash = m.cash.unwrap_or(0.0);
@@ -252,7 +255,10 @@ mod tests {
         // Peers carry EV/EBITDA but no P/E -> P/E entry absent.
         let mut p = peer(6.0, 1.0, 0.0);
         p.pe_ltm = None;
-        let target = BenchmarkMetrics { ticker: "T".into(), ..Default::default() };
+        let target = BenchmarkMetrics {
+            ticker: "T".into(),
+            ..Default::default()
+        };
         let out = build_public_comps(&target, &[p], vec![], "2024-01-01");
         assert!(out.stats.contains_key(K_EV_EBITDA));
         assert!(!out.stats.contains_key(K_PE));

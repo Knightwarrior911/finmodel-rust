@@ -36,7 +36,10 @@ fn main() {
                 { "name": "read_markdown", "description": "read a page", "inputSchema": { "type": "object" } }
             ]}),
             "tools/call" => {
-                let name = v.pointer("/params/name").and_then(|n| n.as_str()).unwrap_or("");
+                let name = v
+                    .pointer("/params/name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
                 serde_json::json!({ "content": [{ "type": "text", "text": format!("called {name}") }] })
             }
             _ => serde_json::Value::Null,

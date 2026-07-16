@@ -55,6 +55,27 @@ pub struct ScenarioInputs {
     pub exit_ebitda_multiple: f64,
 }
 
+/// The canonical per-year projection-driver field names of [`ScenarioInputs`]
+/// (the analyst-grid override keys). SINGLE SOURCE OF TRUTH: `fm_build`'s
+/// `scenario_field_mut` and `fm_research`'s `AssumptionKey` are both pinned to
+/// this list by test, so adding a driver here surfaces as a failure there rather
+/// than silent drift. The two valuation scalars (`terminal_growth_rate`,
+/// `exit_ebitda_multiple`) are intentionally excluded — they are not per-year grid drivers.
+pub const SCENARIO_DRIVER_KEYS: &[&str] = &[
+    "revenue_growth_pct",
+    "gross_margin_pct",
+    "sga_pct_rev",
+    "rd_pct_rev",
+    "da_pct_rev",
+    "capex_pct_rev",
+    "tax_rate_pct",
+    "interest_rate_pct",
+    "dso_days",
+    "dio_days",
+    "dpo_days",
+    "dividend_per_share",
+];
+
 /// Toggle + three scenarios + shared (non-scenario) valuation inputs.
 #[derive(Clone, Debug, Default)]
 pub struct AssumptionsBlock {
@@ -80,6 +101,25 @@ pub struct Verification {
     pub critical_failures: Vec<String>,
     pub warnings: Vec<String>,
     pub notes: Vec<String>,
+}
+
+/// One row of the unified source-audit (Phase 6.3): a modeled input traced to
+/// its origin. `origin` is an XBRL tag / PDF locator / market source / research
+/// `S#`; `detail` carries the tag or URL; `retrieved` a timestamp when known;
+/// `evidence` the research IDs/quotes; `confidence` the research confidence.
+#[derive(Clone, Debug, Default)]
+pub struct SourceAuditRow {
+    pub line_item: String,
+    pub period: String,
+    pub value: String,
+    pub origin: String,
+    pub detail: String,
+    pub retrieved: String,
+    pub evidence: String,
+    pub confidence: String,
+    /// Per-row verification/status (e.g. "validated", "unverified") — the audit
+    /// schema's own status, distinct from the workbook-level Verification report.
+    pub verification: String,
 }
 
 /// Company / run metadata.
@@ -109,6 +149,10 @@ pub struct WorkbookInput {
     pub peer_source: String,
     pub dcf: Option<fm_value::DCFOutput>,
     pub public_comps: Option<fm_value::PublicCompsOutput>,
+    /// Unified source-audit rows (Phase 6.3). Empty → the Sources body stays
+    /// empty (byte-identical to the committed snapshots); populated only when a
+    /// build carries research-sourced provenance / traced origins.
+    pub source_audit: Vec<SourceAuditRow>,
 }
 
 impl WorkbookInput {

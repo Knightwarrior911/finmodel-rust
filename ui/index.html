@@ -20,7 +20,7 @@
           </span>
           <span class="brand-name">finmodel</span>
         </span>
-        <button type="button" id="sidebarToggle" class="icon-btn" aria-label="Collapse sidebar">
+        <button type="button" id="sidebarToggle" class="icon-btn" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
         </button>
       </div>
@@ -32,6 +32,7 @@
 
       <input id="convFilter" class="conv-filter" type="search" placeholder="Filter conversations" aria-label="Filter conversations" hidden />
       <div id="convList" class="conv-list"></div>
+      <div id="sidebarAlert" class="sidebar-alert" role="alert" aria-live="assertive" hidden></div>
 
       <div class="sidebar-foot">
         <button type="button" id="themeToggle" class="icon-btn" aria-label="Toggle theme"></button>
@@ -57,7 +58,8 @@
       <div id="chatScroll" class="chat-scroll">
         <section id="chatEmpty" class="chat-empty">
           <h1 class="greeting">What are we analyzing today?</h1>
-          <div class="example-chips">
+          <p id="capabilityNote" class="capability-note" role="status"></p>
+          <div id="exampleChips" class="example-chips">
             <button type="button" class="example-chip">Build NVDA with peers AMD, INTC, AVGO</button>
             <button type="button" class="example-chip">Read the risk factors in TSLA's latest 10-K</button>
             <button type="button" class="example-chip">Benchmark AAPL, MSFT, GOOGL — deck included</button>
@@ -65,6 +67,11 @@
           </div>
         </section>
       </div>
+
+      <!-- Live regions (Phase 4.2/4.4): one polite atomic progress node updated
+           only on phase/status transition; one assertive error/action region. -->
+      <div id="chatProgress" class="chat-progress" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div id="chatAlert" class="chat-alert" role="alert" aria-live="assertive" hidden></div>
 
       <div id="composer" class="composer">
         <div class="composer-box">
@@ -85,7 +92,7 @@
     </main>
 
     <!-- ── Reader panel ────────────────────────────────────────── -->
-    <aside id="readerPanel" class="reader-panel" aria-label="Reader" hidden>
+    <aside id="readerPanel" class="reader-panel" role="dialog" aria-modal="false" aria-labelledby="readerTitle" hidden>
       <header class="reader-head">
         <div class="reader-titles">
           <span id="readerTitle" class="reader-title"></span>
@@ -112,9 +119,9 @@
   <!-- ── Settings modal ─────────────────────────────────────────── -->
   <div id="settingsModal" class="modal" hidden>
     <div class="modal-backdrop" data-close="1"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
       <div class="modal-head">
-        <h2>Settings</h2>
+        <h2 id="settingsTitle">Settings</h2>
         <button type="button" id="settingsClose" class="icon-btn" aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
@@ -131,7 +138,9 @@
           <span class="field-row">
             <select id="modelSelect"></select>
             <button type="button" id="refreshModels" class="btn-ghost">Refresh</button>
+            <button type="button" id="testModel" class="btn-ghost">Test model</button>
           </span>
+          <span id="modelCaps" class="field-hint"></span>
         </label>
         <label class="field">
           <span class="field-label">Theme</span>
@@ -156,7 +165,7 @@
           <span class="field-label">Roam MCP command (optional)</span>
           <span class="field-row">
             <input id="mcpCommand" type="text" placeholder="roam mcp serve" />
-            <button type="button" id="testMcp" class="btn-ghost">Test</button>
+            <button type="button" id="testMcp" class="btn-ghost">Test browser</button>
           </span>
           <span id="mcpStatus" class="field-hint"></span>
         </label>
@@ -168,6 +177,72 @@
           <button type="button" id="removeKey" class="btn-ghost">Remove key</button>
           <button type="button" id="saveSettings" class="btn-primary">Save</button>
         </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Analyst tools modal (Phase 6.5) ────────────────────────── -->
+  <div id="analystModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close="1"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="analystTitle">
+      <div class="modal-head">
+        <h2 id="analystTitle">Analyst tools</h2>
+        <button type="button" id="analystClose" class="icon-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="analyst-tabs" role="tablist" aria-label="Analyst tools">
+          <button type="button" class="analyst-tab" role="tab" aria-selected="true" data-tab="ev">EV bridge</button>
+          <button type="button" class="analyst-tab" role="tab" aria-selected="false" data-tab="ifrs">IFRS bridge</button>
+          <button type="button" class="analyst-tab" role="tab" aria-selected="false" data-tab="tieout">Tie-out</button>
+        </div>
+
+        <form id="evForm" class="analyst-panel" data-panel="ev">
+          <p class="field-hint">Enterprise-value bridge (BIWS checklist). Enter market cap or price × shares; only entered items are applied.</p>
+          <div class="analyst-grid">
+            <label class="field"><span class="field-label">Market cap ($M)</span><input name="market_cap" type="number" step="any" min="0" /></label>
+            <label class="field"><span class="field-label">Share price</span><input name="share_price" type="number" step="any" min="0" /></label>
+            <label class="field"><span class="field-label">Shares (M)</span><input name="shares_outstanding" type="number" step="any" min="0" /></label>
+            <label class="field"><span class="field-label">Total debt ($M)</span><input name="total_debt" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Finance leases ($M)</span><input name="finance_leases" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Operating leases ($M)</span><input name="operating_leases" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Underfunded pension ($M)</span><input name="underfunded_pension" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Minority interest ($M)</span><input name="minority_interest" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Preferred stock ($M)</span><input name="preferred_stock" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">Cash ($M)</span><input name="cash" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">ST investments ($M)</span><input name="short_term_investments" type="number" step="any" /></label>
+            <label class="field"><span class="field-label">NOL DTA ($M)</span><input name="nol_dta" type="number" step="any" /></label>
+          </div>
+          <button type="submit" class="btn-primary">Build EV bridge</button>
+        </form>
+
+        <form id="ifrsForm" class="analyst-panel" data-panel="ifrs" hidden>
+          <p class="field-hint">IFRS-16 ↔ US-GAAP lease bridge. All reported metrics and lease-note figures are required.</p>
+          <div class="analyst-grid">
+            <label class="field"><span class="field-label">Accounting standard</span><select name="accounting_standard"><option value="US GAAP">US GAAP</option><option value="IFRS">IFRS</option></select></label>
+            <label class="field"><span class="field-label">Revenue ($M)</span><input name="revenue" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">ROU depreciation ($M)</span><input name="rou_depreciation" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Lease interest ($M)</span><input name="lease_interest" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Short-term rent ($M)</span><input name="short_term_rent" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Reported EBIT ($M)</span><input name="reported_ebit" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Reported EBITDA ($M)</span><input name="reported_ebitda" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Reported EBITA ($M)</span><input name="reported_ebita" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Standard depreciation ($M)</span><input name="standard_depreciation" type="number" step="any" required /></label>
+            <label class="field"><span class="field-label">Standard amortization ($M)</span><input name="standard_amortization" type="number" step="any" required /></label>
+          </div>
+          <button type="submit" class="btn-primary">Build IFRS bridge</button>
+        </form>
+
+        <form id="tieoutForm" class="analyst-panel" data-panel="tieout" hidden>
+          <p class="field-hint">Tie-out: score a model JSON against an immutable ground-truth JSON.</p>
+          <label class="field"><span class="field-label">Ground-truth JSON</span><textarea name="ground_truth_json" rows="5" placeholder='{ … }'></textarea></label>
+          <label class="field"><span class="field-label">Model JSON</span><textarea name="model_json" rows="5" placeholder='{ … }'></textarea></label>
+          <button type="submit" class="btn-primary">Run tie-out</button>
+        </form>
+
+        <div id="analystStatus" class="status" role="status" aria-live="polite" hidden></div>
+        <div id="analystResult" class="analyst-result" aria-live="polite"></div>
       </div>
     </div>
   </div>

@@ -33,63 +33,128 @@ const TRIGGER_MAP: &[(QueryType, &[&str])] = &[
     (
         QueryType::EarningsAnalysis,
         &[
-            "q1 20", "q2 20", "q3 20", "q4 20", "fy20", "financial results",
-            "earnings", "quarterly results", "bank results", "earnings release",
+            "q1 20",
+            "q2 20",
+            "q3 20",
+            "q4 20",
+            "fy20",
+            "financial results",
+            "earnings",
+            "quarterly results",
+            "bank results",
+            "earnings release",
         ],
     ),
     (
         QueryType::SynergyRealization,
         &[
-            "synerg", "integration", "run-rate", "cost saving", "dis-synerg",
-            "realized vs expected", "synergy target",
+            "synerg",
+            "integration",
+            "run-rate",
+            "cost saving",
+            "dis-synerg",
+            "realized vs expected",
+            "synergy target",
         ],
     ),
     (
         QueryType::BeneficialOwnership,
         &[
-            "owns", "ownership", "shareholder", "stake", "beneficial", "holder",
-            "investor >5%", "major shareholder", "promoter", "who owns",
+            "owns",
+            "ownership",
+            "shareholder",
+            "stake",
+            "beneficial",
+            "holder",
+            "investor >5%",
+            "major shareholder",
+            "promoter",
+            "who owns",
         ],
     ),
     (
         QueryType::DebtMaturitySchedule,
         &[
-            "debt maturity", "debt schedule", "borrowing", "leverage", "covenant",
-            "credit facility", "notes outstanding", "term loan", "revolver",
+            "debt maturity",
+            "debt schedule",
+            "borrowing",
+            "leverage",
+            "covenant",
+            "credit facility",
+            "notes outstanding",
+            "term loan",
+            "revolver",
             "debt structure",
         ],
     ),
     (
         QueryType::RegulatoryApprovalStatus,
         &[
-            "regulatory approval", "antitrust", "merger control", "cci", "doj",
-            "cleared", "condition", "regulatory condition",
+            "regulatory approval",
+            "antitrust",
+            "merger control",
+            "cci",
+            "doj",
+            "cleared",
+            "condition",
+            "regulatory condition",
         ],
     ),
     (
         QueryType::EarningsEstimateConsensus,
         &[
-            "estimate", "consensus", "earnings forecast", "revenue forecast",
-            "eps forecast", "analyst estimate", "sell-side",
+            "estimate",
+            "consensus",
+            "earnings forecast",
+            "revenue forecast",
+            "eps forecast",
+            "analyst estimate",
+            "sell-side",
         ],
     ),
     (
         QueryType::TransactionTerms,
         &[
-            "deal terms", "acquisition terms", "purchase price", "consideration",
-            "earnout", "valuation multiple", "m&a deal", "transaction details",
-            "deal announced", "acquisition", "acquired", "acquir", "merger",
-            "takeover", "buyout", "majority stake", "controlling stake",
-            "strategic partnership", "private equity deal", "pe deal", "sold to",
-            "bought by", "deal analysis", "transaction analysis", "deal close",
+            "deal terms",
+            "acquisition terms",
+            "purchase price",
+            "consideration",
+            "earnout",
+            "valuation multiple",
+            "m&a deal",
+            "transaction details",
+            "deal announced",
+            "acquisition",
+            "acquired",
+            "acquir",
+            "merger",
+            "takeover",
+            "buyout",
+            "majority stake",
+            "controlling stake",
+            "strategic partnership",
+            "private equity deal",
+            "pe deal",
+            "sold to",
+            "bought by",
+            "deal analysis",
+            "transaction analysis",
+            "deal close",
         ],
     ),
     (
         QueryType::GeneralCompanyIntelligence,
         &[
-            "about", "profile", "business description", "competitors",
-            "market position", "product portfolio", "customer base",
-            "company overview", "what does", "who is",
+            "about",
+            "profile",
+            "business description",
+            "competitors",
+            "market position",
+            "product portfolio",
+            "customer base",
+            "company overview",
+            "what does",
+            "who is",
         ],
     ),
 ];
@@ -112,16 +177,43 @@ pub fn detect_query_type(user_query: &str) -> QueryType {
 pub fn detect_listing_type(company_name: &str) -> &'static str {
     let lc = company_name.to_lowercase();
     const INDIA: &[&str] = &[
-        "hdfc", "icici", "sbi", "kotak", "axis", "reliance", "tcs", "infosys",
-        "wipro", "hcl tech", "asian paints", "berger", "tata", "mahindra",
-        "bharti", "adani", "hindustan unilever", "itc", "ntpc", "ongc",
+        "hdfc",
+        "icici",
+        "sbi",
+        "kotak",
+        "axis",
+        "reliance",
+        "tcs",
+        "infosys",
+        "wipro",
+        "hcl tech",
+        "asian paints",
+        "berger",
+        "tata",
+        "mahindra",
+        "bharti",
+        "adani",
+        "hindustan unilever",
+        "itc",
+        "ntpc",
+        "ongc",
     ];
     if INDIA.iter().any(|p| lc.contains(p)) {
         return "india";
     }
     const UK: &[&str] = &[
-        "hsbc", "barclays", "lloyds", "bp", "shell", "gsk", "astrazeneca",
-        "unilever", "diageo", "bae systems", "rolls-royce", "vodafone",
+        "hsbc",
+        "barclays",
+        "lloyds",
+        "bp",
+        "shell",
+        "gsk",
+        "astrazeneca",
+        "unilever",
+        "diageo",
+        "bae systems",
+        "rolls-royce",
+        "vodafone",
     ];
     if UK.iter().any(|p| lc.contains(p)) {
         return "uk";
@@ -140,10 +232,15 @@ pub fn parse_ma_query(user_query: &str, company_hint: &str) -> (String, String) 
     )
     .unwrap();
     let q = preamble.replace(user_query.trim(), "").trim().to_string();
-    let clean = |s: &str| s.trim().trim_end_matches([',', '.', ';', '?', '!']).to_string();
+    let clean = |s: &str| {
+        s.trim()
+            .trim_end_matches([',', '.', ';', '?', '!'])
+            .to_string()
+    };
 
     // "X acquisition/acquired/merger by/with/of Y"
-    let re1 = Regex::new(r"(?i)^(.+?)\s+(?:acquisition|acquired?|merger)\s+(?:by|with|of)\s+(.+)").unwrap();
+    let re1 = Regex::new(r"(?i)^(.+?)\s+(?:acquisition|acquired?|merger)\s+(?:by|with|of)\s+(.+)")
+        .unwrap();
     if let Some(c) = re1.captures(&q) {
         return (c[1].trim().to_string(), clean(&c[2]));
     }
@@ -153,26 +250,51 @@ pub fn parse_ma_query(user_query: &str, company_hint: &str) -> (String, String) 
         return (c[1].trim().to_string(), clean(&c[2]));
     }
     // "Y acquires/buys/to acquire X" → (target=X, acquirer=Y)
-    let re3 = Regex::new(r"(?i)^(.+?)\s+(?:acquires?|buys?|purchased?|(?:to\s+)?acquire[sd]?)\s+(.+)").unwrap();
+    let re3 =
+        Regex::new(r"(?i)^(.+?)\s+(?:acquires?|buys?|purchased?|(?:to\s+)?acquire[sd]?)\s+(.+)")
+            .unwrap();
     if let Some(c) = re3.captures(&q) {
         return (clean(&c[2]), c[1].trim().to_string());
     }
     // "X / Y deal|acquisition|merger"
-    let re4 = Regex::new(r"(?i)^([^/]+?)\s*/\s*([^/]+?)(?:\s+deal|\s+acquisition|\s+merger|$)").unwrap();
+    let re4 =
+        Regex::new(r"(?i)^([^/]+?)\s*/\s*([^/]+?)(?:\s+deal|\s+acquisition|\s+merger|$)").unwrap();
     if let Some(c) = re4.captures(&q) {
         return (c[1].trim().to_string(), c[2].trim().to_string());
     }
     // Fallback: stop before first trigger keyword → that's the target.
-    const TRIGGERS: &[&str] = &["acquisition", "acquir", "merger", "takeover", "buyout", "sold", "bought"];
+    const TRIGGERS: &[&str] = &[
+        "acquisition",
+        "acquir",
+        "merger",
+        "takeover",
+        "buyout",
+        "sold",
+        "bought",
+    ];
     let words: Vec<&str> = q.split_whitespace().collect();
     for (i, w) in words.iter().enumerate() {
         let wl = w.to_lowercase();
         if TRIGGERS.iter().any(|t| wl.contains(t)) {
             let target = words[..i].join(" ").trim().to_string();
-            return (if target.is_empty() { company_hint.to_string() } else { target }, String::new());
+            return (
+                if target.is_empty() {
+                    company_hint.to_string()
+                } else {
+                    target
+                },
+                String::new(),
+            );
         }
     }
-    (if company_hint.is_empty() { q } else { company_hint.to_string() }, String::new())
+    (
+        if company_hint.is_empty() {
+            q
+        } else {
+            company_hint.to_string()
+        },
+        String::new(),
+    )
 }
 
 /// Structured deal facts extracted from multi-source article text.
@@ -204,18 +326,59 @@ pub struct DealSummary {
     pub sources: Option<String>,
 }
 
-const PRIORITY_SOURCE_KW: &[&str] =
-    &["businesswire", "prnewswire", "globenewswire", "reuters", "bloomberg"];
+const PRIORITY_SOURCE_KW: &[&str] = &[
+    "businesswire",
+    "prnewswire",
+    "globenewswire",
+    "reuters",
+    "bloomberg",
+];
 const RATIONALE_KW: &[&str] = &[
-    "platform", "scale", "growth", "strategy", "complementary", "synerg",
-    "position", "leader", "expand", "global", "network", "freight", "logistics",
-    "supply chain", "value creation",
+    "platform",
+    "scale",
+    "growth",
+    "strategy",
+    "complementary",
+    "synerg",
+    "position",
+    "leader",
+    "expand",
+    "global",
+    "network",
+    "freight",
+    "logistics",
+    "supply chain",
+    "value creation",
 ];
 const NAV_VERBS: &[&str] = &[
-    "Read", "View", "See", "Click", "Download", "Visit", "Learn", "Get", "Sign",
-    "Subscribe", "Watch", "Catch", "Join", "Follow", "More", "Related",
-    "Featured", "Latest", "Recent", "Popular", "Search", "Contact", "About",
-    "Press", "Industry", "Supply", "Share", "Print",
+    "Read",
+    "View",
+    "See",
+    "Click",
+    "Download",
+    "Visit",
+    "Learn",
+    "Get",
+    "Sign",
+    "Subscribe",
+    "Watch",
+    "Catch",
+    "Join",
+    "Follow",
+    "More",
+    "Related",
+    "Featured",
+    "Latest",
+    "Recent",
+    "Popular",
+    "Search",
+    "Contact",
+    "About",
+    "Press",
+    "Industry",
+    "Supply",
+    "Share",
+    "Print",
 ];
 
 /// Split into sentences on `.!?` + whitespace (Python used a lookbehind; the
@@ -239,8 +402,9 @@ fn split_sentences(text: &str) -> Vec<String> {
 
 /// Strip trailing lowercase words / stop-words (Python `_proper_name`).
 fn proper_name(s: &str) -> String {
-    const STOP_AT: &[&str] =
-        &["To", "For", "In", "A", "An", "The", "And", "Of", "With", "From"];
+    const STOP_AT: &[&str] = &[
+        "To", "For", "In", "A", "An", "The", "And", "Of", "With", "From",
+    ];
     let words: Vec<&str> = s.split_whitespace().collect();
     let kept: Vec<&str> = words
         .iter()
@@ -255,7 +419,10 @@ fn proper_name(s: &str) -> String {
         }
         final_words.push(w);
     }
-    final_words.join(" ").trim_matches([' ', ',', '.']).to_string()
+    final_words
+        .join(" ")
+        .trim_matches([' ', ',', '.'])
+        .to_string()
 }
 
 /// First capture of the first matching pattern (case-insensitive, dot-all).
@@ -278,13 +445,19 @@ pub fn synthesize_deal(sources: &HashMap<String, String>) -> DealSummary {
     for (k, v) in sources {
         if !v.is_empty() && !v.contains("ERROR") && v.len() > 50 {
             parts.push(v.clone());
-            if PRIORITY_SOURCE_KW.iter().any(|p| k.to_lowercase().contains(p)) {
+            if PRIORITY_SOURCE_KW
+                .iter()
+                .any(|p| k.to_lowercase().contains(p))
+            {
                 parts.push(v.clone()); // double-weight primaries
             }
         }
     }
     let combined = parts.join(" ");
-    let mut out = DealSummary { deal_value: "undisclosed".to_string(), ..Default::default() };
+    let mut out = DealSummary {
+        deal_value: "undisclosed".to_string(),
+        ..Default::default()
+    };
     if combined.trim().is_empty() {
         return out;
     }
@@ -314,11 +487,19 @@ pub fn synthesize_deal(sources: &HashMap<String, String>) -> DealSummary {
     let acq = r"([A-Z][A-Za-z&]+(?:[ \t]+[A-Z][A-Za-z&]+){0,4})";
     let acquirer_pats = [
         format!(r"(?s)(?:acquired?|purchased?|bought)\s+by\s+{acq}"),
-        format!(r"(?s)(?:sold\s+(?:a\s+)?(?:majority|controlling|minority|\d+%)?\s*(?:stake|interest|ownership)?\s*to)\s+{acq}"),
-        format!(r"(?s){acq}\s+(?:has\s+)?(?:agreed\s+to\s+acquire|will\s+acquire|completed\s+(?:the\s+|its\s+)?acquisition\s+of|announced\s+(?:the\s+|its\s+)?acquisition\s+of|signed\s+(?:a\s+)?definitive\s+agreement)\s+[A-Z]"),
+        format!(
+            r"(?s)(?:sold\s+(?:a\s+)?(?:majority|controlling|minority|\d+%)?\s*(?:stake|interest|ownership)?\s*to)\s+{acq}"
+        ),
+        format!(
+            r"(?s){acq}\s+(?:has\s+)?(?:agreed\s+to\s+acquire|will\s+acquire|completed\s+(?:the\s+|its\s+)?acquisition\s+of|announced\s+(?:the\s+|its\s+)?acquisition\s+of|signed\s+(?:a\s+)?definitive\s+agreement)\s+[A-Z]"
+        ),
         format!(r"(?s){acq}\s+(?:acquires?|acquired?|purchases?|to\s+acquire)\s+[A-Z]"),
-        format!(r"(?s){acq}\s+(?:Equity\s+Group|Capital|Partners|Ventures?)(?:\s+acquires?|\s+announced|\s+has)"),
-        format!(r"(?s){acq}\s+(?:takes?|took)\s+(?:majority|controlling|minority)?\s*(?:stake|ownership)"),
+        format!(
+            r"(?s){acq}\s+(?:Equity\s+Group|Capital|Partners|Ventures?)(?:\s+acquires?|\s+announced|\s+has)"
+        ),
+        format!(
+            r"(?s){acq}\s+(?:takes?|took)\s+(?:majority|controlling|minority)?\s*(?:stake|ownership)"
+        ),
     ];
     let acq_refs: Vec<&str> = acquirer_pats.iter().map(|s| s.as_str()).collect();
     if let Some(a) = find_first(&acq_refs, &deal_ctx) {
@@ -329,7 +510,9 @@ pub fn synthesize_deal(sources: &HashMap<String, String>) -> DealSummary {
     }
 
     if let Some(t) = find_first(
-        &[r"(?is)(?:acquires?|acquired?|purchases?)\s+([A-Z][A-Za-z\s&,]+?)(?:\s+for|\s+in\s+a|\s+\(|\.|,)"],
+        &[
+            r"(?is)(?:acquires?|acquired?|purchases?)\s+([A-Z][A-Za-z\s&,]+?)(?:\s+for|\s+in\s+a|\s+\(|\.|,)",
+        ],
         &combined,
     ) {
         let name = proper_name(&t);
@@ -417,8 +600,16 @@ pub fn synthesize_deal(sources: &HashMap<String, String>) -> DealSummary {
     let mut rationale: Vec<String> = Vec::new();
     for sent in split_sentences(&deal_ctx) {
         let sent = lead_caption.replace(sent.trim(), "").to_string();
-        let kw = RATIONALE_KW.iter().filter(|k| sent.to_lowercase().contains(**k)).count();
-        if sent.len() > 50 && sent.len() < 300 && kw >= 2 && !boilerplate.is_match(&sent) && !caps_run.is_match(&sent) {
+        let kw = RATIONALE_KW
+            .iter()
+            .filter(|k| sent.to_lowercase().contains(**k))
+            .count();
+        if sent.len() > 50
+            && sent.len() < 300
+            && kw >= 2
+            && !boilerplate.is_match(&sent)
+            && !caps_run.is_match(&sent)
+        {
             rationale.push(sent);
         }
     }
@@ -464,9 +655,13 @@ fn build_deal_queries(target: &str, acquirer: &str) -> Vec<String> {
     let mut qs = Vec::new();
     if !acquirer.is_empty() {
         qs.push(format!("{acquirer} acquires {target} deal terms value"));
-        qs.push(format!("{target} acquired by {acquirer} transaction announced"));
+        qs.push(format!(
+            "{target} acquired by {acquirer} transaction announced"
+        ));
     }
-    qs.push(format!("{target} acquisition announced deal value rationale"));
+    qs.push(format!(
+        "{target} acquisition announced deal value rationale"
+    ));
     qs.push(format!("{target} merger agreement purchase price advisors"));
     qs
 }
@@ -494,7 +689,10 @@ pub fn run_deal_research(
     let queries = build_deal_queries(&target, &acquirer);
     let mut sources: HashMap<String, String> = HashMap::new();
     let mut read: Vec<String> = Vec::new();
-    let mut summary = DealSummary { deal_value: "undisclosed".into(), ..Default::default() };
+    let mut summary = DealSummary {
+        deal_value: "undisclosed".into(),
+        ..Default::default()
+    };
 
     'outer: for q in &queries {
         let hits = match web::web_search(q, mcp.as_deref_mut()) {
@@ -521,7 +719,14 @@ pub fn run_deal_research(
         }
     }
     let sufficient = is_sufficient(&summary);
-    DealResearch { query_type: Some(query_type), target, acquirer, summary, sources_read: read, sufficient }
+    DealResearch {
+        query_type: Some(query_type),
+        target,
+        acquirer,
+        summary,
+        sources_read: read,
+        sufficient,
+    }
 }
 
 #[cfg(test)]
@@ -530,17 +735,38 @@ mod tests {
 
     #[test]
     fn routes_transaction_and_earnings() {
-        assert_eq!(detect_query_type("Nestlé acquisition deal terms"), QueryType::TransactionTerms);
-        assert_eq!(detect_query_type("Apple Q3 2025 earnings release"), QueryType::EarningsAnalysis);
-        assert_eq!(detect_query_type("who owns Tesla shares"), QueryType::BeneficialOwnership);
-        assert_eq!(detect_query_type("hello there"), QueryType::GeneralCompanyIntelligence);
+        assert_eq!(
+            detect_query_type("Nestlé acquisition deal terms"),
+            QueryType::TransactionTerms
+        );
+        assert_eq!(
+            detect_query_type("Apple Q3 2025 earnings release"),
+            QueryType::EarningsAnalysis
+        );
+        assert_eq!(
+            detect_query_type("who owns Tesla shares"),
+            QueryType::BeneficialOwnership
+        );
+        assert_eq!(
+            detect_query_type("hello there"),
+            QueryType::GeneralCompanyIntelligence
+        );
     }
 
     #[test]
     fn parses_ma_query_shapes() {
-        assert_eq!(parse_ma_query("Microsoft acquires Activision", ""), ("Activision".into(), "Microsoft".into()));
-        assert_eq!(parse_ma_query("Activision acquired by Microsoft", ""), ("Activision".into(), "Microsoft".into()));
-        assert_eq!(parse_ma_query("research the Credit Suisse merger with UBS", ""), ("Credit Suisse".into(), "UBS".into()));
+        assert_eq!(
+            parse_ma_query("Microsoft acquires Activision", ""),
+            ("Activision".into(), "Microsoft".into())
+        );
+        assert_eq!(
+            parse_ma_query("Activision acquired by Microsoft", ""),
+            ("Activision".into(), "Microsoft".into())
+        );
+        assert_eq!(
+            parse_ma_query("research the Credit Suisse merger with UBS", ""),
+            ("Credit Suisse".into(), "UBS".into())
+        );
         let (t, a) = parse_ma_query("Figma / Adobe deal", "");
         assert_eq!((t.as_str(), a.as_str()), ("Figma", "Adobe"));
     }
@@ -571,7 +797,12 @@ mod tests {
         assert_eq!(s.deal_value, "2.5 billion");
         assert!(s.acquirer.is_some(), "acquirer");
         assert!(s.strategic_rationale.is_some(), "rationale");
-        assert!(s.advisors.as_deref().unwrap_or("").contains("Goldman Sachs"));
+        assert!(
+            s.advisors
+                .as_deref()
+                .unwrap_or("")
+                .contains("Goldman Sachs")
+        );
         assert!(is_sufficient(&s));
     }
 

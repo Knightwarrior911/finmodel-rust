@@ -14,3 +14,4 @@ fm-mcp = { path = "../fm-mcp" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
+url = "2"

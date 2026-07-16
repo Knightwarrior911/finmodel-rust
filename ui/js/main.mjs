@@ -3,14 +3,24 @@
 import { initTheme, call } from "./core.mjs";
 import { initReader } from "./reader.mjs";
 import { initSidebar, refresh as refreshSidebar, setActive } from "./sidebar.mjs";
-import { initChat, loadConversation, newChat, getCurrentId, setModelPill } from "./chat.mjs";
+import {
+  initChat,
+  loadConversation,
+  newChat,
+  getCurrentId,
+  setModelPill,
+  getActiveRunId,
+  applyCapability,
+} from "./chat.mjs";
 import { initSettings } from "./settings.mjs";
 import { initUpdate } from "./update.mjs";
+import { initAnalyst } from "./analyst.mjs";
 
 async function loadModelPill() {
   try {
     const s = await call("load_settings");
     setModelPill(s.model);
+    applyCapability(s);
   } catch (_) {
     /* offline */
   }
@@ -31,6 +41,7 @@ function boot() {
   });
   initSettings({ onSaved: () => loadModelPill() });
   initUpdate();
+  initAnalyst();
 
   // Global shortcuts: Ctrl/Cmd+N new chat, Ctrl/Cmd+K filter, Esc stops a reply.
   document.addEventListener("keydown", (e) => {
@@ -50,7 +61,7 @@ function boot() {
       const stop = document.getElementById("chatStop");
       if (stop && !stop.hidden) {
         e.stopPropagation();
-        call("chat_cancel", { conversation_id: getCurrentId() }).catch(() => {});
+        call("chat_cancel", { conversation_id: getCurrentId(), run_id: getActiveRunId() }).catch(() => {});
       }
     }
   });

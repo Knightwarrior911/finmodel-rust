@@ -12,7 +12,14 @@ use fm_excel::sheets::build_workbook;
 use fm_excel::snapshot::{compare_workbook, load_snapshot};
 use fm_value::{CompMultipleStats, DCFOutput, Peer, PublicCompPeer, PublicCompsOutput, WACCOutput};
 
-const GATED: [&str; 6] = ["Cover", "DCF", "WACC", "Sensitivities", "Comps Peers", "Comps Summary"];
+const GATED: [&str; 6] = [
+    "Cover",
+    "DCF",
+    "WACC",
+    "Sensitivities",
+    "Comps Peers",
+    "Comps Summary",
+];
 
 fn oracle_path() -> String {
     format!(
@@ -66,7 +73,11 @@ fn parse_wacc(v: &serde_json::Value) -> WACCOutput {
         .map(|arr| {
             arr.iter()
                 .map(|p| Peer {
-                    ticker: p.get("ticker").and_then(|x| x.as_str()).unwrap_or("").into(),
+                    ticker: p
+                        .get("ticker")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .into(),
                     name: p.get("name").and_then(|x| x.as_str()).unwrap_or("").into(),
                     market_cap: f64_field(p, "market_cap"),
                     enterprise_value: f64_field(p, "enterprise_value"),
@@ -105,7 +116,11 @@ fn parse_wacc(v: &serde_json::Value) -> WACCOutput {
 
 fn parse_dcf(v: &serde_json::Value) -> DCFOutput {
     DCFOutput {
-        ticker: v.get("ticker").and_then(|x| x.as_str()).unwrap_or("").into(),
+        ticker: v
+            .get("ticker")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .into(),
         mid_year_convention: v
             .get("mid_year_convention")
             .and_then(|x| x.as_bool())
@@ -169,78 +184,129 @@ fn parse_dcf(v: &serde_json::Value) -> DCFOutput {
     }
 }
 
-
 fn parse_public_comps(v: &serde_json::Value) -> Option<PublicCompsOutput> {
-    if v.is_null() { return None; }
-    let peers = v.get("peers").and_then(|p| p.as_array()).map(|arr| {
-        arr.iter().map(|p| PublicCompPeer {
-            ticker: p.get("ticker").and_then(|x| x.as_str()).unwrap_or("").into(),
-            name: p.get("name").and_then(|x| x.as_str()).unwrap_or("").into(),
-            country: p.get("country").and_then(|x| x.as_str()).unwrap_or("").into(),
-            currency: p.get("currency").and_then(|x| x.as_str()).unwrap_or("").into(),
-            tier: p.get("tier").and_then(|x| x.as_i64()).unwrap_or(1) as i32,
-            share_price: f64_field(p, "share_price"),
-            shares_diluted: f64_field(p, "shares_diluted"),
-            market_cap: f64_field(p, "market_cap"),
-            total_debt: f64_field(p, "total_debt"),
-            cash: f64_field(p, "cash"),
-            enterprise_value: f64_field(p, "enterprise_value"),
-            week52_high: f64_field(p, "week52_high"),
-            week52_low: f64_field(p, "week52_low"),
-            ltm_revenue: f64_field(p, "ltm_revenue"),
-            ltm_ebitda: f64_field(p, "ltm_ebitda"),
-            ltm_ebit: f64_field(p, "ltm_ebit"),
-            ltm_net_income: f64_field(p, "ltm_net_income"),
-            ltm_eps_diluted: f64_field(p, "ltm_eps_diluted"),
-            ntm_revenue: f64_field(p, "ntm_revenue"),
-            ntm_ebitda: f64_field(p, "ntm_ebitda"),
-            fy1_revenue: f64_field(p, "fy1_revenue"),
-            fy1_ebitda: f64_field(p, "fy1_ebitda"),
-            fy2_revenue: f64_field(p, "fy2_revenue"),
-            fy2_ebitda: f64_field(p, "fy2_ebitda"),
-            ntm_eps: f64_field(p, "ntm_eps"),
-            fy1_eps: f64_field(p, "fy1_eps"),
-            ev_rev_ltm: p.get("ev_rev_ltm").and_then(|x| x.as_f64()),
-            ev_ebitda_ltm: p.get("ev_ebitda_ltm").and_then(|x| x.as_f64()),
-            ev_ebit_ltm: p.get("ev_ebit_ltm").and_then(|x| x.as_f64()),
-            pe_ltm: p.get("pe_ltm").and_then(|x| x.as_f64()),
-            ev_rev_ntm: p.get("ev_rev_ntm").and_then(|x| x.as_f64()),
-            ev_ebitda_ntm: p.get("ev_ebitda_ntm").and_then(|x| x.as_f64()),
-            ev_rev_fy1: p.get("ev_rev_fy1").and_then(|x| x.as_f64()),
-            ev_ebitda_fy1: p.get("ev_ebitda_fy1").and_then(|x| x.as_f64()),
-            ev_rev_fy2: p.get("ev_rev_fy2").and_then(|x| x.as_f64()),
-            ev_ebitda_fy2: p.get("ev_ebitda_fy2").and_then(|x| x.as_f64()),
-            pe_ntm: p.get("pe_ntm").and_then(|x| x.as_f64()),
-            pe_fy1: p.get("pe_fy1").and_then(|x| x.as_f64()),
-            rationale: p.get("rationale").and_then(|x| x.as_str()).unwrap_or("").into(),
-        }).collect()
-    }).unwrap_or_default();
+    if v.is_null() {
+        return None;
+    }
+    let peers = v
+        .get("peers")
+        .and_then(|p| p.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|p| PublicCompPeer {
+                    ticker: p
+                        .get("ticker")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .into(),
+                    name: p.get("name").and_then(|x| x.as_str()).unwrap_or("").into(),
+                    country: p
+                        .get("country")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .into(),
+                    currency: p
+                        .get("currency")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .into(),
+                    tier: p.get("tier").and_then(|x| x.as_i64()).unwrap_or(1) as i32,
+                    share_price: f64_field(p, "share_price"),
+                    shares_diluted: f64_field(p, "shares_diluted"),
+                    market_cap: f64_field(p, "market_cap"),
+                    total_debt: f64_field(p, "total_debt"),
+                    cash: f64_field(p, "cash"),
+                    enterprise_value: f64_field(p, "enterprise_value"),
+                    week52_high: f64_field(p, "week52_high"),
+                    week52_low: f64_field(p, "week52_low"),
+                    ltm_revenue: f64_field(p, "ltm_revenue"),
+                    ltm_ebitda: f64_field(p, "ltm_ebitda"),
+                    ltm_ebit: f64_field(p, "ltm_ebit"),
+                    ltm_net_income: f64_field(p, "ltm_net_income"),
+                    ltm_eps_diluted: f64_field(p, "ltm_eps_diluted"),
+                    ntm_revenue: f64_field(p, "ntm_revenue"),
+                    ntm_ebitda: f64_field(p, "ntm_ebitda"),
+                    fy1_revenue: f64_field(p, "fy1_revenue"),
+                    fy1_ebitda: f64_field(p, "fy1_ebitda"),
+                    fy2_revenue: f64_field(p, "fy2_revenue"),
+                    fy2_ebitda: f64_field(p, "fy2_ebitda"),
+                    ntm_eps: f64_field(p, "ntm_eps"),
+                    fy1_eps: f64_field(p, "fy1_eps"),
+                    ev_rev_ltm: p.get("ev_rev_ltm").and_then(|x| x.as_f64()),
+                    ev_ebitda_ltm: p.get("ev_ebitda_ltm").and_then(|x| x.as_f64()),
+                    ev_ebit_ltm: p.get("ev_ebit_ltm").and_then(|x| x.as_f64()),
+                    pe_ltm: p.get("pe_ltm").and_then(|x| x.as_f64()),
+                    ev_rev_ntm: p.get("ev_rev_ntm").and_then(|x| x.as_f64()),
+                    ev_ebitda_ntm: p.get("ev_ebitda_ntm").and_then(|x| x.as_f64()),
+                    ev_rev_fy1: p.get("ev_rev_fy1").and_then(|x| x.as_f64()),
+                    ev_ebitda_fy1: p.get("ev_ebitda_fy1").and_then(|x| x.as_f64()),
+                    ev_rev_fy2: p.get("ev_rev_fy2").and_then(|x| x.as_f64()),
+                    ev_ebitda_fy2: p.get("ev_ebitda_fy2").and_then(|x| x.as_f64()),
+                    pe_ntm: p.get("pe_ntm").and_then(|x| x.as_f64()),
+                    pe_fy1: p.get("pe_fy1").and_then(|x| x.as_f64()),
+                    rationale: p
+                        .get("rationale")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .into(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let mut stats = std::collections::HashMap::new();
     if let Some(map) = v.get("stats").and_then(|s| s.as_object()) {
         for (k, st) in map {
-            stats.insert(k.clone(), CompMultipleStats {
-                multiple_name: st.get("multiple_name").and_then(|x| x.as_str()).unwrap_or(k).into(),
-                values: f64_vec(st, "values"),
-                min: f64_field(st, "min"),
-                p25: f64_field(st, "p25"),
-                median: f64_field(st, "median"),
-                mean: f64_field(st, "mean"),
-                p75: f64_field(st, "p75"),
-                max: f64_field(st, "max"),
-                count: st.get("count").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-            });
+            stats.insert(
+                k.clone(),
+                CompMultipleStats {
+                    multiple_name: st
+                        .get("multiple_name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or(k)
+                        .into(),
+                    values: f64_vec(st, "values"),
+                    min: f64_field(st, "min"),
+                    p25: f64_field(st, "p25"),
+                    median: f64_field(st, "median"),
+                    mean: f64_field(st, "mean"),
+                    p75: f64_field(st, "p75"),
+                    max: f64_field(st, "max"),
+                    count: st.get("count").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+                },
+            );
         }
     }
-    let excluded = v.get("excluded").and_then(|a| a.as_array()).map(|arr| {
-        arr.iter().filter_map(|item| {
-            let a = item.as_array()?;
-            Some((a.first()?.as_str()?.to_string(), a.get(1)?.as_str()?.to_string()))
-        }).collect()
-    }).unwrap_or_default();
+    let excluded = v
+        .get("excluded")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let a = item.as_array()?;
+                    Some((
+                        a.first()?.as_str()?.to_string(),
+                        a.get(1)?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Some(PublicCompsOutput {
-        target_ticker: v.get("target_ticker").and_then(|x| x.as_str()).unwrap_or("").into(),
-        target_company_name: v.get("target_company_name").and_then(|x| x.as_str()).unwrap_or("").into(),
-        as_of_date: v.get("as_of_date").and_then(|x| x.as_str()).unwrap_or("").into(),
+        target_ticker: v
+            .get("target_ticker")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .into(),
+        target_company_name: v
+            .get("target_company_name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .into(),
+        as_of_date: v
+            .get("as_of_date")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .into(),
         target_revenue: f64_field(v, "target_revenue"),
         target_ebitda: f64_field(v, "target_ebitda"),
         target_ebit: f64_field(v, "target_ebit"),
@@ -254,7 +320,11 @@ fn parse_public_comps(v: &serde_json::Value) -> Option<PublicCompsOutput> {
         implied_price_low: f64_field(v, "implied_price_low"),
         implied_price_median: f64_field(v, "implied_price_median"),
         implied_price_high: f64_field(v, "implied_price_high"),
-        source: v.get("source").and_then(|x| x.as_str()).unwrap_or("").into(),
+        source: v
+            .get("source")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .into(),
     })
 }
 
@@ -324,7 +394,10 @@ fn input_from_val_oracle(snap: &serde_json::Value) -> WorkbookInput {
             .get("has_cogs")
             .and_then(|x| x.as_bool())
             .unwrap_or(true),
-        flags.get("has_rd").and_then(|x| x.as_bool()).unwrap_or(true),
+        flags
+            .get("has_rd")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(true),
         flags
             .get("has_sga")
             .and_then(|x| x.as_bool())
@@ -348,6 +421,7 @@ fn input_from_val_oracle(snap: &serde_json::Value) -> WorkbookInput {
             .into(),
         dcf: Some(parse_dcf(&snap["dcf_output"])),
         public_comps: parse_public_comps(&snap["public_comps"]),
+        source_audit: Vec::new(),
     }
 }
 

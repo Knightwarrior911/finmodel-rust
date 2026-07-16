@@ -2,11 +2,31 @@
 
 import { $, call, on, escapeHtml, renderMarkdown, stripControlTokens, copyToClipboard, flashBtn } from "./core.mjs";
 import { renderCard } from "./cards.mjs";
+import { closeReader } from "./reader.mjs";
 
 let currentId = null;
 let streaming = false;
 let onChanged = () => {};
 let activeTurn = null; // { assistantNode, pending: Map<name, node[]> }
+let activeRunId = null; // the current turn's run id (crypto.randomUUID)
+export function getActiveRunId() {
+  return activeRunId;
+}
+
+/** RFC-4122-shaped id so backend validation accepts the same string Stop sends. */
+/** Match backend `new_conversation` shape: `{ms}-{4hex}`. */
+function newConversationId() {
+  const ms = Date.now();
+  const hex = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  return `${ms}-${hex}`;
+}
+
+function newRunId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  // Fallback: 8-4-4-4-12 hex (version/variant bits not critical for format check).
+  const h = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  return `${h()}${h()}-${h()}-4${h().slice(1)}-a${h().slice(1)}-${h()}${h()}${h()}`;
+}
 
 export function getCurrentId() {
   return currentId;
@@ -72,6 +92,8 @@ function appendAssistant(text, live) {
 function appendCard(card) {
   const div = document.createElement("div");
   div.className = "msg msg-card";
+  if (activeRunId) div.dataset.runId = activeRunId;
+  if (currentId) div.dataset.conversationId = currentId;
   div.appendChild(renderCard(card));
   scrollEl().appendChild(div);
   scrollToBottom();
@@ -104,28 +126,74 @@ function toolStatusNode(name) {
   return div;
 }
 
-// ── event stream wiring (single-flight → route all to the active turn) ──
-function handleDelta(payload) {
-  if (!activeTurn) return;
+// ── event stream wiring (correlated by conversation_id + run_id) ──
+// Buffer text deltas and flush once per animation frame (Phase 3.5).
+let deltaBuffer = "";
+let deltaRaf = 0;
+
+function eventMatchesActive(payload) {
+  if (!activeTurn || !streaming) return false;
+  if (payload.conversation_id && currentId && payload.conversation_id !== currentId) {
+    return false;
+  }
+  if (payload.run_id && activeRunId && payload.run_id !== activeRunId) {
+    return false;
+  }
+  // Missing ids: only accept while we have an active turn (legacy safety).
+  return true;
+}
+
+function flushDeltaBuffer() {
+  deltaRaf = 0;
+  if (!activeTurn || !deltaBuffer) return;
   if (!activeTurn.assistantNode) {
     activeTurn.assistantNode = appendAssistant("", true);
   }
   const prose = activeTurn.assistantNode.querySelector(".prose");
-  prose.dataset.raw = (prose.dataset.raw || "") + (payload.text || "");
+  prose.dataset.raw = (prose.dataset.raw || "") + deltaBuffer;
   prose.textContent = prose.dataset.raw;
+  deltaBuffer = "";
   scrollToBottom();
 }
 
+function handleDelta(payload) {
+  if (!eventMatchesActive(payload)) return;
+  deltaBuffer += payload.text || "";
+  if (!deltaRaf) {
+    deltaRaf = requestAnimationFrame(flushDeltaBuffer);
+  }
+}
+
+/// Human phase label for the polite progress region.
+function phaseLabel(name, detail) {
+  if (detail && detail.trim()) return detail.trim();
+  switch (name) {
+    case "research":
+      return "Researching…";
+    case "analyze_pdf":
+      return "Analyzing PDF…";
+    case "build_model":
+      return "Building model…";
+    case "benchmark_peers":
+      return "Benchmarking peers…";
+    default:
+      return `Running ${name}…`;
+  }
+}
+
 function handleTool(payload) {
-  if (!activeTurn) return;
+  if (!eventMatchesActive(payload)) return;
   const name = payload.name || "tool";
   if (payload.status === "start") {
+    setProgress(phaseLabel(name, payload.detail));
     const node = toolStatusNode(name);
     const list = activeTurn.pending.get(name) || [];
     list.push(node);
     activeTurn.pending.set(name, list);
     return;
   }
+  // A terminal status ends the phase; clear the progress node.
+  setProgress("");
   // done | error → replace the earliest pending status for this name.
   const list = activeTurn.pending.get(name) || [];
   const node = list.shift();
@@ -151,6 +219,10 @@ function handleTool(payload) {
 
 // Finalize the live assistant bubble: render its accumulated text as markdown.
 function finalizeLive() {
+  if (deltaRaf) {
+    cancelAnimationFrame(deltaRaf);
+    flushDeltaBuffer();
+  }
   if (activeTurn && activeTurn.assistantNode) {
     activeTurn.assistantNode.classList.remove("streaming");
     const prose = activeTurn.assistantNode.querySelector(".prose");
@@ -173,47 +245,173 @@ export async function loadConversation(id) {
     currentId = conv.id;
     clearMessages();
     showEmpty(false);
-    for (const m of conv.messages || []) {
-      if (m.role === "user") appendUser(m.content);
-      else if (m.card) appendCard(m.card);
-      else if (m.content && m.content.trim()) appendAssistant(m.content, false);
+    // Build history off-DOM then commit once (Phase 3.5).
+    const frag = document.createDocumentFragment();
+    const host = scrollEl();
+    const appendTo = (node) => {
+      frag.appendChild(node);
+    };
+    // Temporarily redirect appends into the fragment via a local host swap.
+    const realAppend = host.appendChild.bind(host);
+    host.appendChild = (n) => frag.appendChild(n);
+    try {
+      for (const m of conv.messages || []) {
+        if (m.role === "user") appendUser(m.content);
+        else if (m.card) appendCard(m.card);
+        else if (m.content && m.content.trim()) appendAssistant(m.content, false);
+      }
+    } finally {
+      host.appendChild = realAppend;
     }
+    host.appendChild(frag);
+    closeReader(); // changing chat resets the reader (Phase 4.3)
     scrollToBottom(true);
     onChanged();
   } catch (e) {
-    /* missing/corrupt — start fresh */
-    newChat();
+    // Load failure: announce, retain the current view, offer retry/close —
+    // never silently discard into a new chat (Phase 4.3).
+    const msg = (e && e.message) || "Couldn't open that conversation.";
+    showLoadFailure(id, msg);
   }
+}
+
+/// Assertive announce with keyboard-reachable Retry / Dismiss for a failed
+/// conversation load. Retains the current conversation and reader.
+function showLoadFailure(id, message) {
+  const a = $("chatAlert");
+  if (!a) return;
+  a.innerHTML = "";
+  const note = document.createElement("span");
+  note.className = "chat-alert-note";
+  note.textContent = message;
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "btn-ghost";
+  retry.textContent = "Retry";
+  retry.addEventListener("click", () => {
+    clearAlert();
+    loadConversation(id);
+  });
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "btn-ghost";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("click", clearAlert);
+  a.append(note, retry, dismiss);
+  a.hidden = false;
+  retry.focus();
 }
 
 export function newChat() {
   if (streaming) return;
   currentId = null;
   clearMessages();
+  clearAlert();
+  closeReader(); // new chat resets the reader (Phase 4.3)
   showEmpty(true);
   onChanged();
   $("chatInput").focus();
+}
+
+// Stop lifecycle: idle → running → stopping → terminal. First Stop shows
+// "Stopping…" (disabled); repeats no-op; terminal clears aria-busy once.
+let stopping = false;
+let lastQuestion = "";
+
+function setProgress(text) {
+  const p = $("chatProgress");
+  if (!p) return;
+  if (text) {
+    // Update only when the phase text actually changes (no duplicate announce).
+    if (p.textContent !== text) p.textContent = text;
+    p.hidden = false;
+  } else {
+    p.textContent = "";
+    p.hidden = true;
+  }
+}
+
+function clearAlert() {
+  const a = $("chatAlert");
+  if (a) {
+    a.textContent = "";
+    a.innerHTML = "";
+    a.hidden = true;
+  }
+}
+
+/// Terminal recovery region: preserve the question, offer Retry / New research.
+function showRecovery(message) {
+  const a = $("chatAlert");
+  if (!a) return;
+  a.innerHTML = "";
+  const note = document.createElement("span");
+  note.className = "chat-alert-note";
+  note.textContent = message;
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "btn-ghost";
+  retry.textContent = "Retry";
+  retry.addEventListener("click", () => {
+    clearAlert();
+    if (lastQuestion) send(lastQuestion);
+  });
+  const fresh = document.createElement("button");
+  fresh.type = "button";
+  fresh.className = "btn-ghost";
+  fresh.textContent = "New research";
+  fresh.addEventListener("click", () => {
+    clearAlert();
+    newChat();
+  });
+  a.append(note, retry, fresh);
+  a.hidden = false;
 }
 
 function setStreaming(on) {
   streaming = on;
   $("chatInput").disabled = on;
   $("chatSend").disabled = on;
-  $("chatStop").hidden = !on;
+  const stop = $("chatStop");
+  stop.hidden = !on;
+  const scroll = $("chatScroll");
+  if (on) {
+    scroll.setAttribute("aria-busy", "true");
+    // Reset Stop button to its active state for a new run.
+    stopping = false;
+    stop.disabled = false;
+    stop.setAttribute("aria-label", "Stop");
+  } else {
+    // Terminal: clear aria-busy exactly once and hide progress.
+    scroll.removeAttribute("aria-busy");
+    setProgress("");
+  }
 }
 
 async function send(text) {
   const msg = (text || "").trim();
   if (!msg || streaming) return;
+  clearAlert();
+  lastQuestion = msg;
   showEmpty(false);
   appendUser(msg);
   $("chatInput").value = "";
   autoGrow();
   setStreaming(true);
   activeTurn = { assistantNode: null, pending: new Map() };
+  activeRunId = newRunId();
+  // Allocate conversation id before the long-running invoke so Stop can target
+  // the registry key immediately (backend accepts client-supplied ids).
+  if (!currentId) currentId = newConversationId();
+  let cancelled = false;
   try {
-    const res = await call("chat_send", { conversation_id: currentId, message: msg });
+    const res = await call("chat_send", {
+      conversation_id: currentId,
+      message: msg,
+      run_id: activeRunId,
+    });
     currentId = res.conversation_id || currentId;
+    cancelled = stopping;
   } catch (e) {
     const errText = e && e.message ? e.message : String(e);
     if (!activeTurn.assistantNode) appendAssistant("", true);
@@ -222,6 +420,10 @@ async function send(text) {
   } finally {
     finalizeLive();
     setStreaming(false);
+    if (cancelled) {
+      // Terminal cancel: preserve the question, offer Retry / New research.
+      showRecovery("Stopped.");
+    }
     onChanged();
   }
 }
@@ -241,7 +443,10 @@ export function initChat(opts = {}) {
     /* send() resolution finalizes; nothing structural needed here */
   });
   // Backend dropped a fabricated free-form answer in favour of a real tool.
-  on("chat_reset", () => {
+  on("chat_reset", (e) => {
+    const p = (e && e.payload) || {};
+    if (!eventMatchesActive(p)) return;
+    deltaBuffer = "";
     if (activeTurn && activeTurn.assistantNode) {
       const prose = activeTurn.assistantNode.querySelector(".prose");
       prose.dataset.raw = "";
@@ -267,27 +472,56 @@ export function initChat(opts = {}) {
       send(ta.value);
     }
   });
-  // Webview drag-drop: a single .pdf primes the composer with an analyze command.
-  on("tauri://drag-drop", (e) => {
-    const paths = (e && e.payload && e.payload.paths) || [];
-    const pdfs = paths.filter((p) => /\.pdf$/i.test(p));
-    if (paths.length === 1 && pdfs.length === 1) {
-      const path = pdfs[0];
-      const stem = (path.split(/[\\/]/).pop() || "PDF").replace(/\.pdf$/i, "");
-      ta.value = `Analyze the filing PDF at "${path}" for ${stem}`;
+  // OS drag-drop: Rust observes paths and emits pdf_drop_ready. We claim
+  // the one-use grant for the current conversation and put the opaque handle
+  // in the composer — never the raw filesystem path.
+  on("pdf_drop_ready", async () => {
+    try {
+      const convId = currentId;
+      if (!convId) {
+        const orig = ta.placeholder;
+        ta.placeholder = "Open or start a chat, then drop the PDF again";
+        setTimeout(() => {
+          ta.placeholder = orig;
+        }, 2500);
+        return;
+      }
+      const res = await call("claim_dropped_pdf", { conversation_id: convId });
+      if (!res || !res.artifact_id) {
+        const orig = ta.placeholder;
+        ta.placeholder = "Drop not claimed — try again";
+        setTimeout(() => {
+          ta.placeholder = orig;
+        }, 2500);
+        return;
+      }
+      const label = res.label || "PDF";
+      ta.value = `Analyze PDF [${res.artifact_id}] for ${label}`;
       autoGrow();
       ta.focus();
-    } else if (paths.length) {
+    } catch (err) {
       const orig = ta.placeholder;
-      ta.placeholder = "Drop one .pdf to analyze";
+      ta.placeholder = (err && err.message) || "Drop failed";
       setTimeout(() => {
         ta.placeholder = orig;
       }, 2500);
     }
   });
+  on("chat_progress", (e) => {
+    const p = (e && e.payload) || {};
+    if (!eventMatchesActive(p)) return;
+    if (!stopping) setProgress(p.text || "");
+  });
   $("chatSend").addEventListener("click", () => send(ta.value));
   $("chatStop").addEventListener("click", () => {
-    call("chat_cancel", { conversation_id: currentId }).catch(() => {});
+    if (stopping || !streaming) return; // repeats are a no-op
+    stopping = true;
+    const stop = $("chatStop");
+    stop.disabled = true;
+    stop.setAttribute("aria-label", "Stopping…");
+    stop.title = "Stopping…";
+    setProgress("Stopping…");
+    call("chat_cancel", { conversation_id: currentId, run_id: activeRunId }).catch(() => {});
   });
 
   $("chatEmpty").addEventListener("click", (e) => {
@@ -304,4 +538,58 @@ export function initChat(opts = {}) {
 export function setModelPill(model) {
   const pill = $("modelPillText");
   if (pill) pill.textContent = model || "no model";
+}
+
+// Honest onboarding (Phase 4.6): distinguish capability states with the exact
+// next action, and show demo tickers that actually work in the current state.
+const DEMO_CHIPS = [
+  "Build SAND.ST",
+  "Benchmark SAND.ST, ASML.AS, NESN.SW",
+  "Build NOVO-B.CO",
+  "Build ATCO-B.ST",
+];
+const LIVE_CHIPS = [
+  "Build NVDA with peers AMD, INTC, AVGO",
+  "Read the risk factors in TSLA's latest 10-K",
+  "Benchmark AAPL, MSFT, GOOGL — deck included",
+  "Research NVDA data-center revenue growth",
+];
+
+export function applyCapability(settings) {
+  const note = $("capabilityNote");
+  const chips = $("exampleChips");
+  if (!note || !chips || !settings) return;
+  const hasKey = !!settings.has_key;
+  const cap = settings.model_capability || null;
+  const capForModel = cap && cap.model_id === settings.model ? cap : null;
+  let text;
+  let useLive = hasKey;
+  if (!hasKey) {
+    // key missing
+    text =
+      "No LLM key — offline demo (5 embedded companies) and source digests only. Add an OpenRouter key in Settings for live research and models.";
+    useLive = false;
+  } else if (!capForModel) {
+    // key present / probe unknown
+    text =
+      "Key set; this model's capabilities are untested. Run Test model in Settings for verified tool-calling and strict JSON.";
+  } else if (capForModel.native_tools && capForModel.strict_json) {
+    // native + strict verified
+    text = "Model verified: native tool-calling and strict JSON.";
+  } else if (capForModel.native_tools) {
+    text = "Model verified for tool-calling; strict JSON unverified — app validates synthesis.";
+  } else {
+    // text-only app-controlled synthesis
+    text =
+      "This model has no verified tool-calling — using app-controlled routing and validated text synthesis.";
+  }
+  // Browser capability note.
+  if (!settings.mcp_command || !settings.mcp_command.trim()) {
+    text += " In-app reading uses basic HTTP; configure the Roam browser in Settings for dynamic/login-gated pages.";
+  }
+  note.textContent = text;
+  const labels = useLive ? LIVE_CHIPS : DEMO_CHIPS;
+  chips.innerHTML = labels
+    .map((l) => `<button type="button" class="example-chip">${escapeHtml(l)}</button>`)
+    .join("");
 }

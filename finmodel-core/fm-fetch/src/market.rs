@@ -15,6 +15,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::cache::{FX_CACHE, QUOTE_CACHE};
+use crate::retry::{RetryClass, classify_status, with_retries};
+
 /// Yahoo chart hosts, tried in order (query2 is the failover mirror).
 const QUOTE_HOSTS: [&str; 2] = [
     "https://query1.finance.yahoo.com/v8/finance/chart/",
@@ -54,33 +57,57 @@ static MARKET_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 });
 
-/// Fetch the `meta` object of a Yahoo chart response for `sym`, failing over
-/// query1 → query2 with one retry each. The returned `Err` distinguishes a
-/// network failure from a parse failure so callers can report the cause.
+/// Fetch the `meta` object of a Yahoo chart response for `sym`. Hosts are tried
+/// in order; each host uses the Phase 3.4 retry policy (connection / 408 / 429 /
+/// 5xx only, twice max). Parse/schema failures are terminal for that host.
 fn fetch_chart_meta(sym: &str) -> Result<Value, FetchError> {
     let path = format!("{sym}?interval=1d&range=1d");
     let mut last: Option<FetchError> = None;
     for host in QUOTE_HOSTS {
-        for attempt in 0..2 {
-            let url = format!("{host}{path}");
-            match MARKET_CLIENT.get(&url).send() {
-                Ok(resp) => match resp.error_for_status() {
-                    Ok(ok) => match ok.json::<Value>() {
+        let url = format!("{host}{path}");
+        match with_retries(|| match MARKET_CLIENT.get(&url).send() {
+            Ok(resp) => {
+                let status = resp.status();
+                let code = status.as_u16();
+                match classify_status(code) {
+                    RetryClass::Success => match resp.json::<Value>() {
                         Ok(v) => {
                             if let Some(meta) = v.pointer("/chart/result/0/meta") {
-                                return Ok(meta.clone());
+                                Ok(meta.clone())
+                            } else {
+                                Err((
+                                    false,
+                                    None,
+                                    FetchError::Parse(format!("no chart meta for {sym}")),
+                                ))
                             }
-                            last = Some(FetchError::Parse(format!("no chart meta for {sym}")));
                         }
-                        Err(e) => last = Some(FetchError::Parse(e.to_string())),
+                        Err(e) => Err((false, None, FetchError::Parse(e.to_string()))),
                     },
-                    Err(e) => last = Some(FetchError::Network(e.to_string())),
-                },
-                Err(e) => last = Some(FetchError::Network(e.to_string())),
+                    RetryClass::Retriable => {
+                        let ra = resp
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                        drop(resp);
+                        Err((
+                            true,
+                            ra,
+                            FetchError::Network(format!("HTTP {status} for {sym}")),
+                        ))
+                    }
+                    RetryClass::Terminal => Err((
+                        false,
+                        None,
+                        FetchError::Network(format!("HTTP {status} for {sym}")),
+                    )),
+                }
             }
-            if attempt == 0 {
-                std::thread::sleep(Duration::from_millis(400));
-            }
+            Err(e) => Err((true, None, FetchError::Network(e.to_string()))),
+        }) {
+            Ok(meta) => return Ok(meta),
+            Err(e) => last = Some(e),
         }
     }
     Err(last.unwrap_or_else(|| FetchError::Network(format!("no response for {sym}"))))
@@ -91,25 +118,43 @@ fn fetch_chart_meta(sym: &str) -> Result<Value, FetchError> {
 /// fabricate, and can surface the reason.
 pub fn fetch_quote(ticker: &str) -> Result<Quote, FetchError> {
     let sym = ticker.trim().to_uppercase();
+    if let Some(cached) = QUOTE_CACHE.get(&sym)
+        && let Ok(q) = serde_json::from_str::<Quote>(&cached)
+    {
+        return Ok(q);
+    }
     let meta = fetch_chart_meta(&sym)?;
     let price = meta
         .get("regularMarketPrice")
         .and_then(Value::as_f64)
         .filter(|p| *p > 0.0)
         .ok_or_else(|| FetchError::NoPrice(sym.clone()))?;
-    let raw_ccy = meta.get("currency").and_then(Value::as_str).unwrap_or("USD");
+    let raw_ccy = meta
+        .get("currency")
+        .and_then(Value::as_str)
+        .unwrap_or("USD");
     // Normalize minor-unit venues (LSE "GBp" pence, JSE "ZAc", TASE "ILA") to the
     // major unit so every price field in the Quote shares consistent units.
     let div = minor_unit_divisor(raw_ccy);
     let (currency, price) = normalize_minor_unit(raw_ccy, price);
-    Ok(Quote {
-        ticker: sym,
+    let q = Quote {
+        ticker: sym.clone(),
         price,
         currency,
-        week52_high: meta.get("fiftyTwoWeekHigh").and_then(Value::as_f64).map(|v| v / div),
-        week52_low: meta.get("fiftyTwoWeekLow").and_then(Value::as_f64).map(|v| v / div),
+        week52_high: meta
+            .get("fiftyTwoWeekHigh")
+            .and_then(Value::as_f64)
+            .map(|v| v / div),
+        week52_low: meta
+            .get("fiftyTwoWeekLow")
+            .and_then(Value::as_f64)
+            .map(|v| v / div),
         as_of_epoch: meta.get("regularMarketTime").and_then(Value::as_i64),
-    })
+    };
+    if let Ok(blob) = serde_json::to_string(&q) {
+        QUOTE_CACHE.insert(sym, blob);
+    }
+    Ok(q)
 }
 
 /// Divisor mapping a minor-unit quote to its major unit (100 for pence/cents),
@@ -145,11 +190,18 @@ pub fn fetch_fx_rate(from: &str) -> Result<f64, FetchError> {
     if from.len() != 3 {
         return Err(FetchError::Parse(format!("invalid currency code {from:?}")));
     }
+    let key = format!("{from}USD");
+    if let Some(r) = FX_CACHE.get(&key) {
+        return Ok(r);
+    }
     let meta = fetch_chart_meta(&format!("{from}USD=X"))?;
-    meta.get("regularMarketPrice")
+    let rate = meta
+        .get("regularMarketPrice")
         .and_then(Value::as_f64)
         .filter(|r| *r > 0.0)
-        .ok_or_else(|| FetchError::NoPrice(format!("{from}USD")))
+        .ok_or_else(|| FetchError::NoPrice(format!("{from}USD")))?;
+    FX_CACHE.insert(key, rate);
+    Ok(rate)
 }
 
 /// Fetch a full Yahoo chart response body (indicators included) for `sym`,
@@ -191,7 +243,9 @@ pub fn fetch_risk_free_rate() -> Result<f64, FetchError> {
     let q = fetch_quote("^TNX")?;
     let rf = q.price / 100.0;
     if !(0.001..0.15).contains(&rf) {
-        return Err(FetchError::Parse(format!("risk-free rate out of range: {rf}")));
+        return Err(FetchError::Parse(format!(
+            "risk-free rate out of range: {rf}"
+        )));
     }
     Ok(rf)
 }
@@ -199,7 +253,11 @@ pub fn fetch_risk_free_rate() -> Result<f64, FetchError> {
 /// Fetch a price history (adjusted close, else close) for `ticker` over
 /// `range`/`interval` (Yahoo chart params, e.g. "2y"/"1wk"). Nulls are dropped;
 /// `Err(Parse)` when fewer than 2 usable points remain.
-pub fn fetch_price_history(ticker: &str, range: &str, interval: &str) -> Result<Vec<f64>, FetchError> {
+pub fn fetch_price_history(
+    ticker: &str,
+    range: &str,
+    interval: &str,
+) -> Result<Vec<f64>, FetchError> {
     let sym = ticker.trim().to_uppercase();
     let v = fetch_chart_json(&sym, range, interval)?;
     let series = v
@@ -213,7 +271,9 @@ pub fn fetch_price_history(ticker: &str, range: &str, interval: &str) -> Result<
         .filter(|p| *p > 0.0)
         .collect();
     if prices.len() < 2 {
-        return Err(FetchError::Parse(format!("insufficient price points for {sym}")));
+        return Err(FetchError::Parse(format!(
+            "insufficient price points for {sym}"
+        )));
     }
     Ok(prices)
 }

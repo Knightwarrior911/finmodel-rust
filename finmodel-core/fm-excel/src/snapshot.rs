@@ -44,7 +44,12 @@ fn snap_cell_num(snap: &Json, sheet: &str, reference: &str) -> Option<f64> {
 }
 
 fn snap_cell_text(snap: &Json, sheet: &str, reference: &str) -> Option<String> {
-    Some(snap_cell(snap, sheet, reference)?.get("value")?.as_str()?.to_string())
+    Some(
+        snap_cell(snap, sheet, reference)?
+            .get("value")?
+            .as_str()?
+            .to_string(),
+    )
 }
 
 // ── WorkbookInput reconstruction ─────────────────────────────────────────────
@@ -77,7 +82,9 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
         .filter_map(|v| v.as_str().map(String::from))
         .collect();
 
-    let mo = snap.get("model_output").ok_or_else(|| err("missing model_output"))?;
+    let mo = snap
+        .get("model_output")
+        .ok_or_else(|| err("missing model_output"))?;
     let model = ModelOutput {
         periods,
         income_statement: parse_statement(&mo["income_statement"]),
@@ -89,12 +96,27 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
     let sector = "standard".to_string();
     // As-of date: parse "As of YYYY-MM-DD  | …" off Cover C6.
     let as_of = snap_cell_text(snap, "Cover", "C6")
-        .and_then(|t| t.strip_prefix("As of ").map(|r| r.split_whitespace().next().unwrap_or("").to_string()))
+        .and_then(|t| {
+            t.strip_prefix("As of ")
+                .map(|r| r.split_whitespace().next().unwrap_or("").to_string())
+        })
         .unwrap_or_default();
     let meta = Meta {
-        company: snap.get("company").and_then(Json::as_str).unwrap_or_default().to_string(),
-        ticker: snap.get("ticker").and_then(Json::as_str).unwrap_or_default().to_string(),
-        currency: snap.get("currency").and_then(Json::as_str).unwrap_or_default().to_string(),
+        company: snap
+            .get("company")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        ticker: snap
+            .get("ticker")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        currency: snap
+            .get("currency")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string(),
         fiscal_year_end: snap_cell_text(snap, "Cover", "D14").unwrap_or_else(|| "Dec".into()),
         sector: sector.clone(),
         as_of,
@@ -104,7 +126,11 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
     let str_list = |k: &str| -> Vec<String> {
         ver.get(k)
             .and_then(Json::as_array)
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let verification = Verification {
@@ -134,6 +160,7 @@ pub fn workbook_input_from_snapshot(snap: &Json) -> Result<WorkbookInput> {
         peer_source: "fallback".into(),
         dcf: None,
         public_comps: None,
+        source_audit: Vec::new(),
     })
 }
 
@@ -177,13 +204,20 @@ impl Expected {
         e
     }
     fn has_content(&self) -> bool {
-        self.number.is_some() || self.text.is_some() || self.formula.is_some() || self.fill.is_some()
+        self.number.is_some()
+            || self.text.is_some()
+            || self.formula.is_some()
+            || self.fill.is_some()
     }
 }
 
 fn cmp_cell(sheet: &str, reference: &str, exp: &Expected, act: Option<&Cell>) -> Vec<Diff> {
     let mut out = Vec::new();
-    let d = |m: String| Diff { sheet: sheet.to_string(), reference: reference.to_string(), message: m };
+    let d = |m: String| Diff {
+        sheet: sheet.to_string(),
+        reference: reference.to_string(),
+        message: m,
+    };
     let act = act.cloned().unwrap_or_default();
 
     // Value (text or number).
@@ -220,14 +254,24 @@ pub fn compare_workbook(wb: &Workbook, snap: &Json) -> Vec<Diff> {
     let mut diffs = Vec::new();
     let sheets = match snap.get("sheets").and_then(Json::as_object) {
         Some(s) => s,
-        None => return vec![Diff { sheet: "*".into(), reference: "*".into(), message: "snapshot has no `sheets`".into() }],
+        None => {
+            return vec![Diff {
+                sheet: "*".into(),
+                reference: "*".into(),
+                message: "snapshot has no `sheets`".into(),
+            }]
+        }
     };
 
     for (name, rows) in sheets {
         let ws = match wb.sheet(name) {
             Some(w) => w,
             None => {
-                diffs.push(Diff { sheet: name.clone(), reference: "*".into(), message: "sheet missing from workbook".into() });
+                diffs.push(Diff {
+                    sheet: name.clone(),
+                    reference: "*".into(),
+                    message: "sheet missing from workbook".into(),
+                });
                 continue;
             }
         };
@@ -260,7 +304,10 @@ pub fn compare_workbook(wb: &Workbook, snap: &Json) -> Vec<Diff> {
         let refs: BTreeSet<&String> = expected.keys().chain(actual.keys()).collect();
         for r in refs {
             let exp = expected.get(r).map(|e| e).unwrap_or(&Expected {
-                number: None, text: None, formula: None, fill: None,
+                number: None,
+                text: None,
+                formula: None,
+                fill: None,
             });
             diffs.extend(cmp_cell(name, r, exp, actual.get(r).copied()));
         }

@@ -15,7 +15,10 @@ fn handshake_list_and_call() {
     assert!(tools[0].input_schema.get("type").is_some());
 
     let res = client
-        .call_tool("web_search", serde_json::json!({ "query": "nestle annual report" }))
+        .call_tool(
+            "web_search",
+            serde_json::json!({ "query": "nestle annual report" }),
+        )
         .expect("call_tool");
     assert!(res.to_string().contains("called web_search"));
 }

@@ -22,10 +22,41 @@ use fm_types::StatementData;
 /// Re-exported so benchmark callers name the basis without depending on fm-extract.
 pub use fm_extract::PeriodBasis;
 
-pub mod scoring;
-pub mod web;
+pub mod adapter;
 pub mod agent;
+pub mod bridge;
+pub mod collect;
 pub mod comps;
+pub mod events;
+pub mod machine;
+pub mod observe;
+pub mod research;
+pub mod safety;
+pub mod scoring;
+pub mod synth;
+pub mod web;
+
+pub use adapter::{
+    candidate_from_filing, candidate_from_web_hit, classify_source_kind, is_edgar_archive_url,
+    read_outcome_failed, read_outcome_from_page, select_filing_excerpt, synthetic_source,
+};
+pub use bridge::{
+    AssumptionKey, AssumptionUnit, SuggestedAssumption, SuggestionReject,
+    validate_suggested_assumption,
+};
+pub use collect::{Candidate, ReadOutcome, apply_read, assemble_ledger, canonicalize_url};
+pub use events::{check_progress_sequence, is_terminal};
+pub use machine::{Action, Input, ResearchBudgets, ResearchMachine, SynthesisReject};
+pub use observe::{ErrorCategory, ResearchMetrics, ResearchTrace, RunOutcome};
+pub use research::{
+    AnswerSection, CitationRef, CitedParagraph, DepthBudgets, DigestItem, RequestError,
+    ResearchAnswer, ResearchConfidence, ResearchDepth, ResearchDigest, ResearchFailure,
+    ResearchMode, ResearchOutput, ResearchPhase, ResearchPlan, ResearchProgress, ResearchRequest,
+    ResearchToolArgs, RetryPhase, SourceBackend, SourceKind, SourceRecord, SourceStatus,
+    SynthesisDraft,
+};
+pub use safety::{UrlRejection, ValidatedUrl, is_forbidden_ip, validate_request_url};
+pub use synth::{SynthReject, build_answer, validate_synthesis};
 
 /// One dollar-figure → millions.
 const MILLIONS: f64 = 1_000_000.0;
@@ -169,7 +200,10 @@ pub fn metrics_from_extraction(ticker: &str, ex: &ExtractionResult) -> Benchmark
 
     // Total debt = long-term (incl. finance leases) + current portion / short-term
     // borrowings, so leverage isn't understated for revolver / CP-heavy names.
-    m.total_debt = sum_opt(at(bs, "long_term_debt", last), at(bs, "short_term_debt", last));
+    m.total_debt = sum_opt(
+        at(bs, "long_term_debt", last),
+        at(bs, "short_term_debt", last),
+    );
     m.cash = at(bs, "cash", last);
     m.total_equity = at(bs, "total_equity", last);
     m.total_assets = at(bs, "total_assets", last);
@@ -255,10 +289,12 @@ fn revenue_cagr(is: &StatementData) -> Option<f64> {
 fn benchmark_columns(multiples: bool) -> Vec<ColumnSpec> {
     let mut cols = vec![
         ColumnSpec::label("ticker", "Ticker"),
-        ColumnSpec::metric("currency", "Ccy", ColKind::Text)
-            .with_definition("Value currency of this row's monetary metrics (native filing ccy, or USD when --usd)"),
-        ColumnSpec::metric("sector", "Sector", ColKind::Text)
-            .with_definition("SIC industry (EDGAR). Financials' leverage/coverage read differently."),
+        ColumnSpec::metric("currency", "Ccy", ColKind::Text).with_definition(
+            "Value currency of this row's monetary metrics (native filing ccy, or USD when --usd)",
+        ),
+        ColumnSpec::metric("sector", "Sector", ColKind::Text).with_definition(
+            "SIC industry (EDGAR). Financials' leverage/coverage read differently.",
+        ),
     ];
     if multiples {
         cols.push(
@@ -352,7 +388,9 @@ fn millions(v: Option<f64>) -> CellVal {
 /// Build the benchmark [`AdHocTable`] (rows + columns + provenance) from a peer
 /// set of computed metrics. Monetary cells are scaled to millions.
 pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHocTable {
-    let has_multiples = metrics.iter().any(|m| m.market_cap.is_some() || m.share_price.is_some());
+    let has_multiples = metrics
+        .iter()
+        .any(|m| m.market_cap.is_some() || m.share_price.is_some());
     let columns = benchmark_columns(has_multiples);
     let mut rows: Vec<HashMap<String, CellVal>> = Vec::with_capacity(metrics.len());
     let mut sources: HashMap<(String, String), String> = HashMap::new();
@@ -409,9 +447,17 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         cite(
             "ebitda",
             m.ebitda.is_some(),
-            format!("Derived: EBIT ({}) + D&A ({}) [{filing}]",
-                m.provenance.get("ebit").cloned().unwrap_or_else(|| "EBIT".into()),
-                m.provenance.get("da").cloned().unwrap_or_else(|| "D&A".into())),
+            format!(
+                "Derived: EBIT ({}) + D&A ({}) [{filing}]",
+                m.provenance
+                    .get("ebit")
+                    .cloned()
+                    .unwrap_or_else(|| "EBIT".into()),
+                m.provenance
+                    .get("da")
+                    .cloned()
+                    .unwrap_or_else(|| "D&A".into())
+            ),
         );
         cite("net_income", m.net_income.is_some(), tagged("net_income"));
         cite(
@@ -487,15 +533,31 @@ pub fn build_benchmark_table(metrics: &[BenchmarkMetrics], title: &str) -> AdHoc
         // Trading multiples: mark the market-price input (NOT a filing figure).
         let px = format!(
             "Live market quote (Yahoo Finance){}",
-            m.price_currency.as_deref().map(|c| format!(", {c}")).unwrap_or_default()
+            m.price_currency
+                .as_deref()
+                .map(|c| format!(", {c}"))
+                .unwrap_or_default()
         );
-        cite("market_cap", m.market_cap.is_some(),
-            format!("Share price × diluted shares. Price: {px}"));
-        cite("ev_revenue", m.ev_revenue.is_some(),
-            format!("(mkt cap + net debt) / revenue. Price: {px}"));
-        cite("ev_ebitda", m.ev_ebitda.is_some(),
-            format!("(mkt cap + net debt) / EBITDA. Price: {px}"));
-        cite("pe", m.pe.is_some(), format!("Market cap / net income. Price: {px}"));
+        cite(
+            "market_cap",
+            m.market_cap.is_some(),
+            format!("Share price × diluted shares. Price: {px}"),
+        );
+        cite(
+            "ev_revenue",
+            m.ev_revenue.is_some(),
+            format!("(mkt cap + net debt) / revenue. Price: {px}"),
+        );
+        cite(
+            "ev_ebitda",
+            m.ev_ebitda.is_some(),
+            format!("(mkt cap + net debt) / EBITDA. Price: {px}"),
+        );
+        cite(
+            "pe",
+            m.pe.is_some(),
+            format!("Market cap / net income. Price: {px}"),
+        );
     }
 
     AdHocTable {
@@ -544,9 +606,7 @@ pub fn render_benchmark(
     path: &str,
     generated: &str,
 ) -> Result<(), fm_excel::ExcelError> {
-    table
-        .validate()
-        .map_err(fm_excel::ExcelError::Snapshot)?;
+    table.validate().map_err(fm_excel::ExcelError::Snapshot)?;
     let mut wb = Workbook::new();
     wb.push(table.build_sheet(generated));
     fm_excel::render::render(&wb, path)
@@ -622,35 +682,70 @@ pub fn benchmark_tickers_opts_progress(
     let mut fx_cache: HashMap<String, Option<f64>> = HashMap::new();
     let mut data_warnings: Vec<String> = Vec::new();
     let total = tickers.len();
-    for (i, t) in tickers.iter().enumerate() {
-        progress(i + 1, total, t);
-        match fm_extract::fetch_xbrl_bundle(t) {
-            Ok((ex, prov, ltm_data, facts)) => {
-                let mut m = metrics_from_extraction(t, &ex);
-                if m.fiscal_year.is_some() && m.revenue.is_some() {
-                    // Best-effort sector tag from EDGAR SIC (never fails the run).
-                    m.sector = fm_fetch::cik_from_ticker(t)
-                        .and_then(|cik| fm_fetch::fetch_company_sic(&cik))
-                        .ok()
-                        .map(|s| s.sic_description)
-                        .filter(|s| !s.is_empty());
-                    m.provenance = prov; // exact us-gaap tag per canonical key
-                    // Reporting-period basis: annual keeps the extraction metrics;
-                    // LTM/quarter/semi override via extract_period.
-                    if !matches!(opts.basis, fm_extract::PeriodBasis::AnnualFy) {
-                        match fm_extract::extract_period(&facts, &m.currency, opts.basis) {
-                            Some(pd) => apply_basis(
-                                &mut m, &pd, ltm_data.as_ref(), opts.basis, t, &mut data_warnings,
-                            ),
-                            None => data_warnings.push(format!(
-                                "{t}: {} data unavailable — row left on annual basis",
-                                basis_label(opts.basis)
-                            )),
-                        }
-                    }
-                    // Convert filing figures to USD (before multiples, so EV
-                    // components share one currency). Cached per currency;
-                    // failures leave values native (Ccy column discloses it).
+    // Parallel, non-R1-blocking track: up to 4 tickers at a time (Phase 3.4).
+    // EDGAR rate limiter serializes HTTP; input order is restored when merging.
+    const PARALLEL: usize = 4;
+
+    /// Network + extraction for one ticker; FX/multiples applied serially after.
+    fn fetch_one(t: &str, opts: BenchmarkOpts) -> Result<(BenchmarkMetrics, Vec<String>), String> {
+        let mut warnings = Vec::new();
+        let (ex, prov, ltm_data, facts) =
+            fm_extract::fetch_xbrl_bundle(t).map_err(|e| e.to_string())?;
+        let mut m = metrics_from_extraction(t, &ex);
+        if m.fiscal_year.is_none() || m.revenue.is_none() {
+            return Err("no revenue / fiscal year in XBRL".into());
+        }
+        m.sector = fm_fetch::cik_from_ticker(t)
+            .and_then(|cik| fm_fetch::fetch_company_sic(&cik))
+            .ok()
+            .map(|s| s.sic_description)
+            .filter(|s| !s.is_empty());
+        m.provenance = prov;
+        if !matches!(opts.basis, fm_extract::PeriodBasis::AnnualFy) {
+            match fm_extract::extract_period(&facts, &m.currency, opts.basis) {
+                Some(pd) => {
+                    apply_basis(&mut m, &pd, ltm_data.as_ref(), opts.basis, t, &mut warnings)
+                }
+                None => warnings.push(format!(
+                    "{t}: {} data unavailable — row left on annual basis",
+                    basis_label(opts.basis)
+                )),
+            }
+        }
+        Ok((m, warnings))
+    }
+
+    let mut cursor = 0usize;
+    while cursor < tickers.len() {
+        let end = (cursor + PARALLEL).min(tickers.len());
+        let slice = &tickers[cursor..end];
+        for (j, t) in slice.iter().enumerate() {
+            progress(cursor + j + 1, total, t);
+        }
+        let results: Vec<(String, Result<(BenchmarkMetrics, Vec<String>), String>)> =
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = slice
+                    .iter()
+                    .map(|t| {
+                        let t = t.clone();
+                        scope.spawn(move || {
+                            let r = fetch_one(&t, opts);
+                            (t, r)
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join()
+                            .unwrap_or_else(|_| (String::new(), Err("worker panic".into())))
+                    })
+                    .collect()
+            });
+        for (t, res) in results {
+            match res {
+                Ok((mut m, mut warns)) => {
+                    data_warnings.append(&mut warns);
                     if opts.to_usd && m.currency != "USD" {
                         let rate = *fx_cache
                             .entry(m.currency.clone())
@@ -663,30 +758,26 @@ pub fn benchmark_tickers_opts_progress(
                             )),
                         }
                     }
-                    // Trading multiples: filing-derived EV components × live price.
                     if opts.multiples {
-                        match fm_fetch::fetch_quote(t) {
+                        match fm_fetch::fetch_quote(&t) {
                             Ok(q) => {
                                 apply_multiples(&mut m, &q, &mut fx_cache);
-                                // EV with no debt data = market cap; disclose it.
                                 if m.enterprise_value.is_some() && m.net_debt.is_none() {
                                     data_warnings.push(format!(
                                         "{t}: no debt data in filing — EV shown ≈ market cap"
                                     ));
                                 }
                             }
-                            Err(e) => data_warnings.push(format!(
-                                "{t}: quote unavailable ({e}) — multiples blank"
-                            )),
+                            Err(e) => data_warnings
+                                .push(format!("{t}: quote unavailable ({e}) — multiples blank")),
                         }
                     }
                     metrics.push(m);
-                } else {
-                    failed.push((t.clone(), "no revenue / fiscal year in XBRL".into()));
                 }
+                Err(why) => failed.push((t, why)),
             }
-            Err(e) => failed.push((t.clone(), e.to_string())),
         }
+        cursor = end;
     }
     if metrics.is_empty() {
         return Err(BenchmarkError::NoData);
@@ -694,10 +785,15 @@ pub fn benchmark_tickers_opts_progress(
     let mut table = build_benchmark_table(&metrics, title);
     if opts.to_usd {
         table.units =
-            "(monetary values in USD millions — converted from reporting currency at spot FX; \
-             Ccy column shows a row's value currency; ratios per column; multiples in x)".to_string();
+            "(monetary values in USD millions — converted from reporting currency at spot FX;              Ccy column shows a row's value currency; ratios per column; multiples in x)"
+                .to_string();
     }
-    Ok(BenchmarkRun { metrics, failed, data_warnings, table })
+    Ok(BenchmarkRun {
+        metrics,
+        failed,
+        data_warnings,
+        table,
+    })
 }
 
 /// Trading multiples from a live quote + filing-derived EV components.
@@ -791,11 +887,26 @@ fn apply_fx(m: &mut BenchmarkMetrics, rate: f64) {
         }
     };
     for f in [
-        &mut m.revenue, &mut m.gross_profit, &mut m.ebit, &mut m.da, &mut m.ebitda,
-        &mut m.net_income, &mut m.interest_expense, &mut m.cfo, &mut m.capex, &mut m.fcf,
-        &mut m.total_debt, &mut m.cash, &mut m.net_debt, &mut m.total_equity,
-        &mut m.total_assets, &mut m.total_current_assets, &mut m.total_current_liabilities,
-        &mut m.dividends_paid, &mut m.buybacks, &mut m.eps_diluted,
+        &mut m.revenue,
+        &mut m.gross_profit,
+        &mut m.ebit,
+        &mut m.da,
+        &mut m.ebitda,
+        &mut m.net_income,
+        &mut m.interest_expense,
+        &mut m.cfo,
+        &mut m.capex,
+        &mut m.fcf,
+        &mut m.total_debt,
+        &mut m.cash,
+        &mut m.net_debt,
+        &mut m.total_equity,
+        &mut m.total_assets,
+        &mut m.total_current_assets,
+        &mut m.total_current_liabilities,
+        &mut m.dividends_paid,
+        &mut m.buybacks,
+        &mut m.eps_diluted,
     ] {
         scale(f);
     }
@@ -914,7 +1025,10 @@ mod e2e_tests {
     use fm_excel::model::Value;
 
     fn stmt(pairs: &[(&str, &[Option<f64>])]) -> StatementData {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_vec()))
+            .collect()
     }
 
     fn big(ticker_rev: f64) -> ExtractionResult {
@@ -923,16 +1037,28 @@ mod e2e_tests {
             years_found: vec!["2023".into(), "2024".into()],
             income_statement: stmt(&[
                 ("revenue", &[Some(ticker_rev * 0.9), Some(ticker_rev)]),
-                ("gross_profit", &[Some(ticker_rev * 0.4), Some(ticker_rev * 0.45)]),
+                (
+                    "gross_profit",
+                    &[Some(ticker_rev * 0.4), Some(ticker_rev * 0.45)],
+                ),
                 ("ebit", &[Some(ticker_rev * 0.2), Some(ticker_rev * 0.25)]),
                 ("da", &[Some(ticker_rev * 0.05), Some(ticker_rev * 0.05)]),
-                ("net_income", &[Some(ticker_rev * 0.15), Some(ticker_rev * 0.2)]),
+                (
+                    "net_income",
+                    &[Some(ticker_rev * 0.15), Some(ticker_rev * 0.2)],
+                ),
             ]),
             balance_sheet: stmt(&[
-                ("long_term_debt", &[Some(ticker_rev * 0.3), Some(ticker_rev * 0.3)]),
+                (
+                    "long_term_debt",
+                    &[Some(ticker_rev * 0.3), Some(ticker_rev * 0.3)],
+                ),
                 ("cash", &[Some(ticker_rev * 0.1), Some(ticker_rev * 0.1)]),
                 ("total_equity", &[Some(ticker_rev), Some(ticker_rev * 1.1)]),
-                ("total_assets", &[Some(ticker_rev * 2.0), Some(ticker_rev * 2.2)]),
+                (
+                    "total_assets",
+                    &[Some(ticker_rev * 2.0), Some(ticker_rev * 2.2)],
+                ),
             ]),
             cash_flow_statement: StatementData::new(),
             notes: HashMap::new(),
@@ -962,8 +1088,13 @@ mod e2e_tests {
             })
             .collect();
         // Headers + group banners rendered.
-        for expected in ["Revenue", "Net Debt", "Sector", "SCALE", "LEVERAGE", "Median", "Max"] {
-            assert!(texts.iter().any(|t| t == expected), "missing cell text {expected:?}");
+        for expected in [
+            "Revenue", "Net Debt", "Sector", "SCALE", "LEVERAGE", "Median", "Max",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "missing cell text {expected:?}"
+            );
         }
         // Revenue scaled to millions and rendered as a number.
         let numbers: Vec<f64> = sheet
@@ -974,8 +1105,14 @@ mod e2e_tests {
                 _ => None,
             })
             .collect();
-        assert!(numbers.iter().any(|n| (*n - 400_000.0).abs() < 1e-6), "AAA revenue (millions) not rendered");
-        assert!(numbers.iter().any(|n| (*n - 200_000.0).abs() < 1e-6), "BBB revenue (millions) not rendered");
+        assert!(
+            numbers.iter().any(|n| (*n - 400_000.0).abs() < 1e-6),
+            "AAA revenue (millions) not rendered"
+        );
+        assert!(
+            numbers.iter().any(|n| (*n - 200_000.0).abs() < 1e-6),
+            "BBB revenue (millions) not rendered"
+        );
 
         // Every summary formula spans exactly the two entity rows (data_start..data_end).
         let medians: Vec<String> = sheet
@@ -989,8 +1126,16 @@ mod e2e_tests {
             // Range like =MEDIAN(E10:E11): the two row numbers must differ by 1.
             let inner = f.trim_start_matches("=MEDIAN(").trim_end_matches(')');
             let (lo, hi) = inner.split_once(':').expect("range");
-            let rownum = |cell: &str| cell.trim_start_matches(|c: char| c.is_ascii_alphabetic()).parse::<u32>().unwrap();
-            assert_eq!(rownum(hi) - rownum(lo), 1, "summary range {f} must span 2 entity rows");
+            let rownum = |cell: &str| {
+                cell.trim_start_matches(|c: char| c.is_ascii_alphabetic())
+                    .parse::<u32>()
+                    .unwrap()
+            };
+            assert_eq!(
+                rownum(hi) - rownum(lo),
+                1,
+                "summary range {f} must span 2 entity rows"
+            );
         }
     }
 }
@@ -1110,9 +1255,19 @@ mod tests {
             cash: Some(250.0),
             ..Default::default()
         };
-        let pd = fm_extract::PeriodData { data: l.clone(), label: "LTM Sep-25".into() };
+        let pd = fm_extract::PeriodData {
+            data: l.clone(),
+            label: "LTM Sep-25".into(),
+        };
         let mut warns = Vec::new();
-        apply_basis(&mut m, &pd, Some(&l), fm_extract::PeriodBasis::Ltm, "X", &mut warns);
+        apply_basis(
+            &mut m,
+            &pd,
+            Some(&l),
+            fm_extract::PeriodBasis::Ltm,
+            "X",
+            &mut warns,
+        );
         approx(m.revenue, 1300.0); // LTM level
         approx(m.ebitda, 400.0); // 330 + 70 (pure LTM)
         approx(m.ebitda_margin, 400.0 / 1300.0);
@@ -1270,9 +1425,11 @@ mod tests {
         assert_eq!(r0.get("net_debt"), Some(&CellVal::Number(70_000.0)));
         assert_eq!(r0.get("ticker"), Some(&CellVal::Text("AAPL".into())));
         // Provenance attached for present cells.
-        assert!(table
-            .sources
-            .contains_key(&("AAPL".to_string(), "revenue".to_string())));
+        assert!(
+            table
+                .sources
+                .contains_key(&("AAPL".to_string(), "revenue".to_string()))
+        );
         // Comparative wide table → summary stats in the decision.
         let d = table.decision();
         assert!(d.summary_stats);

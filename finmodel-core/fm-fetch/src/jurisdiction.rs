@@ -404,9 +404,21 @@ mod tests {
                 "site:hkexnews.hk",
                 &["hk", "com"],
             ),
-            ("D05.CO", "Singapore", ".CO", "site:sgx.com", &["com.sg", "com"]),
+            (
+                "D05.CO",
+                "Singapore",
+                ".CO",
+                "site:sgx.com",
+                &["com.sg", "com"],
+            ),
             ("XYZ.IR", "Other", ".IR", "", &["com"]),
-            ("BHP.AX", "Australia", ".AX", "site:asx.com.au", &["com.au", "com"]),
+            (
+                "BHP.AX",
+                "Australia",
+                ".AX",
+                "site:asx.com.au",
+                &["com.au", "com"],
+            ),
             ("ATCO-B.ST", "Sweden", ".ST", "", &["com", "se"]),
             ("NOKIA.HE", "Finland", ".HE", "", &["com", "fi"]),
             ("EQNR.OL", "Norway", ".OL", "", &["com", "no"]),
@@ -458,7 +470,9 @@ mod tests {
 
     #[test]
     fn blocked_and_annual_keyword_filters() {
-        assert!(is_blocked_domain("https://www.scribd.com/doc/123/annual.pdf"));
+        assert!(is_blocked_domain(
+            "https://www.scribd.com/doc/123/annual.pdf"
+        ));
         assert!(is_blocked_domain("https://mb.cision.com/Main/x.pdf"));
         assert!(!is_blocked_domain("https://www.sandvik.com/ir/report.pdf"));
 

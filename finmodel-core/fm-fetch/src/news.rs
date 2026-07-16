@@ -4,8 +4,8 @@
 //! anti-bot / browser tiers route through the Roam MCP browser (Phase 8). RSS
 //! is a clean, key-free feed: `title`, `link`, `source`, `pubDate` per item.
 
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 
 use crate::market::FetchError;
@@ -135,9 +135,15 @@ mod tests {
         let hs = parse_rss(FIXTURE, 10);
         assert_eq!(hs.len(), 2);
         assert_eq!(hs[0].source, "Reuters");
-        assert_eq!(hs[0].url, "https://www.reuters.com/markets/acme-widget-deal");
+        assert_eq!(
+            hs[0].url,
+            "https://www.reuters.com/markets/acme-widget-deal"
+        );
         assert!(hs[0].title.starts_with("Acme acquires"));
-        assert_eq!(hs[0].published.as_deref(), Some("Mon, 14 Jul 2026 09:00:00 GMT"));
+        assert_eq!(
+            hs[0].published.as_deref(),
+            Some("Mon, 14 Jul 2026 09:00:00 GMT")
+        );
         // XML entity decoded.
         assert!(hs[1].title.contains("merger & payout"));
     }
