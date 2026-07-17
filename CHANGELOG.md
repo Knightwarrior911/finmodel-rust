@@ -54,6 +54,38 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   FallbackDispatcher affordance for no-key/tool-less modes, full parity
   battery — then legacy removal.
 
+### Phase G — functional cutover to the unified agent path
+
+The desktop app now runs entirely on the unified `agent_send` loop; the legacy
+keyed/routed chat engine is unreachable at runtime.
+
+- Conversations are store-backed: list/load/rename/delete read SQLite (load
+  rebuilds the legacy render shape from the branch path); delete also drops any
+  legacy JSON so startup import can't resurrect it. New turns persist only to
+  SQLite. No JSON writes occur at runtime.
+- Composer defaults to `agent_send`; Stop and the global-Escape handler use
+  `agent_cancel`. Legacy `chat_send`/`chat_cancel` are unregistered from the
+  IPC surface (verified: `chat_send` returns "command not found").
+- Multi-turn history: the user turn links under the active leaf and the driver
+  rebuilds provider context from the branch, so conversations keep full history
+  and are not amnesiac (verified: a 2-turn conversation loads 4 messages with
+  coherent context).
+- Approvals: registry park/resolve hub + `agent_approve` command + Approve/
+  Create-new-version/Deny UI on `approval_requested` (deny on cancel/10-min).
+- No-key mode routes to the isolated FallbackDispatcher inside the loop.
+- Tools exposed to the model now include `research`/`web_search`/`read_page`
+  (were withheld from the legacy native schema); `research` arg is translated
+  `query`->`question` at the executor boundary.
+
+Live parity verified on gpt-4.1-mini across the main VP task families: direct
+answer, quote, model build (assumptions stage), trading comps, research (cited),
+and multi-turn context — each matching the legacy tool family/typed result.
+
+Remaining before the release tag: mechanical deletion of the now-unreachable
+legacy source (chat_send/route_intent/JSON structs/turn engine — dead code, no
+behavior), and the signed installer + 7-day rollback rehearsal (needs the
+minisign key). Both are cleanup/release steps; the runtime cutover is done.
+
 ### Phase G — agent loop live-verified; parity partial; cutover deferred
 - **First live `agent_send` runs** (against a real OpenRouter model via the
   running app) exercised the whole `LiveDriver` pipeline end-to-end:
