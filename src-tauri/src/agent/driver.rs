@@ -242,6 +242,10 @@ pub struct LiveDriver {
     started: std::time::Instant,
     deadline: std::time::Duration,
     store: crate::store::StoreHandle,
+    /// Tool result cards produced this turn, in execution order — persisted as
+    /// durable `result` parts and mirrored live on the transitional
+    /// `chat_tool` channel the existing card renderer consumes.
+    turn_results: Vec<(String, Value)>,
 }
 
 impl LiveDriver {
@@ -270,11 +274,30 @@ impl LiveDriver {
             started: std::time::Instant::now(),
             deadline: std::time::Duration::from_secs(120),
             store,
+            turn_results: Vec::new(),
         }
     }
 
     fn remaining(&self) -> std::time::Duration {
         self.deadline.saturating_sub(self.started.elapsed())
+    }
+
+    /// Transitional live UI event: same shape as the legacy `chat_tool` channel
+    /// (`{name, status, card?, conversation_id, run_id}`) so the existing card
+    /// renderer displays agent tool results until the parts consumer lands.
+    fn emit_tool(&self, name: &str, status: &str, card: Option<&Value>) {
+        use tauri::Emitter;
+        let mut payload = serde_json::json!({
+            "name": name,
+            "status": status,
+            "detail": "",
+            "conversation_id": self.ctx.conversation_id,
+            "run_id": self.ctx.run_id,
+        });
+        if let Some(c) = card {
+            payload["card"] = c.clone();
+        }
+        let _ = self.app.emit("chat_tool", payload);
     }
 
     fn seed_pending_from_acc(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
@@ -481,11 +504,16 @@ impl Driver for LiveDriver {
                 })
                 .collect();
 
+            // Live "running…" status on the transitional UI channel.
+            for (_, name, _) in &calls {
+                self.emit_tool(name, "start", None);
+            }
+
             let app = self.app.clone();
             let ctx = self.ctx.clone();
             let calls_owned = calls.clone();
 
-            let (tokens, wave_results) = tokio::task::spawn_blocking(move || {
+            let (tokens, mut wave_results) = tokio::task::spawn_blocking(move || {
                 let backend = crate::commands::chat::ChatToolBackend { app: &app };
                 let registry = ToolRegistry::builtin();
                 let mut results = HashMap::new();
@@ -496,29 +524,45 @@ impl Driver for LiveDriver {
             .unwrap_or_else(|_| (0, HashMap::new()));
 
             total = total.saturating_add(tokens);
-            for (id, res) in wave_results {
-                if res.is_err() {
-                    failed.push(id.clone());
+            // Walk in call order (not HashMap order) so cards keep execution order.
+            for (id, name, _) in &calls {
+                let Some(res) = wave_results.remove(id) else { continue };
+                match res {
+                    Ok(env) => {
+                        self.emit_tool(name, "done", Some(&env.display));
+                        self.turn_results.push((name.clone(), env.display.clone()));
+                        self.messages.push(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": id,
+                            "content": env.summary,
+                        }));
+                    }
+                    Err(e) => {
+                        failed.push(id.clone());
+                        let card = serde_json::json!({
+                            "type": "error", "tool": name, "message": e.to_string(),
+                        });
+                        self.emit_tool(name, "error", Some(&card));
+                        self.turn_results.push((name.clone(), card));
+                        self.messages.push(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": id,
+                            "content": format!("Tool error: {e}"),
+                        }));
+                    }
                 }
-                let content = match res {
-                    Ok(env) => env.summary,
-                    Err(e) => format!("Tool error: {e}"),
-                };
-                self.messages.push(serde_json::json!({
-                    "role": "tool",
-                    "tool_call_id": id,
-                    "content": content,
-                }));
             }
         }
         ToolBatchOutcome { tokens: total, failed }
     }
 
     async fn synthesize(&mut self) {
-        // Persist the final assistant text as an ordered message part so
-        // snapshots reload the same prose the live turn produced.
+        // Persist the turn as one assistant message with ordered parts:
+        // tool result cards (execution order) first, then the final prose.
+        // Snapshots/reload then render exactly what the live turn produced.
         let content = self.last_content.clone();
-        if content.trim().is_empty() {
+        let results = std::mem::take(&mut self.turn_results);
+        if content.trim().is_empty() && results.is_empty() {
             return;
         }
         let conv = self.ctx.conversation_id.clone();
@@ -535,7 +579,6 @@ impl Driver for LiveDriver {
                     fm_agent::ids::format_uuid_v4(b)
                 };
                 let msg_id = mk();
-                let part_id = mk();
                 let now = crate::store::now_iso();
                 db.insert_message(
                     &msg_id,
@@ -547,9 +590,19 @@ impl Driver for LiveDriver {
                     &now,
                 )
                 .map_err(|e| e.to_string())?;
-                let payload = serde_json::json!({ "text": content }).to_string();
-                db.insert_part(&part_id, &msg_id, 0, "text", &payload, Some(&content))
-                    .map_err(|e| e.to_string())?;
+                let mut ordinal: i64 = 0;
+                for (tool, card) in &results {
+                    let payload =
+                        serde_json::json!({ "tool": tool, "card": card }).to_string();
+                    db.insert_part(&mk(), &msg_id, ordinal, "result", &payload, None)
+                        .map_err(|e| e.to_string())?;
+                    ordinal += 1;
+                }
+                if !content.trim().is_empty() {
+                    let payload = serde_json::json!({ "text": content }).to_string();
+                    db.insert_part(&mk(), &msg_id, ordinal, "text", &payload, Some(&content))
+                        .map_err(|e| e.to_string())?;
+                }
                 db.set_active_leaf(&conv, &msg_id, &now)
                     .map_err(|e| e.to_string())?;
                 Ok(())
