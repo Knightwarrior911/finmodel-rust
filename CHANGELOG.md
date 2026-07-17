@@ -123,6 +123,11 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
 - `index.html` / `style.css` / `main.mjs`: chrome wired; responsive collapse for
   ~800×560 and ~1100×760; reduced-motion kills activity spinner. UI suite: 95 green.
 
+### Phase E — memory notice + Undo window (`ui/js/memory.mjs`)
+- Pure reducer for `MemoryUpdated` notices with 10s Undo, Temporary Chat
+  suppression, dismiss, and bounded history. Wired into main chrome.
+  7 tests. UI suite: 102 green.
+
 ### Phase F — embedded finance workflow specs (`fm-agent`)
 - `fm-agent/src/workflows.rs`: six typed `WorkflowSpec` contracts — company
   brief, earnings review, trading comps, DCF/3-statement, M&A screen, pitch

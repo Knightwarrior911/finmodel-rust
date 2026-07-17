@@ -1119,3 +1119,24 @@ body {
   .task-tray, .workspace-banner, .act-row { margin-inline: 8px; max-width: none; }
   .composer { padding-inline: 8px; }
 }
+
+
+/* ── Memory notice (Phase E) ─────────────────────────────────── */
+.memory-notice {
+  max-width: 780px;
+  margin: 6px auto 0;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--secondary);
+  font-size: 0.9em;
+}
+.memory-notice-text { flex: 1 1 auto; min-width: 0; }
+.memory-undo, .memory-dismiss { flex: 0 0 auto; font-size: 0.85em; }
+@media (max-width: 860px) {
+  .memory-notice { margin-inline: 8px; max-width: none; }
+}

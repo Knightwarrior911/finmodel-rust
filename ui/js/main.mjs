@@ -21,6 +21,11 @@ import {
   render as renderWorkspace,
 } from "./workspaces.mjs";
 import { createTray, render as renderTray } from "./tasks.mjs";
+import {
+  createMemoryUi,
+  reduce as reduceMemory,
+  render as renderMemory,
+} from "./memory.mjs";
 
 async function loadModelPill() {
   try {
@@ -52,6 +57,7 @@ function boot() {
   // Phase D chrome: workspace banner + empty task tray (populated once
   // agent_event streams land with agent_send).
   let workspaceState = createWorkspaceState();
+  let memoryUi = createMemoryUi();
   const tray = createTray();
   const paintChrome = () => {
     renderWorkspace(
@@ -68,12 +74,26 @@ function boot() {
         },
         onToggleTemporary: () => {
           workspaceState = reduceWorkspace(workspaceState, { type: "ToggleTemporary" });
+          memoryUi = reduceMemory(memoryUi, {
+            type: "SetTemporary",
+            value: workspaceState.temporary,
+          });
           paintChrome();
         },
       },
     );
     renderTray(document.getElementById("taskTray"), tray, {
       onSelect: (id) => loadConversation(id),
+    });
+    renderMemory(document.getElementById("memoryNotice"), memoryUi, {
+      onUndo: () => {
+        memoryUi = reduceMemory(memoryUi, { type: "UndoNotice" });
+        paintChrome();
+      },
+      onDismiss: () => {
+        memoryUi = reduceMemory(memoryUi, { type: "DismissNotice" });
+        paintChrome();
+      },
     });
   };
   paintChrome();
