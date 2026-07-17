@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.1 — Just answer the number (get_financials)
+
+Asking "what were Tesla's 2025 sales" made the app read *risk factors*, decide
+the figure was "undisclosed," and punt with "want me to build a model?" — when
+the exact number is in the filing. Root cause: the agent could only *read prose*
+or *build a model*; it had no way to just fetch a reported figure, so it flailed.
+
+New **`get_financials`** tool pulls exact annual figures (revenue/sales, net
+income, gross profit, operating income, diluted EPS) straight from SEC EDGAR
+XBRL company facts — deterministic and citable, not scraped prose. The system
+prompt now routes reported-figure questions here and tells the assistant to
+answer the number directly. Verified live in the app: *"What were Tesla's sales
+for 2025?"* → **"Tesla's sales (revenue) for fiscal year 2025 were $94.83
+billion, according to its annual report filed with the SEC."** (US filers; for
+foreign filers it still routes to build_model.) 208 backend tests green.
+
 ## v0.7.0 — Memory, faster tools, sharper routing, smoother UI
 
 Five improvements, all verified live in the running app:
