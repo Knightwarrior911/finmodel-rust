@@ -45,7 +45,9 @@ pub trait Driver {
     async fn schedule_tools(&mut self, batch: &[String]) -> u64;
     async fn synthesize(&mut self);
     async fn verify(&mut self) -> bool;
-    async fn extract_memory(&mut self);
+    /// Run bounded memory extraction; returns whether any rows were saved (so
+    /// the loop emits exactly one `MemoryUpdated` before the terminal event).
+    async fn extract_memory(&mut self) -> bool;
     /// Block until the parked approval is resolved.
     async fn await_approval(&mut self, tool_call_id: &str) -> ApprovalResponse;
 }
@@ -262,7 +264,22 @@ pub async fn run_turn<D: Driver>(
                 Input::Verified { ok }
             }
             Action::ExtractMemory => {
-                driver.extract_memory().await;
+                // Saved rows emit exactly one MemoryUpdated BEFORE the terminal
+                // event; a timeout/failed capture returns false and adds no
+                // notice (plan capture policy + event-order acceptance).
+                if driver.extract_memory().await {
+                    events.push(
+                        emit_durable(
+                            store,
+                            sink,
+                            conversation_id,
+                            run_id,
+                            EventKind::MemoryUpdated,
+                            serde_json::json!({}),
+                        )
+                        .await,
+                    );
+                }
                 Input::MemoryDone
             }
             Action::Emit { event, stop, partial } => {
