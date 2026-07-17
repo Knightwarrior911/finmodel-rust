@@ -106,16 +106,19 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   validation, verification requirement, budget policy, membership checks.
   fm-agent suite: 38 green.
 
-### Phase D — tool activity reducer+renderer (`ui/js/activity.mjs`)
+### Phase D — activity reducer + central state reducer (`ui/js/activity.mjs`, `ui/js/reducer.mjs`)
 - `ui/js/activity.mjs`: pure state reducer + DOM renderer for tool execution
   activities. Reduces every `AgentEventEnvelope` into a keyed `ToolActivity`
   map by `tool_call_id`. Handles all states: queued, running, awaiting_approval,
   success, warning, error, cancelled, interrupted. Supports batch grouping,
   bounded output tail (6 lines), expandable detail, approval buttons, elapsed
-  duration, error display, and dark-theme styling.
-- `ui/tests/activity.test.mjs`: 20 tests covering every event type, state
-  transitions, batch grouping, partial DOM updates, run cleanup, and dark/light
-  theme. Full UI suite: 54 green.
+  duration, error display, and dark-theme styling. 20 tests.
+- `ui/js/reducer.mjs`: pure conversation state reducer for the agent event
+  system. Processes `AgentEventEnvelope` events — run lifecycle, text streaming,
+  tool status, approval, errors, memory notices. Produces immutable state
+  snapshots with messages, draft text, phase label, run status, approval state.
+  No DOM dependencies. 26 tests.
+- Full UI suite: 80 green.
 
 ### Phase F — workflow orchestrator + subagent pool (`agent/workflows.rs`, `agent/subagents.rs`)
 - `agent/workflows.rs`: runtime workflow planner — validates `WorkflowSpec`
