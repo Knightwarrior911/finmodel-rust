@@ -124,6 +124,18 @@ impl ToolRegistry {
                 validate: validate_ticker,
             },
             ToolSpec {
+                name: "get_financials",
+                label: "Get financials",
+                description: "Exact reported annual financials from SEC EDGAR XBRL.",
+                risk: Risk::ReadOnly,
+                capabilities: &["market", "filings", "financials"],
+                required_args: &["ticker"],
+                interruptible: true,
+                idempotent: true,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_ticker,
+            },
+            ToolSpec {
                 name: "get_news",
                 label: "Get news",
                 description: "Recent news headlines for a topic or ticker.",

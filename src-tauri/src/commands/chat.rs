@@ -24,7 +24,7 @@ const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported figure (revenue/sales, net income, EPS, margins), use research (cited) or build_model — do not read narrative filing items to find a number. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
 
 /// Convert unix seconds to an ISO-8601 UTC timestamp (civil date via Hinnant's
 /// algorithm). Lexicographically sortable == chronological.
@@ -700,6 +700,7 @@ pub(crate) enum ToolName {
     ReadFiling,
     AnalyzePdf,
     Research,
+    GetFinancials,
 }
 
 impl ToolName {
@@ -712,6 +713,7 @@ impl ToolName {
             "get_news" => ToolName::GetNews,
             "research_deal" => ToolName::ResearchDeal,
             "get_quote" => ToolName::GetQuote,
+            "get_financials" => ToolName::GetFinancials,
             "list_filings" => ToolName::ListFilings,
             "read_filing" => ToolName::ReadFiling,
             "analyze_pdf" => ToolName::AnalyzePdf,
@@ -789,6 +791,18 @@ pub(crate) fn tool_schemas() -> Vec<Value> {
             "get_quote",
             "Fetch the latest share price quote for a ticker.",
             json!({ "type": "object", "properties": { "ticker": { "type": "string" } }, "required": ["ticker"] }),
+        ),
+        f(
+            "get_financials",
+            "Get a company's EXACT reported annual financials (revenue/sales, gross profit, operating income, net income, diluted EPS) straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "ticker": { "type": "string", "description": "US-listed ticker, e.g. TSLA" },
+                    "year": { "type": "integer", "description": "Fiscal year, e.g. 2025 (default: latest reported)" }
+                },
+                "required": ["ticker"]
+            }),
         ),
         f(
             "list_filings",
@@ -895,6 +909,7 @@ pub(crate) fn run_tool(
         ToolName::GetNews => tool_get_news(args),
         ToolName::ResearchDeal => tool_research_deal(app, args),
         ToolName::GetQuote => tool_get_quote(args),
+        ToolName::GetFinancials => tool_get_financials(args),
         ToolName::ListFilings => tool_list_filings(args),
         ToolName::ReadFiling => tool_read_filing(app, args),
         ToolName::AnalyzePdf => tool_analyze_pdf(app, args, conversation_id),
@@ -1302,6 +1317,147 @@ fn tool_get_quote(args: &Value) -> Result<(String, Value), String> {
     Ok((text, card))
 }
 
+/// Fetch exact reported financials for a ticker straight from SEC EDGAR XBRL
+/// company facts — the deterministic, citable source for a reported figure
+/// (revenue/net income/EPS), instead of scraping narrative filing prose.
+fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
+    let ticker = args["ticker"].as_str().unwrap_or("").trim().to_uppercase();
+    if ticker.is_empty() {
+        return Err("get_financials requires a ticker".into());
+    }
+    let want_year: Option<i64> = args["year"]
+        .as_i64()
+        .or_else(|| args["year"].as_str().and_then(|s| s.trim().parse().ok()));
+    let cik = fm_fetch::cik_from_ticker(&ticker).map_err(|e| e.to_string())?;
+    let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).map_err(|e| e.to_string())?;
+    let entity = raw["entityName"].as_str().unwrap_or(&ticker).to_string();
+    let us = raw["facts"]["us-gaap"].as_object().ok_or_else(|| {
+        format!("{ticker} has no US-GAAP XBRL facts (likely a foreign filer) — try build_model")
+    })?;
+    let tagmap = fm_extract::xbrl::xbrl_tag_map();
+
+    // First candidate tag with an annual (10-K, fp=FY) value: the requested
+    // fiscal year, else the latest; latest filing wins for a period (restatement).
+    let pick = |tags: &[&str], unit: &str| -> Option<(f64, i64, String, String)> {
+        let endof = |v: &Value| v.get("end").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let filedof =
+            |v: &Value| v.get("filed").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        for &tag in tags {
+            let Some(vals) = us.get(tag).and_then(|e| e["units"][unit].as_array()) else {
+                continue;
+            };
+            let mut ann: Vec<&Value> = vals
+                .iter()
+                .filter(|v| {
+                    v.get("val").and_then(|x| x.as_f64()).is_some()
+                        && v.get("fp").and_then(|x| x.as_str()) == Some("FY")
+                        && v.get("form")
+                            .and_then(|x| x.as_str())
+                            .map_or(false, |f| f.contains("10-K"))
+                })
+                .collect();
+            if ann.is_empty() {
+                continue;
+            }
+            ann.sort_by(|a, b| endof(a).cmp(&endof(b)).then_with(|| filedof(a).cmp(&filedof(b))));
+            let chosen = match want_year {
+                Some(y) => ann
+                    .iter()
+                    .rev()
+                    .find(|v| {
+                        v.get("fy").and_then(|x| x.as_i64()) == Some(y)
+                            || endof(v).starts_with(&y.to_string())
+                    })
+                    .copied(),
+                None => ann.last().copied(),
+            };
+            if let Some(v) = chosen {
+                return Some((
+                    v["val"].as_f64().unwrap(),
+                    v.get("fy").and_then(|x| x.as_i64()).unwrap_or(0),
+                    endof(v),
+                    filedof(v),
+                ));
+            }
+        }
+        None
+    };
+
+    let money = |v: f64| -> String {
+        let a = v.abs();
+        if a >= 1e9 {
+            format!("${:.2}B", v / 1e9)
+        } else if a >= 1e6 {
+            format!("${:.1}M", v / 1e6)
+        } else {
+            format!("${v:.0}")
+        }
+    };
+
+    let empty: &[&str] = &[];
+    let metrics: [(&str, &str, &str); 5] = [
+        ("Revenue", "revenue", "USD"),
+        ("Gross profit", "gross_profit", "USD"),
+        ("Operating income", "ebit", "USD"),
+        ("Net income", "net_income", "USD"),
+        ("Diluted EPS", "eps_diluted", "USD/shares"),
+    ];
+
+    let mut rows: Vec<Value> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    let mut period_end = String::new();
+    let mut fy: i64 = 0;
+    let mut filed = String::new();
+    for (label, key, unit) in metrics {
+        let tags = tagmap.get(key).copied().unwrap_or(empty);
+        if let Some((val, vfy, end, vfiled)) = pick(tags, unit) {
+            if period_end.is_empty() {
+                period_end = end;
+                fy = vfy;
+                filed = vfiled;
+            }
+            let disp = if unit == "USD/shares" {
+                format!("${val:.2}")
+            } else {
+                money(val)
+            };
+            lines.push(format!("- {label}: {disp}"));
+            rows.push(json!({ "label": label, "value": val, "display": disp }));
+        }
+    }
+    if rows.is_empty() {
+        return Err(format!(
+            "No annual XBRL figures found for {ticker}{}. Try list_filings or build_model.",
+            want_year.map(|y| format!(" FY{y}")).unwrap_or_default()
+        ));
+    }
+    let fy_label = if fy > 0 {
+        fy.to_string()
+    } else {
+        period_end.get(0..4).unwrap_or("").to_string()
+    };
+    let header = format!(
+        "{} ({}) — FY{} (period ended {}, per 10-K filed {}):",
+        entity, ticker, fy_label, period_end, filed
+    );
+    let text = format!(
+        "{header}\n{}\nSource: SEC EDGAR XBRL company facts (10-K).",
+        lines.join("\n")
+    );
+    let card = json!({
+        "type": "financials",
+        "ticker": ticker,
+        "entity": entity,
+        "fiscal_year": fy_label,
+        "period_end": period_end,
+        "filed": filed,
+        "currency": "USD",
+        "rows": rows,
+        "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K"),
+    });
+    Ok((text, card))
+}
+
 fn tool_list_filings(args: &Value) -> Result<(String, Value), String> {
     let ticker = args["ticker"].as_str().unwrap_or("").trim().to_string();
     if ticker.is_empty() {
@@ -1493,6 +1649,28 @@ fn emit_chat(app: &tauri::AppHandle, event: &str, conv_id: &str, run_id: &str, m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore] // live: hits SEC EDGAR XBRL
+    fn get_financials_tsla_fy2025_revenue_live() {
+        let (text, card) =
+            tool_get_financials(&json!({ "ticker": "TSLA", "year": 2025 })).unwrap();
+        eprintln!("{text}");
+        assert!(text.contains("Revenue"), "must report a revenue line");
+        let rev = card["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["label"] == "Revenue")
+            .expect("revenue row")["value"]
+            .as_f64()
+            .unwrap();
+        assert!(
+            (85e9..105e9).contains(&rev),
+            "TSLA FY2025 revenue ~$94.8B, got {rev}"
+        );
+        assert_eq!(card["fiscal_year"], json!("2025"));
+    }
 
     #[test]
     fn iso_utc_epoch_and_known_dates() {
