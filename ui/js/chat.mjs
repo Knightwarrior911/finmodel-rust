@@ -388,13 +388,35 @@ function setStreaming(on) {
   }
 }
 
-/** Opt-in unified loop: localStorage.fm_agent_loop = "1". Default stays chat_send. */
-function agentLoopEnabled() {
-  try {
-    return localStorage.getItem("fm_agent_loop") === "1";
-  } catch {
-    return false;
-  }
+/** Render an Approve/Deny group for a parked approval (risk-gated write). */
+function renderApproval(env) {
+  const runId = env.run_id;
+  const payload = (env.event && env.event.payload) || {};
+  const tcid = payload.tool_call_id || null;
+  const box = document.createElement("div");
+  box.className = "part-approval";
+  box.setAttribute("role", "group");
+  box.dataset.toolCallId = tcid || "";
+  const label = document.createElement("span");
+  label.className = "part-approval-text";
+  label.textContent = "This action modifies or exports a file and needs your approval.";
+  box.appendChild(label);
+  const mk = (text, resp, cls) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = text;
+    b.addEventListener("click", () => {
+      call("agent_approve", { run_id: runId, interaction_id: tcid, response: resp }).catch(() => {});
+      box.remove();
+    });
+    return b;
+  };
+  box.appendChild(mk("Approve once", "approve_once", "btn-primary"));
+  box.appendChild(mk("Create new version", "create_new_version", "btn-ghost"));
+  box.appendChild(mk("Deny", "deny", "btn-ghost"));
+  scrollEl().appendChild(box);
+  scrollToBottom();
 }
 
 function agentEventKind(env) {
@@ -420,6 +442,10 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
       if (kind === "assistant_text_delta") {
         const chunk = env.event && env.event.payload && env.event.payload.text;
         if (chunk) handleDelta({ text: chunk, conversation_id: env.conversation_id, run_id: env.run_id });
+        return;
+      }
+      if (kind === "approval_requested") {
+        renderApproval(env);
         return;
       }
       if (
@@ -483,18 +509,8 @@ async function send(text) {
   if (!currentId) currentId = newConversationId();
   let cancelled = false;
   try {
-    if (agentLoopEnabled()) {
-      await sendViaAgent(msg);
-      cancelled = stopping;
-    } else {
-      const res = await call("chat_send", {
-        conversation_id: currentId,
-        message: msg,
-        run_id: activeRunId,
-      });
-      currentId = res.conversation_id || currentId;
-      cancelled = stopping;
-    }
+    await sendViaAgent(msg);
+    cancelled = stopping;
   } catch (e) {
     const errText = e && e.message ? e.message : String(e);
     if (!activeTurn.assistantNode) appendAssistant("", true);
@@ -604,7 +620,7 @@ export function initChat(opts = {}) {
     stop.setAttribute("aria-label", "Stopping…");
     stop.title = "Stopping…";
     setProgress("Stopping…");
-    call("chat_cancel", { conversation_id: currentId, run_id: activeRunId }).catch(() => {});
+    call("agent_cancel", { conversation_id: currentId, run_id: activeRunId }).catch(() => {});
   });
 
   $("chatEmpty").addEventListener("click", (e) => {

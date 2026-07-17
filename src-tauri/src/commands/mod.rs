@@ -44,6 +44,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         agent::agent_cancel,
         agent::agent_resume,
         agent::agent_send,
+        agent::agent_approve,
         agent::list_active_runs,
         agent::get_run_events_after,
         agent::get_run_snapshot,

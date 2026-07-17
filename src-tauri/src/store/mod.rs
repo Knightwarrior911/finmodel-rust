@@ -339,6 +339,69 @@ impl Db {
         Ok(path)
     }
 
+    /// A conversation's title, if it exists.
+    pub fn conversation_title(&self, id: &str) -> StoreResult<Option<String>> {
+        let t: Option<String> = self
+            .conn
+            .query_row("SELECT title FROM conversations WHERE id=?1", [id], |r| r.get(0))
+            .optional()?;
+        Ok(t)
+    }
+
+    /// Sidebar rows for a workspace, newest first: id, title, updated, and a
+    /// short preview drawn from the latest message's text/result part.
+    pub fn list_conversations(&self, workspace_id: &str) -> StoreResult<Vec<(String, String, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, updated_at FROM conversations
+             WHERE workspace_id=?1 AND archived=0
+             ORDER BY updated_at DESC",
+        )?;
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map([workspace_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (id, title, updated) in rows {
+            let preview = self.conversation_preview(&id).unwrap_or_default();
+            out.push((id, title, updated, preview));
+        }
+        Ok(out)
+    }
+
+    /// Newest message's text preview (first ~80 chars), for the sidebar.
+    fn conversation_preview(&self, conversation_id: &str) -> StoreResult<String> {
+        let text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT p.search_text FROM message_parts p
+                 JOIN messages m ON m.id = p.message_id
+                 WHERE m.conversation_id=?1 AND p.search_text IS NOT NULL
+                 ORDER BY m.ordinal DESC, p.ordinal DESC LIMIT 1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(text
+            .map(|t| t.chars().take(80).collect::<String>())
+            .unwrap_or_default())
+    }
+
+    /// Rename a conversation.
+    pub fn rename_conversation(&self, id: &str, title: &str, now: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE conversations SET title=?1, updated_at=?2 WHERE id=?3",
+            params![title, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a conversation and all its cascade-owned rows (messages, parts,
+    /// runs, events, invocations; FTS via triggers).
+    pub fn delete_conversation(&self, id: &str) -> StoreResult<()> {
+        self.conn
+            .execute("DELETE FROM conversations WHERE id=?1", [id])?;
+        Ok(())
+    }
+
     fn row_to_message(r: &rusqlite::Row) -> rusqlite::Result<Message> {
         Ok(Message {
             id: r.get(0)?,

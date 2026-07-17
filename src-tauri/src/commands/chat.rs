@@ -240,68 +240,113 @@ fn new_conversation() -> Conversation {
 // Conversation commands
 // ---------------------------------------------------------------------------
 
-/// `[{ id, title, updated, preview }]`, sorted by `updated` desc. Corrupt files
-/// are skipped (logged to stderr), never fatal.
+/// `[{ id, title, updated, preview }]` from the SQLite store, newest first.
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_conversations(app: tauri::AppHandle) -> AppResult<String> {
-    let dir = conv_dir(&app)?;
-    let mut items: Vec<Value> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            match read_conversation(&path) {
-                Ok(conv) => items.push(json!({
-                    "id": conv.id,
-                    "title": if conv.title.is_empty() { "New conversation".to_string() } else { conv.title.clone() },
-                    "updated": conv.updated,
-                    "preview": preview_of(&conv),
-                })),
-                Err(e) => eprintln!("skip corrupt conversation {}: {e}", path.display()),
-            }
-        }
-    }
-    items.sort_by(|a, b| {
-        b["updated"]
-            .as_str()
-            .unwrap_or("")
-            .cmp(a["updated"].as_str().unwrap_or(""))
-    });
+pub async fn list_conversations(app: tauri::AppHandle) -> AppResult<String> {
+    let store = app
+        .try_state::<crate::store::AppStore>()
+        .ok_or_else(|| AppError::Config("store unavailable".into()))?;
+    let handle = store.handle.clone();
+    let ws = store.default_workspace_id.clone();
+    let rows = handle
+        .call(move |db| db.list_conversations(&ws))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, title, updated, preview)| {
+            json!({
+                "id": id,
+                "title": if title.is_empty() { "New conversation".to_string() } else { title },
+                "updated": updated,
+                "preview": preview,
+            })
+        })
+        .collect();
     Ok(serde_json::to_string(&items)?)
 }
 
+/// Legacy-shaped conversation ({id,title,messages:[{role,content|card,ts}]})
+/// rebuilt from the SQLite branch path so the existing renderer is unchanged.
 #[tauri::command(rename_all = "snake_case")]
-pub fn load_conversation(app: tauri::AppHandle, id: String) -> AppResult<String> {
-    let path = conv_path(&app, &id)?;
-    if !path.exists() {
-        return Err(AppError::Config("conversation not found".into()));
-    }
-    let conv = read_conversation(&path)?;
-    Ok(serde_json::to_string(&conv)?)
+pub async fn load_conversation(app: tauri::AppHandle, id: String) -> AppResult<String> {
+    let store = app
+        .try_state::<crate::store::AppStore>()
+        .ok_or_else(|| AppError::Config("store unavailable".into()))?;
+    let handle = store.handle.clone();
+    let out = handle
+        .call(move |db| -> Result<Value, String> {
+            let title = db
+                .conversation_title(&id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "conversation not found".to_string())?;
+            let branch = db.branch_path(&id).map_err(|e| e.to_string())?;
+            let mut messages: Vec<Value> = Vec::new();
+            for m in &branch {
+                let parts = db.message_parts(&m.id).map_err(|e| e.to_string())?;
+                for part in &parts {
+                    match part.kind.as_str() {
+                        "text" => {
+                            let text = serde_json::from_str::<Value>(&part.payload_json)
+                                .ok()
+                                .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(String::from))
+                                .unwrap_or_default();
+                            if !text.trim().is_empty() {
+                                messages.push(json!({ "role": m.role, "content": text, "ts": m.created_at }));
+                            }
+                        }
+                        "result" => {
+                            let card = serde_json::from_str::<Value>(&part.payload_json)
+                                .ok()
+                                .and_then(|v| v.get("card").cloned())
+                                .unwrap_or(Value::Null);
+                            if !card.is_null() {
+                                messages.push(json!({ "role": "assistant", "card": card, "ts": m.created_at }));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Ok(json!({ "id": id, "title": title, "messages": messages }))
+        })
+        .await
+        .map_err(AppError::Engine)?;
+    Ok(serde_json::to_string(&out)?)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_conversation(app: tauri::AppHandle, id: String) -> AppResult<String> {
-    let path = conv_path(&app, &id)?;
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| AppError::Io(e.to_string()))?;
+pub async fn delete_conversation(app: tauri::AppHandle, id: String) -> AppResult<String> {
+    let store = app
+        .try_state::<crate::store::AppStore>()
+        .ok_or_else(|| AppError::Config("store unavailable".into()))?;
+    let handle = store.handle.clone();
+    let cid = id.clone();
+    handle
+        .call(move |db| db.delete_conversation(&cid))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    // Also remove any legacy JSON so startup import can't resurrect it.
+    if let Ok(path) = conv_path(&app, &id) {
+        let _ = std::fs::remove_file(&path);
     }
     Ok(json!({ "ok": true }).to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn rename_conversation(app: tauri::AppHandle, id: String, title: String) -> AppResult<String> {
-    let path = conv_path(&app, &id)?;
-    if !path.exists() {
-        return Err(AppError::Config("conversation not found".into()));
-    }
-    let mut conv = read_conversation(&path)?;
-    conv.title = title_from(&title);
-    conv.updated = iso_now();
-    write_conversation(&path, &conv)?;
-    Ok(serde_json::to_string(&conv)?)
+pub async fn rename_conversation(app: tauri::AppHandle, id: String, title: String) -> AppResult<String> {
+    let store = app
+        .try_state::<crate::store::AppStore>()
+        .ok_or_else(|| AppError::Config("store unavailable".into()))?;
+    let handle = store.handle.clone();
+    let new_title = title_from(&title);
+    let cid = id.clone();
+    let t2 = new_title.clone();
+    handle
+        .call(move |db| db.rename_conversation(&cid, &t2, &crate::store::now_iso()))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    Ok(json!({ "id": id, "title": new_title }).to_string())
 }
 
 // ---------------------------------------------------------------------------

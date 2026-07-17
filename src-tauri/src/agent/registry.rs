@@ -15,7 +15,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use fm_agent::types::ApprovalResponse;
 use parking_lot::Mutex;
+use tokio::sync::oneshot;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
@@ -52,12 +54,16 @@ struct Entry {
 }
 
 type Map = Arc<Mutex<HashMap<String, Entry>>>;
+/// Parked approvals keyed by run id — the driver awaits the receiver; the
+/// `agent_approve` command resolves it. First answer wins (decision 7).
+type Approvals = Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalResponse>>>>;
 
 /// The active-run authority + bounded execution slots.
 #[derive(Clone)]
 pub struct ActorRegistry {
     map: Map,
     global: Arc<Semaphore>,
+    approvals: Approvals,
 }
 
 impl Default for ActorRegistry {
@@ -65,6 +71,7 @@ impl Default for ActorRegistry {
         ActorRegistry {
             map: Arc::new(Mutex::new(HashMap::new())),
             global: Arc::new(Semaphore::new(GLOBAL_SLOTS)),
+            approvals: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -72,6 +79,23 @@ impl Default for ActorRegistry {
 impl ActorRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Park an approval for `run_id`; the returned receiver resolves when
+    /// `resolve_approval` is called (or drops to `Deny` on cancel/timeout).
+    pub fn park_approval(&self, run_id: &str) -> oneshot::Receiver<ApprovalResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.approvals.lock().insert(run_id.to_string(), tx);
+        rx
+    }
+
+    /// Resolve a parked approval. Returns true iff a waiter was signalled.
+    pub fn resolve_approval(&self, run_id: &str, response: ApprovalResponse) -> bool {
+        if let Some(tx) = self.approvals.lock().remove(run_id) {
+            tx.send(response).is_ok()
+        } else {
+            false
+        }
     }
 
     /// Register a new active run. Fails if the conversation is busy or the

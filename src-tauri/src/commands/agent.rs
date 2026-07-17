@@ -154,12 +154,8 @@ pub async fn agent_send(
         return Err(AppError::Config("empty message".into()));
     }
 
+    // No key is allowed: LiveDriver routes to the FallbackDispatcher.
     let settings = read_settings(&app);
-    if settings.openrouter_api_key.trim().is_empty() {
-        return Err(AppError::Config(
-            "No OpenRouter API key set. Add one in Settings first.".into(),
-        ));
-    }
 
     let app_store = store(&app)?;
     let handle = app_store.handle.clone();
@@ -186,10 +182,13 @@ pub async fn agent_send(
             let now = crate::store::now_iso();
             // Create conversation if this is a new id (UNIQUE failure → already exists).
             let _ = db.create_conversation(&conv_for_insert, &workspace_for_insert, &title, &now);
+            // Link the user turn under the current active leaf so multi-turn
+            // conversations keep their whole root->leaf branch (history).
+            let parent = db.active_leaf_id(&conv_for_insert).map_err(|e| e.to_string())?;
             db.insert_message(
                 &user_msg_id,
                 &conv_for_insert,
-                None,
+                parent.as_deref(),
                 "user",
                 None,
                 "complete",
@@ -249,7 +248,7 @@ pub async fn agent_send(
         cancel,
     };
 
-    let driver = LiveDriver::new(app.clone(), handle.clone(), cfg, ctx, tools_ok);
+    let driver = LiveDriver::new(app.clone(), handle.clone(), cfg, ctx, tools_ok, (*registry).clone());
     let sink = TauriEventSink::new(app.clone());
     let machine = AgentMachine::new(Policy::INTERACTIVE);
     let conv_bg = conv_id.clone();
@@ -270,3 +269,20 @@ pub async fn agent_send(
     .to_string())
 }
 
+/// Resolve a parked approval for a run (Approve once / Deny / Create new
+/// version). First answer wins; a missing/late waiter simply returns false.
+#[tauri::command(rename_all = "snake_case")]
+pub fn agent_approve(
+    registry: tauri::State<'_, ActorRegistry>,
+    run_id: String,
+    interaction_id: Option<String>,
+    response: String,
+) -> AppResult<bool> {
+    let _ = interaction_id; // durable ApprovalResolved carries the tool_call_id
+    let resp = match response.as_str() {
+        "approve_once" => fm_agent::types::ApprovalResponse::ApproveOnce,
+        "create_new_version" => fm_agent::types::ApprovalResponse::CreateNewVersion,
+        _ => fm_agent::types::ApprovalResponse::Deny,
+    };
+    Ok(registry.resolve_approval(&run_id, resp))
+}

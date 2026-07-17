@@ -246,15 +246,21 @@ pub struct LiveDriver {
     /// durable `result` parts and mirrored live on the transitional
     /// `chat_tool` channel the existing card renderer consumes.
     turn_results: Vec<(String, Value)>,
+    /// Active-run registry, used to park approvals awaiting `agent_approve`.
+    registry_hub: crate::agent::registry::ActorRegistry,
+    /// No-key turns: whether the FallbackDispatcher decision was already issued.
+    fallback_served: bool,
 }
 
 impl LiveDriver {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         app: tauri::AppHandle,
         store: crate::store::StoreHandle,
         cfg: fm_extract::LlmConfig,
         ctx: SessionContext,
         tools_enabled: bool,
+        registry_hub: crate::agent::registry::ActorRegistry,
     ) -> Self {
         let messages = crate::commands::chat::seed_agent_messages(&ctx.user_msg);
         let tools = if tools_enabled {
@@ -275,6 +281,8 @@ impl LiveDriver {
             deadline: std::time::Duration::from_secs(120),
             store,
             turn_results: Vec::new(),
+            registry_hub,
+            fallback_served: false,
         }
     }
 
@@ -348,13 +356,99 @@ impl LiveDriver {
     }
 }
 
+impl LiveDriver {
+    /// No-key turn: resolve the message through the isolated FallbackDispatcher.
+    /// First call issues the validated tool (or a Direct help answer); the
+    /// second call (after the tool ran) closes the turn.
+    fn fallback_model_out(&mut self) -> ModelOut {
+        use crate::agent::fallback::{dispatch, FallbackDecision};
+        if self.fallback_served {
+            return ModelOut { calls: vec![], final_answer: true, tokens: 0 };
+        }
+        self.fallback_served = true;
+        match dispatch(&self.registry, &self.ctx.user_msg) {
+            FallbackDecision::Tool { name, args } => {
+                let id = "fb-1".to_string();
+                let risk = self.registry.get(&name).map(|s| s.risk).unwrap_or(Risk::ReadOnly);
+                let args_valid = self.registry.validate_call(&name, &args).is_ok();
+                self.pending
+                    .insert(id.clone(), PendingCall { name: name.clone(), args, risk });
+                self.last_content = String::new();
+                ModelOut {
+                    calls: vec![ToolCall {
+                        tool_call_id: id,
+                        name,
+                        risk,
+                        needs_approval: !risk.auto_runs(),
+                        args_valid,
+                    }],
+                    final_answer: false,
+                    tokens: 0,
+                }
+            }
+            FallbackDecision::Direct => {
+                self.last_content =
+                    "I couldn't map that to a tool. Try 'build AAPL', 'benchmark AAPL, MSFT',                      'news NVDA', 'search …', or add an OpenRouter API key in Settings for full                      natural-language chat."
+                        .to_string();
+                ModelOut { calls: vec![], final_answer: true, tokens: 0 }
+            }
+        }
+    }
+}
+
 impl Driver for LiveDriver {
     async fn prepare(&mut self) -> PreparedInfo {
-        // Always route through Executing so `request_model` runs the provider —
-        // even with no tools available (tool-incompatible model), the model must
-        // still be consulted to produce the answer. `uses_tools: false` would
-        // take the machine's direct-answer shortcut straight to synthesize,
-        // skipping the only provider call and yielding an empty turn.
+        // Rebuild provider context from the persisted branch so multi-turn
+        // conversations are not amnesiac (parity: branch context). The branch
+        // already includes the just-inserted current user turn.
+        let conv = self.ctx.conversation_id.clone();
+        let store = self.store.clone();
+        let history: Vec<(String, String)> = store
+            .call(move |db| {
+                let mut out = Vec::new();
+                if let Ok(branch) = db.branch_path(&conv) {
+                    for m in &branch {
+                        if m.role != "user" && m.role != "assistant" {
+                            continue;
+                        }
+                        if let Ok(parts) = db.message_parts(&m.id) {
+                            let mut text = String::new();
+                            for part in &parts {
+                                if part.kind != "text" {
+                                    continue;
+                                }
+                                if let Ok(v) =
+                                    serde_json::from_str::<Value>(&part.payload_json)
+                                {
+                                    if let Some(t) = v.get("text").and_then(|x| x.as_str()) {
+                                        if !text.is_empty() {
+                                            text.push('\n');
+                                        }
+                                        text.push_str(t);
+                                    }
+                                }
+                            }
+                            if !text.trim().is_empty() {
+                                out.push((m.role.clone(), text));
+                            }
+                        }
+                    }
+                }
+                out
+            })
+            .await;
+        let mut msgs = crate::commands::chat::seed_agent_messages("");
+        msgs.truncate(1); // keep only the dated system/policy message
+        for (role, text) in history {
+            msgs.push(serde_json::json!({ "role": role, "content": text }));
+        }
+        if msgs.len() == 1 {
+            // Defensive: never send an empty turn to the provider.
+            msgs.push(serde_json::json!({ "role": "user", "content": self.ctx.user_msg }));
+        }
+        self.messages = msgs;
+        // Always route through Executing so request_model runs (provider or the
+        // no-key FallbackDispatcher); uses_tools:false would skip it entirely.
         PreparedInfo {
             uses_tools: true,
             plan_needed: false,
@@ -365,6 +459,10 @@ impl Driver for LiveDriver {
     async fn make_plan(&mut self) {}
 
     async fn request_model(&mut self) -> ModelOut {
+        // No key: deterministic FallbackDispatcher instead of a provider call.
+        if self.cfg.api_key.trim().is_empty() {
+            return self.fallback_model_out();
+        }
         if self.ctx.cancel.is_cancelled() {
             return ModelOut {
                 calls: vec![],
@@ -623,9 +721,14 @@ impl Driver for LiveDriver {
     }
 
     async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {
-        // Fail closed: first-pass has no UI parking / agent_approve yet.
-        // Auto-run tools never reach this path; anything that does is Deny.
-        ApprovalResponse::Deny
+        // Park until agent_approve resolves it; deny on cancel or a 10-minute
+        // safety timeout so a walked-away user can never leave a run wedged.
+        let rx = self.registry_hub.park_approval(&self.ctx.run_id);
+        tokio::select! {
+            _ = self.ctx.cancel.cancelled() => ApprovalResponse::Deny,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(600)) => ApprovalResponse::Deny,
+            r = rx => r.unwrap_or(ApprovalResponse::Deny),
+        }
     }
 }
 
