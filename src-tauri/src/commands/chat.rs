@@ -23,7 +23,7 @@ use crate::agent::executors::{SessionContext, ToolBackend};
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. When a request needs more than one step or tool, you MUST begin your reply with a one-line plan on its own line, that starts with Plan: — for example, Plan: pull Tesla and Ford financials, then compare. Then carry it out end to end — call the tools you need and give the answer — without stopping to ask whether to continue; pause only for a required approval or a genuine either/or choice. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
 
 /// Convert unix seconds to an ISO-8601 UTC timestamp (civil date via Hinnant's
 /// algorithm). Lexicographically sortable == chronological.
@@ -290,10 +290,17 @@ fn redact_provider_error(status: Option<u16>, body: &str) -> String {
     }
 }
 
-/// Build the OpenRouter chat request body (pure — unit-tested).
-/// When `tools` is non-empty, also sets `tool_choice: "auto"` and
-/// `parallel_tool_calls: false` (Phase 1.3: one tool call at a time).
-pub(crate) fn build_chat_request(model: &str, msgs: &[Value], tools: &[Value], stream: bool) -> Value {
+/// Build the OpenRouter chat request body (pure — unit-tested). When `tools` is
+/// non-empty, sets `tool_choice: "auto"` and `parallel_tool_calls` from
+/// `parallel` — true for tool-capable models so independent calls (e.g. per-
+/// company financials) fan out in one turn and run concurrently.
+pub(crate) fn build_chat_request(
+    model: &str,
+    msgs: &[Value],
+    tools: &[Value],
+    stream: bool,
+    parallel: bool,
+) -> Value {
     let mut req = json!({
         "model": model,
         "messages": msgs,
@@ -303,7 +310,7 @@ pub(crate) fn build_chat_request(model: &str, msgs: &[Value], tools: &[Value], s
     if !tools.is_empty() {
         req["tools"] = json!(tools);
         req["tool_choice"] = json!("auto");
-        req["parallel_tool_calls"] = json!(false);
+        req["parallel_tool_calls"] = json!(parallel);
     }
     req
 }
@@ -1693,14 +1700,14 @@ mod tests {
     fn build_chat_request_shape_with_and_without_tools() {
         let msgs = vec![json!({ "role": "user", "content": "hi" })];
         let tools = vec![json!({ "type": "function" })];
-        let req = build_chat_request("m", &msgs, &tools, true);
+        let req = build_chat_request("m", &msgs, &tools, true, true);
         assert_eq!(req["model"], json!("m"));
         assert_eq!(req["stream"], json!(true));
         assert_eq!(req["tool_choice"], json!("auto"));
-        assert_eq!(req["parallel_tool_calls"], json!(false));
+        assert_eq!(req["parallel_tool_calls"], json!(true));
         assert!(req["tools"].is_array());
 
-        let bare = build_chat_request("m", &msgs, &[], false);
+        let bare = build_chat_request("m", &msgs, &[], false, false);
         assert_eq!(bare["stream"], json!(false));
         assert!(bare.get("tools").is_none());
         assert!(bare.get("tool_choice").is_none());

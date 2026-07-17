@@ -636,6 +636,7 @@ impl Driver for LiveDriver {
             &self.messages,
             &tools,
             true,
+            !tools.is_empty(),
         );
         let app = self.app.clone();
         let conv = self.ctx.conversation_id.clone();
@@ -675,6 +676,7 @@ impl Driver for LiveDriver {
                     &self.messages,
                     &tools,
                     true,
+                    false,
                 );
                 match crate::commands::chat::stream_completion_for_agent(
                     &app, &conv, &run, &cfg, &req, &cancel, self.remaining(),

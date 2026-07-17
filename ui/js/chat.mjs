@@ -125,8 +125,8 @@ function toolStatusNode(name) {
   const div = document.createElement("div");
   div.className = "tool-status";
   div.innerHTML = `<span class="spinner"></span><span class="tool-status-name">${escapeHtml(
-    name
-  )}…</span>`;
+    phaseLabel(name)
+  )}</span>`;
   scrollEl().appendChild(div);
   scrollToBottom();
   return div;
@@ -182,8 +182,39 @@ function phaseLabel(name, detail) {
       return "Building model…";
     case "benchmark_peers":
       return "Benchmarking peers…";
+    case "get_financials":
+      return "Fetching financials…";
+    case "get_quote":
+      return "Fetching quote…";
+    case "list_filings":
+      return "Listing filings…";
+    case "read_filing":
+      return "Reading filing…";
+    case "web_search":
+      return "Searching the web…";
+    case "read_page":
+      return "Reading page…";
+    case "research_deal":
+      return "Researching deal…";
+    case "get_news":
+      return "Fetching news…";
     default:
       return `Running ${name}…`;
+  }
+}
+
+/// Friendly progress label for an agent phase. Returns null for `executing`
+/// (tool events drive the specific label there) and phases with no live status.
+function agentPhaseLabel(phase) {
+  switch (phase) {
+    case "planning":
+      return "Planning…";
+    case "synthesizing":
+      return "Writing the answer…";
+    case "verifying":
+      return "Checking the figures…";
+    default:
+      return null;
   }
 }
 
@@ -472,6 +503,11 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
       }
       if (kind === "approval_requested") {
         renderApproval(env);
+        return;
+      }
+      if (kind === "phase_changed") {
+        const label = agentPhaseLabel(env.event && env.event.payload && env.event.payload.phase);
+        if (label) setProgress(label);
         return;
       }
       if (kind === "memory_updated") {
