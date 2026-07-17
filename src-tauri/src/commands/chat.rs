@@ -2700,6 +2700,45 @@ pub(crate) fn tool_schemas() -> Vec<Value> {
     ]
 }
 
+/// Model-callable schemas for the unified agent loop: the native tool set plus
+/// the research/web tools the legacy native loop deliberately withheld
+/// (`research` wraps the search→read→synthesize pipeline; the keyed agent path
+/// selects it via tool-calling rather than `route_intent`).
+pub(crate) fn agent_tool_schemas() -> Vec<Value> {
+    fn f(name: &str, description: &str, params: Value) -> Value {
+        json!({ "type": "function", "function": { "name": name, "description": description, "parameters": params } })
+    }
+    let mut v = tool_schemas();
+    v.push(f(
+        "research",
+        "Research a question with web search + page/filing reading + cited synthesis. Use for current, factual, entity, or numeric questions that need up-to-date primary-source evidence (e.g. revenue growth, market trends, guidance). Returns a cited answer.",
+        json!({
+            "type": "object",
+            "properties": { "query": { "type": "string", "description": "The research question, in full." } },
+            "required": ["query"]
+        }),
+    ));
+    v.push(f(
+        "web_search",
+        "Search the web and return ranked results with canonical URL, source, and date. Prefer `research` for a full cited answer; use this for a quick link lookup.",
+        json!({
+            "type": "object",
+            "properties": { "query": { "type": "string" } },
+            "required": ["query"]
+        }),
+    ));
+    v.push(f(
+        "read_page",
+        "Fetch and read the readable text of a public web page by URL (HTTP(S) only; SSRF-guarded).",
+        json!({
+            "type": "object",
+            "properties": { "url": { "type": "string" } },
+            "required": ["url"]
+        }),
+    ));
+    v
+}
+
 /// Truncate a string to `max` chars for the LLM tool result.
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -2767,8 +2806,18 @@ fn tool_research(
     use fm_research::machine::{Action, ResearchBudgets, ResearchMachine};
     use fm_research::research::{ResearchDepth, ResearchMode, ResearchOutput, ResearchToolArgs};
 
+    // The registry/schema/fallback all use `query` (ecosystem standard), but
+    // ResearchToolArgs is deny_unknown_fields with `question`. Translate the
+    // key at this one boundary; into_request overwrites it with the original
+    // user text anyway, so this only satisfies the strict parser.
+    let mut argv = args.clone();
+    if let Some(obj) = argv.as_object_mut() {
+        if let Some(q) = obj.remove("query") {
+            obj.entry("question").or_insert(q);
+        }
+    }
     let ta: ResearchToolArgs =
-        serde_json::from_value(args.clone()).map_err(|e| format!("invalid arguments: {e}"))?;
+        serde_json::from_value(argv).map_err(|e| format!("invalid arguments: {e}"))?;
     let mut request = ta.into_request(user_msg);
     // Application fills deal parties from the original user text.
     if request.mode == ResearchMode::Deal {

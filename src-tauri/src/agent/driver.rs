@@ -264,7 +264,7 @@ impl LiveDriver {
     ) -> Self {
         let messages = crate::commands::chat::seed_agent_messages(&ctx.user_msg);
         let tools = if tools_enabled {
-            crate::commands::chat::tool_schemas()
+            crate::commands::chat::agent_tool_schemas()
         } else {
             Vec::new()
         };

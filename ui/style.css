@@ -113,6 +113,10 @@ button { font-family: inherit; }
 #app {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
+  /* Bound the single row to the viewport so #sidebar/#chatMain get a fixed
+     height and scroll internally. Without this the implicit `auto` row sizes
+     to content, overflowing 100vh and pushing the composer below the fold. */
+  grid-template-rows: minmax(0, 100vh);
   height: 100vh;
   overflow: hidden;
 }
