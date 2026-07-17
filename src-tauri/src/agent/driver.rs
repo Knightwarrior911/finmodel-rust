@@ -215,6 +215,345 @@ pub fn model_out_from_stream(
     }
 }
 
+/// Production OpenRouter-backed driver. Reuses the proven SSE path, the
+/// registry/`ToolBackend` executor seam, and [`model_out_from_stream`].
+///
+/// First-pass policy:
+/// - `await_approval` **Deny**s (fail closed) — Export/Overwrite never auto-run.
+/// - `extract_memory` returns 0 until Phase E quality gates land.
+/// - Tool execution runs inside `spawn_blocking` so blocking cores cannot pin
+///   a tokio worker for the duration of a finmodel call.
+pub struct LiveDriver {
+    app: tauri::AppHandle,
+    cfg: fm_extract::LlmConfig,
+    registry: ToolRegistry,
+    ctx: SessionContext,
+    messages: Vec<Value>,
+    tools: Vec<Value>,
+    pending: HashMap<String, PendingCall>,
+    /// Last assistant prose (for synthesize persistence / final-answer path).
+    pub last_content: String,
+    started: std::time::Instant,
+    deadline: std::time::Duration,
+    store: crate::store::StoreHandle,
+}
+
+impl LiveDriver {
+    pub fn new(
+        app: tauri::AppHandle,
+        store: crate::store::StoreHandle,
+        cfg: fm_extract::LlmConfig,
+        ctx: SessionContext,
+        tools_enabled: bool,
+    ) -> Self {
+        let messages = crate::commands::chat::seed_agent_messages(&ctx.user_msg);
+        let tools = if tools_enabled {
+            crate::commands::chat::tool_schemas()
+        } else {
+            Vec::new()
+        };
+        LiveDriver {
+            app,
+            cfg,
+            registry: ToolRegistry::builtin(),
+            ctx,
+            messages,
+            tools,
+            pending: HashMap::new(),
+            last_content: String::new(),
+            started: std::time::Instant::now(),
+            deadline: std::time::Duration::from_secs(120),
+            store,
+        }
+    }
+
+    fn remaining(&self) -> std::time::Duration {
+        self.deadline.saturating_sub(self.started.elapsed())
+    }
+
+    fn seed_pending_from_acc(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
+        self.pending.clear();
+        for c in acc.complete_calls() {
+            let args: Value = serde_json::from_str(&c.arguments).unwrap_or(Value::Null);
+            let risk = self
+                .registry
+                .get(&c.name)
+                .map(|s| s.risk)
+                .unwrap_or(Risk::ReadOnly);
+            self.pending.insert(
+                c.id.clone(),
+                PendingCall {
+                    name: c.name.clone(),
+                    args,
+                    risk,
+                },
+            );
+        }
+    }
+
+    fn append_assistant_tool_calls(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
+        let calls: Vec<Value> = acc
+            .complete_calls()
+            .into_iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "type": "function",
+                    "function": { "name": c.name, "arguments": c.arguments },
+                })
+            })
+            .collect();
+        if calls.is_empty() {
+            return;
+        }
+        let content = if acc.content.is_empty() {
+            Value::Null
+        } else {
+            Value::String(acc.content.clone())
+        };
+        self.messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": content,
+            "tool_calls": calls,
+        }));
+    }
+}
+
+impl Driver for LiveDriver {
+    async fn prepare(&mut self) -> PreparedInfo {
+        PreparedInfo {
+            uses_tools: !self.tools.is_empty(),
+            plan_needed: false,
+            needs_verification: false,
+        }
+    }
+
+    async fn make_plan(&mut self) {}
+
+    async fn request_model(&mut self) -> ModelOut {
+        if self.ctx.cancel.is_cancelled() {
+            return ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 0,
+            };
+        }
+        let remaining = self.remaining();
+        if remaining.is_zero() {
+            self.last_content =
+                "(stopped: chat deadline elapsed — try a shorter question or another model)".into();
+            return ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 0,
+            };
+        }
+
+        let mut tools = self.tools.clone();
+        let req = crate::commands::chat::build_chat_request(
+            &self.cfg.model,
+            &self.messages,
+            &tools,
+            true,
+        );
+        let app = self.app.clone();
+        let conv = self.ctx.conversation_id.clone();
+        let run = self.ctx.run_id.clone();
+        let cfg = self.cfg.clone();
+        let cancel = self.ctx.cancel.clone();
+
+        let result = crate::commands::chat::stream_completion_for_agent(
+            &app, &conv, &run, &cfg, &req, &cancel, remaining,
+        )
+        .await;
+
+        match result {
+            Ok(acc) => {
+                self.last_content = acc.content.clone();
+                self.seed_pending_from_acc(&acc);
+                if !acc.complete_calls().is_empty() {
+                    self.append_assistant_tool_calls(&acc);
+                } else if !acc.content.trim().is_empty() {
+                    self.messages.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": acc.content,
+                    }));
+                }
+                model_out_from_stream(&self.registry, &acc)
+            }
+            Err(e) if e == "tools_unsupported" && !tools.is_empty() => {
+                // Drop tools and retry once as a direct answer.
+                self.tools.clear();
+                tools.clear();
+                self.messages.push(serde_json::json!({
+                    "role": "system",
+                    "content": "(tools unavailable for this model — answer directly without tools)",
+                }));
+                let req = crate::commands::chat::build_chat_request(
+                    &self.cfg.model,
+                    &self.messages,
+                    &tools,
+                    true,
+                );
+                match crate::commands::chat::stream_completion_for_agent(
+                    &app, &conv, &run, &cfg, &req, &cancel, self.remaining(),
+                )
+                .await
+                {
+                    Ok(acc) => {
+                        self.last_content = acc.content.clone();
+                        if !acc.content.trim().is_empty() {
+                            self.messages.push(serde_json::json!({
+                                "role": "assistant",
+                                "content": acc.content,
+                            }));
+                        }
+                        model_out_from_stream(&self.registry, &acc)
+                    }
+                    Err(err) => {
+                        self.last_content = format!(
+                            "⚠ the model request failed — check your API key and model in Settings. ({err})"
+                        );
+                        ModelOut {
+                            calls: vec![],
+                            final_answer: true,
+                            tokens: 0,
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                self.last_content = format!(
+                    "⚠ the model request failed — check your API key and model in Settings. ({e})"
+                );
+                ModelOut {
+                    calls: vec![],
+                    final_answer: true,
+                    tokens: 0,
+                }
+            }
+        }
+    }
+
+    async fn repair_tool_call(&mut self, _tool_call_id: &str) -> ModelOut {
+        // One repair = another provider round with the existing message history
+        // (validation errors were already fed back as tool results).
+        self.request_model().await
+    }
+
+    async fn schedule_tools(&mut self, batch: &[String]) -> u64 {
+        let planned: Vec<PlannedCall> = batch
+            .iter()
+            .filter_map(|id| {
+                let p = self.pending.get(id)?;
+                Some(PlannedCall {
+                    tool_call_id: id.clone(),
+                    risk: p.risk,
+                    depends_on: vec![],
+                })
+            })
+            .collect();
+        let waves = if planned.is_empty() {
+            vec![batch.to_vec()]
+        } else {
+            plan_batches(&planned)
+        };
+
+        let mut total = 0u64;
+        for wave in waves {
+            let calls: Vec<(String, String, Value)> = wave
+                .iter()
+                .filter_map(|id| {
+                    let p = self.pending.get(id)?;
+                    Some((id.clone(), p.name.clone(), p.args.clone()))
+                })
+                .collect();
+
+            let app = self.app.clone();
+            let ctx = self.ctx.clone();
+            let calls_owned = calls.clone();
+
+            let (tokens, wave_results) = tokio::task::spawn_blocking(move || {
+                let backend = crate::commands::chat::ChatToolBackend { app: &app };
+                let registry = ToolRegistry::builtin();
+                let mut results = HashMap::new();
+                let tokens = execute_batch(&registry, &backend, &calls_owned, &ctx, &mut results);
+                (tokens, results)
+            })
+            .await
+            .unwrap_or_else(|_| (0, HashMap::new()));
+
+            total = total.saturating_add(tokens);
+            for (id, res) in wave_results {
+                let content = match res {
+                    Ok(env) => env.summary,
+                    Err(e) => format!("Tool error: {e}"),
+                };
+                self.messages.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": id,
+                    "content": content,
+                }));
+            }
+        }
+        total
+    }
+
+    async fn synthesize(&mut self) {
+        // Persist the final assistant text as an ordered message part so
+        // snapshots reload the same prose the live turn produced.
+        let content = self.last_content.clone();
+        if content.trim().is_empty() {
+            return;
+        }
+        let conv = self.ctx.conversation_id.clone();
+        let store = self.store.clone();
+        store
+            .call(move |db| {
+                let msg_id = {
+                    let mut b = [0u8; 16];
+                    rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+                    fm_agent::ids::format_uuid_v4(b)
+                };
+                let part_id = {
+                    let mut b = [0u8; 16];
+                    rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+                    fm_agent::ids::format_uuid_v4(b)
+                };
+                let now = crate::store::now_iso();
+                let _ = db.insert_message(
+                    &msg_id,
+                    &conv,
+                    None,
+                    "assistant",
+                    None,
+                    "complete",
+                    &now,
+                );
+                let payload = serde_json::json!({ "text": content }).to_string();
+                let _ = db.insert_part(&part_id, &msg_id, 0, "text", &payload, Some(&content));
+                let _ = db.set_active_leaf(&conv, &msg_id, &now);
+            })
+            .await;
+    }
+
+    async fn verify(&mut self) -> bool {
+        true
+    }
+
+    async fn extract_memory(&mut self) -> usize {
+        // Manual-memory-only until Phase E quality gates pass.
+        0
+    }
+
+    async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {
+        // Fail closed: first-pass has no UI parking / agent_approve yet.
+        // Auto-run tools never reach this path; anything that does is Deny.
+        ApprovalResponse::Deny
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

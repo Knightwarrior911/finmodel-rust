@@ -1,5 +1,5 @@
 //! Tauri command surface for the unified agent loop (Phase B: control + query;
-//! `agent_send` remains deferred until the OpenRouter-backed Driver is wired to ChatToolBackend).
+//! `agent_send` spawns a LiveDriver turn (approval fail-closed; memory capture deferred).
 //!
 //! These commands are the race-free attach/reload contract: the UI registers the
 //! event listener, loads a snapshot with `last_sequence`, then calls
@@ -116,3 +116,157 @@ pub async fn agent_resume(app: tauri::AppHandle, interrupted_run_id: String) -> 
         .ok_or_else(|| AppError::Config("run is not resumable".into()))?;
     Ok(new_id)
 }
+
+fn new_id() -> String {
+    let mut bytes = [0u8; 16];
+    rand::Rng::fill(&mut rand::thread_rng(), &mut bytes);
+    fm_agent::ids::format_uuid_v4(bytes)
+}
+
+/// Start a unified agent turn. Creates (or appends to) a SQLite conversation,
+/// registers the run with [`ActorRegistry`], and drives [`LiveDriver`] to a
+/// terminal on a background task. Returns `{ conversation_id, run_id }`.
+///
+/// First-pass notes:
+/// - Approval is fail-closed (Deny) until `agent_approve` parks a oneshot.
+/// - Memory auto-capture is off (returns 0) until Phase E quality gates.
+/// - Legacy JSON `chat_send` remains the UI default until Phase G cutover.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agent_send(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, ActorRegistry>,
+    conversation_id: Option<String>,
+    workspace_id: Option<String>,
+    text: String,
+) -> AppResult<String> {
+    use crate::agent::driver::LiveDriver;
+    use crate::agent::events::TauriEventSink;
+    use crate::agent::executors::SessionContext;
+    use crate::commands::settings::read_settings;
+    use fm_agent::budget::Policy;
+    use fm_agent::machine::AgentMachine;
+    use fm_agent::types::Confidentiality;
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err(AppError::Config("empty message".into()));
+    }
+
+    let settings = read_settings(&app);
+    if settings.openrouter_api_key.trim().is_empty() {
+        return Err(AppError::Config(
+            "No OpenRouter API key set. Add one in Settings first.".into(),
+        ));
+    }
+
+    let app_store = store(&app)?;
+    let handle = app_store.handle.clone();
+    let workspace = workspace_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| app_store.default_workspace_id.clone());
+
+    let conv_id = conversation_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(new_id);
+    let run_id = new_id();
+    let user_msg_id = new_id();
+    let user_part_id = new_id();
+    let title: String = text.chars().take(60).collect();
+
+    let conv_for_insert = conv_id.clone();
+    let run_for_insert = run_id.clone();
+    let model = settings.model.trim().to_string();
+    let workspace_for_insert = workspace.clone();
+    let text_for_insert = text.clone();
+    let model_for_insert = model.clone();
+    handle
+        .call(move |db| -> Result<(), String> {
+            let now = crate::store::now_iso();
+            // Create conversation if this is a new id (UNIQUE failure → already exists).
+            let _ = db.create_conversation(&conv_for_insert, &workspace_for_insert, &title, &now);
+            db.insert_message(
+                &user_msg_id,
+                &conv_for_insert,
+                None,
+                "user",
+                None,
+                "complete",
+                &now,
+            )
+            .map_err(|e| e.to_string())?;
+            let payload = json!({ "text": text_for_insert }).to_string();
+            db.insert_part(
+                &user_part_id,
+                &user_msg_id,
+                0,
+                "text",
+                &payload,
+                Some(&text_for_insert),
+            )
+            .map_err(|e| e.to_string())?;
+            db.set_active_leaf(&conv_for_insert, &user_msg_id, &now)
+                .map_err(|e| e.to_string())?;
+            db.insert_run(
+                &run_for_insert,
+                &conv_for_insert,
+                Some(&user_msg_id),
+                None,
+                "running",
+                "preparing",
+                Some(&model_for_insert),
+                None,
+                &now,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(AppError::Engine)?;
+
+    let run_handle = registry
+        .start_run(&conv_id, &run_id)
+        .map_err(|e| AppError::Config(e.to_string()))?;
+    let cancel: CancellationToken = run_handle.cancellation_token();
+
+    let cfg = fm_extract::LlmConfig {
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model: model.clone(),
+    };
+    let tools_ok = settings
+        .model_capability
+        .as_ref()
+        .map(|c| c.model_id == model && c.native_tools)
+        .unwrap_or(false);
+
+    let ctx = SessionContext {
+        workspace_id: workspace,
+        conversation_id: conv_id.clone(),
+        run_id: run_id.clone(),
+        user_msg: text,
+        confidentiality: Confidentiality::Standard,
+        cancel,
+    };
+
+    let driver = LiveDriver::new(app.clone(), handle.clone(), cfg, ctx, tools_ok);
+    let sink = TauriEventSink::new(app.clone());
+    let machine = AgentMachine::new(Policy::INTERACTIVE);
+    let conv_bg = conv_id.clone();
+    let run_bg = run_id.clone();
+    let handle_bg = handle.clone();
+
+    tauri::async_runtime::spawn(async move {
+        // Keep the RunHandle alive for the turn so cancel + RAII deregister work.
+        let _guard = run_handle;
+        let _outcome =
+            actor::run_turn(&handle_bg, &sink, &conv_bg, &run_bg, machine, driver).await;
+    });
+
+    Ok(json!({
+        "conversation_id": conv_id,
+        "run_id": run_id,
+    })
+    .to_string())
+}
+

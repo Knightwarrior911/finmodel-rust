@@ -560,7 +560,7 @@ fn redact_provider_error(status: Option<u16>, body: &str) -> String {
 /// Build the OpenRouter chat request body (pure — unit-tested).
 /// When `tools` is non-empty, also sets `tool_choice: "auto"` and
 /// `parallel_tool_calls: false` (Phase 1.3: one tool call at a time).
-fn build_chat_request(model: &str, msgs: &[Value], tools: &[Value], stream: bool) -> Value {
+pub(crate) fn build_chat_request(model: &str, msgs: &[Value], tools: &[Value], stream: bool) -> Value {
     let mut req = json!({
         "model": model,
         "messages": msgs,
@@ -917,6 +917,74 @@ async fn openrouter_stream_async(
         meta,
     }
 }
+
+/// Convert a legacy chat stream outcome into the agent StreamAccumulator
+/// seam used by crate::agent::driver::model_out_from_stream.
+fn legacy_to_accumulator(
+    content: String,
+    tool_calls: Vec<ToolCall>,
+    meta: TurnMeta,
+) -> crate::agent::provider::StreamAccumulator {
+    use crate::agent::provider::{AccToolCall, StreamAccumulator, TurnMeta as AccMeta};
+    StreamAccumulator {
+        content,
+        calls: tool_calls
+            .into_iter()
+            .map(|c| AccToolCall {
+                id: c.id,
+                name: c.name,
+                arguments: c.arguments,
+            })
+            .collect(),
+        meta: AccMeta {
+            finish_reason: meta.finish_reason,
+            native_finish_reason: meta.native_finish_reason,
+            model: meta.model,
+            provider: meta.provider,
+            usage: meta.usage,
+            parse_errors: meta.sse_parse_errors,
+        },
+    }
+}
+
+/// Agent-loop streaming entry: same OpenRouter SSE path as chat_send, but
+/// returns a StreamAccumulator for the unified driver. Failures surface as
+/// Err with a redacted category string (never provider bodies/keys).
+pub(crate) async fn stream_completion_for_agent(
+    app: &tauri::AppHandle,
+    conv_id: &str,
+    run_id: &str,
+    cfg: &fm_extract::LlmConfig,
+    req: &Value,
+    cancel: &tokio_util::sync::CancellationToken,
+    timeout: std::time::Duration,
+) -> Result<crate::agent::provider::StreamAccumulator, String> {
+    match openrouter_stream_async(app, conv_id, run_id, cfg, req, cancel, timeout).await {
+        StreamOutcome::Ok {
+            content,
+            tool_calls,
+            meta,
+        } => Ok(legacy_to_accumulator(content, tool_calls, meta)),
+        StreamOutcome::Partial { content, .. } | StreamOutcome::Cancelled { content } => {
+            Ok(legacy_to_accumulator(content, Vec::new(), TurnMeta::default()))
+        }
+        StreamOutcome::ToolsUnsupported => Err("tools_unsupported".into()),
+        StreamOutcome::Failed(e) => Err(e),
+    }
+}
+
+/// Seed messages for a fresh agent turn (system policy + current user text).
+pub(crate) fn seed_agent_messages(user_text: &str) -> Vec<Value> {
+    let today = &iso_now()[..10];
+    let system = format!(
+        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory."
+    );
+    vec![
+        json!({ "role": "system", "content": system }),
+        json!({ "role": "user", "content": user_text }),
+    ]
+}
+
 
 /// Build the LLM message array: system prompt + prior user/assistant text.
 fn history_messages(conv: &Conversation) -> Vec<Value> {
@@ -2501,7 +2569,7 @@ fn error_card(tool: &str, message: &str) -> Value {
 }
 
 /// OpenAI function-tool schemas exposed to the LLM.
-fn tool_schemas() -> Vec<Value> {
+pub(crate) fn tool_schemas() -> Vec<Value> {
     fn f(name: &str, description: &str, params: Value) -> Value {
         json!({ "type": "function", "function": { "name": name, "description": description, "parameters": params } })
     }
