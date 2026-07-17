@@ -33,6 +33,17 @@ pub struct PreparedInfo {
 /// emits; implementations perform real provider/tool/store work (Phase C) or are
 /// scripted fakes (tests). Native `async fn` in traits (stable since 1.75) —
 /// used only with generics here, never as `dyn`.
+/// Per-batch tool execution outcome reported by the driver, so the actor can
+/// emit an honest durable ToolSucceeded/ToolFailed per call (the replayed UI
+/// must never render a failed tool as succeeded).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToolBatchOutcome {
+    /// Conservative token charge for the batch.
+    pub tokens: u64,
+    /// Ids whose execution failed (validation / runtime / cancelled).
+    pub failed: Vec<String>,
+}
+
 #[allow(async_fn_in_trait)]
 pub trait Driver {
     async fn prepare(&mut self) -> PreparedInfo;
@@ -42,7 +53,7 @@ pub trait Driver {
     /// next model output.
     async fn repair_tool_call(&mut self, tool_call_id: &str) -> ModelOut;
     /// Execute a batch of tool calls; returns tokens consumed.
-    async fn schedule_tools(&mut self, batch: &[String]) -> u64;
+    async fn schedule_tools(&mut self, batch: &[String]) -> ToolBatchOutcome;
     async fn synthesize(&mut self);
     async fn verify(&mut self) -> bool;
     /// Run bounded memory extraction; returns the count of rows saved so the
@@ -204,21 +215,26 @@ pub async fn run_turn<D: Driver>(
                         .await,
                     );
                 }
-                let tokens = driver.schedule_tools(&batch).await;
+                let outcome = driver.schedule_tools(&batch).await;
                 for id in &batch {
+                    let kind = if outcome.failed.iter().any(|f| f == id) {
+                        EventKind::ToolFailed
+                    } else {
+                        EventKind::ToolSucceeded
+                    };
                     events.push(
                         emit_durable(
                             store,
                             sink,
                             conversation_id,
                             run_id,
-                            EventKind::ToolSucceeded,
+                            kind,
                             serde_json::json!({ "tool_call_id": id }),
                         )
                         .await,
                     );
                 }
-                Input::ToolsCompleted { tokens }
+                Input::ToolsCompleted { tokens: outcome.tokens }
             }
             Action::RequestApproval { tool_call_id } => {
                 events.push(

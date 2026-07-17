@@ -80,8 +80,8 @@ impl Driver for FakeDriver {
     async fn repair_tool_call(&mut self, _id: &str) -> ModelOut {
         self.request_model().await
     }
-    async fn schedule_tools(&mut self, _batch: &[String]) -> u64 {
-        20
+    async fn schedule_tools(&mut self, _batch: &[String]) -> ToolBatchOutcome {
+        ToolBatchOutcome { tokens: 20, failed: vec![] }
     }
     async fn synthesize(&mut self) {}
     async fn verify(&mut self) -> bool {

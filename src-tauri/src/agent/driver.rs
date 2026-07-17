@@ -14,7 +14,7 @@ use fm_agent::types::{ApprovalResponse, Risk, ToolResultEnvelope};
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use crate::agent::actor::{Driver, ModelOut, PreparedInfo};
+use crate::agent::actor::{Driver, ModelOut, PreparedInfo, ToolBatchOutcome};
 use crate::agent::executors::{execute_batch, ExecuteError, SessionContext, ToolBackend};
 use crate::agent::scheduler::{plan_batches, PlannedCall};
 use crate::agent::tools::ToolRegistry;
@@ -107,7 +107,7 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
     async fn repair_tool_call(&mut self, _tool_call_id: &str) -> ModelOut {
         self.take_model()
     }
-    async fn schedule_tools(&mut self, batch: &[String]) -> u64 {
+    async fn schedule_tools(&mut self, batch: &[String]) -> ToolBatchOutcome {
         self.batches.lock().push(batch.to_vec());
 
         // Re-plan with the scheduler so write/dependent calls serialize even if
@@ -130,6 +130,7 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
         };
 
         let mut total = 0u64;
+        let mut failed: Vec<String> = Vec::new();
         for wave in waves {
             let calls: Vec<(String, String, Value)> = wave
                 .iter()
@@ -146,9 +147,14 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
                 &self.ctx,
                 &mut wave_results,
             ));
+            for (id, res) in &wave_results {
+                if res.is_err() {
+                    failed.push(id.clone());
+                }
+            }
             self.results.lock().extend(wave_results);
         }
-        total
+        ToolBatchOutcome { tokens: total, failed }
     }
     async fn synthesize(&mut self) {}
     async fn verify(&mut self) -> bool {
@@ -446,7 +452,7 @@ impl Driver for LiveDriver {
         self.request_model().await
     }
 
-    async fn schedule_tools(&mut self, batch: &[String]) -> u64 {
+    async fn schedule_tools(&mut self, batch: &[String]) -> ToolBatchOutcome {
         let planned: Vec<PlannedCall> = batch
             .iter()
             .filter_map(|id| {
@@ -465,6 +471,7 @@ impl Driver for LiveDriver {
         };
 
         let mut total = 0u64;
+        let mut failed: Vec<String> = Vec::new();
         for wave in waves {
             let calls: Vec<(String, String, Value)> = wave
                 .iter()
@@ -490,6 +497,9 @@ impl Driver for LiveDriver {
 
             total = total.saturating_add(tokens);
             for (id, res) in wave_results {
+                if res.is_err() {
+                    failed.push(id.clone());
+                }
                 let content = match res {
                     Ok(env) => env.summary,
                     Err(e) => format!("Tool error: {e}"),
@@ -501,7 +511,7 @@ impl Driver for LiveDriver {
                 }));
             }
         }
-        total
+        ToolBatchOutcome { tokens: total, failed }
     }
 
     async fn synthesize(&mut self) {
@@ -1087,5 +1097,47 @@ mod tests {
         for id in ["bp", "qt", "lf"] {
             assert!(results.get(id).unwrap().is_ok(), "tool {id} failed");
         }
+    }
+
+    /// Durable-event honesty: a failed executor MUST emit ToolFailed for its
+    /// id — never ToolSucceeded — while sibling successes still emit
+    /// ToolSucceeded (the replayed UI must not render failures as successes).
+    #[tokio::test]
+    async fn failed_tool_emits_tool_failed_not_succeeded() {
+        let (_td, store, sink, run) = setup();
+        let backend = FakeBackend::new()
+            .seed_ok("get_quote", "NVDA 788.17 USD", quote_card("NVDA", 788.17))
+            .seed_err("get_news", "provider exploded");
+
+        let ctx = SessionContext::test_ctx("c1", "quote + news NVDA");
+        let mut driver = ScriptedDriver::new(backend, ctx);
+        driver.seed_pending("qt", "get_quote", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        driver.seed_pending("nw", "get_news", json!({"query":"NVDA"}), Risk::ReadOnly);
+        driver.model_outs = vec![
+            ModelOut {
+                calls: vec![ro_call("qt", "get_quote"), ro_call("nw", "get_news")],
+                final_answer: false,
+                tokens: 40,
+            },
+            ModelOut { calls: vec![], final_answer: true, tokens: 20 },
+        ];
+        driver.verify_ok = true;
+
+        let m = AgentMachine::new(Policy::INTERACTIVE);
+        let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
+        assert_eq!(out.event, EventKind::RunCompleted);
+
+        let evs = sink.events.lock();
+        let kind_for = |id: &str| -> Vec<EventKind> {
+            evs.iter()
+                .filter(|e| {
+                    e.event.payload.get("tool_call_id").and_then(|v| v.as_str()) == Some(id)
+                        && matches!(e.event.kind, EventKind::ToolSucceeded | EventKind::ToolFailed)
+                })
+                .map(|e| e.event.kind)
+                .collect()
+        };
+        assert_eq!(kind_for("qt"), vec![EventKind::ToolSucceeded]);
+        assert_eq!(kind_for("nw"), vec![EventKind::ToolFailed]);
     }
 }
