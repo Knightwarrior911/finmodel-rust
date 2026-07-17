@@ -1334,7 +1334,6 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     let us = raw["facts"]["us-gaap"].as_object().ok_or_else(|| {
         format!("{ticker} has no US-GAAP XBRL facts (likely a foreign filer) — try build_model")
     })?;
-    let tagmap = fm_extract::xbrl::xbrl_tag_map();
 
     // First candidate tag with an annual (10-K, fp=FY) value: the requested
     // fiscal year, else the latest; latest filing wins for a period (restatement).
@@ -1394,13 +1393,24 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
         }
     };
 
-    let empty: &[&str] = &[];
-    let metrics: [(&str, &str, &str); 5] = [
-        ("Revenue", "revenue", "USD"),
-        ("Gross profit", "gross_profit", "USD"),
-        ("Operating income", "ebit", "USD"),
-        ("Net income", "net_income", "USD"),
-        ("Diluted EPS", "eps_diluted", "USD/shares"),
+    // Explicit us-gaap tag candidates per line (confirmed against real filings);
+    // first tag with an annual value wins. Broader than the model builder's map.
+    let metrics: &[(&str, &[&str], &str)] = &[
+        (
+            "Revenue",
+            &[
+                "RevenueFromContractWithCustomerExcludingAssessedTax",
+                "Revenues",
+                "SalesRevenueNet",
+                "RevenueFromContractWithCustomerIncludingAssessedTax",
+            ],
+            "USD",
+        ),
+        ("Cost of revenue", &["CostOfRevenue", "CostOfGoodsAndServicesSold"], "USD"),
+        ("Gross profit", &["GrossProfit"], "USD"),
+        ("Operating income", &["OperatingIncomeLoss"], "USD"),
+        ("Net income", &["NetIncomeLoss", "ProfitLoss"], "USD"),
+        ("Diluted EPS", &["EarningsPerShareDiluted"], "USD/shares"),
     ];
 
     let mut rows: Vec<Value> = Vec::new();
@@ -1408,8 +1418,7 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     let mut period_end = String::new();
     let mut fy: i64 = 0;
     let mut filed = String::new();
-    for (label, key, unit) in metrics {
-        let tags = tagmap.get(key).copied().unwrap_or(empty);
+    for &(label, tags, unit) in metrics {
         if let Some((val, vfy, end, vfiled)) = pick(tags, unit) {
             if period_end.is_empty() {
                 period_end = end;
