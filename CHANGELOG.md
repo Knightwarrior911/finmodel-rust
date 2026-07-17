@@ -129,16 +129,25 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   cancellation via `cancel_all()`. 10 tests.
 - App-lib suite: 173 green.
 
-### Phase E — memory repository (`store/memory.rs`)
+### Phase E — memory store + capture + recall
 - `store/memory.rs`: `MemoryRepository` trait with two backends — SQLite
   (`SqliteMemoryRepository` wrapping `Db`) and in-memory
   (`InMemoryMemoryRepository` for pure reducer tests). Covers insert, get,
   get_by_public_id, FTS5-scoped search, supersede (close `valid_to` + link
   `superseded_by`), delete, and `record_use` for recall explainability.
-- `MemoryScope` filter: workspace/conversation scoping and `global_only`.
-- 15 tests: 9 in-memory (insert, get, search scoping, supersede, delete,
-  record_use, empty query) + 6 SQLite (same operations backed by real
-  SQLite with FK enforcement). App-lib suite: 188 green.
+  `MemoryScope` filter: workspace/conversation scoping and `global_only`.
+  15 tests.
+- `agent/memory.rs`: `MemoryCapture` — extracts memories from completed
+  turns (verified claims + user statements), subject to `PrecisionGate`
+  (rejects secrets, paths, URLs, short text, non-numeric claims). Dedup
+  by `normalized_key` + scope; supersession closes `valid_to` on old
+  versions and links `superseded_by`.
+- `MemoryRecall` — queries relevant memories for context injection
+  using the `MemoryRepository`, returns formatted lines with confidence
+  and provenance.
+- 14 tests: precision gate, claim extraction, user statement extraction,
+  dedup, supersession, non-numeric rejection, scope isolation, recall
+  formatting, empty recall. App-lib suite: 202 green.
 
 ## v0.5.1 — 2026-07-17
 

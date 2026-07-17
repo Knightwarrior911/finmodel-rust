@@ -21,4 +21,5 @@ pub mod tools;
 pub mod fallback;
 pub mod workflows;
 pub mod subagents;
+pub mod memory;
 pub mod provider;
