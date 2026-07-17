@@ -233,25 +233,45 @@ pub fn execute<B: ToolBackend>(
     Ok(envelope_from_card(summary, card, trust))
 }
 
-/// Execute a batch of independent calls. Returns a conservative token charge.
-pub fn execute_batch<B: ToolBackend>(
+/// Execute a batch of independent calls concurrently. Returns a conservative
+/// token charge. Independent read-only tools (e.g. a peer set's per-ticker
+/// fetches) run in parallel — capped at [`PER_RUN_SLOTS`] in-flight — instead
+/// of serializing. Result ordering is preserved by the caller (it walks calls
+/// in input order and looks each up in `results`), so parallelism is invisible
+/// to rendering.
+pub fn execute_batch<B: ToolBackend + Sync>(
     registry: &ToolRegistry,
     backend: &B,
     calls: &[(String, String, Value)],
     ctx: &SessionContext,
     results: &mut HashMap<String, Result<ToolResultEnvelope, ExecuteError>>,
 ) -> u64 {
-    let mut tokens = 0u64;
-    for (id, name, args) in calls {
-        if ctx.cancel.is_cancelled() {
-            results.insert(id.clone(), Err(ExecuteError::Cancelled));
-            continue;
-        }
-        let env = execute(registry, backend, name, args, ctx);
-        tokens = tokens.saturating_add(25);
-        results.insert(id.clone(), env);
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let tokens = AtomicU64::new(0);
+    let collected: std::sync::Mutex<Vec<(String, Result<ToolResultEnvelope, ExecuteError>)>> =
+        std::sync::Mutex::new(Vec::new());
+    // Run in waves of at most PER_RUN_SLOTS so a large batch never oversubscribes.
+    for chunk in calls.chunks(crate::agent::registry::PER_RUN_SLOTS) {
+        std::thread::scope(|s| {
+            for (id, name, args) in chunk {
+                let tokens = &tokens;
+                let collected = &collected;
+                s.spawn(move || {
+                    let env = if ctx.cancel.is_cancelled() {
+                        Err(ExecuteError::Cancelled)
+                    } else {
+                        execute(registry, backend, name, args, ctx)
+                    };
+                    tokens.fetch_add(25, Ordering::Relaxed);
+                    collected.lock().unwrap().push((id.clone(), env));
+                });
+            }
+        });
     }
-    tokens
+    for (id, env) in collected.into_inner().unwrap() {
+        results.insert(id, env);
+    }
+    tokens.into_inner()
 }
 
 /// Convenience: a one-shot quote card used by scripted tests.
