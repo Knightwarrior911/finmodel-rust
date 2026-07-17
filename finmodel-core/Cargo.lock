@@ -691,6 +691,7 @@ dependencies = [
 name = "fm-fetch"
 version = "0.1.0"
 dependencies = [
+ "ego-tree",
  "quick-xml",
  "regex",
  "reqwest",

@@ -439,9 +439,11 @@ pub fn recent_filings(cik: &str, form_type: &str, limit: usize) -> Result<Vec<Fi
 /// pathological document exhausting memory.
 const MAX_FILING_BYTES: u64 = 25 * 1024 * 1024;
 
-/// GET a filing document by its EDGAR Archives URL and return it as plain text
-/// (HTML stripped via [`crate::websearch::strip_html`]). Uses the required
-/// EDGAR User-Agent and caps the response body at 25 MB.
+/// GET a filing document by its EDGAR Archives URL and return it as plain text.
+/// Uses [`strip_filing_html`] (NOT the article-oriented `websearch::strip_html`,
+/// which drops `<div>/<span>/<table>` content and caps output at 20 KB — a real
+/// 10-K lays its items out in divs/tables and Item 7/8 sit megabytes deep).
+/// Uses the required EDGAR User-Agent and caps the response body at 25 MB.
 pub fn fetch_filing_doc(url: &str) -> Result<String, EdgarError> {
     let resp = edgar_get(url)?;
     if let Some(len) = resp.content_length()
@@ -455,7 +457,66 @@ pub fn fetch_filing_doc(url: &str) -> Result<String, EdgarError> {
     if body.len() as u64 > MAX_FILING_BYTES {
         return Err(EdgarError::Request(format!("filing too large for {url}")));
     }
-    Ok(crate::websearch::strip_html(&body))
+    Ok(strip_filing_html(&body))
+}
+
+/// Flatten a full SEC filing HTML document to line-oriented plain text, suitable
+/// for [`split_filing_items`]. Unlike the article extractor, this keeps text from
+/// EVERY element (divs, spans, table cells) and inserts a newline at each
+/// block-level boundary, so item headings like `Item 7.` — which filers wrap in
+/// `<div>`/`<span>`/`<td>` — land at the start of a line. No size cap (the 25 MB
+/// download guard and per-item truncation downstream bound the payload).
+pub fn strip_filing_html(html: &str) -> String {
+    use ego_tree::iter::Edge;
+    use scraper::{Html, Node};
+
+    const SKIP: &[&str] = &["script", "style", "noscript", "head", "svg"];
+    // Block-level / line-breaking tags that should force a newline in the output.
+    const BLOCK: &[&str] = &[
+        "div", "p", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead",
+        "tbody", "section", "article", "hr", "ul", "ol", "td", "th", "caption",
+    ];
+
+    let doc = Html::parse_document(html);
+    let mut raw = String::new();
+    let mut skip_depth = 0usize;
+    for edge in doc.tree.root().traverse() {
+        match edge {
+            Edge::Open(node) => match node.value() {
+                Node::Element(e) => {
+                    let n = e.name();
+                    if SKIP.contains(&n) {
+                        skip_depth += 1;
+                    } else if skip_depth == 0 && BLOCK.contains(&n) {
+                        raw.push('\n');
+                    }
+                }
+                Node::Text(t) if skip_depth == 0 => raw.push_str(&t.text),
+                _ => {}
+            },
+            Edge::Close(node) => {
+                if let Node::Element(e) = node.value() {
+                    let n = e.name();
+                    if SKIP.contains(&n) {
+                        skip_depth = skip_depth.saturating_sub(1);
+                    } else if skip_depth == 0 && BLOCK.contains(&n) {
+                        raw.push('\n');
+                    }
+                }
+            }
+        }
+    }
+    // Collapse intra-line whitespace, drop blank lines. Item headings are now
+    // line-anchored for `split_filing_items`.
+    let mut out = String::with_capacity(raw.len());
+    for line in raw.split('\n') {
+        let trimmed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !trimmed.is_empty() {
+            out.push_str(&trimmed);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Split filing text into `(item_id, body)` sections, anchored on line-leading
@@ -540,6 +601,50 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
     #[test]
     fn split_filing_items_empty_on_no_items() {
         assert!(split_filing_items("just some prose with no headings").is_empty());
+    }
+
+    // A real 10-K wraps item headings in div/span and puts financials in tables —
+    // NOT in <p>/<h*>. The article extractor drops all of this; strip_filing_html
+    // must keep it AND line-anchor the headings for split_filing_items.
+    const HTML_10K_FIXTURE: &str = r#"<html><head><style>.x{}</style></head><body>
+<div><span style="font-weight:700">Item&#160;1.</span><span>&#160;Business</span></div>
+<div>We design and sell electric vehicles worldwide.</div>
+<div><span style="font-weight:700">Item 7.</span> Management's Discussion and Analysis</div>
+<div>Total revenues increased driven by higher deliveries.</div>
+<div><span>Item 8.</span> Financial Statements and Supplementary Data</div>
+<table><tr><td>Total revenues</td><td>$97,690</td></tr>
+<tr><td>Cost of revenues</td><td>$80,240</td></tr></table>
+<script>var toc = "Item 7. should be ignored";</script>
+</body></html>"#;
+
+    #[test]
+    fn strip_filing_html_extracts_div_span_table_items() {
+        let text = strip_filing_html(HTML_10K_FIXTURE);
+        // Headings are line-anchored (regex needs ^item N).
+        let items = split_filing_items(&text);
+        let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["1", "7", "8"], "items from div/span headings, got: {ids:?}");
+        // Item 8's financial table survives (was dropped by the article extractor).
+        let item8 = &items.iter().find(|(id, _)| id == "8").unwrap().1;
+        assert!(item8.contains("97,690"), "table revenue kept, got: {item8}");
+        // <script> content never leaks into the body text.
+        assert!(!text.contains("should be ignored"), "script text must be skipped");
+    }
+
+    #[test]
+    #[ignore] // live: hits SEC EDGAR
+    fn read_filing_tsla_extracts_items_live() {
+        let cik = cik_from_ticker("TSLA").expect("CIK lookup");
+        let filings = recent_filings(&cik, "10-K", 1).expect("recent 10-K");
+        let f = filings.first().expect("a 10-K");
+        let text = fetch_filing_doc(&f.url).expect("fetch filing doc");
+        let items = split_filing_items(&text);
+        let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+        eprintln!("TSLA {} items: {ids:?} (text {} chars)", f.filing_date, text.len());
+        assert!(ids.contains(&"7"), "Item 7 (MD&A) must be found, got: {ids:?}");
+        assert!(ids.contains(&"8"), "Item 8 (financials) must be found, got: {ids:?}");
+        let item7 = &items.iter().find(|(id, _)| id == "7").unwrap().1;
+        assert!(item7.len() > 500, "Item 7 body should be substantial");
     }
 
     #[test]
