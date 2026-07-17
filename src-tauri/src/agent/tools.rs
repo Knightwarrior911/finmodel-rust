@@ -184,14 +184,14 @@ impl ToolRegistry {
             ToolSpec {
                 name: "analyze_pdf",
                 label: "Analyze PDF",
-                description: "Extract financials from a local PDF via the LLM path.",
+                description: "Extract financials from a picker-minted PDF artifact (never a raw path).",
                 risk: Risk::ReadOnly,
                 capabilities: &["pdf", "extract"],
-                required_args: &["path"],
+                required_args: &["artifact_id"],
                 interruptible: true,
                 idempotent: true,
                 trust: TrustPolicy::Untrusted,
-                validate: |a| require_nonempty(a, "path"),
+                validate: |a| require_nonempty(a, "artifact_id"),
             },
             ToolSpec {
                 name: "research",
@@ -392,6 +392,21 @@ mod tests {
         let cat = r.catalog();
         assert_eq!(cat.lines().count(), 11);
         assert!(cat.contains("build_model"));
+    }
+
+    #[test]
+    fn analyze_pdf_requires_artifact_id_not_path() {
+        let r = ToolRegistry::builtin();
+        assert!(matches!(
+            r.validate_call("analyze_pdf", &serde_json::json!({"path":"C:/x.pdf"})),
+            Err(ToolError::MissingArg { .. })
+        ));
+        assert!(r
+            .validate_call(
+                "analyze_pdf",
+                &serde_json::json!({"artifact_id":"art-0123456789abcdef0123456789abcdef"}),
+            )
+            .is_ok());
     }
 
     // keep `ok` referenced (reserved for tools with no extra validation)

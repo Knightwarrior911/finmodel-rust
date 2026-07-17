@@ -96,6 +96,17 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   in `fallback.rs` — single-letter tickers no longer discarded. Adversarial case:
   `"quote for F"` → `Some("F")`. App-lib: 153 green.
 
+### Phase C — registry executors + scripted Driver
+- `agent/executors.rs`: validate→dispatch→`ToolResultEnvelope` seam with
+  `SessionContext`, `ToolBackend`, `FakeBackend`, source/artifact promotion,
+  cancel short-circuit, and SSRF rejection before backend invoke. 9 tests.
+- `agent/driver.rs`: `ScriptedDriver` runs canned provider transcripts through
+  `run_turn` + registry executors. Acceptance: two parallel reads → research →
+  synthesize/verify → terminal, with recorded batches/results. 2 tests.
+- `commands/chat.rs`: `ChatToolBackend` bridges existing tool cores into the
+  executor seam; `analyze_pdf` registry contract fixed to `artifact_id` (never
+  raw path). App-lib suite: 214 green.
+
 ### Phase F — embedded finance workflow specs (`fm-agent`)
 - `fm-agent/src/workflows.rs`: six typed `WorkflowSpec` contracts — company
   brief, earnings review, trading comps, DCF/3-statement, M&A screen, pitch

@@ -17,6 +17,8 @@ use tauri::{Emitter, Manager};
 use crate::commands::mcp::McpManager;
 use crate::commands::settings::read_settings;
 use crate::error::{AppError, AppResult};
+use crate::agent::executors::{SessionContext, ToolBackend};
+
 
 const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Shared tool-call budget across native and application-routed multi-action paths.
@@ -2079,7 +2081,7 @@ fn strip_keywords(msg: &str, kws: &[&str]) -> String {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ToolName {
+pub(crate) enum ToolName {
     BuildModel,
     BenchmarkPeers,
     WebSearch,
@@ -2109,7 +2111,7 @@ impl ToolName {
             ToolName::Research => "research",
         }
     }
-    fn from_str(s: &str) -> Option<Self> {
+    pub(crate) fn from_str(s: &str) -> Option<Self> {
         Some(match s {
             "build_model" => ToolName::BuildModel,
             "benchmark_peers" => ToolName::BenchmarkPeers,
@@ -2599,7 +2601,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// `user_msg` is the ORIGINAL user text — the `research` tool normalizes against
 /// it rather than the model's rewritten `question` argument.
 /// `conversation_id` is a trusted app value used only for artifact ownership.
-fn run_tool(
+pub(crate) fn run_tool(
     app: &tauri::AppHandle,
     tool: ToolName,
     args: &Value,
@@ -2618,6 +2620,23 @@ fn run_tool(
         ToolName::ReadFiling => tool_read_filing(app, args),
         ToolName::AnalyzePdf => tool_analyze_pdf(app, args, conversation_id),
         ToolName::Research => tool_research(app, args, user_msg),
+    }
+}
+
+/// Production [`ToolBackend`] that dispatches into the existing chat tool cores.
+pub struct ChatToolBackend<'a> {
+    pub app: &'a tauri::AppHandle,
+}
+
+impl ToolBackend for ChatToolBackend<'_> {
+    fn invoke(
+        &self,
+        name: &str,
+        args: &Value,
+        ctx: &SessionContext,
+    ) -> Result<(String, Value), String> {
+        let tool = ToolName::from_str(name).ok_or_else(|| format!("unknown tool: {name}"))?;
+        run_tool(self.app, tool, args, &ctx.user_msg, &ctx.conversation_id)
     }
 }
 

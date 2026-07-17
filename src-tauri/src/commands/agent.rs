@@ -1,5 +1,5 @@
 //! Tauri command surface for the unified agent loop (Phase B: control + query;
-//! `agent_send` lands in Phase C with the real provider/tool driver).
+//! `agent_send` remains deferred until the OpenRouter-backed Driver is wired to ChatToolBackend).
 //!
 //! These commands are the race-free attach/reload contract: the UI registers the
 //! event listener, loads a snapshot with `last_sequence`, then calls
