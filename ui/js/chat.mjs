@@ -388,6 +388,84 @@ function setStreaming(on) {
   }
 }
 
+/** Opt-in unified loop: localStorage.fm_agent_loop = "1". Default stays chat_send. */
+function agentLoopEnabled() {
+  try {
+    return localStorage.getItem("fm_agent_loop") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function agentEventKind(env) {
+  return env && env.event && env.event.kind;
+}
+
+function waitForAgentTerminal(runId, timeoutMs = 130000) {
+  return new Promise((resolve, reject) => {
+    let unsub = () => {};
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error("agent turn timed out"));
+    }, timeoutMs);
+    const done = (result) => {
+      clearTimeout(timer);
+      unsub();
+      resolve(result);
+    };
+    const p = on("agent_event", (e) => {
+      const env = (e && e.payload) || {};
+      if (env.run_id !== runId) return;
+      const kind = agentEventKind(env);
+      if (kind === "assistant_text_delta") {
+        const chunk = env.event && env.event.payload && env.event.payload.text;
+        if (chunk) handleDelta({ text: chunk, conversation_id: env.conversation_id, run_id: env.run_id });
+        return;
+      }
+      if (
+        kind === "run_completed" ||
+        kind === "run_failed" ||
+        kind === "run_cancelled" ||
+        kind === "run_interrupted" ||
+        kind === "run_budget_limited"
+      ) {
+        done({ kind, env });
+      }
+    });
+    // on() may return a Promise (Tauri 2) or an unsubscribe fn.
+    if (p && typeof p.then === "function") {
+      p.then((u) => {
+        unsub = typeof u === "function" ? u : () => {};
+      }).catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    } else if (typeof p === "function") {
+      unsub = p;
+    }
+  });
+}
+
+async function sendViaAgent(msg) {
+  const res = await call("agent_send", {
+    conversation_id: currentId || null,
+    text: msg,
+  });
+  currentId = res.conversation_id || currentId;
+  activeRunId = res.run_id || activeRunId;
+  const terminal = await waitForAgentTerminal(activeRunId);
+  // Surface a minimal final answer if no deltas streamed (fail-closed / error paths).
+  if (!activeTurn.assistantNode) {
+    const detail =
+      (terminal.env &&
+        terminal.env.event &&
+        terminal.env.event.payload &&
+        (terminal.env.event.payload.detail || terminal.env.event.payload.stop)) ||
+      terminal.kind;
+    appendAssistant(typeof detail === "string" ? detail : JSON.stringify(detail), true);
+  }
+}
+
 async function send(text) {
   const msg = (text || "").trim();
   if (!msg || streaming) return;
@@ -405,13 +483,18 @@ async function send(text) {
   if (!currentId) currentId = newConversationId();
   let cancelled = false;
   try {
-    const res = await call("chat_send", {
-      conversation_id: currentId,
-      message: msg,
-      run_id: activeRunId,
-    });
-    currentId = res.conversation_id || currentId;
-    cancelled = stopping;
+    if (agentLoopEnabled()) {
+      await sendViaAgent(msg);
+      cancelled = stopping;
+    } else {
+      const res = await call("chat_send", {
+        conversation_id: currentId,
+        message: msg,
+        run_id: activeRunId,
+      });
+      currentId = res.conversation_id || currentId;
+      cancelled = stopping;
+    }
   } catch (e) {
     const errText = e && e.message ? e.message : String(e);
     if (!activeTurn.assistantNode) appendAssistant("", true);
