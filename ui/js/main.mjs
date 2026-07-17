@@ -1,6 +1,6 @@
 // main.mjs — boot: theme → reader → chat → sidebar → settings → update.
 
-import { initTheme, call } from "./core.mjs";
+import { initTheme, call, on } from "./core.mjs";
 import { initReader } from "./reader.mjs";
 import { initSidebar, refresh as refreshSidebar, setActive } from "./sidebar.mjs";
 import {
@@ -20,7 +20,7 @@ import {
   reduce as reduceWorkspace,
   render as renderWorkspace,
 } from "./workspaces.mjs";
-import { createTray, render as renderTray } from "./tasks.mjs";
+import { createTray, render as renderTray, reduce as reduceTray } from "./tasks.mjs";
 import {
   createMemoryUi,
   reduce as reduceMemory,
@@ -58,7 +58,7 @@ function boot() {
   // agent_event streams land with agent_send).
   let workspaceState = createWorkspaceState();
   let memoryUi = createMemoryUi();
-  const tray = createTray();
+  let tray = createTray();
   const paintChrome = () => {
     renderWorkspace(
       {
@@ -84,6 +84,10 @@ function boot() {
     );
     renderTray(document.getElementById("taskTray"), tray, {
       onSelect: (id) => loadConversation(id),
+      onCancel: () =>
+        call("agent_cancel", { conversation_id: getCurrentId(), run_id: getActiveRunId() }).catch(
+          () => {},
+        ),
     });
     renderMemory(document.getElementById("memoryNotice"), memoryUi, {
       onUndo: () => {
@@ -97,6 +101,20 @@ function boot() {
     });
   };
   paintChrome();
+
+  // M4: surface parallel peer/company subagent fan-out in the task tray.
+  on("agent_subagent", (e) => {
+    const p = (e && e.payload) || {};
+    if (p.sub_id === undefined || p.sub_id === null) return;
+    tray = reduceTray(tray, {
+      type: "SubagentUpdate",
+      runId: `sub:${p.pool_id}:${p.sub_id}`,
+      title: p.label,
+      status: p.status,
+      conversationId: p.conversation_id,
+    });
+    paintChrome();
+  });
 
   // Global shortcuts: Ctrl/Cmd+N new chat, Ctrl/Cmd+K filter, Esc stops a reply.
   document.addEventListener("keydown", (e) => {

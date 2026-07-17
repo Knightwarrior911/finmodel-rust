@@ -62,6 +62,31 @@ test("DismissTask removes a row", () => {
   assert.equal(t.byRun.size, 0);
 });
 
+test("SubagentUpdate running shows a task with its label", () => {
+  const t = reduce(createTray(), {
+    type: "SubagentUpdate",
+    runId: "sub:r1:1",
+    title: "get_financials · AAPL",
+    status: "running",
+    conversationId: "c1",
+  });
+  assert.equal(activeTasks(t).length, 1);
+  assert.equal(activeTasks(t)[0].title, "get_financials · AAPL");
+  assert.equal(activeTasks(t)[0].status, "running");
+});
+
+test("SubagentUpdate done is terminal (drops from activeTasks)", () => {
+  let t = reduce(createTray(), {
+    type: "SubagentUpdate",
+    runId: "sub:r1:1",
+    title: "get_financials · AAPL",
+    status: "running",
+  });
+  t = reduce(t, { type: "SubagentUpdate", runId: "sub:r1:1", title: "get_financials", status: "done" });
+  assert.equal(activeTasks(t).length, 0);
+  assert.equal(t.byRun.get("sub:r1:1").status, "completed");
+});
+
 test("render writes rows and wires cancel", () => {
   // Minimal DOM stub.
   globalThis.document = {

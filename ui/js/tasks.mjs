@@ -58,6 +58,19 @@ export function reduce(tray, env) {
     next.byRun.delete(env.runId);
     return next;
   }
+  if (env.type === "SubagentUpdate") {
+    const next = clone(tray);
+    const map = { running: "running", done: "completed", error: "failed", cancelled: "cancelled" };
+    next.byRun.set(env.runId, {
+      conversationId: env.conversationId ?? "",
+      runId: env.runId,
+      title: env.title || "task",
+      status: map[env.status] || "running",
+      phase: "subagent",
+      updatedAt: Date.now(),
+    });
+    return next;
+  }
 
   const runId = keyOf(env);
   if (!runId) return tray;

@@ -417,6 +417,38 @@ impl LiveDriver {
         );
     }
 
+    /// Per-child subagent lifecycle event for the task tray (M4). `status` is
+    /// `running` / `done` / `error`. The parallel peer/company fan-out is modelled
+    /// as real [`crate::agent::subagents::SubagentPool`] children.
+    fn emit_subagent(&self, pool_id: &str, sub_id: u32, label: &str, status: &str) {
+        use tauri::Emitter;
+        let _ = self.app.emit(
+            "agent_subagent",
+            serde_json::json!({
+                "pool_id": pool_id,
+                "sub_id": sub_id,
+                "label": label,
+                "status": status,
+                "conversation_id": self.ctx.conversation_id,
+                "run_id": self.ctx.run_id,
+            }),
+        );
+    }
+
+    /// Human-readable subagent label: tool name plus its primary argument
+    /// (ticker / company / query / url / cik) when present.
+    fn subagent_label(name: &str, args: &Value) -> String {
+        let key = ["ticker", "company", "query", "url", "cik"]
+            .iter()
+            .find_map(|k| args.get(*k).and_then(|v| v.as_str()))
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        match key {
+            Some(k) => format!("{name} · {k}"),
+            None => name.to_string(),
+        }
+    }
+
     fn seed_pending_from_acc(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
         self.pending.clear();
         for c in acc.complete_calls() {
@@ -770,11 +802,30 @@ impl Driver for LiveDriver {
                 })
                 .collect();
 
-            // Parallel fan-out banner when more than one independent call runs
-            // concurrently in this wave (M4: surface parallel work live).
+            // Parallel fan-out: model each independent call as a real child
+            // subagent (SubagentPool, Phase F) surfaced live in the task tray.
             let parallel = calls.len() > 1;
-            if parallel {
+            let mut pool = if parallel {
+                Some(crate::agent::subagents::SubagentPool::new(
+                    self.ctx.run_id.clone(),
+                    calls.len() as u32,
+                    fm_agent::budget::Budget::new(fm_agent::Policy::default()),
+                ))
+            } else {
+                None
+            };
+            // call_id -> subagent id, so a result can resolve the right child.
+            let mut sub_ids: HashMap<String, u32> = HashMap::new();
+            if let Some(p) = pool.as_mut() {
                 self.emit_fanout("fanout", calls.len());
+                for (id, name, args) in &calls {
+                    let label = Self::subagent_label(name, args);
+                    if let Some(h) = p.spawn(label.clone()) {
+                        p.start(h.id);
+                        sub_ids.insert(id.clone(), h.id);
+                        self.emit_subagent(p.pool_id(), h.id, &label, "running");
+                    }
+                }
             }
             // Live "running…" status on the transitional UI channel.
             for (_, name, _) in &calls {
@@ -808,6 +859,10 @@ impl Driver for LiveDriver {
                             "tool_call_id": id,
                             "content": env.summary,
                         }));
+                        if let (Some(p), Some(sid)) = (pool.as_mut(), sub_ids.get(id)) {
+                            p.succeed(*sid, name.clone());
+                            self.emit_subagent(p.pool_id(), *sid, name, "done");
+                        }
                     }
                     Err(e) => {
                         failed.push(id.clone());
@@ -821,6 +876,10 @@ impl Driver for LiveDriver {
                             "tool_call_id": id,
                             "content": format!("Tool error: {e}"),
                         }));
+                        if let (Some(p), Some(sid)) = (pool.as_mut(), sub_ids.get(id)) {
+                            p.fail(*sid, e.to_string());
+                            self.emit_subagent(p.pool_id(), *sid, name, "error");
+                        }
                     }
                 }
             }

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.2 — Watch the subagents work
+
+- **Live task tray for parallel work.** When the analyst fans out independent
+  lookups (e.g. per-company financials), each one is now a real child subagent
+  (`SubagentPool`) and shows as its own live row in the task tray — "get_financials
+  · AAPL", "· MSFT", "· GOOGL" — running, then clearing as each finishes. Combined
+  with the fan-out banner from v0.8.1, you can both see the concurrency and track
+  each unit of work. Verified live: a three-company revenue + net-income compare
+  spawned three subagents in one wave and answered with the full table.
+
+This completes milestone 4 (subagent fan-out surfaced + task tray). Remaining on
+the roadmap: automatic (unattended) memory capture, still gated on its precision
+dataset. 208 lib + 116 UI green.
+
 ## v0.8.1 — See the parallel work
 
 - **Fan-out is now visible.** When the analyst runs several independent lookups
