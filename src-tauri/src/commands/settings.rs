@@ -227,10 +227,13 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
 ///
 /// Runs **bounded live requests** against OpenRouter for the selected model:
 /// 1. Catalog lookup for advertised parameters (cheap filter).
-/// 2. If advertised tools → one non-streaming tool-call probe with
-///    `provider.require_parameters:true`. Success ⇒ `native_tools=true`.
+/// 2. If advertised tools → one non-streaming forced-`ping` tool-call probe;
+///    success requires an actual `ping` entry in `message.tool_calls` (no
+///    `provider.require_parameters` — with `tool_choice` it matches no
+///    endpoint and 404s, misclassifying capable models). ⇒ `native_tools`.
 /// 3. If advertised structured outputs → one non-streaming json_schema probe
-///    with `provider.require_parameters:true`. Success ⇒ `strict_json=true`.
+///    with `provider.require_parameters:true` (validated combo; live research
+///    sends the same pair). Success ⇒ `strict_json=true`.
 ///
 /// Only successful probe responses are cached. A failed/missing probe leaves
 /// that capability false (or clears the cache entirely if the model is
@@ -345,11 +348,14 @@ fn probe_tools(api_key: &str, model: &str) -> Result<bool, String> {
             }
         }],
         "tool_choice": { "type": "function", "function": { "name": "ping" } },
-        "parallel_tool_calls": false,
-        "max_tokens": 64,
+        // No `provider.require_parameters` / `parallel_tool_calls`: that combo
+        // makes OpenRouter's routing find NO endpoint (404 "no endpoints"),
+        // misclassifying genuinely tool-capable models as incapable. The probe's
+        // truth test is the response itself — a real forced `ping` tool_call.
+        // 512 tokens leaves room for reasoning-model preambles.
+        "max_tokens": 512,
         "temperature": 0,
-        "stream": false,
-        "provider": { "require_parameters": true }
+        "stream": false
     });
     match post_probe_json(api_key, &body)? {
         ProbeOutcome::Unsupported => Ok(false),
