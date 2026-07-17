@@ -973,7 +973,11 @@ fn history_messages(conv: &Conversation) -> Vec<Value> {
         kept_rev.push(std::mem::take(&mut turns[idx]));
     }
 
-    let mut msgs = vec![json!({ "role": "system", "content": SYSTEM_PROMPT })];
+    let today = &iso_now()[..10];
+    let system = format!(
+        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory."
+    );
+    let mut msgs = vec![json!({ "role": "system", "content": system })];
     if dropped {
         msgs.push(json!({ "role": "system", "content": "[older turns omitted]" }));
     }
@@ -1371,15 +1375,15 @@ fn run_routed_tool(
                     run_id,
                     json!({ "name": "analyze_pdf", "status": "done", "card": card }),
                 );
-                let intro = "Here's what I found:";
+                let intro = routed_intro(&card);
                 emit_chat(
                     app,
                     "chat_delta",
                     &conv.id,
                     run_id,
-                    json!({ "text": intro }),
+                    json!({ "text": &intro }),
                 );
-                push_assistant(conv, appended, intro);
+                push_assistant(conv, appended, &intro);
                 push_card(conv, appended, card);
             }
             Err(e) => {
@@ -1425,15 +1429,15 @@ fn run_routed_tool(
                                 run_id,
                                 json!({ "name": "analyze_pdf", "status": "done", "card": card }),
                             );
-                            let intro = "Here's what I found:";
+                            let intro = routed_intro(&card);
                             emit_chat(
                                 app,
                                 "chat_delta",
                                 &conv.id,
                                 run_id,
-                                json!({ "text": intro }),
+                                json!({ "text": &intro }),
                             );
-                            push_assistant(conv, appended, intro);
+                            push_assistant(conv, appended, &intro);
                             push_card(conv, appended, card);
                         }
                         Err(e) => {
@@ -1477,15 +1481,15 @@ fn run_routed_tool(
                 run_id,
                 json!({ "name": tool.as_str(), "status": "done", "card": card }),
             );
-            let intro = "Here's what I found:";
+            let intro = routed_intro(&card);
             emit_chat(
                 app,
                 "chat_delta",
                 &conv.id,
                 run_id,
-                json!({ "text": intro }),
+                json!({ "text": &intro }),
             );
-            push_assistant(conv, appended, intro);
+            push_assistant(conv, appended, &intro);
             push_card(conv, appended, card);
         }
         Err(e) => {
@@ -1502,6 +1506,41 @@ fn run_routed_tool(
         }
     }
     true
+}
+
+/// A complete, self-contained lead-in for a deterministically-routed tool card.
+/// Never ends in a dangling colon: the card is the answer, so this reads as a
+/// finished sentence whether it renders above (on reload) or below (live) the
+/// card. Counts come from the card so an empty result reads as an honest miss
+/// rather than a broken, truncated reply.
+fn routed_intro(card: &Value) -> String {
+    match card.get("type").and_then(|t| t.as_str()) {
+        Some("news") => {
+            let n = card
+                .get("items")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            match n {
+                0 => "I didn't find any recent headlines for that — try broadening the topic or widening the time window.".to_string(),
+                1 => "I found 1 recent headline on this topic.".to_string(),
+                _ => format!("I found {n} recent headlines on this topic."),
+            }
+        }
+        Some("search") => {
+            let n = card
+                .get("hits")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            match n {
+                0 => "I didn't find any web results for that.".to_string(),
+                1 => "I found 1 web result for your query.".to_string(),
+                _ => format!("I found {n} web results for your query."),
+            }
+        }
+        _ => "Here's what I found.".to_string(),
+    }
 }
 
 fn push_card(conv: &mut Conversation, appended: &mut Vec<ChatMsg>, card: Value) {

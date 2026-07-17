@@ -1,6 +1,25 @@
 # Changelog
 
 
+## v0.5.1 — 2026-07-17
+
+### Fixed — news recency & chat response completeness
+- **Time-bound news actually respects the window.** A natural-language recency
+  phrase ("in the last 24 hours", "today", "past week") now maps to Google
+  News' `when:` operator so the feed is restricted server-side, and is enforced
+  again client-side against each item's `pubDate` — so a "last 24 hours" query
+  never returns years-old articles (previously it could surface, e.g., a 2006
+  headline). Leading filler ("search the web for …") is stripped so the search
+  text is a clean topic rather than a full sentence (`fm-fetch::news`).
+- **No more dangling "Here's what I found:".** Deterministically-routed tool
+  cards (news, web search, quote, filings, PDF) now end with a complete,
+  self-contained sentence that reports the result count (e.g. "I found 8 recent
+  headlines on this topic.") instead of a colon-terminated lead-in with nothing
+  after it, and reads honestly when there are zero results (`src-tauri` chat).
+- **Date-aware assistant.** The chat system prompt now states today's date (UTC)
+  and instructs the model to rely on tool results for anything current or
+  time-bound rather than its training data.
+
 ## v0.5.0 — 2026-07-17 (research-first copilot)
 
 This release turns finmodel from a model-builder into a **research-first
