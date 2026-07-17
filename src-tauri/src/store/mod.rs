@@ -287,6 +287,20 @@ impl Db {
         Ok(())
     }
 
+    /// The conversation's current active-leaf message id, if any.
+    pub fn active_leaf_id(&self, conversation_id: &str) -> StoreResult<Option<String>> {
+        let leaf: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT active_leaf_message_id FROM conversations WHERE id=?1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(leaf)
+    }
+
     /// The active root→leaf branch path for a conversation (rendering/context
     /// walks `parent_message_id` links up from the active leaf).
     pub fn branch_path(&self, conversation_id: &str) -> StoreResult<Vec<Message>> {

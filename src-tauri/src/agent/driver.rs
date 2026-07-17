@@ -321,8 +321,13 @@ impl LiveDriver {
 
 impl Driver for LiveDriver {
     async fn prepare(&mut self) -> PreparedInfo {
+        // Always route through Executing so `request_model` runs the provider —
+        // even with no tools available (tool-incompatible model), the model must
+        // still be consulted to produce the answer. `uses_tools: false` would
+        // take the machine's direct-answer shortcut straight to synthesize,
+        // skipping the only provider call and yielding an empty turn.
         PreparedInfo {
-            uses_tools: !self.tools.is_empty(),
+            uses_tools: true,
             plan_needed: false,
             needs_verification: false,
         }
@@ -508,33 +513,41 @@ impl Driver for LiveDriver {
         }
         let conv = self.ctx.conversation_id.clone();
         let store = self.store.clone();
-        store
-            .call(move |db| {
-                let msg_id = {
+        let res: Result<(), String> = store
+            .call(move |db| -> Result<(), String> {
+                // Link the assistant turn under the current active leaf (the user
+                // message agent_send just inserted) so the root→leaf branch is
+                // user→assistant and snapshots/reload show the answer.
+                let parent = db.active_leaf_id(&conv).map_err(|e| e.to_string())?;
+                let mk = || {
                     let mut b = [0u8; 16];
                     rand::Rng::fill(&mut rand::thread_rng(), &mut b);
                     fm_agent::ids::format_uuid_v4(b)
                 };
-                let part_id = {
-                    let mut b = [0u8; 16];
-                    rand::Rng::fill(&mut rand::thread_rng(), &mut b);
-                    fm_agent::ids::format_uuid_v4(b)
-                };
+                let msg_id = mk();
+                let part_id = mk();
                 let now = crate::store::now_iso();
-                let _ = db.insert_message(
+                db.insert_message(
                     &msg_id,
                     &conv,
-                    None,
+                    parent.as_deref(),
                     "assistant",
                     None,
                     "complete",
                     &now,
-                );
+                )
+                .map_err(|e| e.to_string())?;
                 let payload = serde_json::json!({ "text": content }).to_string();
-                let _ = db.insert_part(&part_id, &msg_id, 0, "text", &payload, Some(&content));
-                let _ = db.set_active_leaf(&conv, &msg_id, &now);
+                db.insert_part(&part_id, &msg_id, 0, "text", &payload, Some(&content))
+                    .map_err(|e| e.to_string())?;
+                db.set_active_leaf(&conv, &msg_id, &now)
+                    .map_err(|e| e.to_string())?;
+                Ok(())
             })
             .await;
+        if let Err(e) = res {
+            eprintln!("agent synthesize: failed to persist assistant turn: {e}");
+        }
     }
 
     async fn verify(&mut self) -> bool {
