@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.1 — Fix: reading 10-K filings
+
+`read_filing` (e.g. "what were Tesla's 2025 sales from the annual report") kept
+returning "Item 7/8 not available" or "not yet filed" for filings that plainly
+exist. Cause: the filing fetcher reused the web-article text extractor, which
+only reads `<h*>/<p>/<li>` and stops after 20 KB — but real 10-Ks lay their
+sections out in `<div>/<span>/<table>`, with Item 7/8 sitting megabytes into the
+document, so no item was ever found. Filings now use a dedicated extractor that
+reads the whole document (including tables) with section headings preserved.
+Verified live: Tesla's 10-K now yields every item (1–16, including the MD&A and
+the financial statements). Web search / read-page are unaffected.
+
 ## v0.6.0 — Agentic analyst engine (unified agent loop, live)
 
 First shipped release on the rebuilt engine. The desktop app now runs entirely
