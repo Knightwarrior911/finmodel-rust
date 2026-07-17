@@ -35,3 +35,7 @@ snapshots/
 
 # local build artifact (Tauri exe copy)
 finmodel-app/
+# UI test deps (jsdom via npm)
+node_modules/
+package-lock.json
+package.json
