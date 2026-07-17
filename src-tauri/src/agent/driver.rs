@@ -19,6 +19,98 @@ use crate::agent::executors::{execute_batch, ExecuteError, SessionContext, ToolB
 use crate::agent::scheduler::{plan_batches, PlannedCall};
 use crate::agent::tools::ToolRegistry;
 
+/// Common English stopwords excluded from recall terms; kept small and
+/// finance-neutral so OR-joined recall queries don't match every stored note.
+const STOPWORDS: &[&str] = &[
+    "the", "and", "for", "that", "this", "with", "you", "your", "are", "was",
+    "were", "will", "would", "can", "could", "should", "have", "has", "had",
+    "not", "but", "from", "what", "why", "how", "when", "where", "who", "which",
+    "did", "does", "get", "got", "let", "our", "out", "its", "about", "into",
+    "over", "than", "then", "them", "they", "any", "all", "please",
+];
+
+fn is_question_word(w: &str) -> bool {
+    matches!(
+        w,
+        "what" | "why" | "how" | "when" | "where" | "who" | "which" | "did" | "do" | "does"
+            | "is" | "are" | "can" | "could" | "should" | "would" | "will"
+    )
+}
+
+/// Parse an explicit "remember: X" manual-save directive from a user message.
+/// Returns the memory content, or None when the turn is not a save (including
+/// question forms like "remember what I said?" — those are recall requests).
+/// Manual capture only — automatic LLM extraction stays off until the Phase E
+/// quality gate lands (decision 4).
+pub(crate) fn parse_memory_directive(msg: &str) -> Option<String> {
+    let t = msg.trim();
+    let lower = t.to_lowercase();
+    const PREFIXES: &[&str] = &[
+        "remember that ",
+        "remember this: ",
+        "remember: ",
+        "remember ",
+        "note to self: ",
+        "note to self ",
+        "note that ",
+        "note: ",
+        "save to memory: ",
+        "save to memory ",
+        "my preference is ",
+        "for future reference, ",
+        "for future reference: ",
+    ];
+    for p in PREFIXES {
+        if !lower.starts_with(p) {
+            continue;
+        }
+        let content = t[p.len()..].trim().trim_end_matches(['.', '!', ' ']).trim();
+        let n = content.chars().count();
+        if !(2..=2000).contains(&n) {
+            return None;
+        }
+        // Reject questions: "remember what I said?" is a recall request, not a
+        // save. Guard on a trailing '?' and a leading question word.
+        if content.trim_end().ends_with('?') {
+            return None;
+        }
+        let first = content
+            .split(|c: char| !c.is_alphanumeric())
+            .find(|w| !w.is_empty())
+            .unwrap_or("")
+            .to_lowercase();
+        if is_question_word(&first) {
+            return None;
+        }
+        return Some(content.to_string());
+    }
+    None
+}
+
+/// Build a safe FTS5 MATCH query from free user text: alphanumeric non-stopword
+/// tokens of length >= 3, lowercased, deduped, quoted, OR-joined. None when no
+/// usable token exists — skip recall rather than risk an FTS5 syntax error on
+/// raw punctuation (`?`, `'`, ...) or match every note on filler words.
+pub(crate) fn fts_query(msg: &str) -> Option<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut terms: Vec<String> = Vec::new();
+    for raw in msg.split(|c: char| !c.is_alphanumeric()) {
+        let w = raw.to_lowercase();
+        if w.chars().count() < 3 || STOPWORDS.contains(&w.as_str()) || !seen.insert(w.clone()) {
+            continue;
+        }
+        terms.push(format!("\"{w}\""));
+        if terms.len() >= 12 {
+            break;
+        }
+    }
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" OR "))
+    }
+}
+
 /// A model-requested call waiting for `schedule_tools`.
 #[derive(Clone, Debug)]
 pub struct PendingCall {
@@ -446,6 +538,63 @@ impl Driver for LiveDriver {
             // Defensive: never send an empty turn to the provider.
             msgs.push(serde_json::json!({ "role": "user", "content": self.ctx.user_msg }));
         }
+        // Recall: inject workspace-scoped memories matching this turn. Manual
+        // saves are workspace-scoped; the store's scope filter AND-joins, so
+        // querying workspace + conversation together would exclude workspace-
+        // only rows — query the workspace scope where saved notes live.
+        {
+            let ws = self.ctx.workspace_id.clone();
+            let run = self.ctx.run_id.clone();
+            if let Some(q) = fts_query(&self.ctx.user_msg) {
+                let recalled: Vec<(i64, String, f64)> = self
+                    .store
+                    .call(move |db| {
+                        use crate::store::memory::{
+                            MemoryRepository, MemoryScope, SqliteMemoryRepository,
+                        };
+                        let repo = SqliteMemoryRepository::new(db);
+                        let scope = MemoryScope {
+                            workspace_id: Some(ws),
+                            conversation_id: None,
+                            global_only: false,
+                        };
+                        repo.search(&q, &scope)
+                            .map(|v| {
+                                v.into_iter()
+                                    .take(5)
+                                    .map(|r| (r.memory.id, r.memory.content, r.rank))
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
+                    .await;
+                if !recalled.is_empty() {
+                    let block = recalled
+                        .iter()
+                        .map(|(_, c, _)| format!("- {c}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    msgs.insert(
+                        1,
+                        serde_json::json!({
+                            "role": "system",
+                            "content": format!("Recalled context (saved by the user; use if relevant):\n{block}")
+                        }),
+                    );
+                    let ids: Vec<(i64, f64)> =
+                        recalled.iter().map(|(id, _, r)| (*id, *r)).collect();
+                    self.store
+                        .call(move |db| {
+                            use crate::store::memory::{MemoryRepository, SqliteMemoryRepository};
+                            let mut repo = SqliteMemoryRepository::new(db);
+                            for (id, rank) in ids {
+                                let _ = repo.record_use(&run, id, rank);
+                            }
+                        })
+                        .await;
+                }
+            }
+        }
         self.messages = msgs;
         // Always route through Executing so request_model runs (provider or the
         // no-key FallbackDispatcher); uses_tools:false would skip it entirely.
@@ -716,8 +865,52 @@ impl Driver for LiveDriver {
     }
 
     async fn extract_memory(&mut self) -> usize {
-        // Manual-memory-only until Phase E quality gates pass.
-        0
+        // Manual save only: capture an explicit "remember: X" directive from the
+        // user turn. Automatic LLM extraction stays off until the Phase E quality
+        // gate lands (decision 4). PrecisionGate rejects secrets/paths/etc.
+        let Some(content) = parse_memory_directive(&self.ctx.user_msg) else {
+            return 0;
+        };
+        if crate::agent::memory::PrecisionGate::default()
+            .check(&content)
+            .is_err()
+        {
+            return 0;
+        }
+        let ws = self.ctx.workspace_id.clone();
+        let run = self.ctx.run_id.clone();
+        let now = crate::store::now_iso();
+        let normalized_key = content
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let mut b = [0u8; 16];
+        rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+        let public_id = fm_agent::ids::format_uuid_v4(b);
+        let saved = self
+            .store
+            .call(move |db| {
+                use crate::store::memory::{MemoryRepository, NewMemory, SqliteMemoryRepository};
+                let mut repo = SqliteMemoryRepository::new(db);
+                repo.insert(NewMemory {
+                    public_id,
+                    scope_type: "workspace".into(),
+                    workspace_id: Some(ws),
+                    conversation_id: None,
+                    kind: "note".into(),
+                    content,
+                    normalized_key,
+                    importance: 0.6,
+                    confidence: 1.0,
+                    source_type: "user_explicit".into(),
+                    source_ref: Some(run),
+                    now,
+                })
+                .is_ok()
+            })
+            .await;
+        usize::from(saved)
     }
 
     async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {
@@ -742,6 +935,45 @@ mod tests {
     use crate::store::{now_iso, Db, StoreHandle};
     use fm_agent::machine::AgentMachine;
     use fm_agent::types::EventKind;
+
+    #[test]
+    fn memory_directive_parses_explicit_saves() {
+        assert_eq!(
+            parse_memory_directive("Remember that I prefer USD millions."),
+            Some("I prefer USD millions".to_string())
+        );
+        assert_eq!(
+            parse_memory_directive("note: DealCo target close is Q3"),
+            Some("DealCo target close is Q3".to_string())
+        );
+        assert_eq!(
+            parse_memory_directive("save to memory: always show comps as EV/EBITDA"),
+            Some("always show comps as EV/EBITDA".to_string())
+        );
+    }
+
+    #[test]
+    fn memory_directive_rejects_questions_and_non_saves() {
+        // Question forms are recall requests, not saves.
+        assert_eq!(parse_memory_directive("remember what I said about TSLA?"), None);
+        assert_eq!(parse_memory_directive("Remember how we modeled it?"), None);
+        // Not a save directive at all.
+        assert_eq!(parse_memory_directive("what are Tesla's 2025 sales?"), None);
+        // Empty content after the prefix.
+        assert_eq!(parse_memory_directive("remember: "), None);
+    }
+
+    #[test]
+    fn fts_query_drops_stopwords_and_punctuation() {
+        // Only content words survive; filler + short tokens are dropped.
+        let q = fts_query("What are the Tesla 2025 revenue figures?").unwrap();
+        assert!(q.contains("\"tesla\""), "got: {q}");
+        assert!(q.contains("\"revenue\""), "got: {q}");
+        assert!(!q.contains("\"the\""), "stopword leaked: {q}");
+        assert!(!q.contains("\"are\""), "stopword leaked: {q}");
+        // Pure filler / punctuation yields no query (skip recall).
+        assert_eq!(fts_query("what are the?"), None);
+    }
     use fm_agent::Policy;
     use serde_json::json;
     use std::path::PathBuf;

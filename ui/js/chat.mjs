@@ -425,6 +425,26 @@ function renderApproval(env) {
   scrollToBottom();
 }
 
+// Inline confirmation when the agent persists a manual "remember: X" save.
+// The durable MemoryUpdated event carries the saved-row count.
+function renderMemorySaved(count) {
+  const box = document.createElement("div");
+  box.className = "part-memory";
+  const span = document.createElement("span");
+  span.className = "part-memory-text";
+  span.textContent = `Memory saved · ${count}`;
+  box.appendChild(span);
+  scrollEl().appendChild(box);
+  scrollToBottom();
+  // Fade out after a few seconds; the saved memory persists and influences
+  // future turns via recall.
+  setTimeout(() => {
+    box.style.transition = "opacity .4s";
+    box.style.opacity = "0";
+    setTimeout(() => box.remove(), 400);
+  }, 6000);
+}
+
 function agentEventKind(env) {
   return env && env.event && env.event.kind;
 }
@@ -452,6 +472,11 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
       }
       if (kind === "approval_requested") {
         renderApproval(env);
+        return;
+      }
+      if (kind === "memory_updated") {
+        const count = (env.event && env.event.payload && env.event.payload.count) || 0;
+        if (count > 0) renderMemorySaved(count);
         return;
       }
       if (
