@@ -405,7 +405,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 11);
+        assert_eq!(cat.lines().count(), 12);
         assert!(cat.contains("build_model"));
     }
 
