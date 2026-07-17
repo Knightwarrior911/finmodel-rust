@@ -30,6 +30,30 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   supersession/recall backend and behavioral tests remain built and green; the
   quality gate is waived, not measured. Manual save/recall UI is not yet wired.
 
+### Phase G — tools live: probe fixed, model set, first tool-calling agent turns
+- **Capability probe bug (blocking all tools):** `probe_tools` sent
+  `provider.require_parameters:true` with a forced `tool_choice` +
+  `parallel_tool_calls`; OpenRouter routing matches no endpoint for that combo
+  (404 "No endpoints found"), so every model — including gpt-4.1-mini and
+  gemini-2.5-flash — probed `native_tools=false` and tools could never
+  activate. Fixed (the probe's truth test is the forced `ping` entry in
+  `message.tool_calls`); strict-json probe keeps the flag (validated combo).
+- **Model:** `openai/gpt-4.1-mini` selected and probe-verified
+  (`native_tools=true`, `strict_json=true`).
+- **First live tool-calling agent turns:** quote turn ran
+  `run_started → tool_started → tool_succeeded → assistant_checkpoint →
+  run_completed` with a real `get_quote` figure persisted in the
+  user→assistant branch; a build prompt correctly reached the two-step build's
+  assumptions-review stage (same first stage as legacy).
+- **Honest durable tool events:** `Driver::schedule_tools` now returns per-id
+  outcomes and the actor emits `ToolFailed` for failed calls instead of an
+  unconditional `ToolSucceeded` (contract test added; a replayed UI can no
+  longer render failures as successes).
+- **Remaining before cutover:** structured tool-result/assumption cards from
+  agent events in the UI (parts consumer), approval parking (`agent_approve`),
+  FallbackDispatcher affordance for no-key/tool-less modes, full parity
+  battery — then legacy removal.
+
 ### Phase G — agent loop live-verified; parity partial; cutover deferred
 - **First live `agent_send` runs** (against a real OpenRouter model via the
   running app) exercised the whole `LiveDriver` pipeline end-to-end:
