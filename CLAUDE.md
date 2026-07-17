@@ -1,6 +1,27 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.7.0 memory + tool/UX upgrades, LIVE RELEASE (current, 2026-07-17)
+## HANDOVER — v0.7.1 get_financials, LIVE RELEASE (current, 2026-07-17)
+**Branch `master`, tagged `v0.7.1` (pushed).** Live release — endpoint VERIFIED
+serving `0.7.1`, installer 200. Fixes the recurring "what were Tesla's 2025
+sales" failure where research read risk factors and said the figure was
+"undisclosed," then punted to build_model.
+
+New tool **`get_financials`** (`tool_get_financials` in `commands/chat.rs`;
+`ToolName::GetFinancials`; registry spec + schema + `agent_tool_schemas`): pulls
+exact annual figures from EDGAR XBRL. Uses `fm_fetch::edgar::fetch_companyfacts_raw`
+(the typed `CompanyFacts::FactValue.fy` is `Option<String>` but SEC sends `fy` as
+a NUMBER → typed decode fails; the raw `Value` path is the working one build_model
+uses too). Picks the first `xbrl_tag_map` candidate tag with an annual value
+(`fp=="FY"`, `form` contains "10-K"), by requested fiscal year else latest,
+latest `filed` wins. Reports revenue/gross profit/operating income/net income/
+diluted EPS (Tesla only surfaced revenue+net income — GrossProfit/OperatingIncomeLoss/
+EPS tags not in its facts under those keys; widen tags later if needed).
+`SYSTEM_PROMPT` now routes reported-figure queries here and says answer the number
+directly, don't punt. VERIFIED LIVE in-app: "What were Tesla's sales for 2025?"
+→ "$94.83 billion, per its annual report filed with the SEC." Ignored live test
+`get_financials_tsla_fy2025_revenue_live`. 208 lib green.
+
+## HANDOVER — v0.7.0 memory + tool/UX upgrades, LIVE RELEASE (superseded by v0.7.1)
 **Branch `master`, tagged `v0.7.0` (pushed).** v0.7.0 is the live release —
 updater endpoint VERIFIED serving `0.7.0`, installer URL 200. All five changes
 were LIVE-verified in the running app over CDP (memory round-trip, Tesla routing,
