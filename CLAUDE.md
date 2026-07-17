@@ -1,8 +1,22 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.6.0 agentic analyst engine, LIVE RELEASE (current, 2026-07-17)
+## HANDOVER — v0.6.1 fix: 10-K filing reads, LIVE RELEASE (current, 2026-07-17)
+**Branch `master`, tagged `v0.6.1` (pushed).** v0.6.1 is the live release —
+updater endpoint VERIFIED serving `0.6.1`, installer URL returns 200. **Fix:**
+`read_filing` returned "Item 7/8 not available / not yet filed" for real 10-Ks
+because `fetch_filing_doc` reused the web-article extractor
+(`websearch::strip_html` — `<h*>/<p>/<li>` only, 20 KB cap), so div/span/table
+item bodies were dropped and Item 7/8 (megabytes into the doc) never appeared.
+Added `fm-fetch::edgar::strip_filing_html`: full-DOM walk (all elements incl.
+tables), newline at every block boundary so headings are line-anchored for
+`split_filing_items`, no size cap. `strip_html` still serves web_search/read_page
+(unchanged). Live-verified: TSLA 10-K (2026-01-29) now yields items 1–16 incl 7
+& 8 (428K chars). Gates: fm-fetch 47 + app lib 205 green. Same signing/publish
+recipe as v0.6.0 below.
+
+## HANDOVER — v0.6.0 agentic analyst engine, LIVE RELEASE (superseded by v0.6.1, 2026-07-17)
 **Branch `master`, tagged `v0.6.0` (pushed to origin).** Source `finmodel-rust`
-PRIVATE; releases → PUBLIC `finmodel-releases`. **v0.6.0 is the live release** —
+PRIVATE; releases → PUBLIC `finmodel-releases`. **v0.6.0 was the live release** (now superseded by v0.6.1) —
 signed NSIS installer built + published (`gh release create v0.6.0`, assets
 `finmodel_0.6.0_x64-setup.exe` + `latest.json`); the updater endpoint
 `…/finmodel-releases/releases/latest/download/latest.json` was VERIFIED serving
