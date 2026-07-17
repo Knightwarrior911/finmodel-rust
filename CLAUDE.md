@@ -1,6 +1,50 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.6.1 fix: 10-K filing reads, LIVE RELEASE (current, 2026-07-17)
+## HANDOVER — v0.7.0 memory + tool/UX upgrades, LIVE RELEASE (current, 2026-07-17)
+**Branch `master`, tagged `v0.7.0` (pushed).** v0.7.0 is the live release —
+updater endpoint VERIFIED serving `0.7.0`, installer URL 200. All five changes
+were LIVE-verified in the running app over CDP (memory round-trip, Tesla routing,
+scroll, UI). Same signing/publish recipe as v0.6.0.
+
+### What shipped (all live-verified)
+- **Memory is a real feature (manual save + recall).** `LiveDriver::extract_memory`
+  captures explicit `remember:`/`note:`/`save to memory:` directives
+  (`parse_memory_directive` in `agent/driver.rs`; PrecisionGate-guarded;
+  questions rejected), workspace-scoped, → `MemoryUpdated{count}` → inline
+  "Memory saved · N" pill (`renderMemorySaved` in `chat.mjs`). `LiveDriver::prepare`
+  recalls via `fts_query` (stopword-filtered, FTS5-safe) → `SqliteMemoryRepository::search`
+  (workspace scope only — the store AND-joins scope, so ws+conv together excludes
+  ws-only rows) → injects a "Recalled context" system message + `record_use`.
+  VERIFIED: saved "prefer revenue in USD millions", a later revenue question
+  answered in USD millions unprompted; `memory_uses` row written. **Automatic
+  (unattended) capture still OFF** — this is explicit manual save + recall.
+  Management drawer/commands (list/delete/toggle) NOT built yet (deferred).
+- **Parallel tool execution.** `executors::execute_batch` now runs a wave's
+  independent calls concurrently via `std::thread::scope`, capped at
+  `PER_RUN_SLOTS` (4); `B: ToolBackend + Sync`. Result order preserved (caller
+  walks calls in order). Token efficiency was already good (loop pushes
+  `env.summary`, not raw data).
+- **Sharper routing.** `read_filing` schema + `SYSTEM_PROMPT` steer specific
+  reported-figure queries (revenue/sales/EPS/margins) to research/build_model,
+  not narrative items. VERIFIED: "tesla sales of 2025" now runs research + builds
+  a real TSLA model (was the item-7/8 dead-end).
+- **Live auto-scroll.** `chat.mjs` stick-to-bottom flag driven by user scroll
+  (was: `scrollToBottom` re-checked `nearBottom()` post-growth and disengaged
+  after the first big chunk).
+- **UI polish** (`ui/style.css`): composer focus ring (`accent-soft`), bordered
+  user bubble + shadow, line-height 1.65, memory pill. Restrained — kept the
+  editorial-finance aesthetic.
+
+### Reference study (concepts only; no upstream code)
+Oh My Pi (`can1357/oh-my-pi`, MIT) + Grok Build (`xai-org/grok-build`, Apache-2.0)
++ opencode (`anomalyco/opencode`) informed parallel execution, compact summaries,
+durable events, tool-registry patterns. open-design (`nexu-io/open-design`) was
+design inspiration; deliberately NOT copied its colorful design-tool look (wrong
+for an IB tool). All patterns reimplemented in Rust/vanilla-JS.
+
+### Gates: 208 lib + 114 UI + 47 fm-fetch green.
+
+## HANDOVER — v0.6.1 fix: 10-K filing reads, LIVE RELEASE (superseded by v0.7.0)
 **Branch `master`, tagged `v0.6.1` (pushed).** v0.6.1 is the live release —
 updater endpoint VERIFIED serving `0.6.1`, installer URL returns 200. **Fix:**
 `read_filing` returned "Item 7/8 not available / not yet filed" for real 10-Ks
