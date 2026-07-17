@@ -1,8 +1,8 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.8.0 agentic experience + v0.7.2 any-provider, LIVE (current, 2026-07-17)
-**Branch `master`, tagged `v0.8.0` (pushed).** Live — endpoint VERIFIED serving
-`0.8.0`, installer 200. Executing `docs/AGENTIC_ANALYST_GOAL.md` (goal mode).
+## HANDOVER — v0.8.1 visible parallel fan-out + v0.8.0 agentic experience, LIVE (current, 2026-07-17)
+**Branch `master`, tagged `v0.8.1` (pushed).** Live — endpoint VERIFIED serving
+`0.8.1`, installer 200. Executing `docs/AGENTIC_ANALYST_GOAL.md` (goal mode).
 
 ### v0.7.2 — any OpenAI-compatible provider + full income statement
 - `Settings.base_url` (default OpenRouter). `chat_completions_url`/`provider_base`/
@@ -23,20 +23,25 @@
 - **M2 follow-through** ✓ live: system-prompt mandates end-to-end multi-step; verified
   compound queries (Apple vs Microsoft, Tesla vs Ford) run all tools + answer, no punt.
 - **M3 tool cards** ✓ friendly labels + result cards.
-- **M4 fan-out** PARTIAL: `build_chat_request` threads `parallel_tool_calls` (true for
-  tool-capable models) → independent calls run via the parallel executor. TRUE subagent
-  orchestration + task-tray UI NOT built (large — the main remaining milestone).
+- **M4 fan-out** PARTIAL: parallel tool fan-out is *surfaced inline* ✓ — `schedule_tools` emits
+  `fanout`/`fanout_done` around a multi-call wave → UI "Running N tasks in parallel…" banner →
+  "⚡ N ran in parallel" (`chat.mjs` handleTool). VERIFIED live: 3-company revenue compare
+  (AAPL/MSFT/GOOG) ran one wave. **But the M4 task tray (goal line 63) is NOT satisfied:** the
+  existing `#taskTray`/`tasks.mjs` tracks conversation-level runs only; surfacing subagent
+  fan-out there needs the child-subagent orchestration backend (separate child run_ids), which
+  is NOT built. M4 = fan-out-surfaced, NOT tray-complete.
 - **M5 memory** PARTIAL: memory drawer ✓ live (`memory_list`/`memory_delete` in
   `commands/agent.rs`; Settings "Saved memories" list + delete; verified UI+DB). Automatic
   (unattended) capture STILL OFF — gated on the ≥200-turn labelled precision dataset
   (plan decision 4); a data task, not a code task.
 
 ### Goal status (`docs/AGENTIC_ANALYST_GOAL.md`)
-M1–M3 done + verified; M4/M5 partially delivered. **Remaining:** (1) full subagent
-orchestration UI (fan-out of parallel peer/company work + task tray), (2) automatic
-memory capture behind its precision gate (needs the labelled dataset). Goal left
-ACTIVE for these two. Gates: 208 lib + 114 UI + 47 fm-fetch green. Signing/publish
-recipe unchanged (see v0.6.0 below).
+M1–M3 done + verified; **M4 PARTIAL** (parallel fan-out surfaced + verified live; subagent task
+tray NOT built); M5 memory drawer done + verified. **Remaining:** (1) M4 child-subagent
+orchestration + task tray — spawn child agent runs and surface them in `#taskTray`; (2) automatic
+memory capture behind its precision gate — BLOCKED, needs the ≥200-turn labelled dataset (a data
+task, not code). Goal ACTIVE. Gates: 208 lib + 114 UI + 47 fm-fetch green. Signing/publish recipe
+unchanged (see v0.6.0 below).
 
 ## HANDOVER — v0.7.1 get_financials, LIVE RELEASE (superseded by v0.8.0)
 **Branch `master`, tagged `v0.7.1` (pushed).** Live release — endpoint VERIFIED
