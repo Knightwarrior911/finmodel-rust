@@ -19,7 +19,6 @@ use crate::error::{AppError, AppResult};
 use crate::agent::executors::{SessionContext, ToolBackend};
 
 
-const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Cap retained provider/error text before UI/persistence (roadmap: 8 KiB).
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
@@ -487,9 +486,12 @@ async fn openrouter_stream_async(
         Err(e) => return StreamOutcome::Failed(redact_provider_error(None, &e)),
     };
 
+    // Provider endpoint from settings (OpenRouter default; any OpenAI-compatible
+    // base works with the user's own key).
+    let chat_url = crate::commands::settings::chat_completions_url(&read_settings(app));
     // Race connect against cancel + overall remaining budget.
     let send_fut = client
-        .post(OPENROUTER_CHAT_URL)
+        .post(&chat_url)
         .header("Authorization", format!("Bearer {}", cfg.api_key))
         .header("Content-Type", "application/json")
         .header("HTTP-Referer", "https://github.com/finmodel")

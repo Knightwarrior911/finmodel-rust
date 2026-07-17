@@ -6,6 +6,37 @@ import { $, call, TAURI, escapeHtml, setTheme, themeChoice, activateDialog } fro
 let onSaved = () => {};
 let deactivateDialog = null;
 
+// OpenAI-compatible providers (users bring their own key). Base URLs verified
+// against OMP's provider catalog. "custom" lets a user paste any endpoint.
+const PROVIDERS = [
+  { id: "openrouter", name: "OpenRouter", base: "https://openrouter.ai/api/v1" },
+  { id: "openai", name: "OpenAI", base: "https://api.openai.com/v1" },
+  { id: "xai", name: "xAI (Grok)", base: "https://api.x.ai/v1" },
+  { id: "anthropic", name: "Anthropic (Claude)", base: "https://api.anthropic.com/v1" },
+  { id: "gemini", name: "Google Gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai" },
+  { id: "deepseek", name: "DeepSeek", base: "https://api.deepseek.com/v1" },
+  { id: "groq", name: "Groq", base: "https://api.groq.com/openai/v1" },
+  { id: "mistral", name: "Mistral", base: "https://api.mistral.ai/v1" },
+  { id: "together", name: "Together", base: "https://api.together.xyz/v1" },
+  { id: "fireworks", name: "Fireworks", base: "https://api.fireworks.ai/inference/v1" },
+  { id: "cerebras", name: "Cerebras", base: "https://api.cerebras.ai/v1" },
+  { id: "moonshot", name: "Moonshot (Kimi)", base: "https://api.moonshot.ai/v1" },
+  { id: "custom", name: "Custom (OpenAI-compatible)", base: "" },
+];
+
+function populateProviders() {
+  const sel = $("providerSelect");
+  if (!sel || sel.options.length) return;
+  sel.innerHTML = PROVIDERS.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+}
+
+function setProviderFromBase(base) {
+  const b = (base || "").replace(/\/+$/, "");
+  const match = PROVIDERS.find((p) => p.base && p.base === b);
+  $("providerSelect").value = match ? match.id : b ? "custom" : "openrouter";
+  $("baseUrl").value = b || "https://openrouter.ai/api/v1";
+}
+
 function setStatus(msg, kind = "info") {
   const el = $("settingsStatus");
   if (!el) return;
@@ -27,6 +58,8 @@ export async function openSettings() {
       : "No key yet — you're in demo mode with sample companies.";
     const sel = $("modelSelect");
     if (s.model) sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
+    populateProviders();
+    setProviderFromBase(s.base_url);
     $("edgarContact").value = s.edgar_contact || "";
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
@@ -85,6 +118,17 @@ export function initSettings(opts = {}) {
     document.dispatchEvent(new CustomEvent("theme-changed"));
   });
 
+  $("providerSelect").addEventListener("change", (e) => {
+    const p = PROVIDERS.find((x) => x.id === e.target.value);
+    if (!p) return;
+    if (p.id === "custom") {
+      $("baseUrl").value = "";
+      $("baseUrl").focus();
+    } else {
+      $("baseUrl").value = p.base;
+    }
+  });
+
   $("saveSettings").addEventListener("click", async () => {
     const api_key = $("apiKey").value;
     const model = $("modelSelect").value || "";
@@ -93,6 +137,7 @@ export function initSettings(opts = {}) {
       await call("save_settings", {
         api_key,
         model,
+        base_url: $("baseUrl").value,
         edgar_contact: $("edgarContact").value,
         out_dir: $("outDir").value,
         mcp_command: cmd.split(/\s+/)[0] || "",
@@ -162,7 +207,7 @@ export function initSettings(opts = {}) {
     btn.disabled = true;
     btn.textContent = "Loading…";
     try {
-      await call("save_settings", { api_key: $("apiKey").value, model: "" });
+      await call("save_settings", { api_key: $("apiKey").value, model: "", base_url: $("baseUrl").value });
       $("apiKey").value = "";
       const models = await call("list_models");
       const sel = $("modelSelect");
@@ -195,6 +240,7 @@ export function initSettings(opts = {}) {
       await call("save_settings", {
         api_key: $("apiKey").value,
         model: $("modelSelect").value || "",
+        base_url: $("baseUrl").value,
       });
       $("apiKey").value = "";
       const cap = await call("test_model", {

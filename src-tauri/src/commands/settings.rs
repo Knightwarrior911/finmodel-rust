@@ -14,6 +14,33 @@ fn default_model() -> String {
     "anthropic/claude-sonnet-4".to_string()
 }
 
+/// Default provider base URL (OpenAI-compatible root). The chat endpoint is
+/// `{base}/chat/completions`; the catalog is `{base}/models`. OpenRouter is the
+/// default; users may point at any OpenAI-compatible provider with their own key
+/// (OpenAI, xAI/Grok, DeepSeek, Groq, Mistral, Together, Fireworks, Cerebras,
+/// Moonshot, Gemini/Anthropic OpenAI-compat, …).
+fn default_base_url() -> String {
+    "https://openrouter.ai/api/v1".to_string()
+}
+
+/// Effective provider base URL: the configured `base_url`, or the OpenRouter
+/// default when unset/blank (a `Settings::default()` leaves it empty).
+pub fn provider_base(s: &Settings) -> String {
+    let b = s.base_url.trim().trim_end_matches('/');
+    if b.is_empty() { default_base_url() } else { b.to_string() }
+}
+
+/// The chat-completions endpoint for the configured provider.
+pub fn chat_completions_url(s: &Settings) -> String {
+    format!("{}/chat/completions", provider_base(s))
+}
+
+/// True when the configured provider is OpenRouter (its `/models` catalog has
+/// richer capability metadata than the plain OpenAI-compatible shape).
+pub fn is_openrouter(s: &Settings) -> bool {
+    provider_base(s).contains("openrouter.ai")
+}
+
 /// A recently generated output file (4.2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecentEntry {
@@ -43,6 +70,9 @@ pub struct Settings {
     pub openrouter_api_key: String,
     #[serde(default = "default_model")]
     pub model: String,
+    /// Provider base URL (OpenAI-compatible root). Chat = `{base}/chat/completions`.
+    #[serde(default = "default_base_url")]
+    pub base_url: String,
     /// EDGAR contact (email) for the SEC User-Agent (2.1 / 3.6).
     #[serde(default)]
     pub edgar_contact: String,
@@ -138,6 +168,7 @@ pub fn save_settings(
     app: tauri::AppHandle,
     api_key: String,
     model: String,
+    base_url: Option<String>,
     edgar_contact: Option<String>,
     out_dir: Option<String>,
     mcp_command: Option<String>,
@@ -151,6 +182,14 @@ pub fn save_settings(
     }
     if !model.trim().is_empty() {
         s.model = model.trim().to_string();
+    }
+    if let Some(b) = base_url {
+        let b = b.trim().to_string();
+        if b != s.base_url {
+            // Provider changed — the cached capability is for the old provider.
+            s.model_capability = None;
+        }
+        s.base_url = b;
     }
     // These are set-if-present (blank string clears; absent keeps existing).
     if let Some(c) = edgar_contact {
@@ -196,28 +235,60 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
         let s = read_settings(&app);
         if s.openrouter_api_key.trim().is_empty() {
             return Err(AppError::Config(
-                "No OpenRouter API key set. Add one in Settings first.".into(),
+                "No API key set. Add one in Settings first.".into(),
             ));
         }
-        let models = fm_extract::list_openrouter_models(s.openrouter_api_key.trim())
-            .map_err(|e| AppError::Engine(format!("OpenRouter model fetch failed: {e}")))?;
-        // Enrich each entry with the boolean badges the UI shows. Do NOT write
-        // model_capability here — that is reserved for Test model.
-        let enriched: Vec<serde_json::Value> = models
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "id": m.id,
-                    "name": m.name,
-                    "context_length": m.context_length,
-                    "pricing": m.pricing,
-                    "supported_parameters": m.supported_parameters,
-                    "native_tools": m.native_tools(),
-                    "strict_json": m.strict_json(),
+        let key = s.openrouter_api_key.trim().to_string();
+        // OpenRouter's catalog carries capability badges; other OpenAI-compatible
+        // providers expose a plainer `{base}/models` (ids only).
+        if is_openrouter(&s) {
+            let models = fm_extract::list_openrouter_models(&key)
+                .map_err(|e| AppError::Engine(format!("OpenRouter model fetch failed: {e}")))?;
+            let enriched: Vec<serde_json::Value> = models
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.id,
+                        "name": m.name,
+                        "context_length": m.context_length,
+                        "pricing": m.pricing,
+                        "supported_parameters": m.supported_parameters,
+                        "native_tools": m.native_tools(),
+                        "strict_json": m.strict_json(),
+                    })
                 })
+                .collect();
+            return serde_json::to_string(&enriched).map_err(|e| AppError::Engine(e.to_string()));
+        }
+        // Generic OpenAI-compatible catalog: GET {base}/models -> {data:[{id}]}.
+        let url = format!("{}/models", provider_base(&s));
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|e| AppError::Engine(e.to_string()))?;
+        let resp = client
+            .get(&url)
+            .bearer_auth(&key)
+            .send()
+            .map_err(|e| AppError::Engine(format!("model fetch transport error: {e}")))?;
+        if !resp.status().is_success() {
+            // Provider has no usable catalog — UI falls back to manual model entry.
+            return Ok("[]".to_string());
+        }
+        let body: serde_json::Value = resp
+            .json()
+            .map_err(|_| AppError::Engine("model catalog decode error".into()))?;
+        let ids = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("id").and_then(|i| i.as_str()))
+                    .map(|id| serde_json::json!({ "id": id, "name": id }))
+                    .collect::<Vec<_>>()
             })
-            .collect();
-        serde_json::to_string(&enriched).map_err(|e| AppError::Engine(e.to_string()))
+            .unwrap_or_default();
+        serde_json::to_string(&ids).map_err(|e| AppError::Engine(e.to_string()))
     })
     .await
     .map_err(|e| AppError::Engine(format!("model fetch task failed: {e}")))?
@@ -268,55 +339,69 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
             }
         };
 
-        let models = match fm_extract::list_openrouter_models(&key) {
-            Ok(m) => m,
-            Err(e) => {
-                clear_matching_cache(&mut s);
-                return Err(AppError::Engine(format!(
-                    "OpenRouter model probe failed: {e}"
-                )));
-            }
-        };
-        let Some(m) = models.iter().find(|m| m.id == wanted) else {
-            clear_matching_cache(&mut s);
-            return Err(AppError::Config(format!(
-                "Model `{wanted}` not found in the OpenRouter catalog."
-            )));
-        };
+        let chat_url = chat_completions_url(&s);
+        let openrouter = is_openrouter(&s);
 
-        // Live probes only for capabilities the catalog advertises. An
-        // unsupported-parameter response (400/404) means the capability is
-        // false; auth/rate-limit/transport failures clear the cache and error.
-        let native_tools = if m.native_tools() {
-            match probe_tools(&key, &m.id) {
+        // OpenRouter gates probes on its catalog's advertised params. Other
+        // OpenAI-compatible providers have no such catalog — probe directly.
+        let (model_id, native_tools, strict_json) = if openrouter {
+            let models = match fm_extract::list_openrouter_models(&key) {
+                Ok(m) => m,
+                Err(e) => {
+                    clear_matching_cache(&mut s);
+                    return Err(AppError::Engine(format!("OpenRouter model probe failed: {e}")));
+                }
+            };
+            let Some(m) = models.iter().find(|m| m.id == wanted) else {
+                clear_matching_cache(&mut s);
+                return Err(AppError::Config(format!(
+                    "Model `{wanted}` not found in the OpenRouter catalog."
+                )));
+            };
+            let nt = if m.native_tools() {
+                match probe_tools(&key, &m.id, &chat_url) {
+                    Ok(ok) => ok,
+                    Err(e) => {
+                        clear_matching_cache(&mut s);
+                        return Err(AppError::Engine(e));
+                    }
+                }
+            } else {
+                false
+            };
+            let sj = if m.strict_json() {
+                match probe_strict_json(&key, &m.id, &chat_url, true) {
+                    Ok(ok) => ok,
+                    Err(e) => {
+                        clear_matching_cache(&mut s);
+                        return Err(AppError::Engine(e));
+                    }
+                }
+            } else {
+                false
+            };
+            (m.id.clone(), nt, sj)
+        } else {
+            // Generic provider: probe the requested model directly. Transport/
+            // auth failure clears the cache + errors; unsupported params → false.
+            let nt = match probe_tools(&key, &wanted, &chat_url) {
                 Ok(ok) => ok,
                 Err(e) => {
                     clear_matching_cache(&mut s);
                     return Err(AppError::Engine(e));
                 }
-            }
-        } else {
-            false
-        };
-        let strict_json = if m.strict_json() {
-            match probe_strict_json(&key, &m.id) {
-                Ok(ok) => ok,
-                Err(e) => {
-                    clear_matching_cache(&mut s);
-                    return Err(AppError::Engine(e));
-                }
-            }
-        } else {
-            false
+            };
+            let sj = probe_strict_json(&key, &wanted, &chat_url, false).unwrap_or(false);
+            (wanted.clone(), nt, sj)
         };
 
         let cap = ModelCapability {
-            model_id: m.id.clone(),
+            model_id: model_id.clone(),
             native_tools,
             strict_json,
             tested_at: chrono_like_now(),
         };
-        s.model = m.id.clone();
+        s.model = model_id;
         s.model_capability = Some(cap.clone());
         write_settings(&app, &s)?;
         serde_json::to_string(&cap).map_err(|e| AppError::Engine(e.to_string()))
@@ -325,12 +410,11 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
     .map_err(|e| AppError::Engine(format!("model probe task failed: {e}")))?
 }
 
-const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 /// Probe native tool-calling by **forcing** the `ping` function and verifying
 /// `choices[0].message.tool_calls` contains a `ping` entry. HTTP 2xx alone is
 /// not enough; unsupported-parameter responses map to `Ok(false)`.
-fn probe_tools(api_key: &str, model: &str) -> Result<bool, String> {
+fn probe_tools(api_key: &str, model: &str, chat_url: &str) -> Result<bool, String> {
     let body = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": "Call the ping tool with ok=true." }],
@@ -357,7 +441,7 @@ fn probe_tools(api_key: &str, model: &str) -> Result<bool, String> {
         "temperature": 0,
         "stream": false
     });
-    match post_probe_json(api_key, &body)? {
+    match post_probe_json(api_key, chat_url, &body)? {
         ProbeOutcome::Unsupported => Ok(false),
         ProbeOutcome::Body(v) => {
             let calls = v
@@ -378,8 +462,13 @@ fn probe_tools(api_key: &str, model: &str) -> Result<bool, String> {
 
 /// Probe strict structured outputs: require a 2xx body whose content parses as
 /// JSON with a boolean `ok` field. Unsupported-parameter → `Ok(false)`.
-fn probe_strict_json(api_key: &str, model: &str) -> Result<bool, String> {
-    let body = serde_json::json!({
+fn probe_strict_json(
+    api_key: &str,
+    model: &str,
+    chat_url: &str,
+    openrouter: bool,
+) -> Result<bool, String> {
+    let mut body = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": "Reply with {\"ok\":true}." }],
         "response_format": {
@@ -397,10 +486,14 @@ fn probe_strict_json(api_key: &str, model: &str) -> Result<bool, String> {
         },
         "max_tokens": 32,
         "temperature": 0,
-        "stream": false,
-        "provider": { "require_parameters": true }
+        "stream": false
     });
-    match post_probe_json(api_key, &body)? {
+    // `provider.require_parameters` is OpenRouter-only; other OpenAI-compatible
+    // APIs 400 on the unknown field, which would falsely read as "unsupported".
+    if openrouter {
+        body["provider"] = serde_json::json!({ "require_parameters": true });
+    }
+    match post_probe_json(api_key, chat_url, &body)? {
         ProbeOutcome::Unsupported => Ok(false),
         ProbeOutcome::Body(v) => {
             let content = v
@@ -430,13 +523,13 @@ enum ProbeOutcome {
 /// POST a probe body. Success returns the JSON body; 400/404 with
 /// unsupported-parameter language → Unsupported; other statuses → hard error
 /// with a **redacted** category (never the provider body).
-fn post_probe_json(api_key: &str, body: &serde_json::Value) -> Result<ProbeOutcome, String> {
+fn post_probe_json(api_key: &str, chat_url: &str, body: &serde_json::Value) -> Result<ProbeOutcome, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("probe client: {e}"))?;
     let resp = client
-        .post(OPENROUTER_CHAT_URL)
+        .post(chat_url)
         .bearer_auth(api_key)
         .header("HTTP-Referer", "https://github.com/finmodel")
         .header("X-Title", "finmodel-capability-probe")

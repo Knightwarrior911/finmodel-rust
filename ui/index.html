@@ -139,8 +139,16 @@
       <div id="settingsStatus" class="status" hidden></div>
       <div class="modal-body">
         <label class="field">
-          <span class="field-label">OpenRouter API key</span>
-          <input id="apiKey" type="password" autocomplete="off" placeholder="sk-or-…" />
+          <span class="field-label">Provider</span>
+          <span class="field-row">
+            <select id="providerSelect"></select>
+            <input id="baseUrl" type="text" placeholder="https://api.example.com/v1" />
+          </span>
+          <span class="field-hint">Any OpenAI-compatible API — use your own key (OpenAI, xAI/Grok, DeepSeek, Groq, Mistral, Together, …).</span>
+        </label>
+        <label class="field">
+          <span class="field-label">API key</span>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="your provider API key" />
           <span id="keyStatus" class="field-hint"></span>
         </label>
         <label class="field">
