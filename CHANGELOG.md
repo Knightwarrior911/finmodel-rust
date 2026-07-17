@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.0 — Agentic analyst engine (unified agent loop, live)
+
+First shipped release on the rebuilt engine. The desktop app now runs entirely
+on the unified, workspace-scoped `agent_send` loop: streaming turns, tool
+calling (build models, trading comps, research with citations, quotes, filings),
+multi-turn memory, structured result cards, Approve/Deny on risky actions, and a
+no-key demo fallback. Conversations are SQLite-backed (list/load/rename/delete);
+model tool-capability is auto-detected on save. The legacy keyed/routed JSON
+chat engine has been fully removed (not just disabled) — ~2400 lines of dead
+code deleted, clean build, 205 backend + 114 UI tests green. See the Phase A–G
+entries below for the full rebuild history.
+
 ## Unreleased — Agentic analyst cutover (Phases A–B: contracts, SQLite, unified actor loop)
 
 First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
