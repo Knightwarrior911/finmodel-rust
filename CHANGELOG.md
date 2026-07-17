@@ -30,6 +30,23 @@ the app now runs on the unified agent path (see the Phase G cutover entry); the 
   supersession/recall backend and behavioral tests remain built and green; the
   quality gate is waived, not measured. Manual save/recall UI is not yet wired.
 
+### Phase G — legacy source deleted (dead-code cutover complete)
+
+With the runtime cutover verified, the now-unreachable legacy source was
+removed from `commands/chat.rs` (3900 → 1620 lines): the `chat_send`/
+`chat_cancel`/`chat_send_blocking` commands, the LLM turn loop, intent routing
+(`route_intent` + the `Intent` enum), JSON persistence (`Conversation`/
+`ChatMsg` + `read/write_conversation`), the research/fallback turn helpers, and
+the test-only `validate_tool_args` island (the `*Args` structs, `require_*`,
+`dec_err`, `error_card`). The genuinely-shared `emit`/`emit_chat` (used by the
+agent's streaming path) were kept. `StreamOutcome::Partial` was collapsed into
+`Failed` so a mid-stream network failure surfaces as `Err` instead of returning
+truncated content as a completed answer. Cleared incidental pre-existing
+warnings (duplicate `#[test]`, unused `mem_db`, reserved `ok` validator,
+unenforced `SubagentPool.budget` doc). Build is clean; 205 lib + 114 UI tests
+green. Only the signed installer + 7-day rollback rehearsal remain (need the
+minisign key).
+
 ### Phase G — tools live: probe fixed, model set, first tool-calling agent turns
 - **Capability probe bug (blocking all tools):** `probe_tools` sent
   `provider.require_parameters:true` with a forced `tool_choice` +
@@ -81,10 +98,9 @@ Live parity verified on gpt-4.1-mini across the main VP task families: direct
 answer, quote, model build (assumptions stage), trading comps, research (cited),
 and multi-turn context — each matching the legacy tool family/typed result.
 
-Remaining before the release tag: mechanical deletion of the now-unreachable
-legacy source (chat_send/route_intent/JSON structs/turn engine — dead code, no
-behavior), and the signed installer + 7-day rollback rehearsal (needs the
-minisign key). Both are cleanup/release steps; the runtime cutover is done.
+Remaining before the release tag: only the signed installer + 7-day rollback
+rehearsal (needs the minisign key). The legacy-source deletion is now done (see
+the dead-code cutover entry above); the runtime cutover was already complete.
 
 ### Phase G — agent loop live-verified; parity partial; cutover deferred
 - **First live `agent_send` runs** (against a real OpenRouter model via the
