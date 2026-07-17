@@ -1140,3 +1140,78 @@ body {
 @media (max-width: 860px) {
   .memory-notice { margin-inline: 8px; max-width: none; }
 }
+
+/* ── Structured message parts (Phase D) ─────────────────────────── */
+.part-text { max-width: 780px; margin: 6px auto; line-height: 1.55; white-space: pre-wrap; }
+.part-sources {
+  max-width: 780px;
+  margin: 6px auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+}
+.part-sources-head { font-size: 0.8em; color: var(--tertiary); margin-bottom: 4px; }
+.part-source {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 0.9em;
+}
+.part-source-ref {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--tertiary);
+  min-width: 1.2em;
+}
+.part-source-link { color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part-source-link:hover { text-decoration: underline; }
+.part-source-domain, .part-source-date { color: var(--tertiary); font-size: 0.85em; flex: 0 0 auto; }
+.part-source-title { color: var(--secondary); }
+.part-artifact, .part-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 780px;
+  margin: 6px auto;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+.part-artifact-label, .part-attachment-label { font-weight: 500; }
+.part-artifact-version, .part-artifact-kind, .part-attachment-mime { color: var(--tertiary); font-size: 0.85em; }
+.part-artifact-open { margin-left: auto; }
+.part-attachment-error { border-color: #fecaca; }
+.part-attachment-errtext { color: #991b1b; font-size: 0.85em; }
+.part-approval {
+  max-width: 780px;
+  margin: 6px auto;
+  padding: 8px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: var(--radius);
+  background: var(--accent-bg);
+}
+.part-approval-head { font-weight: 500; }
+.part-approval-target { color: var(--secondary); font-size: 0.9em; margin: 4px 0; word-break: break-word; }
+.part-approval-btns { display: flex; gap: 6px; margin-top: 6px; }
+.part-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 780px;
+  margin: 6px auto;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: 0.9em;
+}
+.part-warning { background: #fef3c7; color: #92400e; }
+.part-error { background: #fee2e2; color: #991b1b; }
+.part-notice-text { flex: 1 1 auto; min-width: 0; }
+.part-retry { flex: 0 0 auto; }
+.part-memory { max-width: 780px; margin: 6px auto; font-size: 0.85em; color: var(--secondary); }
+@media (max-width: 860px) {
+  .part-text, .part-sources, .part-artifact, .part-attachment, .part-approval, .part-notice, .part-memory {
+    margin-inline: 8px;
+    max-width: none;
+  }
+}

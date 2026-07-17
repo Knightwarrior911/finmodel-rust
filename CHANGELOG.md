@@ -128,6 +128,21 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   filing promotes a `sec.gov` source, `AssistantCheckpoint` precedes a single
   terminal `RunCompleted`, verification passes (non-partial). App-lib: 228 green.
 
+### Phase D — ordered structured message-part renderer (`ui/js/parts.mjs`)
+- `ui/js/parts.mjs`: renders a backend-ordered list of typed parts (text ·
+  attachment · activity · result · sources · artifact · approval · warning ·
+  error · memory_notice) so live and reload produce the same snapshot. `result`,
+  `activity`, and `memory_notice` delegate to injected hooks (cards.mjs
+  `renderCard`, `activity.render`, `memory.render`) so the module stays free of
+  the Tauri bridge; everything else is pure DOM. Source links are http(s)-only
+  (`safeHttpUrl`); model text stays inert via `textContent`; unknown kinds are
+  skipped with surrounding order preserved. Approval offers Approve once / Deny,
+  plus Create new version for overwrite/export.
+- `ui/tests/parts.test.mjs`: 13 tests (order, XSS-inert text, numbered sources +
+  domain, non-http title-only, scheme rejection, artifact open hook, approval
+  button sets + response wiring, error retry, hook delegation, unknown-kind skip,
+  idempotent re-render). `ui/style.css`: `part-*` block + ≤860px responsive.
+  Full UI suite: 115 green.
 
 ### Phase D — task tray + workspace chrome
 - `ui/js/tasks.mjs`: non-blocking task tray reducer (≤3 visible, background
