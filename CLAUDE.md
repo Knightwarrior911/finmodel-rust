@@ -1,10 +1,65 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.5.0 research-first copilot, COMMITTED (current)
+## HANDOVER — v0.6.0 agentic analyst engine, LIVE RELEASE (current, 2026-07-17)
+**Branch `master`, tagged `v0.6.0` (pushed to origin).** Source `finmodel-rust`
+PRIVATE; releases → PUBLIC `finmodel-releases`. **v0.6.0 is the live release** —
+signed NSIS installer built + published (`gh release create v0.6.0`, assets
+`finmodel_0.6.0_x64-setup.exe` + `latest.json`); the updater endpoint
+`…/finmodel-releases/releases/latest/download/latest.json` was VERIFIED serving
+`0.6.0` and the installer URL returns 200. v0.5.x clients auto-update on next
+launch (new version strictly greater than installed). Signing key
+`C:\Users\vinit\.tauri\finmodel.key` (OUTSIDE repo, empty password, pubkey id
+`F055E4EA3C7A218C` — matches `tauri.conf.json`). Disk was 41G free at build time.
+
+### What v0.6.0 is
+The desktop app now runs ENTIRELY on the unified, workspace-scoped `agent_send`
+loop (Phases A–G of the agentic-analyst plan, all complete). The legacy
+keyed/routed JSON chat engine is DELETED, not just disabled — `chat_send`/
+`chat_cancel`/`chat_send_blocking`, the old LLM turn loop, `route_intent`/`Intent`,
+JSON persistence (`Conversation`/`ChatMsg` + read/write), the research/fallback
+turn helpers, and the test-only `validate_tool_args` island were removed
+(`commands/chat.rs` 3900 → ~1620 lines). Live behavior: streaming turns; tool
+calling (build 3-statement + DCF models, trading comps, research WITH citations,
+quotes, filings, PDF analyze); multi-turn memory (branch-linked history);
+structured result cards; Approve/Deny parking for file-overwrite/export actions;
+SQLite-backed conversations (list/load/rename/delete; load rebuilds render shape
+from the branch path); model tool-capability auto-detected on Settings save;
+no-key demo fallback via the isolated FallbackDispatcher. Automatic memory
+capture stays OFF (`extract_memory → 0`) pending a labelled quality-gate dataset;
+the capture/recall backend + tests are built and green.
+
+### Gates (green this session)
+- `cargo test -p finmodel-app --lib` — **205 passed, 0 failed**, clean build (0 warnings).
+- `npm --prefix ui test` — **114 passed, 0 failed**.
+- App launches + runs post-deletion (no startup regression).
+
+### Release recipe that WORKED (supersedes the v0.4.0 "sign separately" note)
+The build-time signing path works IF the key is passed as CONTENTS via an env
+OBJECT, never `$(cat)` in an embedded shell (that mangles the blob — the old
+gotcha). This session spawned the build from a JS runtime, reading the key
+in-process so no shell touched it:
+  env `{ CI:"true", TAURI_SIGNING_PRIVATE_KEY:<file contents>,
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD:"" }` + `cargo tauri build --bundles nsis`
+(from `src-tauri/`). Output: `target/release/bundle/nsis/finmodel_<v>_x64-setup.exe`
+`+ .exe.sig`. Then bump `version` in `tauri.conf.json` + `src-tauri/Cargo.toml`
+(lockstep), write `latest.json` = `{version, notes, pub_date, platforms:
+{"windows-x86_64":{signature:<.exe.sig contents>, url:<release download url>}}}`,
+and `gh release create vX.Y.Z --repo Knightwarrior911/finmodel-releases <setup.exe>
+<latest.json>`. MUST set `CI=true` explicitly (sandbox default `CI=1` makes
+tauri-cli reject `--ci`). `TAURI_SIGNING_PRIVATE_KEY_PATH` is NOT honored.
+
+### Only deferred item
+Signed installer is DONE. The 7-day rollback rehearsal (install v0.6.0, force an
+update round-trip, confirm downgrade path) was not exercised this session — the
+release itself is verified serving; a live end-user update-then-rollback drill is
+the one remaining release-hygiene step.
+
+
+## HANDOVER — v0.5.0 research-first copilot (superseded by v0.6.0)
 **Branch `master`, tagged `v0.5.0`.** The research-first roadmap (Phases 0–7) is
-committed and published. `v0.5.0` is the current release — NSIS updater payload
-published to `finmodel-releases` with Tauri updater (minisign) signature; the
-endpoint serves `latest.json` with version 0.5.0. v0.4.x clients will be offered
+committed and published. `v0.5.0` was the release prior to v0.6.0 — NSIS updater
+payload published to `finmodel-releases` with Tauri updater (minisign) signature.
+It has since been superseded (see the v0.6.0 handover above). v0.4.x clients will be offered
 the update on next launch (auto-update behavior not verified in this session).
 All test suites are green (core workspace, app lib 72, UI 34, research-eval 13).
 Debug build smoke-tested over CDP/WebView2 (direct IPC + full analyst UI path).
