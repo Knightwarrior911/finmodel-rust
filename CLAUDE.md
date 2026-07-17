@@ -1,14 +1,13 @@
 # Finmodel — Financial Model Engine
 
 ## HANDOVER — v0.5.0 research-first copilot, COMMITTED (current)
-**Branch `master`, release candidate.** The research-first roadmap (Phases 0–7) is
-committed on `master` — tagged `v0.5.0` once the signed build is published.
-`v0.4.0` remains the live release until the signed 0.5.0 installer ships.
-`cargo test` on `finmodel-core` (workspace) and the `src-tauri` app lib (72),
-`node --test` in `ui/` (34, incl. the analyst-modal regression), and the
-research-eval hard gate (`cargo test -p fm-research --test research_eval`, 13).
-The current desktop **debug** build was smoke-tested over CDP/WebView2 (direct IPC
-`ev_bridge` + the full Analyst-tools UI path); the signed installer is NOT yet built.
+**Branch `master`, tagged `v0.5.0`.** The research-first roadmap (Phases 0–7) is
+committed and published. `v0.5.0` is the current release — NSIS updater payload
+published to `finmodel-releases` with Tauri updater (minisign) signature; the
+endpoint serves `latest.json` with version 0.5.0. v0.4.x clients will be offered
+the update on next launch (auto-update behavior not verified in this session).
+All test suites are green (core workspace, app lib 72, UI 34, research-eval 13).
+Debug build smoke-tested over CDP/WebView2 (direct IPC + full analyst UI path).
 Key surfaces added this line:
 - **Research copilot** — typed intent router + single tool registry + capability-gated
   OpenRouter in `src-tauri/src/commands/chat.rs`; `ResearchMachine` reducer + async

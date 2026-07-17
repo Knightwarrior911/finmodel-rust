@@ -75,18 +75,36 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   (the race-free attach/reload contract). `agent_send` is deferred to Phase C,
   where the real provider/tool `Driver` lands. App-lib suite: 109 green.
 
-### Phase C (in progress) — security boundaries (`src-tauri/src/agent/security.rs`)
-- SSRF/egress validation: HTTP(S)-only, no embedded credentials, and every
-  resolved IP must be globally-routable — loopback, private, link-local, CGNAT,
-  unspecified, multicast, documentation, and reserved v4/v6 ranges (incl.
-  IPv4-mapped IPv6) are rejected, so a DNS-rebind to a private address fails.
-- Reparse-safe output containment: server-owned filenames reject separators,
-  drive prefixes, reserved Windows names, and `..`; write-risk classification
-  (`LocalCreate`/`LocalOverwrite`/`Export`) uses lexical normalization so a
-  `..`-escape resolves to `Export`, never a false `LocalCreate`.
-- Structured confidential-query egress guard (allowlisted entities + enumerated
-  fields; any free-form literal requires disclosure approval) and secret
-  redaction (API keys / bearer tokens / long opaque secrets). 10 tests.
+### Phase C — typed tool registry, scheduler, provider adapter, security, fallback
+- **Tool registry** (`agent/tools.rs`): 11 tool capabilities with strict arg
+  validation, semantic validators (SSRF-guarded `read_page`), risk/trust
+  metadata, stable catalog. 11 tests.
+- **Scheduler** (`agent/scheduler.rs`): batch independent read-only calls,
+  serialize writes and dependencies, cycle-safe. 7 tests.
+- **Provider adapter** (`agent/provider.rs`): OpenRouter SSE
+  `StreamAccumulator` (text + fragmented/parallel tool calls,
+  finish_reason/usage, parse-error tolerance) mirroring the legacy wire shape;
+  `decide_stream_tool_calls` capability probe (parallel only when a two-call
+  probe observes it). 7 tests.
+- **Egress/SSRF gate** (`agent/security.rs`): DNS-rebind-safe URL validation,
+  reparse-safe output containment, confidential-query egress guard, secret
+  redaction. 10 tests.
+- **Fallback dispatcher** (`agent/fallback.rs`): isolated non-LLM intent router
+  with typed Quick Actions, validated through the registry; filing-form-aware
+  ticker extraction keeps single-letter tickers (F, T, C, V). 11 tests.
+- Filing-form stripping (`10-K`, `8-K`, `S-1`, `20-F`) before ticker extraction
+  in `fallback.rs` — single-letter tickers no longer discarded. Adversarial case:
+  `"quote for F"` → `Some("F")`. App-lib: 153 green.
+
+### Phase F — embedded finance workflow specs (`fm-agent`)
+- `fm-agent/src/workflows.rs`: six typed `WorkflowSpec` contracts — company
+  brief, earnings review, trading comps, DCF/3-statement, M&A screen, pitch
+  prep — each defining required/allowed tools, confidentiality, approval policy,
+  budgets, verification requirement, and golden-fixture status.
+- `builtin_workflows()` returns the full catalog; `workflow(id)` single-lookup.
+- 8 tests: six present, allowed-tool consistency, golden-fixture identity, input
+  validation, verification requirement, budget policy, membership checks.
+  fm-agent suite: 38 green.
 
 ## v0.5.1 — 2026-07-17
 

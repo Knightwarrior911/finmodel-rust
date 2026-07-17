@@ -16,6 +16,7 @@
 pub mod budget;
 pub mod ids;
 pub mod machine;
+pub mod workflows;
 pub mod types;
 
 pub use budget::{Budget, Policy};
