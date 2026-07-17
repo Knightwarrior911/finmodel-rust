@@ -129,6 +129,17 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   cancellation via `cancel_all()`. 10 tests.
 - App-lib suite: 173 green.
 
+### Phase E — memory repository (`store/memory.rs`)
+- `store/memory.rs`: `MemoryRepository` trait with two backends — SQLite
+  (`SqliteMemoryRepository` wrapping `Db`) and in-memory
+  (`InMemoryMemoryRepository` for pure reducer tests). Covers insert, get,
+  get_by_public_id, FTS5-scoped search, supersede (close `valid_to` + link
+  `superseded_by`), delete, and `record_use` for recall explainability.
+- `MemoryScope` filter: workspace/conversation scoping and `global_only`.
+- 15 tests: 9 in-memory (insert, get, search scoping, supersede, delete,
+  record_use, empty query) + 6 SQLite (same operations backed by real
+  SQLite with FK enforcement). App-lib suite: 188 green.
+
 ## v0.5.1 — 2026-07-17
 
 ### Fixed — news recency & chat response completeness

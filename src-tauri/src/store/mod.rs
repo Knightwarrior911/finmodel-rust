@@ -18,6 +18,7 @@
 
 pub mod migrations;
 pub mod models;
+pub mod memory;
 
 use std::path::{Path, PathBuf};
 

@@ -65,3 +65,4 @@ tauri-plugin-updater = "2"
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 fm-research = { path = "../finmodel-core/fm-research" }
+tempfile = "3"
