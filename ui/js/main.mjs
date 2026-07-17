@@ -116,7 +116,7 @@ function boot() {
       const stop = document.getElementById("chatStop");
       if (stop && !stop.hidden) {
         e.stopPropagation();
-        call("chat_cancel", { conversation_id: getCurrentId(), run_id: getActiveRunId() }).catch(() => {});
+        call("agent_cancel", { conversation_id: getCurrentId(), run_id: getActiveRunId() }).catch(() => {});
       }
     }
   });

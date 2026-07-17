@@ -38,8 +38,6 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         chat::load_conversation,
         chat::delete_conversation,
         chat::rename_conversation,
-        chat::chat_send,
-        chat::chat_cancel,
         research_state::research_retry,
         agent::agent_cancel,
         agent::agent_resume,
