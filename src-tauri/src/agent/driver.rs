@@ -1001,4 +1001,78 @@ mod tests {
             "filing source promoted to ledger"
         );
     }
+
+    #[tokio::test]
+    async fn trading_comps_golden_fixture_end_to_end() {
+        // Plan the golden trading_comps workflow against the real registry.
+        let reg = ToolRegistry::builtin();
+        let plan = crate::agent::workflows::plan_workflow(
+            "trading_comps",
+            &json!({"tickers":["NVDA","AMD"]}),
+            &reg,
+        )
+        .unwrap();
+        assert!(plan.needs_verification, "comps is a numeric-finance turn");
+        for t in ["benchmark_peers", "get_quote", "list_filings"] {
+            assert!(
+                plan.steps.iter().any(|s| s.tool_name == t),
+                "missing required step {t}"
+            );
+        }
+
+        // Drive the comps sequence through the scripted driver + fake backend.
+        let (_td, store, sink, run) = setup();
+        let backend = FakeBackend::new()
+            .seed_ok(
+                "benchmark_peers",
+                "NVDA vs AMD: EV/EBITDA 34.2x vs 28.9x",
+                json!({"type":"benchmark","tickers":["NVDA","AMD"]}),
+            )
+            .seed_ok("get_quote", "NVDA 788.17 USD", quote_card("NVDA", 788.17))
+            .seed_ok(
+                "list_filings",
+                "NVDA 10-K index",
+                json!({
+                    "type":"filings","ticker":"NVDA",
+                    "url":"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810"
+                }),
+            );
+
+        let ctx = SessionContext::test_ctx("c1", "comps NVDA vs AMD EV/EBITDA");
+        let mut driver = ScriptedDriver::new(backend, ctx);
+        let results = driver.results.clone();
+        driver.seed_pending("bp", "benchmark_peers", json!({"tickers":["NVDA","AMD"]}), Risk::ReadOnly);
+        driver.seed_pending("qt", "get_quote", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        driver.seed_pending("lf", "list_filings", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        // R1: two independent reads. R2: dependent peer-pool benchmark. R3: final.
+        driver.model_outs = vec![
+            ModelOut {
+                calls: vec![ro_call("qt", "get_quote"), ro_call("lf", "list_filings")],
+                final_answer: false,
+                tokens: 40,
+            },
+            ModelOut {
+                calls: vec![ro_call("bp", "benchmark_peers")],
+                final_answer: false,
+                tokens: 50,
+            },
+            ModelOut { calls: vec![], final_answer: true, tokens: 30 },
+        ];
+        driver.verify_ok = true;
+
+        let m = AgentMachine::new(Policy::WORKFLOW);
+        let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
+        assert_eq!(out.event, EventKind::RunCompleted);
+        assert!(!out.partial, "verified comps answer is not partial");
+
+        let kinds: Vec<EventKind> = sink.events.lock().iter().map(|e| e.event.kind).collect();
+        assert!(kinds.contains(&EventKind::AssistantCheckpoint));
+        assert_eq!(*kinds.last().unwrap(), EventKind::RunCompleted);
+
+        // Every required comps tool executed.
+        let results = results.lock();
+        for id in ["bp", "qt", "lf"] {
+            assert!(results.get(id).unwrap().is_ok(), "tool {id} failed");
+        }
+    }
 }
