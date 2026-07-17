@@ -286,3 +286,50 @@ pub fn agent_approve(
     };
     Ok(registry.resolve_approval(&run_id, resp))
 }
+
+/// List saved memories for a workspace (defaults to the active one). Returns a
+/// JSON array of `{id, kind, content, created_at}`, newest first.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn memory_list(
+    app: tauri::AppHandle,
+    workspace_id: Option<String>,
+) -> AppResult<String> {
+    let app_store = store(&app)?;
+    let handle = app_store.handle.clone();
+    let ws = workspace_id.unwrap_or_else(|| app_store.default_workspace_id.clone());
+    let rows = handle
+        .call(move |db| {
+            let mut out: Vec<serde_json::Value> = Vec::new();
+            if let Ok(mut stmt) = db.conn().prepare(
+                "SELECT id, kind, content, created_at FROM memories \
+                 WHERE (workspace_id=?1 OR scope_type='global') AND valid_to IS NULL ORDER BY created_at DESC LIMIT 200",
+            ) {
+                if let Ok(mapped) = stmt.query_map([&ws], |r| {
+                    Ok(serde_json::json!({
+                        "id": r.get::<_, i64>(0)?,
+                        "kind": r.get::<_, String>(1)?,
+                        "content": r.get::<_, String>(2)?,
+                        "created_at": r.get::<_, String>(3)?,
+                    }))
+                }) {
+                    out.extend(mapped.flatten());
+                }
+            }
+            out
+        })
+        .await;
+    serde_json::to_string(&rows).map_err(|e| AppError::Engine(e.to_string()))
+}
+
+/// Delete a saved memory by id (user-controlled forget).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn memory_delete(app: tauri::AppHandle, id: i64) -> AppResult<String> {
+    let handle = store(&app)?.handle.clone();
+    let ok = handle
+        .call(move |db| {
+            use crate::store::memory::{MemoryRepository, SqliteMemoryRepository};
+            SqliteMemoryRepository::new(db).delete(id).is_ok()
+        })
+        .await;
+    Ok(serde_json::json!({ "ok": ok }).to_string())
+}

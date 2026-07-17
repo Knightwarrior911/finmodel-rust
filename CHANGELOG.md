@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.8.0 — More like an analyst you talk to
+
+Agentic-experience upgrades toward "talking to a capable analyst":
+
+- **Multi-step follow-through.** Ask a compound question ("compare Apple and
+  Microsoft 2025 — revenue and net income, who earns more") and the agent runs
+  every needed tool and delivers the full comparison + verdict, instead of doing
+  one step and asking "want me to continue?". Verified live.
+- **Live progress.** The status line names what the agent is doing —
+  "Fetching financials…", "Searching the web…", "Writing the answer…",
+  "Checking the figures…" — per tool and phase.
+- **Parallel tool fan-out.** Independent calls (e.g. per-company financials) can
+  run in one turn and execute concurrently (tool-capable models).
+- **Memory drawer.** Settings → Saved memories lists what the analyst remembers
+  and lets you delete anything it got wrong (verified: list + delete, DB-backed).
+- Prompt now asks the agent to state a one-line plan before multi-step work
+  (honored by stronger models; concise models may skip it — the progress stream
+  still shows the steps).
+
+Not yet: automatic (unattended) memory capture stays off pending its precision
+dataset; full subagent orchestration UI is a future milestone. 208 lib + 114 UI green.
+
 ## v0.7.2 — Any provider, full income statement
 
 - **Bring your own provider.** Settings now has a **Provider** dropdown — use

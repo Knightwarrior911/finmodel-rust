@@ -65,6 +65,7 @@ export async function openSettings() {
     $("mcpCommand").value = s.mcp_command || "";
     if ($("appVersion") && s.version) $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
+    loadMemoryList();
   } catch (_) {
     /* offline / first launch */
   }
@@ -88,6 +89,49 @@ function renderCaps(cap) {
   const json = cap.strict_json ? "strict JSON ✓" : "strict JSON ✗";
   const when = cap.tested_at ? ` · tested ${cap.tested_at}` : "";
   el.textContent = `${cap.model_id}: ${tools}, ${json}${when}`;
+}
+
+async function loadMemoryList() {
+  const el = $("memoryList");
+  if (!el) return;
+  el.innerHTML = '<span class="field-hint">Loading…</span>';
+  let mems = [];
+  try {
+    mems = await call("memory_list");
+  } catch {
+    el.innerHTML = '<span class="field-hint">Could not load memories.</span>';
+    return;
+  }
+  el.innerHTML = "";
+  if (!mems.length) {
+    el.innerHTML = '<span class="field-hint">No saved memories yet.</span>';
+    return;
+  }
+  for (const m of mems) {
+    const row = document.createElement("div");
+    row.className = "memory-row";
+    const txt = document.createElement("span");
+    txt.className = "memory-row-text";
+    txt.textContent = m.content;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn-ghost";
+    del.textContent = "Delete";
+    del.addEventListener("click", async () => {
+      try {
+        await call("memory_delete", { id: m.id });
+        row.remove();
+        if (!el.querySelector(".memory-row")) {
+          el.innerHTML = '<span class="field-hint">No saved memories yet.</span>';
+        }
+      } catch {
+        /* leave row; user can retry */
+      }
+    });
+    row.appendChild(txt);
+    row.appendChild(del);
+    el.appendChild(row);
+  }
 }
 
 function closeSettings() {

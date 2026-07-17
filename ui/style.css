@@ -1241,3 +1241,10 @@ body {
     max-width: none;
   }
 }
+
+/* Saved-memories drawer (Settings) */
+.memory-list { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; margin: 4px 0; }
+.memory-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; font-size: 0.9em; padding: 3px 0; border-bottom: 1px solid var(--hairline); }
+.memory-row:last-child { border-bottom: none; }
+.memory-row-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.memory-row .btn-ghost { flex: 0 0 auto; font-size: 0.85em; }
