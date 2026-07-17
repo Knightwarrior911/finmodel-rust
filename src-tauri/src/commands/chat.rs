@@ -24,7 +24,7 @@ const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported figure (revenue/sales, net income, EPS, margins), use research (cited) or build_model — do not read narrative filing items to find a number. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
 
 /// Convert unix seconds to an ISO-8601 UTC timestamp (civil date via Hinnant's
 /// algorithm). Lexicographically sortable == chronological.
@@ -801,7 +801,7 @@ pub(crate) fn tool_schemas() -> Vec<Value> {
         ),
         f(
             "read_filing",
-            "Read the actual text of a company's latest SEC filing (10-K/10-Q). Use for qualitative content — risk factors (item 1A), MD&A (item 7), business description. Never use web_search for filing content.",
+            "Read the narrative text of a company's latest SEC filing (10-K/10-Q): risk factors (item 1A), MD&A (item 7), business description (item 1). For a SPECIFIC reported figure — revenue/sales, net income, EPS, margins — prefer `research` (cited) or `build_model`; do not scrape numbers out of narrative items. Never use web_search for filing content.",
             json!({
                 "type": "object",
                 "properties": {
