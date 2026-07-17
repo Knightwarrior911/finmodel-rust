@@ -386,4 +386,79 @@ mod tests {
             .contains("AAPL"));
         assert!(results.get("b").unwrap().is_ok());
     }
+
+    #[tokio::test]
+    async fn dcf_export_requests_approval_then_completes() {
+        let (_td, store, sink, run) = setup();
+        let backend = FakeBackend::new().seed_ok(
+            "build_model",
+            "built MSFT",
+            json!({
+                "type":"model",
+                "ticker":"MSFT",
+                "artifact_id":"art-0123456789abcdef0123456789abcdef",
+                "label":"MSFT DCF"
+            }),
+        );
+        let ctx = SessionContext::test_ctx("c1", "DCF MSFT then export");
+        let mut driver = ScriptedDriver::new(backend, ctx);
+        driver.seed_pending(
+            "bm",
+            "build_model",
+            json!({"ticker":"MSFT"}),
+            Risk::LocalCreate,
+        );
+        // Export outside output root requires approval (Export risk).
+        driver.seed_pending(
+            "ex",
+            "build_model",
+            json!({"ticker":"MSFT"}),
+            Risk::Export,
+        );
+        driver.info.plan_needed = false;
+        driver.info.needs_verification = true;
+        driver.approval = ApprovalResponse::ApproveOnce;
+        let export = ToolCall {
+            tool_call_id: "ex".into(),
+            name: "build_model".into(),
+            risk: Risk::Export,
+            needs_approval: true,
+            args_valid: true,
+        };
+        driver.model_outs = vec![
+            ModelOut {
+                calls: vec![ro_call("bm", "build_model")],
+                final_answer: false,
+                tokens: 20,
+            },
+            ModelOut {
+                calls: vec![export],
+                final_answer: false,
+                tokens: 10,
+            },
+            ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 10,
+            },
+        ];
+        let m = AgentMachine::new(Policy::WORKFLOW);
+        let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
+        assert_eq!(out.event, EventKind::RunCompleted);
+        let kinds: Vec<EventKind> = sink.events.lock().iter().map(|e| e.event.kind).collect();
+        assert!(kinds.contains(&EventKind::ApprovalRequested));
+        assert!(kinds.contains(&EventKind::ApprovalResolved));
+        // Approval must precede the export tool start.
+        let apr = kinds.iter().position(|k| *k == EventKind::ApprovalRequested).unwrap();
+        let starts: Vec<(usize, String)> = sink
+            .events
+            .lock()
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.event.kind == EventKind::ToolStarted)
+            .filter_map(|(i, e)| Some((i, e.event.payload.get("tool_call_id")?.as_str()?.to_string())))
+            .collect();
+        let ex_start = starts.iter().find(|(_, id)| id == "ex").unwrap().0;
+        assert!(apr < ex_start, "approval before export execution");
+    }
 }

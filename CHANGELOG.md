@@ -107,6 +107,14 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   executor seam; `analyze_pdf` registry contract fixed to `artifact_id` (never
   raw path). App-lib suite: 214 green.
 
+### Phase C/F — corpus traversal + comps/DCF acceptance tests
+- FallbackDispatcher skips path-like tokens so `C:/tmp/x.pdf` no longer yields
+  ticker `C`; no-key corpus walks dispatch → registry validate → FakeBackend
+  execute. `cancel_all` only cancels queued/running children.
+- Phase F: comps peer-pool (10 children, one fail, cascade cancel), DCF export
+  approval ordering via ScriptedDriver, earnings/comps plan assertions.
+  App-lib suite: 223 green.
+
 ### Phase F — embedded finance workflow specs (`fm-agent`)
 - `fm-agent/src/workflows.rs`: six typed `WorkflowSpec` contracts — company
   brief, earnings review, trading comps, DCF/3-statement, M&A screen, pitch

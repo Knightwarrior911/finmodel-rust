@@ -110,8 +110,16 @@ impl SubagentPool {
     }
 
     /// Cancel all running/queued children (cascading cancellation).
+    /// Already-finished children (succeeded/failed/cancelled) are left alone.
     pub fn cancel_all(&mut self) {
-        let ids: Vec<SubagentId> = self.children.keys().copied().collect();
+        let ids: Vec<SubagentId> = self
+            .children
+            .iter()
+            .filter(|(_, c)| {
+                matches!(c.status, SubagentStatus::Queued | SubagentStatus::Running)
+            })
+            .map(|(id, _)| *id)
+            .collect();
         for id in ids {
             self.cancel(id);
         }
@@ -248,5 +256,76 @@ mod tests {
         let p = pool();
         assert_eq!(p.active_count(), 0);
         assert_eq!(p.total_count(), 0);
+    }
+
+    /// Trading-comps shape: spawn one child per peer (up to max_children), one
+    /// peer fails, surviving peers still succeed, then cascading cancel cleans
+    /// unfinished work.
+    #[test]
+    fn comps_peer_pool_one_failure_then_cancel_rest() {
+        let peers = ["NVDA", "AMD", "AVGO", "INTC", "QCOM", "MU", "TSM", "ASML", "AMAT", "LRCX"];
+        let mut p = SubagentPool::new("comps".into(), 12, Budget::new(Policy::WORKFLOW));
+        let mut ids = Vec::new();
+        for peer in peers {
+            let h = p.spawn(format!("peer {peer}")).expect("capacity for 10 peers");
+            ids.push(h.id);
+            p.start(h.id);
+        }
+        assert_eq!(p.active_count(), 10);
+        // One peer fails; others can still complete.
+        p.fail(ids[3], "quote timeout".into());
+        assert!(matches!(
+            p.children.get(&ids[3]).unwrap().status,
+            SubagentStatus::Failed(_)
+        ));
+        for &id in &ids {
+            if id == ids[3] {
+                continue;
+            }
+            if id <= ids[6] {
+                p.succeed(id, format!("ok {id}"));
+            }
+        }
+        // Remaining running peers get cascading cancel (parent abort).
+        p.cancel_all();
+        let snap = p.snapshot();
+        assert_eq!(snap.len(), 10);
+        // Failed peer stays failed; completed peers stay succeeded; only
+        // still-running peers become cancelled.
+        assert!(matches!(
+            snap.iter().find(|h| h.id == ids[3]).unwrap().status,
+            SubagentStatus::Failed(_)
+        ));
+        assert!(matches!(
+            snap.iter().find(|h| h.id == ids[0]).unwrap().status,
+            SubagentStatus::Succeeded
+        ));
+        assert!(matches!(
+            snap.iter().find(|h| h.id == ids[8]).unwrap().status,
+            SubagentStatus::Cancelled
+        ));
+        assert_eq!(p.active_count(), 0);
+        // Capacity is consumed by total spawned, not by finished state.
+        assert_eq!(p.remaining_capacity(), 2);
+    }
+
+    #[test]
+    fn child_failure_does_not_block_sibling_success() {
+        let mut p = pool();
+        let a = p.spawn("A".into()).unwrap();
+        let b = p.spawn("B".into()).unwrap();
+        p.start(a.id);
+        p.start(b.id);
+        p.fail(a.id, "boom".into());
+        p.succeed(b.id, "ok".into());
+        assert!(matches!(
+            p.children.get(&a.id).unwrap().status,
+            SubagentStatus::Failed(_)
+        ));
+        assert_eq!(
+            p.children.get(&b.id).unwrap().status,
+            SubagentStatus::Succeeded
+        );
+        assert_eq!(p.active_count(), 0);
     }
 }

@@ -219,4 +219,42 @@ mod tests {
         assert!(names.contains(&"build_model"));
         assert!(names.contains(&"read_filing"));
     }
+
+    #[test]
+    fn dcf_plan_marks_build_model_create_risk() {
+        let plan = plan_workflow("dcf_model", &serde_json::json!({"ticker":"MSFT"}), &reg()).unwrap();
+        let build = plan.steps.iter().find(|s| s.tool_name == "build_model").unwrap();
+        assert_eq!(build.risk, Risk::LocalCreate);
+        // New immutable workbook versions auto-run under NewVersionAuto.
+        assert_eq!(plan.approval_policy, ApprovalPolicy::NewVersionAuto);
+        assert!(plan.needs_verification);
+    }
+
+    #[test]
+    fn earnings_golden_required_tools_all_registered() {
+        let plan = plan_workflow(
+            "earnings_review",
+            &serde_json::json!({"ticker":"NVDA"}),
+            &reg(),
+        )
+        .unwrap();
+        let names: Vec<&str> = plan.steps.iter().map(|s| s.tool_name.as_str()).collect();
+        for req in ["list_filings", "read_filing", "get_news", "get_quote"] {
+            assert!(names.contains(&req), "missing {req}");
+        }
+        assert!(plan.needs_verification);
+        assert!(fm_agent::workflows::workflow("earnings_review").unwrap().golden);
+    }
+
+    #[test]
+    fn trading_comps_capacity_matches_peer_pool() {
+        let plan = plan_workflow(
+            "trading_comps",
+            &serde_json::json!({"tickers":["NVDA","AMD","AVGO"]}),
+            &reg(),
+        )
+        .unwrap();
+        assert_eq!(plan.max_children, 12);
+        assert!(plan.steps.iter().any(|s| s.tool_name == "benchmark_peers"));
+    }
 }

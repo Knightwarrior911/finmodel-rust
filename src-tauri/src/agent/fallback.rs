@@ -57,6 +57,11 @@ fn is_ticker_shape(raw: &str) -> bool {
 /// common all-caps stopwords. Single-letter tickers (F, T, C, V) are valid.
 pub fn first_ticker(msg: &str) -> Option<String> {
     for word in msg.split_whitespace() {
+        // Path-like tokens (Windows paths, URLs) must not contribute tickers —
+        // otherwise `C:/tmp/x.pdf` yields ticker `C`.
+        if word.contains('/') || word.contains('\\') {
+            continue;
+        }
         if is_filing_form(word) {
             continue;
         }
@@ -73,6 +78,9 @@ pub fn first_ticker(msg: &str) -> Option<String> {
 pub fn all_tickers(msg: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in msg.split_whitespace() {
+        if word.contains('/') || word.contains('\\') {
+            continue;
+        }
         if is_filing_form(word) {
             continue;
         }
@@ -209,6 +217,18 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn path_like_tokens_do_not_yield_drive_letter_tickers() {
+        // TESTCO is 6 letters (not a ticker shape); path token is skipped → None.
+        assert_eq!(
+            first_ticker(r#"Analyze the filing PDF at "C:/tmp/annual.pdf" for TESTCO"#),
+            None
+        );
+        assert_eq!(first_ticker(r#"open C:/data/AAPL.pdf about AAPL"#), Some("AAPL".into()));
+        assert!(first_ticker(r#"see C:\Users\x\a.pdf"#).is_none());
+    }
+
+    #[test]
     fn ticker_extraction() {
         assert_eq!(first_ticker("build a model for NVDA please"), Some("NVDA".to_string()));
         assert_eq!(first_ticker("check TSM.TW"), Some("TSM.TW".to_string()));
@@ -289,5 +309,59 @@ mod tests {
     fn invalid_extracted_call_falls_back_to_direct() {
         // A build request whose only "ticker" is a stopword -> no ticker -> not build.
         assert_eq!(dispatch(&reg(), "build a model"), FallbackDecision::Direct);
+    }
+
+    /// Legacy no-key free-text fixture corpus: each message resolves through the
+    /// FallbackDispatcher, validates against the registry, and (when a tool is
+    /// chosen) executes via the FakeBackend envelope seam — without calling
+    /// `route_intent` or a live LLM.
+    #[test]
+    fn no_key_corpus_traverses_registry_and_executors() {
+        use crate::agent::executors::{execute, quote_card, FakeBackend, SessionContext};
+        use serde_json::json;
+
+        let reg = reg();
+        let backend = FakeBackend::new()
+            .seed_ok("get_quote", "AAPL 190", quote_card("AAPL", 190.0))
+            .seed_ok("get_news", "news", json!({"type":"news"}))
+            .seed_ok("list_filings", "filings", json!({"type":"filings","ticker":"MSFT"}))
+            .seed_ok("read_filing", "risks", json!({"type":"filing_doc","ticker":"AMD","url":"https://www.sec.gov/x"}))
+            .seed_ok("benchmark_peers", "comps", json!({"type":"benchmark"}))
+            .seed_ok("build_model", "model", json!({"type":"model","ticker":"NVDA","artifact_id":"art-0123456789abcdef0123456789abcdef"}))
+            .seed_ok("research_deal", "deal", json!({"type":"deal"}))
+            .seed_ok("research", "research", json!({"type":"research_answer"}))
+            .seed_ok("web_search", "hits", json!({"type":"search"}));
+
+        let corpus: &[(&str, Option<&str>)] = &[
+            ("quote AAPL", Some("get_quote")),
+            ("news NVDA", Some("get_news")),
+            ("show filings for MSFT", Some("list_filings")),
+            ("read the risk factors in AMD's filing", Some("read_filing")),
+            ("benchmark AAPL, MSFT", Some("benchmark_peers")),
+            ("build a dcf model for NVDA", Some("build_model")),
+            ("the figma adobe merger", Some("research_deal")),
+            ("research the semiconductor supply chain", Some("research")),
+            // FallbackDispatcher does not route free-text web_search (Quick Action does).
+            ("search the web for margins", None),
+            ("what is a discounted cash flow", None),
+            ("tell me a joke about accounting", None),
+            ("Analyze the filing PDF at \"C:/tmp/annual.pdf\" for TESTCO", None),
+        ];
+
+        let ctx = SessionContext::test_ctx("c1", "corpus");
+        for (msg, expected) in corpus {
+            let d = dispatch(&reg, msg);
+            match (expected, d) {
+                (None, FallbackDecision::Direct) => {}
+                (Some(name), FallbackDecision::Tool { name: n, args }) => {
+                    assert_eq!(&n, name, "msg={msg}");
+                    // Must validate + execute through the new seam.
+                    let env = execute(&reg, &backend, &n, &args, &ctx)
+                        .unwrap_or_else(|e| panic!("execute {name} for '{msg}': {e}"));
+                    assert!(!env.summary.is_empty());
+                }
+                (exp, got) => panic!("msg={msg}: expected {exp:?}, got {got:?}"),
+            }
+        }
     }
 }
