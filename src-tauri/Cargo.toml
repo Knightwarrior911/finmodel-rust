@@ -32,7 +32,10 @@ parking_lot = "0.12"
 tokio = { version = "1", features = ["time", "rt", "macros", "sync"] }
 futures-util = "0.3"
 tokio-util = { version = "0.7", features = ["rt"] }
-keyring = "3"
+# v3 split platform backends behind features; WITHOUT one it silently uses an
+# in-memory mock store that loses the key on restart. windows-native = real
+# Windows Credential Manager (the shipped target OS).
+keyring = { version = "3", features = ["windows-native"] }
 # Bundled SQLite (FTS5, static — no runtime sqlite3.dll). Pinned per the plan's
 # dependency gate; MSRV tracks current stable (1.96.0).
 rusqlite = { version = "=0.39.0", features = ["bundled", "backup"] }
