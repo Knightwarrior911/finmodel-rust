@@ -664,27 +664,17 @@ export function applyCapability(settings) {
   let text;
   let useLive = hasKey;
   if (!hasKey) {
-    // key missing
+    // No key: friendly demo-mode invitation, no jargon.
     text =
-      "No LLM key — offline demo (5 embedded companies) and source digests only. Add an OpenRouter key in Settings for live research and models.";
+      "You're in demo mode with a few sample companies. Add your API key in Settings to analyze any company with live data and build real models.";
     useLive = false;
-  } else if (!capForModel) {
-    // key present / probe unknown
+  } else if (capForModel && !capForModel.native_tools) {
+    // Keyed but the model can't call tools — plain-language limitation + fix.
     text =
-      "Key set; this model's capabilities are untested. Run Test model in Settings for verified tool-calling and strict JSON.";
-  } else if (capForModel.native_tools && capForModel.strict_json) {
-    // native + strict verified
-    text = "Model verified: native tool-calling and strict JSON.";
-  } else if (capForModel.native_tools) {
-    text = "Model verified for tool-calling; strict JSON unverified — app validates synthesis.";
+      "Your current AI model can chat but can't pull live data or build models. Choose a different model in Settings to unlock full analysis.";
   } else {
-    // text-only app-controlled synthesis
-    text =
-      "This model has no verified tool-calling — using app-controlled routing and validated text synthesis.";
-  }
-  // Browser capability note.
-  if (!settings.mcp_command || !settings.mcp_command.trim()) {
-    text += " In-app reading uses basic HTTP; configure the Roam browser in Settings for dynamic/login-gated pages.";
+    // Ready: verified capable, or not-yet-checked (still usable).
+    text = "Ready to analyze. Ask about any company, filing, or deal — or tap a starter below.";
   }
   note.textContent = text;
   const labels = useLive ? LIVE_CHIPS : DEMO_CHIPS;

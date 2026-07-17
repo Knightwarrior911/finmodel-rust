@@ -23,8 +23,8 @@ export async function openSettings() {
   try {
     const s = await call("load_settings");
     $("keyStatus").textContent = s.has_key
-      ? "A key is saved. Leave blank to keep it."
-      : "No key set — offline demo tickers only.";
+      ? "Your key is saved. Leave blank to keep it."
+      : "No key yet — you're in demo mode with sample companies.";
     const sel = $("modelSelect");
     if (s.model) sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
     $("edgarContact").value = s.edgar_contact || "";
@@ -99,6 +99,17 @@ export function initSettings(opts = {}) {
         mcp_args: cmd.split(/\s+/).slice(1),
       });
       $("apiKey").value = "";
+      // Auto-detect what the model can do so the home screen is accurate
+      // without the user running a manual check. Best-effort: a failed probe
+      // (e.g. no key) just leaves capability unknown.
+      if (model) {
+        setStatus("Checking what your model can do…", "info");
+        try {
+          await call("test_model", { model_id: model });
+        } catch {
+          /* leave capability unknown */
+        }
+      }
       closeSettings();
       onSaved();
     } catch (e) {
@@ -110,8 +121,8 @@ export function initSettings(opts = {}) {
     try {
       await call("clear_api_key");
       $("apiKey").value = "";
-      $("keyStatus").textContent = "No key set — offline demo tickers only.";
-      setStatus("Key removed — offline demo mode.", "info");
+      $("keyStatus").textContent = "No key yet — you're in demo mode with sample companies.";
+      setStatus("Key removed — back to demo mode.", "info");
       onSaved();
     } catch (e) {
       setStatus(`Remove failed: ${e.message || e}`, "error");

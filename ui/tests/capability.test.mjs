@@ -14,51 +14,49 @@ async function applyWith(settings, theme = "light") {
   };
 }
 
-test("no key → offline demo note + real embedded demo tickers", async () => {
+test("no key → friendly demo-mode note + real embedded demo tickers", async () => {
   const { note, chips } = await applyWith({ has_key: false, model: "m", mcp_command: "" });
-  assert.match(note, /No LLM key/);
-  assert.match(note, /offline demo/i);
+  assert.match(note, /demo mode/i);
+  assert.match(note, /Settings/);
+  // No developer jargon in the consumer greeting.
+  assert.doesNotMatch(note, /tool-calling|strict JSON|basic HTTP|Roam/i);
   // Demo chips use the actually-embedded fixtures, not live US tickers.
   assert.ok(chips.some((c) => c.includes("SAND.ST")), `demo chips: ${chips.join(" | ")}`);
   assert.ok(!chips.some((c) => c.includes("NVDA")), "no live-only tickers offline");
 });
 
-test("key present, probe unknown → run Test model action", async () => {
+test("key present, capability unknown → ready + live chips", async () => {
   const { note, chips } = await applyWith({ has_key: true, model: "m", mcp_command: "x" });
-  assert.match(note, /untested/i);
-  assert.match(note, /Test model/);
+  assert.match(note, /Ready to analyze/i);
+  assert.doesNotMatch(note, /tool-calling|strict JSON|basic HTTP|Roam|untested/i);
   assert.ok(chips.some((c) => c.includes("NVDA")), "live chips when keyed");
 });
 
-test("native + strict verified → verified note", async () => {
+test("tool-capable model → ready note (no jargon)", async () => {
   const { note } = await applyWith({
     has_key: true,
     model: "m",
     mcp_command: "x",
     model_capability: { model_id: "m", native_tools: true, strict_json: true },
   });
-  assert.match(note, /verified/i);
-  assert.match(note, /strict JSON/i);
+  assert.match(note, /Ready to analyze/i);
+  assert.doesNotMatch(note, /tool-calling|strict JSON/i);
 });
 
-test("text-only model → app-controlled synthesis note", async () => {
+test("model can't use tools → plain-language limitation + fix", async () => {
   const { note } = await applyWith({
     has_key: true,
     model: "m",
     mcp_command: "x",
     model_capability: { model_id: "m", native_tools: false, strict_json: false },
   });
-  assert.match(note, /no verified tool-calling/i);
-});
-
-test("no browser configured → basic HTTP reading note", async () => {
-  const { note } = await applyWith({ has_key: true, model: "m", mcp_command: "" });
-  assert.match(note, /basic HTTP/i);
-  assert.match(note, /Roam browser/i);
+  assert.match(note, /can't pull live data|can't .* build models/i);
+  assert.match(note, /Settings/);
+  assert.doesNotMatch(note, /tool-calling|strict JSON/i);
 });
 
 test("capability applies identically in dark theme", async () => {
   const { note } = await applyWith({ has_key: false, model: "m", mcp_command: "" }, "dark");
-  assert.match(note, /No LLM key/);
+  assert.match(note, /demo mode/i);
   assert.equal(document.documentElement.dataset.theme, "dark");
 });

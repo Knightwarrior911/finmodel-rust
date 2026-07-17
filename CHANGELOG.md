@@ -3,7 +3,7 @@
 ## Unreleased — Agentic analyst cutover (Phases A–B: contracts, SQLite, unified actor loop)
 
 First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
-no user-facing behavior changes yet (legacy JSON chat remains the live path).
+the app now runs on the unified agent path (see the Phase G cutover entry); the legacy JSON chat engine is unreachable at runtime.
 
 ### Fixes (legacy path, user-facing)
 - **API key never persisted.** `keyring = "3"` was declared with no feature
