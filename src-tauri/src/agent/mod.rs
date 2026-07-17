@@ -15,3 +15,4 @@ pub mod actor;
 pub mod context;
 pub mod events;
 pub mod registry;
+pub mod security;

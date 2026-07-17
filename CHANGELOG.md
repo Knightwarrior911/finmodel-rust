@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Agentic analyst cutover (Phase A: contracts + SQLite)
+## Unreleased — Agentic analyst cutover (Phases A–B: contracts, SQLite, unified actor loop)
 
 First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
 no user-facing behavior changes yet (legacy JSON chat remains the live path).
@@ -50,6 +50,43 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   reclamation/retry/resurrection, atomic publish/reconcile, interrupted-run
   repair, integrity/backup roundtrip, JSON migration grouping/idempotency/
   quarantine, and store-actor serialization. Full app-lib suite: 86 green.
+
+### Phase B — unified actor loop, events, context, replay (`src-tauri/src/agent`)
+- Single IPC event envelope (`agent/events.rs`): `AgentEventEnvelope` with
+  durable (monotonic per-run `sequence`) vs ephemeral variants, replacing the
+  old special event names. Persist-then-broadcast makes the store authoritative.
+- Actor turn driver (`agent/actor.rs`): drives the pure `AgentMachine` to a
+  terminal via a `Driver` trait, persisting every durable event before
+  broadcasting, then finalizing the run row. `resume_run()` creates a NEW run
+  linked by `resumed_from_run_id` from an interrupted one and refuses to reopen
+  a terminal run. 5 fake-driver tests: persist-then-broadcast, live/replay
+  equality, exactly one terminal event, approval request/resolve ordering,
+  unverified→partial completion, and crash-repair→resume linkage.
+- Context assembly + compaction (`agent/context.rs`): fixed stable block order
+  (system/policy → workspace → summary → memories → branch → references → user →
+  tools) and 90%→70% rolling compaction that always retains the latest four
+  turns and any turn with an unresolved approval/artifact. 8 tests incl. the
+  degenerate over-target case.
+- Actor registry (`agent/registry.rs`): the active-run authority — one run per
+  conversation, ≤3 active conversations, global 8 / per-run 4 execution slots,
+  RAII deregistration, targeted cancellation. 7 tests.
+- Real control/query Tauri commands (`commands/agent.rs`): `agent_cancel`,
+  `agent_resume`, `list_active_runs`, `get_run_events_after`, `get_run_snapshot`
+  (the race-free attach/reload contract). `agent_send` is deferred to Phase C,
+  where the real provider/tool `Driver` lands. App-lib suite: 109 green.
+
+### Phase C (in progress) — security boundaries (`src-tauri/src/agent/security.rs`)
+- SSRF/egress validation: HTTP(S)-only, no embedded credentials, and every
+  resolved IP must be globally-routable — loopback, private, link-local, CGNAT,
+  unspecified, multicast, documentation, and reserved v4/v6 ranges (incl.
+  IPv4-mapped IPv6) are rejected, so a DNS-rebind to a private address fails.
+- Reparse-safe output containment: server-owned filenames reject separators,
+  drive prefixes, reserved Windows names, and `..`; write-risk classification
+  (`LocalCreate`/`LocalOverwrite`/`Export`) uses lexical normalization so a
+  `..`-escape resolves to `Export`, never a false `LocalCreate`.
+- Structured confidential-query egress guard (allowlisted entities + enumerated
+  fields; any free-form literal requires disclosure approval) and secret
+  redaction (API keys / bearer tokens / long opaque secrets). 10 tests.
 
 ## v0.5.1 — 2026-07-17
 
