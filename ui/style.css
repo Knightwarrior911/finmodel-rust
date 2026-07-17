@@ -991,3 +991,131 @@ body {
 .analyst-src { color: var(--muted); font-size: 12px; }
 .analyst-sec { font-weight: 600; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .analyst-total { font-weight: 600; border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 6px; }
+
+
+/* ── Workspace + task tray (Phase D) ─────────────────────────── */
+.workspace-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px 8px;
+}
+.workspace-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.workspace-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--primary);
+}
+.temp-chat-btn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--secondary);
+  cursor: pointer;
+}
+.temp-chat-btn.is-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.workspace-banner {
+  max-width: 780px;
+  margin: 8px auto 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--secondary);
+  font-size: 0.9em;
+}
+.workspace-banner[data-tier="temporary"] {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #f6e05e;
+}
+.workspace-banner[data-tier="confidential"],
+.workspace-banner[data-tier="restricted"] {
+  background: #eff6ff;
+  color: #1e40af;
+  border-color: #bfdbfe;
+}
+.task-tray {
+  max-width: 780px;
+  margin: 8px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.task-row.task-bg { opacity: 0.85; border-style: dashed; }
+.task-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-badge {
+  flex: 0 0 auto;
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  color: var(--secondary);
+  text-transform: capitalize;
+}
+.task-cancel { flex: 0 0 auto; font-size: 0.85em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .act-spinner { animation: none; }
+  .act-row { transition: none; }
+}
+
+/* Compact laptop / VP desk: 1100×760 */
+@media (max-width: 1100px) {
+  #app { grid-template-columns: 220px minmax(0, 1fr); }
+  .reader-panel[data-open="true"] { width: min(360px, 40vw); }
+}
+/* Tight window: 800×560 — collapse sidebar affordance, stack tray */
+@media (max-width: 860px) {
+  #app { grid-template-columns: 1fr; }
+  #sidebar:not(.collapsed) {
+    position: absolute;
+    z-index: 20;
+    height: 100%;
+    box-shadow: 0 0 0 1px var(--hairline), 0 12px 40px rgba(0,0,0,.18);
+  }
+  .workspace-chrome { padding-inline: 8px; }
+  .task-tray, .workspace-banner, .act-row { margin-inline: 8px; max-width: none; }
+  .composer { padding-inline: 8px; }
+}

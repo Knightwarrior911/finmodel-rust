@@ -115,6 +115,14 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   approval ordering via ScriptedDriver, earnings/comps plan assertions.
   App-lib suite: 223 green.
 
+### Phase D — task tray + workspace chrome
+- `ui/js/tasks.mjs`: non-blocking task tray reducer (≤3 visible, background
+  vs focused, cancel hooks). 8 tests.
+- `ui/js/workspaces.mjs`: workspace select + Temporary Chat + confidentiality
+  banner state. 7 tests.
+- `index.html` / `style.css` / `main.mjs`: chrome wired; responsive collapse for
+  ~800×560 and ~1100×760; reduced-motion kills activity spinner. UI suite: 95 green.
+
 ### Phase F — embedded finance workflow specs (`fm-agent`)
 - `fm-agent/src/workflows.rs`: six typed `WorkflowSpec` contracts — company
   brief, earnings review, trading comps, DCF/3-statement, M&A screen, pitch

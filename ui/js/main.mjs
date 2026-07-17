@@ -15,6 +15,12 @@ import {
 import { initSettings } from "./settings.mjs";
 import { initUpdate } from "./update.mjs";
 import { initAnalyst } from "./analyst.mjs";
+import {
+  createWorkspaceState,
+  reduce as reduceWorkspace,
+  render as renderWorkspace,
+} from "./workspaces.mjs";
+import { createTray, render as renderTray } from "./tasks.mjs";
 
 async function loadModelPill() {
   try {
@@ -42,6 +48,35 @@ function boot() {
   initSettings({ onSaved: () => loadModelPill() });
   initUpdate();
   initAnalyst();
+
+  // Phase D chrome: workspace banner + empty task tray (populated once
+  // agent_event streams land with agent_send).
+  let workspaceState = createWorkspaceState();
+  const tray = createTray();
+  const paintChrome = () => {
+    renderWorkspace(
+      {
+        select: document.getElementById("workspaceSelect"),
+        banner: document.getElementById("workspaceBanner"),
+        tempBtn: document.getElementById("temporaryChatBtn"),
+      },
+      workspaceState,
+      {
+        onSelect: (id) => {
+          workspaceState = reduceWorkspace(workspaceState, { type: "SelectWorkspace", id });
+          paintChrome();
+        },
+        onToggleTemporary: () => {
+          workspaceState = reduceWorkspace(workspaceState, { type: "ToggleTemporary" });
+          paintChrome();
+        },
+      },
+    );
+    renderTray(document.getElementById("taskTray"), tray, {
+      onSelect: (id) => loadConversation(id),
+    });
+  };
+  paintChrome();
 
   // Global shortcuts: Ctrl/Cmd+N new chat, Ctrl/Cmd+K filter, Esc stops a reply.
   document.addEventListener("keydown", (e) => {

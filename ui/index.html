@@ -25,6 +25,12 @@
         </button>
       </div>
 
+      <div class="workspace-chrome">
+        <label class="workspace-label" for="workspaceSelect">Workspace</label>
+        <select id="workspaceSelect" class="workspace-select" aria-label="Active workspace"></select>
+        <button type="button" id="temporaryChatBtn" class="temp-chat-btn" aria-pressed="false">Temporary</button>
+      </div>
+
       <button type="button" id="newChatBtn" class="btn-primary new-chat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         New chat
@@ -54,6 +60,9 @@
           <button type="button" id="updateDismiss" class="btn-ghost">Later</button>
         </span>
       </div>
+
+      <div id="workspaceBanner" class="workspace-banner" role="status" hidden></div>
+      <div id="taskTray" class="task-tray" role="list" aria-label="Active tasks" hidden></div>
 
       <div id="chatScroll" class="chat-scroll">
         <section id="chatEmpty" class="chat-empty">
