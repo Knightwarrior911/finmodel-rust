@@ -1,6 +1,44 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.7.1 get_financials, LIVE RELEASE (current, 2026-07-17)
+## HANDOVER — v0.8.0 agentic experience + v0.7.2 any-provider, LIVE (current, 2026-07-17)
+**Branch `master`, tagged `v0.8.0` (pushed).** Live — endpoint VERIFIED serving
+`0.8.0`, installer 200. Executing `docs/AGENTIC_ANALYST_GOAL.md` (goal mode).
+
+### v0.7.2 — any OpenAI-compatible provider + full income statement
+- `Settings.base_url` (default OpenRouter). `chat_completions_url`/`provider_base`/
+  `is_openrouter` helpers in `settings.rs`. Chat stream (`openrouter_stream_async`
+  reads `chat_completions_url(&read_settings(app))`), probes, and `list_models` all
+  follow the provider; `test_model` branches OpenRouter-catalog vs direct probe;
+  strict-json probe drops OpenRouter-only `provider.require_parameters` for others.
+  UI: Provider dropdown + base-URL field in Settings (`settings.mjs` PROVIDERS).
+  Own-key only — NO subscription OAuth (ToS/ban risk for a sold product; user chose this).
+- `get_financials` widened to the full income statement (explicit us-gaap tag list):
+  revenue, cost of revenue, gross profit, operating income, net income, diluted EPS.
+
+### v0.8.0 — agentic experience (goal milestones M1–M5)
+- **M1 progress** ✓ live: `phase_changed` → progress labels (`agentPhaseLabel`);
+  friendly per-tool labels (`phaseLabel`: "Fetching financials…"). Literal "Plan:"
+  line is prompt-nudged but MODEL-DEPENDENT — gpt-4.1-mini stays concise and skips
+  it; the progress stream is the visible plan.
+- **M2 follow-through** ✓ live: system-prompt mandates end-to-end multi-step; verified
+  compound queries (Apple vs Microsoft, Tesla vs Ford) run all tools + answer, no punt.
+- **M3 tool cards** ✓ friendly labels + result cards.
+- **M4 fan-out** PARTIAL: `build_chat_request` threads `parallel_tool_calls` (true for
+  tool-capable models) → independent calls run via the parallel executor. TRUE subagent
+  orchestration + task-tray UI NOT built (large — the main remaining milestone).
+- **M5 memory** PARTIAL: memory drawer ✓ live (`memory_list`/`memory_delete` in
+  `commands/agent.rs`; Settings "Saved memories" list + delete; verified UI+DB). Automatic
+  (unattended) capture STILL OFF — gated on the ≥200-turn labelled precision dataset
+  (plan decision 4); a data task, not a code task.
+
+### Goal status (`docs/AGENTIC_ANALYST_GOAL.md`)
+M1–M3 done + verified; M4/M5 partially delivered. **Remaining:** (1) full subagent
+orchestration UI (fan-out of parallel peer/company work + task tray), (2) automatic
+memory capture behind its precision gate (needs the labelled dataset). Goal left
+ACTIVE for these two. Gates: 208 lib + 114 UI + 47 fm-fetch green. Signing/publish
+recipe unchanged (see v0.6.0 below).
+
+## HANDOVER — v0.7.1 get_financials, LIVE RELEASE (superseded by v0.8.0)
 **Branch `master`, tagged `v0.7.1` (pushed).** Live release — endpoint VERIFIED
 serving `0.7.1`, installer 200. Fixes the recurring "what were Tesla's 2025
 sales" failure where research read risk factors and said the figure was
