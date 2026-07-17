@@ -116,13 +116,15 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   App-lib suite: 223 green.
 
 ### Phase E — MemoryUpdated emitted before terminal (`agent/actor.rs`)
-- `Driver::extract_memory` now returns whether rows were saved; `run_turn`
-  emits exactly one durable `MemoryUpdated` event **before** the terminal run
-  event when capture saved rows, and none when it saved nothing (timeout/empty)
-  — closing a gap against the event contract + Phase E event-order acceptance.
+- `Driver::extract_memory` now returns the count of saved rows; `run_turn`
+  emits exactly one durable `MemoryUpdated { count }` event **before** the
+  terminal run event when capture saved rows, and none when it saved nothing
+  (timeout/empty) — closing a gap against the event contract + Phase E
+  event-order acceptance. The count rides the payload because the UI
+  (`memory.mjs`/`reducer.mjs`) drops count-less notices.
 - 2 actor tests: `memory_updated_precedes_single_terminal_when_saved` (one
-  notice, precedes the single `RunCompleted`, live==replay) and
-  `no_memory_notice_when_capture_saves_nothing`. App-lib: 230 green.
+  notice, precedes the single `RunCompleted`, `count` in payload, live==replay)
+  and `no_memory_notice_when_capture_saves_nothing`. App-lib: 230 green.
 
 ### Phase C — provider stream→ModelOut mapper + earnings golden e2e
 - `agent/driver.rs::model_out_from_stream`: the real `request_model` core —

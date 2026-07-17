@@ -49,7 +49,7 @@ struct FakeDriver {
     next_model: usize,
     verify_ok: bool,
     approval: ApprovalResponse,
-    memory_saved: bool,
+    memory_saved: usize,
 }
 impl FakeDriver {
     fn direct() -> Self {
@@ -59,7 +59,7 @@ impl FakeDriver {
             next_model: 0,
             verify_ok: true,
             approval: ApprovalResponse::ApproveOnce,
-            memory_saved: false,
+            memory_saved: 0,
         }
     }
 }
@@ -87,7 +87,7 @@ impl Driver for FakeDriver {
     async fn verify(&mut self) -> bool {
         self.verify_ok
     }
-    async fn extract_memory(&mut self) -> bool {
+    async fn extract_memory(&mut self) -> usize {
         self.memory_saved
     }
     async fn await_approval(&mut self, _id: &str) -> ApprovalResponse {
@@ -253,7 +253,7 @@ async fn crash_repair_then_resume_creates_linked_run() {
 async fn memory_updated_precedes_single_terminal_when_saved() {
     let (_td, store, sink, run) = setup();
     let mut driver = FakeDriver::direct();
-    driver.memory_saved = true;
+    driver.memory_saved = 2;
     let m = AgentMachine::new(Policy::INTERACTIVE);
     let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
     assert_eq!(out.event, EventKind::RunCompleted);
@@ -263,6 +263,15 @@ async fn memory_updated_precedes_single_terminal_when_saved() {
     let mem = kinds.iter().position(|k| *k == EventKind::MemoryUpdated).unwrap();
     let term = kinds.iter().position(|k| *k == EventKind::RunCompleted).unwrap();
     assert!(mem < term, "MemoryUpdated must precede RunCompleted");
+    // The count rides the payload — the UI drops count-less notices.
+    let mem_env = sink
+        .events
+        .lock()
+        .iter()
+        .find(|e| e.event.kind == EventKind::MemoryUpdated)
+        .cloned()
+        .unwrap();
+    assert_eq!(mem_env.event.payload["count"], serde_json::json!(2));
     assert_eq!(kinds.iter().filter(|k| k.is_terminal()).count(), 1);
     assert_live_equals_replay(&store, &sink, &run).await;
 }
@@ -270,7 +279,7 @@ async fn memory_updated_precedes_single_terminal_when_saved() {
 #[tokio::test]
 async fn no_memory_notice_when_capture_saves_nothing() {
     let (_td, store, sink, run) = setup();
-    let driver = FakeDriver::direct(); // memory_saved defaults false
+    let driver = FakeDriver::direct(); // memory_saved defaults 0
     let m = AgentMachine::new(Policy::INTERACTIVE);
     let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
     assert_eq!(out.event, EventKind::RunCompleted);

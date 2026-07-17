@@ -43,8 +43,8 @@ pub struct ScriptedDriver<B: ToolBackend> {
     pub results: Arc<Mutex<HashMap<String, Result<ToolResultEnvelope, ExecuteError>>>>,
     /// Observed schedule batches (for parallel-read assertions).
     pub batches: Arc<Mutex<Vec<Vec<String>>>>,
-    /// Whether scripted memory extraction reports saved rows.
-    pub memory_saved: bool,
+    /// Count of rows scripted memory extraction reports as saved.
+    pub memory_saved: usize,
 }
 
 impl<B: ToolBackend> ScriptedDriver<B> {
@@ -65,7 +65,7 @@ impl<B: ToolBackend> ScriptedDriver<B> {
             pending: HashMap::new(),
             results: Arc::new(Mutex::new(HashMap::new())),
             batches: Arc::new(Mutex::new(Vec::new())),
-            memory_saved: false,
+            memory_saved: 0,
         }
     }
 
@@ -154,7 +154,7 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
     async fn verify(&mut self) -> bool {
         self.verify_ok
     }
-    async fn extract_memory(&mut self) -> bool {
+    async fn extract_memory(&mut self) -> usize {
         self.memory_saved
     }
     async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {

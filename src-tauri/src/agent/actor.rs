@@ -45,9 +45,11 @@ pub trait Driver {
     async fn schedule_tools(&mut self, batch: &[String]) -> u64;
     async fn synthesize(&mut self);
     async fn verify(&mut self) -> bool;
-    /// Run bounded memory extraction; returns whether any rows were saved (so
-    /// the loop emits exactly one `MemoryUpdated` before the terminal event).
-    async fn extract_memory(&mut self) -> bool;
+    /// Run bounded memory extraction; returns the count of rows saved so the
+    /// loop emits exactly one `MemoryUpdated {count}` before the terminal event
+    /// (zero → no notice). The count is required: the UI drops count-less
+    /// notices, so `MemoryUpdated` without it would never render.
+    async fn extract_memory(&mut self) -> usize;
     /// Block until the parked approval is resolved.
     async fn await_approval(&mut self, tool_call_id: &str) -> ApprovalResponse;
 }
@@ -264,10 +266,13 @@ pub async fn run_turn<D: Driver>(
                 Input::Verified { ok }
             }
             Action::ExtractMemory => {
-                // Saved rows emit exactly one MemoryUpdated BEFORE the terminal
-                // event; a timeout/failed capture returns false and adds no
-                // notice (plan capture policy + event-order acceptance).
-                if driver.extract_memory().await {
+                // Saved rows emit exactly one MemoryUpdated {count} BEFORE the
+                // terminal event; a timeout/empty capture returns 0 and adds no
+                // notice (plan capture policy + event-order acceptance). The
+                // count is carried in the payload — the UI drops count-less
+                // notices, so an empty payload would never render.
+                let saved = driver.extract_memory().await;
+                if saved > 0 {
                     events.push(
                         emit_durable(
                             store,
@@ -275,7 +280,7 @@ pub async fn run_turn<D: Driver>(
                             conversation_id,
                             run_id,
                             EventKind::MemoryUpdated,
-                            serde_json::json!({}),
+                            serde_json::json!({ "count": saved }),
                         )
                         .await,
                     );
