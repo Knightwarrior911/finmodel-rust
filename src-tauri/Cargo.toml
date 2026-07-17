@@ -4,7 +4,7 @@ version = "0.5.1"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.96"
 publish = false
 
 # Standalone workspace — detaches from finmodel-core's workspace so the heavy
@@ -32,6 +32,10 @@ tokio = { version = "1", features = ["time", "rt", "macros", "sync"] }
 futures-util = "0.3"
 tokio-util = { version = "0.7", features = ["rt"] }
 keyring = "3"
+# Bundled SQLite (FTS5, static — no runtime sqlite3.dll). Pinned per the plan's
+# dependency gate; MSRV tracks current stable (1.96.0).
+rusqlite = { version = "=0.39.0", features = ["bundled", "backup"] }
+sha2 = "0.10"
 
 # finmodel engine crates (the port). Path deps into the finmodel-core workspace.
 fm-types = { path = "../finmodel-core/fm-types" }
@@ -46,6 +50,7 @@ fm-mcp = { path = "../finmodel-core/fm-mcp" }
 fm-pptx = { path = "../finmodel-core/fm-pptx" }
 fm-ifrs = { path = "../finmodel-core/fm-ifrs" }
 fm-tieout = { path = "../finmodel-core/fm-tieout" }
+fm-agent = { path = "../finmodel-core/fm-agent" }
 
 # Lean release build — smaller target + exe (disk-constrained machine).
 [profile.release]

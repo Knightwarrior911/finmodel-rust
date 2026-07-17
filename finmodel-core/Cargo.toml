@@ -1,3 +1,3 @@
 [workspace]
-members = ["fm-tieout", "fm-types", "fm-engine", "fm-value", "fm-ifrs", "fm-extract", "fm-excel", "fm-cli", "fm-fetch", "fm-build", "fm-research", "fm-pptx", "fm-mcp"]
+members = ["fm-tieout", "fm-types", "fm-engine", "fm-value", "fm-ifrs", "fm-extract", "fm-excel", "fm-cli", "fm-fetch", "fm-build", "fm-research", "fm-pptx", "fm-mcp", "fm-agent"]
 resolver = "2"

@@ -1,0 +1,303 @@
+//! The conversation actor registry: the sole active-run authority after cutover.
+//!
+//! It enforces the plan's concurrency contract:
+//! - at most one active run per conversation;
+//! - at most [`MAX_ACTIVE_CONVERSATIONS`] conversations running at once;
+//! - a global [`GLOBAL_SLOTS`] cap on concurrently executing provider/tool/child
+//!   I/O operations, with at most [`PER_RUN_SLOTS`] per run;
+//! - RAII deregistration so an error/panic can never leak an active entry.
+//!
+//! Actors, coordinators, and parent workflows must drop their execution slot
+//! before awaiting children, approval, timers, or DB replies — the registry
+//! only hands out slots for actively executing operations; holding one while
+//! awaiting is a usage bug the scheduler avoids (a waiting parent holds none).
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::CancellationToken;
+
+/// Maximum conversations with an active run simultaneously.
+pub const MAX_ACTIVE_CONVERSATIONS: usize = 3;
+/// Global cap on concurrently executing provider/tool/child operations.
+pub const GLOBAL_SLOTS: usize = 8;
+/// Per-run cap on concurrently executing operations.
+pub const PER_RUN_SLOTS: usize = 4;
+
+/// Why a run could not be started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartError {
+    /// The conversation already has an active run.
+    ConversationBusy,
+    /// Too many conversations are already running.
+    TooManyActive,
+}
+
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StartError::ConversationBusy => write!(f, "conversation already has an active run"),
+            StartError::TooManyActive => write!(f, "too many active conversation runs"),
+        }
+    }
+}
+impl std::error::Error for StartError {}
+
+#[derive(Clone)]
+struct Entry {
+    run_id: String,
+    token: CancellationToken,
+}
+
+type Map = Arc<Mutex<HashMap<String, Entry>>>;
+
+/// The active-run authority + bounded execution slots.
+#[derive(Clone)]
+pub struct ActorRegistry {
+    map: Map,
+    global: Arc<Semaphore>,
+}
+
+impl Default for ActorRegistry {
+    fn default() -> Self {
+        ActorRegistry {
+            map: Arc::new(Mutex::new(HashMap::new())),
+            global: Arc::new(Semaphore::new(GLOBAL_SLOTS)),
+        }
+    }
+}
+
+impl ActorRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a new active run. Fails if the conversation is busy or the
+    /// active-conversation cap is reached. The returned [`RunHandle`]
+    /// deregisters on drop.
+    pub fn start_run(&self, conversation_id: &str, run_id: &str) -> Result<RunHandle, StartError> {
+        let mut map = self.map.lock();
+        if map.contains_key(conversation_id) {
+            return Err(StartError::ConversationBusy);
+        }
+        if map.len() >= MAX_ACTIVE_CONVERSATIONS {
+            return Err(StartError::TooManyActive);
+        }
+        let token = CancellationToken::new();
+        map.insert(
+            conversation_id.to_string(),
+            Entry {
+                run_id: run_id.to_string(),
+                token: token.clone(),
+            },
+        );
+        Ok(RunHandle {
+            map: self.map.clone(),
+            conversation_id: conversation_id.to_string(),
+            run_id: run_id.to_string(),
+            token,
+            global: self.global.clone(),
+            per_run: Arc::new(Semaphore::new(PER_RUN_SLOTS)),
+        })
+    }
+
+    /// Idempotently cancel a specific conversation's run. Returns true if a
+    /// matching active run was found and signalled.
+    pub fn cancel(&self, conversation_id: &str, run_id: &str) -> bool {
+        let map = self.map.lock();
+        match map.get(conversation_id) {
+            Some(e) if e.run_id == run_id => {
+                e.token.cancel();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Number of conversations with an active run.
+    pub fn active_count(&self) -> usize {
+        self.map.lock().len()
+    }
+
+    /// The active run id for a conversation, if any.
+    pub fn active_run(&self, conversation_id: &str) -> Option<String> {
+        self.map
+            .lock()
+            .get(conversation_id)
+            .map(|e| e.run_id.clone())
+    }
+
+    /// Global execution slots currently available.
+    pub fn global_available(&self) -> usize {
+        self.global.available_permits()
+    }
+}
+
+/// An active run's handle. Holds its cancellation token and per-run slot pool;
+/// deregisters the conversation on drop (RAII).
+pub struct RunHandle {
+    map: Map,
+    conversation_id: String,
+    run_id: String,
+    token: CancellationToken,
+    global: Arc<Semaphore>,
+    per_run: Arc<Semaphore>,
+}
+
+impl RunHandle {
+    pub fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    /// Per-run execution slots currently available.
+    pub fn per_run_available(&self) -> usize {
+        self.per_run.available_permits()
+    }
+
+    /// Acquire one execution slot (one global + one per-run permit). Await this
+    /// only immediately before executing an operation, never while waiting on a
+    /// child/approval/timer/DB — a waiting parent must hold no slot.
+    pub async fn acquire_slot(&self) -> SlotPermit {
+        let global = self.global.clone().acquire_owned().await.expect("global sem");
+        let per_run = self.per_run.clone().acquire_owned().await.expect("per-run sem");
+        SlotPermit {
+            _global: global,
+            _per_run: per_run,
+        }
+    }
+
+    /// Non-blocking slot acquisition (tests / opportunistic scheduling).
+    pub fn try_acquire_slot(&self) -> Option<SlotPermit> {
+        let global = self.global.clone().try_acquire_owned().ok()?;
+        let per_run = self.per_run.clone().try_acquire_owned().ok()?;
+        Some(SlotPermit {
+            _global: global,
+            _per_run: per_run,
+        })
+    }
+}
+
+impl Drop for RunHandle {
+    fn drop(&mut self) {
+        let mut map = self.map.lock();
+        // Only remove if we still own this conversation's entry (matching run).
+        if let Some(e) = map.get(&self.conversation_id) {
+            if e.run_id == self.run_id {
+                map.remove(&self.conversation_id);
+            }
+        }
+    }
+}
+
+/// A held execution slot; releases both permits on drop.
+pub struct SlotPermit {
+    _global: OwnedSemaphorePermit,
+    _per_run: OwnedSemaphorePermit,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_run_per_conversation() {
+        let reg = ActorRegistry::new();
+        let _h = reg.start_run("c1", "r1").unwrap();
+        assert!(matches!(reg.start_run("c1", "r2"), Err(StartError::ConversationBusy)));
+    }
+
+    #[test]
+    fn at_most_three_active_conversations() {
+        let reg = ActorRegistry::new();
+        let _a = reg.start_run("c1", "r1").unwrap();
+        let _b = reg.start_run("c2", "r2").unwrap();
+        let _c = reg.start_run("c3", "r3").unwrap();
+        assert_eq!(reg.active_count(), 3);
+        assert!(matches!(reg.start_run("c4", "r4"), Err(StartError::TooManyActive)));
+    }
+
+    #[test]
+    fn raii_deregistration_frees_the_conversation() {
+        let reg = ActorRegistry::new();
+        {
+            let _h = reg.start_run("c1", "r1").unwrap();
+            assert_eq!(reg.active_count(), 1);
+        }
+        assert_eq!(reg.active_count(), 0);
+        // Free again for a new run.
+        let _h2 = reg.start_run("c1", "r2").unwrap();
+        assert_eq!(reg.active_run("c1").as_deref(), Some("r2"));
+    }
+
+    #[test]
+    fn cancel_targets_the_specific_run() {
+        let reg = ActorRegistry::new();
+        let h = reg.start_run("c1", "r1").unwrap();
+        // Wrong run id does nothing.
+        assert!(!reg.cancel("c1", "rX"));
+        assert!(!h.is_cancelled());
+        // Right one cancels.
+        assert!(reg.cancel("c1", "r1"));
+        assert!(h.is_cancelled());
+    }
+
+    #[test]
+    fn per_run_slots_capped_at_four() {
+        let reg = ActorRegistry::new();
+        let h = reg.start_run("c1", "r1").unwrap();
+        let mut permits = Vec::new();
+        for _ in 0..PER_RUN_SLOTS {
+            permits.push(h.try_acquire_slot().expect("slot"));
+        }
+        assert_eq!(h.per_run_available(), 0);
+        // Fifth slot for the same run is refused.
+        assert!(h.try_acquire_slot().is_none());
+        // Dropping one frees it (a waiting parent that released holds none).
+        permits.pop();
+        assert_eq!(h.per_run_available(), 1);
+        assert!(h.try_acquire_slot().is_some());
+    }
+
+    #[test]
+    fn global_slots_capped_across_runs() {
+        let reg = ActorRegistry::new();
+        // Three runs, up to 4 each, but global cap is 8.
+        let h1 = reg.start_run("c1", "r1").unwrap();
+        let h2 = reg.start_run("c2", "r2").unwrap();
+        let h3 = reg.start_run("c3", "r3").unwrap();
+        let mut permits = Vec::new();
+        // 4 from r1, 4 from r2 -> 8 global used.
+        for _ in 0..4 {
+            permits.push(h1.try_acquire_slot().unwrap());
+        }
+        for _ in 0..4 {
+            permits.push(h2.try_acquire_slot().unwrap());
+        }
+        assert_eq!(reg.global_available(), 0);
+        // r3 has per-run capacity but the global pool is exhausted.
+        assert!(h3.try_acquire_slot().is_none());
+        // Release one global slot -> r3 can proceed.
+        permits.pop();
+        assert!(h3.try_acquire_slot().is_some());
+    }
+
+    #[tokio::test]
+    async fn acquire_slot_awaits_and_releases() {
+        let reg = ActorRegistry::new();
+        let h = reg.start_run("c1", "r1").unwrap();
+        let p = h.acquire_slot().await;
+        assert_eq!(h.per_run_available(), PER_RUN_SLOTS - 1);
+        drop(p);
+        assert_eq!(h.per_run_available(), PER_RUN_SLOTS);
+    }
+}

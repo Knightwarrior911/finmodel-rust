@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased — Agentic analyst cutover (Phase A: contracts + SQLite)
+
+First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
+no user-facing behavior changes yet (legacy JSON chat remains the live path).
+
+### Toolchain + dependency gate
+- Pinned the exact CI stable toolchain via `rust-toolchain.toml` (`1.96.0`,
+  with `rustfmt`/`clippy`); bumped app `rust-version` to `1.96`. Proved the
+  existing core workspace + app build under the pin.
+- Added `rusqlite = "=0.39.0"` (`bundled` + `backup`): SQLite 3.x with FTS5,
+  statically linked. **No runtime `sqlite3.dll`.** Release exe size delta:
+  21,181,440 → 22,304,768 bytes (**+1.07 MiB / +5.3%**).
+
+### New `fm-agent` crate (pure reducer)
+- `finmodel-core/fm-agent`: runtime-agnostic agent-loop reducer following the
+  `fm-research` reducer/driver split. `AgentMachine::next(Input) -> Action`
+  owns phase transitions (`Preparing → [Planning] → Executing ⇄
+  AwaitingApproval → Synthesizing → Verifying → terminal`), budgets, one
+  argument-repair, one verification-repair, approval parking, cancellation, and
+  the single terminal reason. Typed vocabulary: IDs, phases, stop reasons,
+  event kinds (durable/ephemeral), message-part kinds, tool risk, trust,
+  `ToolResultEnvelope`, and the numeric `Claim` record. 30 unit tests.
+
+### SQLite store (`src-tauri/src/store`)
+- Store-actor architecture: `Db` (synchronous core owning the `Connection`) +
+  `StoreHandle` (serializes short transactions on a dedicated blocking thread;
+  never exposes the `Connection` through Tauri state).
+- Full v1 schema (`PRAGMA user_version` authority): workspaces + public-entity
+  allowlist, conversations, branch-linked messages/parts, agent runs + monotonic
+  run events, tool invocations, pending interactions, sources/citations,
+  artifacts, content-addressed blobs + refs + GC queue, scoped memories +
+  memory-uses. FTS5 external-content indexes over message part text and memory
+  content, kept aligned by triggers.
+- Fixed PRAGMAs in correct order: `auto_vacuum=INCREMENTAL` + `secure_delete=ON`
+  established on the zero-page DB before WAL; `foreign_keys=ON`,
+  `synchronous=NORMAL`, `busy_timeout=5000`, `journal_mode=WAL` per open.
+- Atomic blob publish (temp → fsync → rename → row); last-reference GC with
+  retry and resurrection-safe re-reference; stale-temp reconciliation; online
+  backup; interrupted-run repair on startup; integrity/FK/FTS checks.
+- Idempotent, non-destructive JSON→SQLite migration: groups consecutive
+  assistant messages into one logical message (ordered text/result parts),
+  copies `llm_context` to `context_summary`, sets the active leaf, and
+  quarantines malformed files without discarding good conversations. Wired into
+  app startup (`store::init`); legacy JSON stays the source of truth until the
+  Phase G cutover.
+- 14 store tests: foreign keys, branch-path switching, workspace-scoped FTS +
+  deletion, monotonic sequences, first-answer-wins approvals, blob
+  reclamation/retry/resurrection, atomic publish/reconcile, interrupted-run
+  repair, integrity/backup roundtrip, JSON migration grouping/idempotency/
+  quarantine, and store-actor serialization. Full app-lib suite: 86 green.
 
 ## v0.5.1 — 2026-07-17
 

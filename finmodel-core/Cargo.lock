@@ -607,6 +607,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fm-build"
 version = "0.1.0"
 dependencies = [
