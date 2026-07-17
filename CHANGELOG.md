@@ -106,6 +106,17 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   validation, verification requirement, budget policy, membership checks.
   fm-agent suite: 38 green.
 
+### Phase D — tool activity reducer+renderer (`ui/js/activity.mjs`)
+- `ui/js/activity.mjs`: pure state reducer + DOM renderer for tool execution
+  activities. Reduces every `AgentEventEnvelope` into a keyed `ToolActivity`
+  map by `tool_call_id`. Handles all states: queued, running, awaiting_approval,
+  success, warning, error, cancelled, interrupted. Supports batch grouping,
+  bounded output tail (6 lines), expandable detail, approval buttons, elapsed
+  duration, error display, and dark-theme styling.
+- `ui/tests/activity.test.mjs`: 20 tests covering every event type, state
+  transitions, batch grouping, partial DOM updates, run cleanup, and dark/light
+  theme. Full UI suite: 54 green.
+
 ## v0.5.1 — 2026-07-17
 
 ### Fixed — news recency & chat response completeness
@@ -117,6 +128,7 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   headline). Leading filler ("search the web for …") is stripped so the search
   text is a clean topic rather than a full sentence (`fm-fetch::news`).
 - **No more dangling "Here's what I found:".** Deterministically-routed tool
+
   cards (news, web search, quote, filings, PDF) now end with a complete,
   self-contained sentence that reports the result count (e.g. "I found 8 recent
   headlines on this topic.") instead of a colon-terminated lead-in with nothing
