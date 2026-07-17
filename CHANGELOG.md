@@ -30,6 +30,27 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   supersession/recall backend and behavioral tests remain built and green; the
   quality gate is waived, not measured. Manual save/recall UI is not yet wired.
 
+### Phase G — agent loop live-verified; parity partial; cutover deferred
+- **First live `agent_send` runs** (against a real OpenRouter model via the
+  running app) exercised the whole `LiveDriver` pipeline end-to-end:
+  `run_started → assistant_checkpoint → run_completed`, `stop: end_turn`.
+- Fixed two bugs surfaced only under live runs: (1) tool-incompatible models
+  took the machine's direct-answer shortcut and skipped `request_model`,
+  producing an **empty turn** — `prepare` now always routes through Executing so
+  the model is consulted; (2) `synthesize` inserted the assistant message as an
+  orphan (`parent=None`) and swallowed store errors, so the answer **vanished on
+  reload** — it now links under the active leaf (via `Db::active_leaf_id`) and
+  propagates errors, yielding a correct `user → assistant` branch.
+- **Parity result:** on direct-answer prompts the agent loop matches legacy
+  `chat_send` (both return correct prose). Golden oracles cover earnings +
+  trading_comps deterministically offline.
+- **Not yet at full parity / cutover deferred:** the configured model
+  (`deepseek/deepseek-v4-flash`) probed `native_tools=false`, so per plan
+  decision 2 the keyed agent path is text-only for tool-seeking prompts and must
+  offer a capable model or a typed Quick Action — the isolated
+  `FallbackDispatcher` + Quick-Action affordance are the remaining Phase G work
+  before legacy `route_intent`/JSON can be removed. Legacy stays the default.
+
 ### Toolchain + dependency gate
 - Pinned the exact CI stable toolchain via `rust-toolchain.toml` (`1.96.0`,
   with `rustfmt`/`clippy`); bumped app `rust-version` to `1.96`. Proved the
