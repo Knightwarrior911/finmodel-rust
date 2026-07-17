@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.2 — Any provider, full income statement
+
+- **Bring your own provider.** Settings now has a **Provider** dropdown — use
+  your own key with OpenRouter (default), OpenAI, xAI/Grok, Anthropic, Google
+  Gemini, DeepSeek, Groq, Mistral, Together, Fireworks, Cerebras, Moonshot, or
+  any custom OpenAI-compatible endpoint. The chat stream, capability probe, and
+  model list all follow the configured provider; existing OpenRouter users are
+  unaffected. (No subscription/OAuth logins — own-key only, so no ToS/account
+  risk.)
+- **Full income statement** from `get_financials`: revenue, cost of revenue,
+  gross profit, operating income, net income, and diluted EPS — pulled from SEC
+  XBRL with confirmed tag coverage (e.g. TSLA FY2025: revenue $94.83B, gross
+  profit $17.09B, operating income $4.36B, net income $3.79B, EPS $1.08).
+
 ## v0.7.1 — Just answer the number (get_financials)
 
 Asking "what were Tesla's 2025 sales" made the app read *risk factors*, decide
