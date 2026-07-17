@@ -36,6 +36,11 @@ function scrollEl() {
   return $("chatScroll");
 }
 
+// Stick-to-bottom intent: true while the user is at/near the bottom. Driven by
+// user scroll (below), NOT by post-growth position — so a fast-growing stream
+// keeps following instead of disengaging after the first big chunk.
+let stickToBottom = true;
+
 function nearBottom() {
   const el = scrollEl();
   return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
@@ -43,7 +48,8 @@ function nearBottom() {
 
 function scrollToBottom(force) {
   const el = scrollEl();
-  if (force || nearBottom()) el.scrollTop = el.scrollHeight;
+  if (force) stickToBottom = true;
+  if (force || stickToBottom) el.scrollTop = el.scrollHeight;
 }
 
 function showEmpty(show) {
@@ -535,6 +541,10 @@ function autoGrow() {
 
 export function initChat(opts = {}) {
   onChanged = opts.onConversationChanged || (() => {});
+  // Track stick-to-bottom from user scroll. Programmatic scroll-to-bottom lands
+  // near the bottom (flag stays true); scrolling up to read releases the follow;
+  // scrolling back to the bottom re-engages it.
+  scrollEl().addEventListener("scroll", () => { stickToBottom = nearBottom(); }, { passive: true });
 
   on("chat_delta", (e) => handleDelta(e.payload || {}));
   on("chat_tool", (e) => handleTool(e.payload || {}));
