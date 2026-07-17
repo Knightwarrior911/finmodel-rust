@@ -15,6 +15,7 @@ pub fn run() {
         .manage(commands::mcp::McpManager::default())
         .manage(commands::research_state::ResearchRunState::default())
         .manage(commands::artifacts::ArtifactRegistry::default())
+        .manage(agent::registry::ActorRegistry::default())
         .setup(|app| {
             // Open the SQLite store (Phase A). The legacy JSON conversation
             // directory stays the live source of truth until the Phase G

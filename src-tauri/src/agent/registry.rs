@@ -129,6 +129,15 @@ impl ActorRegistry {
             .map(|e| e.run_id.clone())
     }
 
+    /// All active `(conversation_id, run_id)` pairs.
+    pub fn active_runs(&self) -> Vec<(String, String)> {
+        self.map
+            .lock()
+            .iter()
+            .map(|(c, e)| (c.clone(), e.run_id.clone()))
+            .collect()
+    }
+
     /// Global execution slots currently available.
     pub fn global_available(&self) -> usize {
         self.global.available_permits()

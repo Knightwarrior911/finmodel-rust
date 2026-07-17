@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod analysis;
 pub mod artifacts;
 pub mod benchmark;
@@ -40,6 +41,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         chat::chat_send,
         chat::chat_cancel,
         research_state::research_retry,
+        agent::agent_cancel,
+        agent::agent_resume,
+        agent::list_active_runs,
+        agent::get_run_events_after,
+        agent::get_run_snapshot,
         research::review_suggested_assumptions,
         settings::load_settings,
         settings::save_settings,

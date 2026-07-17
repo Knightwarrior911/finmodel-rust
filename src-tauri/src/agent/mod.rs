@@ -11,6 +11,7 @@
 //! - [`context`] — selected-branch context assembly and rolling compaction.
 //! - [`registry`] — active-run authority and bounded concurrency.
 
+pub mod actor;
 pub mod context;
 pub mod events;
 pub mod registry;

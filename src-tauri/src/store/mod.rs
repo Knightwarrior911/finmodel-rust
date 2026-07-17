@@ -504,6 +504,22 @@ impl Db {
             .optional()?)
     }
 
+    /// The most recent run for a conversation (by insertion/start order), if any.
+    pub fn latest_run_for_conversation(&self, conversation_id: &str) -> StoreResult<Option<AgentRun>> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM agent_runs WHERE conversation_id=?1 ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match id {
+            Some(rid) => self.get_run(&rid),
+            None => Ok(None),
+        }
+    }
+
     // ---- Tool invocations & approvals ----
 
     #[allow(clippy::too_many_arguments)]
