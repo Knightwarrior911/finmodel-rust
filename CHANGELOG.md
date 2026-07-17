@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.7.0 — Memory, faster tools, sharper routing, smoother UI
+
+Five improvements, all verified live in the running app:
+
+- **Memory is now a real feature.** Say `remember: <fact>` (or `note:`, `save to
+  memory:`) and it's saved to the workspace (secrets/paths/questions rejected by
+  a precision gate); a "Memory saved · N" pill confirms it. Later turns recall
+  relevant notes via scoped full-text search and use them in the answer —
+  verified: after saving "I prefer revenue in USD millions", a later revenue
+  question answered in USD millions unprompted. Automatic (unattended) capture
+  stays off pending its quality gate; this is explicit manual save + recall.
+- **Parallel tool calls.** Independent read-only tools (e.g. a peer set's
+  per-ticker fetches) now run concurrently — capped at 4 in flight — instead of
+  one-at-a-time, cutting latency on multi-tool turns.
+- **Sharper tool routing.** A question for a specific reported figure
+  (revenue/sales, net income, EPS) now routes to research (cited) or a model
+  build instead of scraping narrative filing sections — the exact failure from
+  the earlier "Tesla 2025 sales" turn. Verified: it now runs research and builds
+  a real TSLA model.
+- **Live auto-scroll.** The transcript follows a streaming response instead of
+  freezing after the first big chunk; scroll up to read and it releases, return
+  to the bottom and it re-engages.
+- **UI polish.** Elevated composer focus ring, defined message bubbles, a
+  clearer "Memory saved" pill, and improved reading rhythm — refining the
+  existing editorial-finance aesthetic (not a redesign).
+
+Engine reuse: parallel execution, compact tool summaries, and durable event
+patterns draw on the concepts studied from Oh My Pi and Grok Build (reimplemented
+in Rust/JS, no upstream code). 208 backend + 114 UI tests green.
+
 ## v0.6.1 — Fix: reading 10-K filings
 
 `read_filing` (e.g. "what were Tesla's 2025 sales from the annual report") kept
