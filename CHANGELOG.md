@@ -5,6 +5,31 @@
 First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
 no user-facing behavior changes yet (legacy JSON chat remains the live path).
 
+### Fixes (legacy path, user-facing)
+- **API key never persisted.** `keyring = "3"` was declared with no feature
+  flags; keyring v3 gates every platform backend behind a feature, so the app
+  silently used the in-memory **mock** store — the OpenRouter key saved within a
+  session but was gone on restart, forcing repeated re-entry. Enabled
+  `windows-native` (real Windows Credential Manager). Verified cross-process: a
+  write now materializes as credential `openrouter_api_key.finmodel` visible to
+  `cmdkey` from a separate process.
+- **Sidebar layout at HiDPI.** Conversation titles now wrap (2-line clamp +
+  word-break) instead of clipping; the sidebar no longer shows a horizontal
+  scrollbar (`overflow-x: hidden`); rename/delete actions reserve space and fade
+  in rather than overlapping the title. Lowered the shell `min-width` floor
+  (800→600) and rationalized the responsive breakpoints around `--sidebar-w`
+  (full 272px ≥1101, narrow 200px docked 601–1100, overlay drawer only ≤600) so
+  2× HiDPI working widths dock the sidebar instead of overflowing/overlaying.
+  Verified via CDP at 784 CSS px (docked grid, no page/list h-scroll, 2-line
+  titles, no action overlap).
+
+### Memory (Phase E) — shipped auto-capture-disabled
+- Per product decision, automatic memory capture stays **off**
+  (`extract_memory → 0`) pending a labelled ≥200-turn dataset to validate the
+  ≥98% precision / ≥90% recall gate. The store + capture/precision-gate/dedup/
+  supersession/recall backend and behavioral tests remain built and green; the
+  quality gate is waived, not measured. Manual save/recall UI is not yet wired.
+
 ### Toolchain + dependency gate
 - Pinned the exact CI stable toolchain via `rust-toolchain.toml` (`1.96.0`,
   with `rustfmt`/`clippy`); bumped app `rust-version` to `1.96`. Proved the
