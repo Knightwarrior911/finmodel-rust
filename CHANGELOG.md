@@ -117,6 +117,18 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   transitions, batch grouping, partial DOM updates, run cleanup, and dark/light
   theme. Full UI suite: 54 green.
 
+### Phase F — workflow orchestrator + subagent pool (`agent/workflows.rs`, `agent/subagents.rs`)
+- `agent/workflows.rs`: runtime workflow planner — validates `WorkflowSpec`
+  against `ToolRegistry`, resolves allowed-tool set, sets budgets, produces
+  `WorkflowPlan` with sequential steps. Pure planning, no I/O. 10 tests.
+- `check_workflow_tools()`: startup drift detection — verifies every required
+  tool is registered; returns missing tools.
+- `agent/subagents.rs`: `SubagentPool` — manages child subagents for one
+  parent workflow. Enforces `max_children` cap, tracks lifecycle
+  (queued/running/succeeded/failed/cancelled), supports cascading
+  cancellation via `cancel_all()`. 10 tests.
+- App-lib suite: 173 green.
+
 ## v0.5.1 — 2026-07-17
 
 ### Fixed — news recency & chat response completeness

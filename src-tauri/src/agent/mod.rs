@@ -19,4 +19,6 @@ pub mod security;
 pub mod scheduler;
 pub mod tools;
 pub mod fallback;
+pub mod workflows;
+pub mod subagents;
 pub mod provider;
