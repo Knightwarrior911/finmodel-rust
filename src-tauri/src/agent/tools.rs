@@ -323,10 +323,11 @@ mod tests {
         for name in [
             "get_quote", "get_news", "list_filings", "read_filing", "web_search", "read_page",
             "analyze_pdf", "research", "research_deal", "benchmark_peers", "build_model",
+            "get_financials",
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 11);
+        assert_eq!(r.names().len(), 12);
     }
 
     #[test]
