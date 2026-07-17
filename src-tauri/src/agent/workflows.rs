@@ -7,11 +7,11 @@
 //! Pure planning — no I/O. The driver (in `crate::agent::actor`) executes
 //! the plan through the provider/tool loop.
 
-use fm_agent::budget::{Budget, Policy};
+use fm_agent::budget::Budget;
 use fm_agent::types::{Confidentiality, Risk};
-use fm_agent::workflows::{ApprovalPolicy, WorkflowSpec};
+use fm_agent::workflows::ApprovalPolicy;
 
-use crate::agent::tools::{ToolError, ToolRegistry};
+use crate::agent::tools::ToolRegistry;
 
 /// One planned tool call within a workflow.
 #[derive(Clone, Debug)]
@@ -129,6 +129,7 @@ pub fn check_workflow_tools(registry: &ToolRegistry) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fm_agent::budget::Policy;
 
     fn reg() -> ToolRegistry {
         ToolRegistry::builtin()

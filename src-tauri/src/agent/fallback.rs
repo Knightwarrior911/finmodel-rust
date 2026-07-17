@@ -217,7 +217,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn path_like_tokens_do_not_yield_drive_letter_tickers() {
         // TESTCO is 6 letters (not a ticker shape); path token is skipped → None.
         assert_eq!(

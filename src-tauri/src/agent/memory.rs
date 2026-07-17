@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 
 use fm_agent::types::Claim;
-use crate::store::memory::{MemoryError, MemoryRepository, MemoryScope, NewMemory};
+use crate::store::memory::{MemoryRepository, MemoryScope, NewMemory};
 
 // ── Extraction input ──────────────────────────────────────────────────
 

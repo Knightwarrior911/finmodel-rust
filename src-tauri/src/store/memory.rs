@@ -407,12 +407,6 @@ mod tests {
     use crate::store::Db;
     use tempfile::TempDir;
 
-    fn mem_db() -> (Db, TempDir) {
-        let td = TempDir::new().unwrap();
-        let db = Db::open_in_memory(&td.path().join("blobs")).unwrap();
-        (db, td)
-    }
-
     fn sample_memory() -> NewMemory {
         NewMemory {
             public_id: "mem1".into(),

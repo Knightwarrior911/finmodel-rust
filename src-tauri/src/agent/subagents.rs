@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use fm_agent::budget::{Budget, Policy};
+use fm_agent::budget::Budget;
 
 /// Unique identifier for a child subagent within a workflow run.
 pub type SubagentId = u32;
@@ -40,6 +40,9 @@ pub struct SubagentPool {
     max_children: u32,
     next_id: SubagentId,
     children: HashMap<SubagentId, SubagentHandle>,
+    /// Total child-runtime budget. Held for enforcement wiring; not yet read by
+    /// the pool (child cancellation currently drives termination).
+    #[allow(dead_code)]
     budget: Budget,
 }
 
@@ -56,8 +59,8 @@ impl SubagentPool {
         }
     }
 
-    /// Attempt to spawn a new child subagent. Returns `None` if
-    /// `max_children` would be exceeded or the budget is exhausted.
+    /// Attempt to spawn a new child subagent. Returns `None` if `max_children`
+    /// would be exceeded. (Budget-based capping is retained but not yet enforced.)
     pub fn spawn(&mut self, label: String) -> Option<SubagentHandle> {
         if self.children.len() as u32 >= self.max_children {
             return None;
@@ -157,6 +160,7 @@ impl SubagentPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fm_agent::budget::Policy;
     fn pool() -> SubagentPool {
         SubagentPool::new("test".into(), 4, Budget::new(Policy::INTERACTIVE))
     }

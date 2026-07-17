@@ -60,6 +60,8 @@ pub struct ToolSpec {
     pub validate: fn(&Value) -> Result<(), String>,
 }
 
+/// No-op validator, reserved for tools that need no extra semantic checks.
+#[allow(dead_code)]
 fn ok(_: &Value) -> Result<(), String> {
     Ok(())
 }
