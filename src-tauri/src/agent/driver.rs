@@ -168,6 +168,48 @@ pub fn ro_call(id: &str, name: &str) -> ToolCall {
     }
 }
 
+/// Map an accumulated provider stream into a reducer [`ModelOut`], classifying
+/// each complete tool call's risk / approval need / argument validity through
+/// the [`ToolRegistry`]. This is the exact seam a live OpenRouter driver's
+/// `request_model` uses: SSE → accumulator → typed reducer input. Path- and
+/// confidentiality-based approval refinement happens later in the executor /
+/// security layer; this classifies the base risk the reducer partitions on.
+pub fn model_out_from_stream(
+    registry: &ToolRegistry,
+    acc: &crate::agent::provider::StreamAccumulator,
+) -> ModelOut {
+    let mut calls = Vec::new();
+    for c in acc.complete_calls() {
+        let args: Value = serde_json::from_str(&c.arguments).unwrap_or(Value::Null);
+        let args_valid = registry.validate_call(&c.name, &args).is_ok();
+        let spec = registry.get(&c.name);
+        let risk = spec.map(|s| s.risk).unwrap_or(Risk::ReadOnly);
+        // Unknown tools fail closed: the reducer already drops `!args_valid`
+        // calls, but never let an unrecognized name be classified as auto-run.
+        let needs_approval = spec.map(|s| !s.risk.auto_runs()).unwrap_or(true);
+        calls.push(ToolCall {
+            tool_call_id: c.id.clone(),
+            name: c.name.clone(),
+            risk,
+            needs_approval,
+            args_valid,
+        });
+    }
+    let final_answer = calls.is_empty();
+    let tokens = acc
+        .meta
+        .usage
+        .as_ref()
+        .and_then(|u| u.get("total_tokens"))
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+    ModelOut {
+        calls,
+        final_answer,
+        tokens,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,5 +502,159 @@ mod tests {
             .collect();
         let ex_start = starts.iter().find(|(_, id)| id == "ex").unwrap().0;
         assert!(apr < ex_start, "approval before export execution");
+    }
+
+    #[test]
+    fn stream_content_only_is_final_answer() {
+        let reg = ToolRegistry::builtin();
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"content":"The margin expanded."}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+            r#"{"choices":[],"usage":{"total_tokens":42}}"#,
+            "[DONE]",
+        ]);
+        let out = model_out_from_stream(&reg, &acc);
+        assert!(out.final_answer);
+        assert!(out.calls.is_empty());
+        assert_eq!(out.tokens, 42);
+    }
+
+    #[test]
+    fn stream_parallel_reads_map_to_readonly_autorun_calls() {
+        let reg = ToolRegistry::builtin();
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"q","function":{"name":"get_quote","arguments":"{\"ticker\":\"NVDA\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"f","function":{"name":"list_filings","arguments":"{\"ticker\":\"NVDA\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+            "[DONE]",
+        ]);
+        let out = model_out_from_stream(&reg, &acc);
+        assert!(!out.final_answer);
+        assert_eq!(out.calls.len(), 2);
+        for c in &out.calls {
+            assert_eq!(c.risk, Risk::ReadOnly);
+            assert!(!c.needs_approval);
+            assert!(c.args_valid);
+        }
+    }
+
+    #[test]
+    fn stream_build_model_is_local_create_autorun() {
+        let reg = ToolRegistry::builtin();
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","function":{"name":"build_model","arguments":"{\"ticker\":\"MSFT\"}"}}]}}]}"#,
+            "[DONE]",
+        ]);
+        let out = model_out_from_stream(&reg, &acc);
+        assert_eq!(out.calls.len(), 1);
+        assert_eq!(out.calls[0].risk, Risk::LocalCreate);
+        assert!(!out.calls[0].needs_approval); // new immutable version auto-runs
+        assert!(out.calls[0].args_valid);
+    }
+
+    #[test]
+    fn stream_invalid_args_and_unknown_tool_flag_args_invalid() {
+        let reg = ToolRegistry::builtin();
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"x","function":{"name":"get_quote","arguments":"{\"ticker\":\"not a ticker!!\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"y","function":{"name":"frobnicate","arguments":"{}"}}]}}]}"#,
+            "[DONE]",
+        ]);
+        let out = model_out_from_stream(&reg, &acc);
+        assert_eq!(out.calls.len(), 2);
+        assert!(!out.calls[0].args_valid, "bad ticker fails semantic validation");
+        assert!(!out.calls[1].args_valid, "unknown tool has no spec");
+        assert_eq!(out.calls[1].risk, Risk::ReadOnly); // unknown defaults to read-only
+        assert!(out.calls[1].needs_approval, "unknown tool fails closed (never auto-run)");
+    }
+
+    #[tokio::test]
+    async fn earnings_golden_fixture_end_to_end() {
+        // Plan the golden earnings_review workflow against the real registry.
+        let reg = ToolRegistry::builtin();
+        let plan = crate::agent::workflows::plan_workflow(
+            "earnings_review",
+            &json!({"ticker":"NVDA"}),
+            &reg,
+        )
+        .unwrap();
+        assert!(plan.needs_verification, "earnings is a numeric-finance turn");
+        for t in ["list_filings", "read_filing", "get_news", "get_quote"] {
+            assert!(
+                plan.steps.iter().any(|s| s.tool_name == t),
+                "missing required step {t}"
+            );
+        }
+
+        // Drive the earnings sequence through the scripted driver + fake backend.
+        let (_td, store, sink, run) = setup();
+        let backend = FakeBackend::new()
+            .seed_ok(
+                "list_filings",
+                "NVDA 10-K + 10-Q",
+                json!({
+                    "type":"filings","ticker":"NVDA",
+                    "url":"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810"
+                }),
+            )
+            .seed_ok(
+                "read_filing",
+                "Item 7 MD&A: revenue $60,922M FY2024",
+                json!({
+                    "type":"filing_doc","ticker":"NVDA","form":"10-K","filing_date":"2024-02-21",
+                    "url":"https://www.sec.gov/Archives/edgar/data/1045810/nvda-10k.htm"
+                }),
+            )
+            .seed_ok("get_news", "Guidance raised for Q1", json!({"type":"news","query":"NVDA guidance"}))
+            .seed_ok("get_quote", "NVDA 788.17 USD", quote_card("NVDA", 788.17));
+
+        let ctx = SessionContext::test_ctx("c1", "NVDA earnings review beat/miss + guidance");
+        let mut driver = ScriptedDriver::new(backend, ctx);
+        let results = driver.results.clone();
+        driver.seed_pending("lf", "list_filings", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        driver.seed_pending("rf", "read_filing", json!({"ticker":"NVDA","item":"7"}), Risk::ReadOnly);
+        driver.seed_pending("nw", "get_news", json!({"query":"NVDA guidance"}), Risk::ReadOnly);
+        driver.seed_pending("qt", "get_quote", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        // R1: two independent reads. R2: dependent read_filing + news. R3: final.
+        driver.model_outs = vec![
+            ModelOut {
+                calls: vec![ro_call("lf", "list_filings"), ro_call("qt", "get_quote")],
+                final_answer: false,
+                tokens: 40,
+            },
+            ModelOut {
+                calls: vec![ro_call("rf", "read_filing"), ro_call("nw", "get_news")],
+                final_answer: false,
+                tokens: 60,
+            },
+            ModelOut { calls: vec![], final_answer: true, tokens: 30 },
+        ];
+        driver.verify_ok = true;
+
+        let m = AgentMachine::new(Policy::WORKFLOW);
+        let out = run_turn(&store, &sink, "c1", &run, m, driver).await;
+        assert_eq!(out.event, EventKind::RunCompleted);
+        assert!(!out.partial, "verified earnings answer is not partial");
+
+        let kinds: Vec<EventKind> = sink.events.lock().iter().map(|e| e.event.kind).collect();
+        assert!(kinds.contains(&EventKind::AssistantCheckpoint));
+        assert_eq!(*kinds.last().unwrap(), EventKind::RunCompleted);
+
+        // Every required tool executed and the filing promoted a sec.gov source.
+        let results = results.lock();
+        for id in ["lf", "rf", "nw", "qt"] {
+            assert!(results.get(id).unwrap().is_ok(), "tool {id} failed");
+        }
+        assert!(
+            results
+                .get("rf")
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .sources
+                .iter()
+                .any(|s| s.canonical_uri.contains("sec.gov")),
+            "filing source promoted to ledger"
+        );
     }
 }

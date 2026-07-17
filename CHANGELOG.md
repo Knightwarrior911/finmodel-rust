@@ -115,6 +115,20 @@ no user-facing behavior changes yet (legacy JSON chat remains the live path).
   approval ordering via ScriptedDriver, earnings/comps plan assertions.
   App-lib suite: 223 green.
 
+### Phase C — provider stream→ModelOut mapper + earnings golden e2e
+- `agent/driver.rs::model_out_from_stream`: the real `request_model` core —
+  maps a `StreamAccumulator` into a reducer `ModelOut`, classifying each tool
+  call's risk / `needs_approval` / `args_valid` through the `ToolRegistry`.
+  Unknown tools fail closed (never auto-run). 4 tests over canned OpenRouter
+  SSE JSON: content-only→final answer, parallel reads→read-only auto-run,
+  `build_model`→LocalCreate auto-run, invalid-args/unknown→`args_valid=false`.
+- `earnings_golden_fixture_end_to_end`: drives the golden `earnings_review`
+  workflow (T2) via `plan_workflow` + `ScriptedDriver` + `FakeBackend` — plan
+  requires `list_filings`/`read_filing`/`get_news`/`get_quote`, all four execute,
+  filing promotes a `sec.gov` source, `AssistantCheckpoint` precedes a single
+  terminal `RunCompleted`, verification passes (non-partial). App-lib: 228 green.
+
+
 ### Phase D — task tray + workspace chrome
 - `ui/js/tasks.mjs`: non-blocking task tray reducer (≤3 visible, background
   vs focused, cancel hooks). 8 tests.
