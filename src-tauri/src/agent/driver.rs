@@ -400,6 +400,23 @@ impl LiveDriver {
         let _ = self.app.emit("chat_tool", payload);
     }
 
+    /// Fan-out banner event for the live UI: `status` is `fanout` / `fanout_done`,
+    /// `count` is the number of independent calls running concurrently in a wave.
+    /// Surfaces parallel work (M4) without disturbing the per-tool card flow.
+    fn emit_fanout(&self, status: &str, count: usize) {
+        use tauri::Emitter;
+        let _ = self.app.emit(
+            "chat_tool",
+            serde_json::json!({
+                "name": "",
+                "status": status,
+                "count": count,
+                "conversation_id": self.ctx.conversation_id,
+                "run_id": self.ctx.run_id,
+            }),
+        );
+    }
+
     fn seed_pending_from_acc(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
         self.pending.clear();
         for c in acc.complete_calls() {
@@ -753,6 +770,12 @@ impl Driver for LiveDriver {
                 })
                 .collect();
 
+            // Parallel fan-out banner when more than one independent call runs
+            // concurrently in this wave (M4: surface parallel work live).
+            let parallel = calls.len() > 1;
+            if parallel {
+                self.emit_fanout("fanout", calls.len());
+            }
             // Live "running…" status on the transitional UI channel.
             for (_, name, _) in &calls {
                 self.emit_tool(name, "start", None);
@@ -800,6 +823,9 @@ impl Driver for LiveDriver {
                         }));
                     }
                 }
+            }
+            if parallel {
+                self.emit_fanout("fanout_done", calls.len());
             }
         }
         ToolBatchOutcome { tokens: total, failed }

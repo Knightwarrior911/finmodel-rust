@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.8.1 — See the parallel work
+
+- **Fan-out is now visible.** When the analyst runs several independent lookups
+  at once (e.g. per-company financials), the transcript shows a live "Running N
+  tasks in parallel…" banner that resolves to "⚡ N tasks ran in parallel", so
+  you can see the concurrency instead of just a stack of tool rows. Verified
+  live: a three-company revenue comparison (Apple / Microsoft / Google 2025) ran
+  all three `get_financials` calls in one wave and reported the ranking.
+
+Still a stretch: a dedicated task tray for *child-subagent* runs (separate agent
+turns), and automatic memory capture (pending its precision dataset). 208 lib +
+114 UI green.
+
 ## v0.8.0 — More like an analyst you talk to
 
 Agentic-experience upgrades toward "talking to a capable analyst":

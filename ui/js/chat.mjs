@@ -221,6 +221,24 @@ function agentPhaseLabel(phase) {
 function handleTool(payload) {
   if (!eventMatchesActive(payload)) return;
   const name = payload.name || "tool";
+  if (payload.status === "fanout") {
+    const n = payload.count || 2;
+    const b = document.createElement("div");
+    b.className = "tool-status fanout-banner";
+    b.innerHTML = `<span class="spinner"></span><span class="tool-status-name">Running ${n} tasks in parallel…</span>`;
+    scrollEl().appendChild(b);
+    scrollToBottom();
+    activeTurn.fanoutNode = b;
+    return;
+  }
+  if (payload.status === "fanout_done") {
+    if (activeTurn.fanoutNode) {
+      const n = payload.count || 2;
+      activeTurn.fanoutNode.innerHTML = `<span class="tool-status-name">⚡ ${n} tasks ran in parallel</span>`;
+      activeTurn.fanoutNode = null;
+    }
+    return;
+  }
   if (payload.status === "start") {
     setProgress(phaseLabel(name, payload.detail));
     const node = toolStatusNode(name);

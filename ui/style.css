@@ -451,6 +451,11 @@ body.sidebar-collapsed .sidebar-expand { display: inline-flex; }
   font-size: 14px;
 }
 .tool-status-name { text-transform: capitalize; }
+.fanout-banner .tool-status-name {
+  text-transform: none;
+  font-weight: 600;
+  color: var(--accent, #6ea8fe);
+}
 
 .spinner {
   display: inline-block;
