@@ -1,8 +1,28 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.8.5 design polish + v0.8.4 project folders, LIVE (current, 2026-07-18)
-**Branch `master`, tagged `v0.8.5` (pushed).** Live — endpoint VERIFIED serving
-`0.8.5`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user-requested features.
+## HANDOVER — v0.8.6 skills system, LIVE (current, 2026-07-18)
+**Branch `master`, tagged `v0.8.6` (pushed).** Live — endpoint VERIFIED serving
+`0.8.6`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user features (all shipped).
+### v0.8.6 — SKILL.md skills system + self-evolution
+- `agent/skills.rs`: parse SKILL.md (frontmatter `name`+`description`+optional `parameters`, body);
+  `list/save/get/delete` in `<config>/skills/<name>.md`; `catalog_block` (names+desc only);
+  `is_valid_name` (traversal-safe). 6 unit tests.
+- Discovery = progressive disclosure: `apply_grounding` appends the catalog (names+desc) to the system
+  prompt; a `use_skill(name)` tool (registry spec + `agent_tool_schemas` + `run_tool` dispatch →
+  `tool_use_skill` returns the body as the tool summary, null display) loads full steps on demand.
+  Registry count 12→13; count tests updated.
+- Commands `skills_{list,get,save,delete}` + Skills manager in the Settings modal (`settings.mjs`
+  `loadSkillsList` + `skillSaveBtn`; `index.html`).
+- Self-evolution: `skill_suggest(transcript)` → model abstracts a solved turn into a generalized
+  SKILL.md draft via `settings::complete_once` (honors `base_url` — NOT the OpenRouter-hardcoded
+  `fm_extract::llm_complete_with`). "Save as skill" button (`chat.mjs`, after ≥2-tool turns; tracks
+  `activeTurn.toolSeq`) → `openSettingsWithSkillDraft` prefills the editor.
+- `core.mjs` `call()` now tolerates raw-string returns (parse, else raw) — also fixes project-grounding
+  pre-fill in the modal.
+- VERIFIED live: `define-terms` → "Define EBITDA" made the agent call `use_skill` + follow it
+  (`[SKILL-USED]`); `skill_suggest` produced a generalized `compare-company-revenue-net-income` draft;
+  "Save as skill" appeared after a 3-tool turn. 223 lib + 116 UI green.
+
 
 ### v0.8.5 — design polish (product-register craft pass)
 - CSS + icons only (no logic change). Commanding hero type (`clamp` display, tight tracking);
@@ -47,8 +67,8 @@
   dev/held-out set (`auto_capture_eval`). Keyword-rules measured **P=0.87 / R=0.84 on held-out —
   BELOW the 98/90 gate**, so auto-capture stays OFF (needs a model classifier on real data). The
   classifier feeds `MemoryCapture` only; `LiveDriver` production path unchanged.
-- **Still NOT built** (last remaining user ask): SKILL.md skills system + self-evolution — RE from
-  the openclaw/hermes GitHub URLs. Project folders + grounding + thinking trace are DONE (v0.8.4/v0.8.5).
+- **All requested user features are shipped** through v0.8.6: thinking trace, grounding layers, project
+  folders, design polish, and the SKILL.md skills system + self-evolution. No outstanding asks.
 
 ### v0.7.2 — any OpenAI-compatible provider + full income statement
 - `Settings.base_url` (default OpenRouter). `chat_completions_url`/`provider_base`/
