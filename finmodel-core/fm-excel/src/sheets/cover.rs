@@ -2,7 +2,7 @@
 //! from those tabs; otherwise shows the snapshot placeholder.
 
 use crate::input::WorkbookInput;
-use crate::model::{cell_ref, Sheet, DATA0, LABEL};
+use crate::model::{DATA0, LABEL, Sheet, cell_ref};
 use crate::sheets::dcf::rows as dr;
 use crate::sheets::wacc::rows as wr;
 

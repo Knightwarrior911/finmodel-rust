@@ -16,6 +16,26 @@ test("createStore initial state", () => {
   assert.equal(s.draftText, "");
 });
 
+test("createStore has no schema error", () => {
+  assert.equal(createStore().schemaError, null);
+});
+
+test("newer schema_version is rejected with a recoverable message", () => {
+  let s = reduce(createStore(), ev("RunStarted"));
+  const before = s.streaming;
+  s = reduce(s, { schema_version: 999, event: { type: "RunStarted" }, run_id: "r1", conversation_id: "c1" });
+  assert.ok(s.schemaError, "sets a recoverable schema error");
+  assert.match(s.schemaError, /refresh/i);
+  // The unknown event is NOT reduced (state otherwise preserved).
+  assert.equal(s.streaming, before);
+});
+
+test("known schema_version is accepted", () => {
+  let s = reduce(createStore(), { schema_version: 2, event: { type: "RunStarted" }, run_id: "r1", conversation_id: "c1" });
+  assert.equal(s.schemaError, null);
+  assert.equal(s.streaming, true);
+});
+
 test("RunStarted sets streaming and status", () => {
   let s = createStore();
   s = reduce(s, ev("RunStarted"));
@@ -206,4 +226,66 @@ test("markVerified with no assistant message is no-op", () => {
   let s = createStore();
   s = markVerified(s); // no crash
   assert.equal(s.messages.length, 0);
+});
+
+// ── Task 2.1: real Rust envelope shape + replay idempotency ──────────────
+
+function durable(kind, seq, payload = {}) {
+  return {
+    schema_version: 2,
+    event: { kind, payload },
+    sequence: seq,
+    run_id: "r1",
+    conversation_id: "c1",
+  };
+}
+
+test("reduces the Rust envelope shape (kind + payload)", () => {
+  let s = reduce(createStore(), durable("run_started", 1));
+  assert.equal(s.streaming, true);
+  assert.equal(s.runStatus, "running");
+  s = reduce(s, durable("phase_changed", 2, { phase: "Executing" }));
+  assert.equal(s.phaseLabel, "Executing");
+  s = reduce(s, durable("memory_updated", 3, { count: 3 }));
+  assert.equal(s.lastAnnounce, "Memory updated · 3");
+  s = reduce(s, durable("run_completed", 4, { stop: { kind: "end_turn" }, partial: false }));
+  assert.equal(s.runStatus, "completed");
+  assert.equal(s.streaming, false);
+});
+
+test("PlanUpdated stores the whole plan payload", () => {
+  const plan = { objective: "NVDA earnings", assumptions: [], steps: [{ id: "s1", label: "Read 10-K", status: "pending" }], version: 1 };
+  let s = reduce(createStore(), durable("run_started", 1));
+  s = reduce(s, durable("plan_updated", 2, plan));
+  assert.equal(s.plan.objective, "NVDA earnings");
+  assert.equal(s.plan.steps.length, 1);
+});
+
+test("durable replay by (run_id, sequence) is idempotent", () => {
+  const seqEvents = [
+    durable("run_started", 1),
+    durable("phase_changed", 2, { phase: "Executing" }),
+    durable("tool_started", 3, { tool_call_id: "t1" }),
+    durable("tool_succeeded", 4, { tool_call_id: "t1" }),
+    durable("run_completed", 5, { stop: { kind: "end_turn" }, partial: false }),
+  ];
+  // Live: apply once.
+  let live = createStore();
+  for (const e of seqEvents) live = reduce(live, e);
+  // Reload: snapshot (empty) then replay the SAME durable sequence.
+  let reload = createStore();
+  for (const e of seqEvents) reload = reduce(reload, e);
+  // And re-deliver every event a second time (gap-close overlap / double emit).
+  for (const e of seqEvents) reload = reduce(reload, e);
+  assert.equal(JSON.stringify(reload), JSON.stringify(live), "reload == live after replay");
+});
+
+test("re-delivered older sequence is a no-op", () => {
+  let s = reduce(createStore(), durable("run_started", 1));
+  s = reduce(s, durable("phase_changed", 3, { phase: "Synthesizing" }));
+  const before = JSON.stringify(s);
+  // A late/duplicate seq 2 (<= applied 3) must not mutate state.
+  s = reduce(s, durable("phase_changed", 2, { phase: "STALE" }));
+  assert.equal(JSON.stringify(s), before);
+  assert.equal(s.phaseLabel, "Synthesizing");
 });

@@ -11,7 +11,10 @@ use crate::agent::tools::{ToolError, ToolRegistry};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FallbackDecision {
     /// Execute this validated tool with these args.
-    Tool { name: String, args: serde_json::Value },
+    Tool {
+        name: String,
+        args: serde_json::Value,
+    },
     /// No tool matched — answer directly (bare definitional question).
     Direct,
 }
@@ -38,8 +41,8 @@ fn is_filing_form(word: &str) -> bool {
 /// 1–4 uppercase exchange suffix.
 fn is_ticker_shape(raw: &str) -> bool {
     const STOP: &[&str] = &[
-        "A", "I", "THE", "DCF", "PDF", "SEC", "CEO", "CFO", "USD", "EUR", "AND", "OR", "US",
-        "EV", "IPO", "GAAP", "IFRS", "Q1", "Q2", "Q3", "Q4", "FY",
+        "A", "I", "THE", "DCF", "PDF", "SEC", "CEO", "CFO", "USD", "EUR", "AND", "OR", "US", "EV",
+        "IPO", "GAAP", "IFRS", "Q1", "Q2", "Q3", "Q4", "FY",
     ];
     let (sym, ex) = match raw.split_once('.') {
         Some((s, e)) => (s, Some(e)),
@@ -111,13 +114,29 @@ pub fn dispatch(registry: &ToolRegistry, message: &str) -> FallbackDecision {
         return tool(registry, "get_news", json!({ "query": topic }));
     }
     // 2. Quote / price.
-    if has_any(&m, &["price", "quote", "trading at", "share price", "stock price"]) {
+    if has_any(
+        &m,
+        &["price", "quote", "trading at", "share price", "stock price"],
+    ) {
         if let Some(t) = &ticker {
             return tool(registry, "get_quote", json!({ "ticker": t }));
         }
     }
     // 3. Filings.
-    if has_any(&m, &["10-k", "10-q", "10k", "10q", "filing", "filings", "risk factor", "md&a", "mda"]) {
+    if has_any(
+        &m,
+        &[
+            "10-k",
+            "10-q",
+            "10k",
+            "10q",
+            "filing",
+            "filings",
+            "risk factor",
+            "md&a",
+            "mda",
+        ],
+    ) {
         if let Some(t) = &ticker {
             let name = if has_any(&m, &["risk factor", "md&a", "mda", "read"]) {
                 "read_filing"
@@ -132,17 +151,35 @@ pub fn dispatch(registry: &ToolRegistry, message: &str) -> FallbackDecision {
         return tool(registry, "benchmark_peers", json!({ "tickers": tickers }));
     }
     // 5. Build / model / valuation.
-    if has_any(&m, &["build", "model", "dcf", "valuation", "3-statement", "three statement"]) {
+    if has_any(
+        &m,
+        &[
+            "build",
+            "model",
+            "dcf",
+            "valuation",
+            "3-statement",
+            "three statement",
+        ],
+    ) {
         if let Some(t) = &ticker {
             return tool(registry, "build_model", json!({ "ticker": t }));
         }
     }
     // 6. Research / deal.
     if has_any(&m, &["m&a", "acquisition", "merger", "deal"]) {
-        return tool(registry, "research_deal", json!({ "query": strip_lead(message) }));
+        return tool(
+            registry,
+            "research_deal",
+            json!({ "query": strip_lead(message) }),
+        );
     }
     if has_any(&m, &["research", "look into", "investigate", "find out"]) {
-        return tool(registry, "research", json!({ "query": strip_lead(message) }));
+        return tool(
+            registry,
+            "research",
+            json!({ "query": strip_lead(message) }),
+        );
     }
     // 7. Direct answer (bare definitional question).
     FallbackDecision::Direct
@@ -223,20 +260,29 @@ mod tests {
             first_ticker(r#"Analyze the filing PDF at "C:/tmp/annual.pdf" for TESTCO"#),
             None
         );
-        assert_eq!(first_ticker(r#"open C:/data/AAPL.pdf about AAPL"#), Some("AAPL".into()));
+        assert_eq!(
+            first_ticker(r#"open C:/data/AAPL.pdf about AAPL"#),
+            Some("AAPL".into())
+        );
         assert!(first_ticker(r#"see C:\Users\x\a.pdf"#).is_none());
     }
 
     #[test]
     fn ticker_extraction() {
-        assert_eq!(first_ticker("build a model for NVDA please"), Some("NVDA".to_string()));
+        assert_eq!(
+            first_ticker("build a model for NVDA please"),
+            Some("NVDA".to_string())
+        );
         assert_eq!(first_ticker("check TSM.TW"), Some("TSM.TW".to_string()));
         // Stopwords are not tickers.
         assert_eq!(first_ticker("what is a DCF"), None);
         assert_eq!(first_ticker("the quick brown fox"), None);
         // Filing-form designations are not tickers, but a real ticker in the
         // same message still resolves.
-        assert_eq!(first_ticker("show me the latest 10-K for MSFT"), Some("MSFT".to_string()));
+        assert_eq!(
+            first_ticker("show me the latest 10-K for MSFT"),
+            Some("MSFT".to_string())
+        );
         assert_eq!(first_ticker("pull the S-1"), None);
         // Single-letter tickers are valid (Ford, AT&T).
         assert_eq!(first_ticker("quote for F"), Some("F".to_string()));
@@ -245,21 +291,45 @@ mod tests {
     #[test]
     fn news_intent() {
         let d = dispatch(&reg(), "latest news on NVDA");
-        assert_eq!(d, FallbackDecision::Tool { name: "get_news".into(), args: json!({"query":"NVDA"}) });
+        assert_eq!(
+            d,
+            FallbackDecision::Tool {
+                name: "get_news".into(),
+                args: json!({"query":"NVDA"})
+            }
+        );
     }
 
     #[test]
     fn quote_intent() {
         let d = dispatch(&reg(), "what's the price of AAPL");
-        assert_eq!(d, FallbackDecision::Tool { name: "get_quote".into(), args: json!({"ticker":"AAPL"}) });
+        assert_eq!(
+            d,
+            FallbackDecision::Tool {
+                name: "get_quote".into(),
+                args: json!({"ticker":"AAPL"})
+            }
+        );
     }
 
     #[test]
     fn filing_intent() {
         let d = dispatch(&reg(), "show me the latest 10-K for MSFT");
-        assert_eq!(d, FallbackDecision::Tool { name: "list_filings".into(), args: json!({"ticker":"MSFT"}) });
+        assert_eq!(
+            d,
+            FallbackDecision::Tool {
+                name: "list_filings".into(),
+                args: json!({"ticker":"MSFT"})
+            }
+        );
         let d2 = dispatch(&reg(), "read the risk factors in AMD's filing");
-        assert_eq!(d2, FallbackDecision::Tool { name: "read_filing".into(), args: json!({"ticker":"AMD"}) });
+        assert_eq!(
+            d2,
+            FallbackDecision::Tool {
+                name: "read_filing".into(),
+                args: json!({"ticker":"AMD"})
+            }
+        );
     }
 
     #[test]
@@ -268,21 +338,33 @@ mod tests {
         let d = dispatch(&reg(), "build a comps benchmark for NVDA and AMD");
         assert_eq!(
             d,
-            FallbackDecision::Tool { name: "benchmark_peers".into(), args: json!({"tickers":["NVDA","AMD"]}) }
+            FallbackDecision::Tool {
+                name: "benchmark_peers".into(),
+                args: json!({"tickers":["NVDA","AMD"]})
+            }
         );
     }
 
     #[test]
     fn build_intent_single_ticker() {
         let d = dispatch(&reg(), "build a DCF model for NVDA");
-        assert_eq!(d, FallbackDecision::Tool { name: "build_model".into(), args: json!({"ticker":"NVDA"}) });
+        assert_eq!(
+            d,
+            FallbackDecision::Tool {
+                name: "build_model".into(),
+                args: json!({"ticker":"NVDA"})
+            }
+        );
     }
 
     #[test]
     fn deal_and_research_intents() {
         assert_eq!(
             dispatch(&reg(), "any M&A activity in medtech"),
-            FallbackDecision::Tool { name: "research_deal".into(), args: json!({"query":"any M&A activity in medtech"}) }
+            FallbackDecision::Tool {
+                name: "research_deal".into(),
+                args: json!({"query":"any M&A activity in medtech"})
+            }
         );
         match dispatch(&reg(), "research the semiconductor supply chain") {
             FallbackDecision::Tool { name, .. } => assert_eq!(name, "research"),
@@ -292,13 +374,22 @@ mod tests {
 
     #[test]
     fn bare_question_is_direct() {
-        assert_eq!(dispatch(&reg(), "what is a discounted cash flow"), FallbackDecision::Direct);
+        assert_eq!(
+            dispatch(&reg(), "what is a discounted cash flow"),
+            FallbackDecision::Direct
+        );
     }
 
     #[test]
     fn quick_action_maps_and_validates() {
         let ok = quick_action(&reg(), "quote", json!({"ticker":"NVDA"})).unwrap();
-        assert_eq!(ok, FallbackDecision::Tool { name: "get_quote".into(), args: json!({"ticker":"NVDA"}) });
+        assert_eq!(
+            ok,
+            FallbackDecision::Tool {
+                name: "get_quote".into(),
+                args: json!({"ticker":"NVDA"})
+            }
+        );
         // Invalid args are rejected, not fabricated.
         assert!(quick_action(&reg(), "quote", json!({})).is_err());
         assert!(quick_action(&reg(), "nonexistent", json!({})).is_err());
@@ -344,7 +435,10 @@ mod tests {
             ("search the web for margins", None),
             ("what is a discounted cash flow", None),
             ("tell me a joke about accounting", None),
-            ("Analyze the filing PDF at \"C:/tmp/annual.pdf\" for TESTCO", None),
+            (
+                "Analyze the filing PDF at \"C:/tmp/annual.pdf\" for TESTCO",
+                None,
+            ),
         ];
 
         let ctx = SessionContext::test_ctx("c1", "corpus");

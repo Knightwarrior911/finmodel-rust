@@ -1,6 +1,15 @@
 // chat.mjs — the chat pane: composer, streaming send flow, message rendering.
 
-import { $, call, on, escapeHtml, renderMarkdown, stripControlTokens, copyToClipboard, flashBtn } from "./core.mjs";
+import {
+  $,
+  call,
+  on,
+  escapeHtml,
+  renderMarkdown,
+  stripControlTokens,
+  copyToClipboard,
+  flashBtn,
+} from "./core.mjs";
 import { renderCard } from "./cards.mjs";
 import { closeReader } from "./reader.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
@@ -23,14 +32,19 @@ export function setPendingProjectId(id) {
 /** Match backend `new_conversation` shape: `{ms}-{4hex}`. */
 function newConversationId() {
   const ms = Date.now();
-  const hex = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  const hex = Math.floor(Math.random() * 0x10000)
+    .toString(16)
+    .padStart(4, "0");
   return `${ms}-${hex}`;
 }
 
 function newRunId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   // Fallback: 8-4-4-4-12 hex (version/variant bits not critical for format check).
-  const h = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  const h = () =>
+    Math.floor(Math.random() * 0x10000)
+      .toString(16)
+      .padStart(4, "0");
   return `${h()}${h()}-${h()}-4${h().slice(1)}-a${h().slice(1)}-${h()}${h()}${h()}`;
 }
 
@@ -137,19 +151,27 @@ function thinkIcon(name) {
     case "benchmark_peers":
       return svg('<path d="M5 20V9M12 20V4M19 20v-7"/>');
     case "build_model":
-      return svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/>');
+      return svg(
+        '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/>',
+      );
     case "research":
     case "research_deal":
     case "web_search":
       return svg('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>');
     case "read_page":
-      return svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/>');
+      return svg(
+        '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/>',
+      );
     case "read_filing":
     case "list_filings":
     case "analyze_pdf":
-      return svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>');
+      return svg(
+        '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+      );
     case "get_news":
-      return svg('<path d="M4 5h12v14H5a1 1 0 0 1-1-1z"/><path d="M16 8h4v9a2 2 0 0 1-2 2M7 9h6M7 13h6"/>');
+      return svg(
+        '<path d="M4 5h12v14H5a1 1 0 0 1-1-1z"/><path d="M16 8h4v9a2 2 0 0 1-2 2M7 9h6M7 13h6"/>',
+      );
     case "use_skill":
       return svg('<path d="M5 4a2 2 0 0 1 2-2h11v18H7a2 2 0 0 0-2 2z"/>');
     default:
@@ -221,6 +243,62 @@ function finishThinkStep(step, ok) {
       : `<span class="think-x" aria-hidden="true">✗</span>Failed`;
 }
 
+// Render the mission plan (Task 2.3): the whole plan rides each `plan_updated`
+// event, so re-render its steps with pending/running/done/blocked/skipped state.
+// Additive to the live transcript — progress is event-driven, never time-based.
+function renderPlan(plan) {
+  if (!activeTurn) return;
+  const steps = Array.isArray(plan && plan.steps) ? plan.steps : [];
+  if (steps.length === 0) return;
+  if (!activeTurn.planNode) {
+    const panel = document.createElement("div");
+    panel.className = "plan-panel msg";
+    const head = document.createElement("div");
+    head.className = "plan-head";
+    const title = document.createElement("span");
+    title.className = "plan-title";
+    title.textContent = "Plan";
+    const obj = document.createElement("span");
+    obj.className = "plan-obj";
+    head.append(title, obj);
+    const ol = document.createElement("ol");
+    ol.className = "plan-steps";
+    panel.append(head, ol);
+    scrollEl().appendChild(panel);
+    activeTurn.planNode = panel;
+  }
+  const panel = activeTurn.planNode;
+  if (plan.objective)
+    panel.querySelector(".plan-obj").textContent = plan.objective;
+  const ol = panel.querySelector(".plan-steps");
+  ol.replaceChildren();
+  for (const s of steps) {
+    const st = String((s && s.status) || "pending");
+    const li = document.createElement("li");
+    li.className = `plan-step status-${st}`;
+    const g = document.createElement("span");
+    g.className = "plan-glyph";
+    g.setAttribute("aria-hidden", "true");
+    g.textContent =
+      st === "done"
+        ? "✓"
+        : st === "running"
+          ? "⟳"
+          : st === "blocked"
+            ? "✕"
+            : st === "skipped"
+              ? "–"
+              : "○";
+    const lab = document.createElement("span");
+    lab.className = "plan-step-label";
+    lab.textContent = (s && (s.label || s.id)) || "";
+    li.append(g, lab);
+    li.setAttribute("aria-label", `${lab.textContent}: ${st}`);
+    ol.appendChild(li);
+  }
+  scrollToBottom();
+}
+
 // ── event stream wiring (correlated by conversation_id + run_id) ──
 // Buffer text deltas and flush once per animation frame (Phase 3.5).
 let deltaBuffer = "";
@@ -228,7 +306,11 @@ let deltaRaf = 0;
 
 function eventMatchesActive(payload) {
   if (!activeTurn || !streaming) return false;
-  if (payload.conversation_id && currentId && payload.conversation_id !== currentId) {
+  if (
+    payload.conversation_id &&
+    currentId &&
+    payload.conversation_id !== currentId
+  ) {
     return false;
   }
   if (payload.run_id && activeRunId && payload.run_id !== activeRunId) {
@@ -343,28 +425,13 @@ function handleTool(payload) {
     activeTurn.pending.set(name, list);
     return;
   }
-  // Terminal status: mark the step and render the result card below the panel.
+  // Terminal status: mark the thinking step. The result CARD now rides the
+  // durable `result_part_added` event (Task 2.1), not this transitional channel.
   setProgress("");
   const list = activeTurn.pending.get(name) || [];
   const step = list.shift();
   activeTurn.pending.set(name, list);
-  if (payload.status === "error") {
-    finishThinkStep(step, false);
-    if (payload.card) {
-      appendCard(payload.card);
-    } else {
-      const errNode = document.createElement("div");
-      errNode.className = "msg msg-card";
-      errNode.innerHTML = `<div class="card card-error"><p class="card-note err">${escapeHtml(
-        payload.detail || (name + " failed")
-      )}</p></div>`;
-      scrollEl().appendChild(errNode);
-      scrollToBottom();
-    }
-    return;
-  }
-  finishThinkStep(step, true);
-  if (payload.card) appendCard(payload.card);
+  finishThinkStep(step, payload.status !== "error");
 }
 
 // After a multi-tool turn, offer to abstract it into a reusable skill
@@ -380,8 +447,7 @@ function addSkillAction(node, question, answer, tools) {
     btn.disabled = true;
     const prev = btn.textContent;
     btn.textContent = "Drafting…";
-    const transcript =
-      `User asked: ${question}\n\nTools used, in order: ${tools.join(", ")}.\n\nFinal answer:\n${answer}`;
+    const transcript = `User asked: ${question}\n\nTools used, in order: ${tools.join(", ")}.\n\nFinal answer:\n${answer}`;
     try {
       const draft = await call("skill_suggest", { transcript });
       openSettingsWithSkillDraft(typeof draft === "string" ? draft : "");
@@ -411,7 +477,8 @@ function finalizeLive() {
       prose.innerHTML = renderMarkdown(clean);
       addCopyAction(activeTurn.assistantNode, clean);
       const tools = (activeTurn.toolSeq || []).filter((t) => t !== "use_skill");
-      if (tools.length >= 2) addSkillAction(activeTurn.assistantNode, lastQuestion, clean, tools);
+      if (tools.length >= 2)
+        addSkillAction(activeTurn.assistantNode, lastQuestion, clean, tools);
     }
   }
   if (activeTurn && activeTurn.thinkingNode) {
@@ -430,6 +497,7 @@ export async function loadConversation(id) {
     currentId = conv.id;
     pendingProjectId = null;
     clearMessages();
+    hideMission();
     showEmpty(false);
     // Build history off-DOM then commit once (Phase 3.5).
     const frag = document.createDocumentFragment();
@@ -444,7 +512,8 @@ export async function loadConversation(id) {
       for (const m of conv.messages || []) {
         if (m.role === "user") appendUser(m.content);
         else if (m.card) appendCard(m.card);
-        else if (m.content && m.content.trim()) appendAssistant(m.content, false);
+        else if (m.content && m.content.trim())
+          appendAssistant(m.content, false);
       }
     } finally {
       host.appendChild = realAppend;
@@ -493,6 +562,7 @@ export function newChat() {
   currentId = null;
   pendingProjectId = null;
   clearMessages();
+  hideMission();
   clearAlert();
   closeReader(); // new chat resets the reader (Phase 4.3)
   showEmpty(true);
@@ -503,6 +573,8 @@ export function newChat() {
 // Stop lifecycle: idle → running → stopping → terminal. First Stop shows
 // "Stopping…" (disabled); repeats no-op; terminal clears aria-busy once.
 let stopping = false;
+let paused = false; // Pause was requested for the active run (resumable interrupt).
+let lastTerminalKind = null; // Terminal EventKind of the just-finished run.
 let lastQuestion = "";
 
 function setProgress(text) {
@@ -516,6 +588,78 @@ function setProgress(text) {
     p.textContent = "";
     p.hidden = true;
   }
+}
+
+// ── Mission status header (Task 2.2): workflow · phase · plan · verified ──
+// Live, additive, driven by the same agent_event stream. `patch` sets any of
+// { workflow, phase, planDone, planTotal, verify }.
+function updateMission(patch) {
+  const el = $("missionHeader");
+  if (!el) return;
+  el.hidden = false;
+  if ("workflow" in patch) {
+    const w = el.querySelector(".mission-workflow");
+    if (w) {
+      const name = missionWorkflowLabel(patch.workflow);
+      w.textContent = name;
+      w.hidden = !name;
+    }
+  }
+  if ("phase" in patch) {
+    const p = el.querySelector(".mission-phase");
+    if (p) {
+      p.textContent = patch.phase || "";
+      p.hidden = !patch.phase;
+    }
+  }
+  if ("planDone" in patch || "planTotal" in patch) {
+    const pl = el.querySelector(".mission-plan");
+    if (pl) {
+      const total = patch.planTotal || 0;
+      pl.textContent = total ? `${patch.planDone || 0}/${total} steps` : "";
+      pl.hidden = !total;
+    }
+  }
+  if ("verify" in patch) {
+    const v = el.querySelector(".mission-verify");
+    if (v) {
+      const map = {
+        verified: "✓ Verified",
+        verified_with_warnings: "✓ Verified (warnings)",
+        partial_unverified: "⚠ Partial — unverified",
+      };
+      v.textContent = map[patch.verify] || "";
+      v.className = `mission-verify status-${patch.verify || ""}`;
+      v.hidden = !patch.verify;
+    }
+  }
+}
+
+function missionWorkflowLabel(id) {
+  if (!id) return "";
+  const names = {
+    company_brief: "Company brief",
+    earnings_review: "Earnings review",
+    trading_comps: "Trading comps",
+    dcf_model: "DCF model",
+    ma_screen: "M&A screen",
+    pitch_prep: "Pitch prep",
+  };
+  return names[id] || id;
+}
+
+function hideMission() {
+  const el = $("missionHeader");
+  if (!el) return;
+  el.hidden = true;
+  for (const s of el.querySelectorAll("span")) {
+    s.textContent = "";
+    s.hidden = true;
+  }
+  // Reset the verify span's status class too, so a prior run's badge colour never
+  // lingers as a stale className after the text is cleared.
+  const v = el.querySelector(".mission-verify");
+  if (v) v.className = "mission-verify";
 }
 
 function clearAlert() {
@@ -555,19 +699,57 @@ function showRecovery(message) {
   a.hidden = false;
 }
 
+/// Paused (resumable-interrupt) recovery: offer Resume (relaunch the interrupted
+/// run from its last complete boundary) or New research.
+function showResume(interruptedRunId) {
+  const a = $("chatAlert");
+  if (!a) return;
+  a.innerHTML = "";
+  const note = document.createElement("span");
+  note.className = "chat-alert-note";
+  note.textContent = "Paused.";
+  const resume = document.createElement("button");
+  resume.type = "button";
+  resume.className = "btn-ghost";
+  resume.textContent = "Resume";
+  resume.addEventListener("click", () => {
+    clearAlert();
+    resumeRun(interruptedRunId);
+  });
+  const fresh = document.createElement("button");
+  fresh.type = "button";
+  fresh.className = "btn-ghost";
+  fresh.textContent = "New research";
+  fresh.addEventListener("click", () => {
+    clearAlert();
+    newChat();
+  });
+  a.append(note, resume, fresh);
+  a.hidden = false;
+}
+
 function setStreaming(on) {
   streaming = on;
   $("chatInput").disabled = on;
   $("chatSend").disabled = on;
   const stop = $("chatStop");
   stop.hidden = !on;
+  const pause = $("chatPause");
+  if (pause) pause.hidden = !on;
   const scroll = $("chatScroll");
   if (on) {
     scroll.setAttribute("aria-busy", "true");
     // Reset Stop button to its active state for a new run.
     stopping = false;
+    paused = false;
+    lastTerminalKind = null;
     stop.disabled = false;
     stop.setAttribute("aria-label", "Stop");
+    if (pause) {
+      pause.disabled = false;
+      pause.setAttribute("aria-label", "Pause");
+      pause.title = "Pause (resumable)";
+    }
   } else {
     // Terminal: clear aria-busy exactly once and hide progress.
     scroll.removeAttribute("aria-busy");
@@ -586,7 +768,8 @@ function renderApproval(env) {
   box.dataset.toolCallId = tcid || "";
   const label = document.createElement("span");
   label.className = "part-approval-text";
-  label.textContent = "This action modifies or exports a file and needs your approval.";
+  label.textContent =
+    "This action modifies or exports a file and needs your approval.";
   box.appendChild(label);
   const mk = (text, resp, cls) => {
     const b = document.createElement("button");
@@ -594,7 +777,11 @@ function renderApproval(env) {
     b.className = cls;
     b.textContent = text;
     b.addEventListener("click", () => {
-      call("agent_approve", { run_id: runId, interaction_id: tcid, response: resp }).catch(() => {});
+      call("agent_approve", {
+        run_id: runId,
+        interaction_id: tcid,
+        response: resp,
+      }).catch(() => {});
       box.remove();
     });
     return b;
@@ -648,7 +835,12 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
       const kind = agentEventKind(env);
       if (kind === "assistant_text_delta") {
         const chunk = env.event && env.event.payload && env.event.payload.text;
-        if (chunk) handleDelta({ text: chunk, conversation_id: env.conversation_id, run_id: env.run_id });
+        if (chunk)
+          handleDelta({
+            text: chunk,
+            conversation_id: env.conversation_id,
+            run_id: env.run_id,
+          });
         return;
       }
       if (kind === "approval_requested") {
@@ -656,12 +848,56 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
         return;
       }
       if (kind === "phase_changed") {
-        const label = agentPhaseLabel(env.event && env.event.payload && env.event.payload.phase);
-        if (label) setProgress(label);
+        const label = agentPhaseLabel(
+          env.event && env.event.payload && env.event.payload.phase,
+        );
+        if (label) {
+          setProgress(label);
+          updateMission({ phase: label });
+        }
+        return;
+      }
+      if (kind === "plan_updated") {
+        const plan = (env.event && env.event.payload) || {};
+        renderPlan(plan);
+        const steps = Array.isArray(plan.steps) ? plan.steps : [];
+        updateMission({
+          workflow: plan.workflow && plan.workflow.id,
+          planDone: steps.filter((s) => s && s.status === "done").length,
+          planTotal: steps.length,
+        });
+        return;
+      }
+      if (kind === "result_part_added") {
+        const card = env.event && env.event.payload && env.event.payload.card;
+        if (card && typeof card === "object") {
+          appendCard(card);
+          if (card.type === "verification" && card.status) {
+            updateMission({ verify: card.status });
+          }
+        }
+        return;
+      }
+      if (kind === "tool_started") {
+        const p = (env.event && env.event.payload) || {};
+        const step = addThinkStep(p.name || "tool");
+        setProgress(phaseLabel(p.name || "tool"));
+        if (!activeTurn.thinkById) activeTurn.thinkById = new Map();
+        if (p.tool_call_id) activeTurn.thinkById.set(p.tool_call_id, step);
+        return;
+      }
+      if (kind === "tool_succeeded" || kind === "tool_failed") {
+        const p = (env.event && env.event.payload) || {};
+        const step =
+          activeTurn.thinkById && activeTurn.thinkById.get(p.tool_call_id);
+        finishThinkStep(step, kind === "tool_succeeded");
+        if (activeTurn.thinkById) activeTurn.thinkById.delete(p.tool_call_id);
+        setProgress("");
         return;
       }
       if (kind === "memory_updated") {
-        const count = (env.event && env.event.payload && env.event.payload.count) || 0;
+        const count =
+          (env.event && env.event.payload && env.event.payload.count) || 0;
         if (count > 0) renderMemorySaved(count);
         return;
       }
@@ -672,6 +908,14 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
         kind === "run_interrupted" ||
         kind === "run_budget_limited"
       ) {
+        const terminalPhase = {
+          run_completed: "Delivered",
+          run_failed: "Failed",
+          run_cancelled: "Stopped",
+          run_interrupted: "Paused",
+          run_budget_limited: "Budget reached",
+        };
+        updateMission({ phase: terminalPhase[kind] || "" });
         done({ kind, env });
       }
     });
@@ -703,16 +947,24 @@ async function sendViaAgent(msg) {
     onChanged(); // reflect the new chat under its folder in the sidebar
   }
   const terminal = await waitForAgentTerminal(activeRunId);
-  // Surface a minimal final answer if no deltas streamed (fail-closed / error paths).
-  if (!activeTurn.assistantNode) {
-    const detail =
-      (terminal.env &&
-        terminal.env.event &&
-        terminal.env.event.payload &&
-        (terminal.env.event.payload.detail || terminal.env.event.payload.stop)) ||
-      terminal.kind;
-    appendAssistant(typeof detail === "string" ? detail : JSON.stringify(detail), true);
-  }
+  lastTerminalKind = terminal.kind;
+  surfaceMinimalAnswer(terminal);
+}
+
+/// If no live delta bubble was created (fail-closed / non-streaming terminal),
+/// surface a minimal final answer so the turn never renders empty.
+function surfaceMinimalAnswer(terminal) {
+  if (activeTurn && activeTurn.assistantNode) return;
+  const detail =
+    (terminal.env &&
+      terminal.env.event &&
+      terminal.env.event.payload &&
+      (terminal.env.event.payload.detail || terminal.env.event.payload.stop)) ||
+    terminal.kind;
+  appendAssistant(
+    typeof detail === "string" ? detail : JSON.stringify(detail),
+    true,
+  );
 }
 
 async function send(text) {
@@ -726,6 +978,7 @@ async function send(text) {
   autoGrow();
   setStreaming(true);
   activeTurn = { assistantNode: null, pending: new Map(), toolSeq: [] };
+  hideMission();
   activeRunId = newRunId();
   // Allocate conversation id before the long-running invoke so Stop can target
   // the registry key immediately (backend accepts client-supplied ids).
@@ -745,6 +998,47 @@ async function send(text) {
     if (cancelled) {
       // Terminal cancel: preserve the question, offer Retry / New research.
       showRecovery("Stopped.");
+    } else if (paused && lastTerminalKind === "run_interrupted") {
+      // Resumable pause: offer Resume (relaunch from the last complete boundary).
+      showResume(activeRunId);
+    }
+    onChanged();
+  }
+}
+
+/// Relaunch an interrupted (paused) run via `agent_resume`; the backend seeds a
+/// new linked run from the last complete boundary and drives it to terminal.
+async function resumeRun(interruptedRunId) {
+  if (streaming || !interruptedRunId) return;
+  clearAlert();
+  showEmpty(false);
+  setStreaming(true);
+  activeTurn = { assistantNode: null, pending: new Map(), toolSeq: [] };
+  hideMission();
+  let cancelled = false;
+  try {
+    const newRid = await call("agent_resume", {
+      interrupted_run_id: interruptedRunId,
+    });
+    activeRunId =
+      (typeof newRid === "string" ? newRid : newRid && newRid.run_id) ||
+      activeRunId;
+    const terminal = await waitForAgentTerminal(activeRunId);
+    lastTerminalKind = terminal.kind;
+    surfaceMinimalAnswer(terminal);
+    cancelled = stopping;
+  } catch (e) {
+    const errText = e && e.message ? e.message : String(e);
+    if (!activeTurn.assistantNode) appendAssistant("", true);
+    const prose = activeTurn.assistantNode.querySelector(".prose");
+    prose.dataset.raw = (prose.dataset.raw || "") + `\n\n⚠ ${errText}`;
+  } finally {
+    finalizeLive();
+    setStreaming(false);
+    if (cancelled) {
+      showRecovery("Stopped.");
+    } else if (paused && lastTerminalKind === "run_interrupted") {
+      showResume(activeRunId);
     }
     onChanged();
   }
@@ -761,10 +1055,17 @@ export function initChat(opts = {}) {
   // Track stick-to-bottom from user scroll. Programmatic scroll-to-bottom lands
   // near the bottom (flag stays true); scrolling up to read releases the follow;
   // scrolling back to the bottom re-engages it.
-  scrollEl().addEventListener("scroll", () => { stickToBottom = nearBottom(); }, { passive: true });
+  scrollEl().addEventListener(
+    "scroll",
+    () => {
+      stickToBottom = nearBottom();
+    },
+    { passive: true },
+  );
 
-  on("chat_delta", (e) => handleDelta(e.payload || {}));
-  on("chat_tool", (e) => handleTool(e.payload || {}));
+  // Text deltas + tool status now arrive on the single `agent_event` channel
+  // (Task 2.1): assistant_text_delta / tool_started / tool_succeeded /
+  // tool_failed / result_part_added, handled in waitForAgentTerminal.
   on("chat_done", () => {
     /* send() resolution finalizes; nothing structural needed here */
   });
@@ -847,8 +1148,27 @@ export function initChat(opts = {}) {
     stop.setAttribute("aria-label", "Stopping…");
     stop.title = "Stopping…";
     setProgress("Stopping…");
-    call("agent_cancel", { conversation_id: currentId, run_id: activeRunId }).catch(() => {});
+    call("agent_cancel", {
+      conversation_id: currentId,
+      run_id: activeRunId,
+    }).catch(() => {});
   });
+
+  const pauseBtn = $("chatPause");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (paused || stopping || !streaming) return; // one pause per run; not after Stop
+      paused = true;
+      pauseBtn.disabled = true;
+      pauseBtn.setAttribute("aria-label", "Pausing…");
+      pauseBtn.title = "Pausing…";
+      setProgress("Pausing…");
+      call("agent_pause", {
+        conversation_id: currentId,
+        run_id: activeRunId,
+      }).catch(() => {});
+    });
+  }
 
   $("chatEmpty").addEventListener("click", (e) => {
     const chip = e.target.closest(".example-chip");
@@ -857,7 +1177,10 @@ export function initChat(opts = {}) {
 
   // Model pill opens Settings.
   const pill = $("modelPill");
-  if (pill) pill.addEventListener("click", () => document.dispatchEvent(new CustomEvent("open-settings")));
+  if (pill)
+    pill.addEventListener("click", () =>
+      document.dispatchEvent(new CustomEvent("open-settings")),
+    );
 }
 
 // Reflect the current model in the composer pill.
@@ -901,11 +1224,15 @@ export function applyCapability(settings) {
       "Your current AI model can chat but can't pull live data or build models. Choose a different model in Settings to unlock full analysis.";
   } else {
     // Ready: verified capable, or not-yet-checked (still usable).
-    text = "Ready to analyze. Ask about any company, filing, or deal — or tap a starter below.";
+    text =
+      "Ready to analyze. Ask about any company, filing, or deal — or tap a starter below.";
   }
   note.textContent = text;
   const labels = useLive ? LIVE_CHIPS : DEMO_CHIPS;
   chips.innerHTML = labels
-    .map((l) => `<button type="button" class="example-chip">${escapeHtml(l)}</button>`)
+    .map(
+      (l) =>
+        `<button type="button" class="example-chip">${escapeHtml(l)}</button>`,
+    )
     .join("");
 }

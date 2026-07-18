@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.9.0 — 2026-07-18 — The analyst shows its plan, checks its own math, and can be paused
+
+- **Live mission plan + status header.** When the analyst runs a structured
+  workflow (e.g. "do an earnings review for NVDA"), the steps now appear as a live
+  checklist — each turns from pending to running to done as the work actually
+  happens — and a status header shows the workflow, current phase, step progress
+  (e.g. "5/5 steps"), and the verification result at a glance. Watch the mission
+  progress instead of staring at a spinner. Verified live end-to-end.
+- **Numbers cross-checked, not just echoed.** Verification now recomputes an
+  accounting identity (gross profit = revenue − cost of revenue) from the reported
+  figures; if they don't reconcile, the run is marked partial instead of showing a
+  green "verified" badge. A consistent NVIDIA income statement still verifies 6/6.
+- **Steadier long conversations.** Older turns are assembled and compacted through
+  one consistent context builder, and a request that would overflow the model's
+  context is pruned and retried once before failing visibly.
+- **Resilience + housekeeping.** Transient provider hiccups (rate limits, brief
+  outages) get one automatic retry; long-unused saved skills age out of the default
+  set (still restorable) so the assistant's toolbox stays relevant.
+- **Cleaner sidebar.** Removed the confusing "Personal" dropdown (it had nothing to
+  switch to — use Projects to group chats). Conversation rows are now clean single
+  lines — the full title with a compact time on the right, and edit/move/delete
+  appear on hover — instead of cramped, mid-word-clipped two-line blocks. The
+  "Temporary chat" toggle stays for chats you don't want saved.
+- **"Move to project" reads and moves correctly.** The picker now opens preselected
+  to the chat's current project (so a chat already in a folder shows that folder, not
+  a misleading "No project"), and when you have no projects yet it says so instead of
+  offering an empty, dead-end menu. Clicking away closes the picker cleanly.
+- **Pause a run and pick it back up.** During a run the command bar now shows a
+  Pause button next to Stop: Pause ends the run at the next safe checkpoint as a
+  *resumable* interrupt (distinct from Stop, which is final), and a "Resume" action
+  then relaunches it from that checkpoint without redoing completed work.
+- **Sharper UI colours.** Fixed a set of interface elements (activity rows, task
+  badges, workspace/memory banners, approval cards) that were silently rendering
+  with the wrong colour because their style variable was never defined — they now
+  use the correct light/dark theme colours.
+
+294 lib + 130 UI + engine/research gates green. (Behind the scenes: result cards now
+flow on one durable event path, several agent capabilities moved from tested-but-dormant
+to live; a few large items — the rest of the UI event-path cutover, scheduled follow-ups,
+and the signed installer — remain.)
+
+### Also in this cycle — Verified numbers, live
+
+The analyst now shows its work on the figures it reports:
+
+- **Reported financials render as a table.** A `get_financials` result used to
+  show only the bare word "financials" (the card had no renderer). It now renders
+  the company, fiscal year, and every line item — revenue, cost of revenue, gross
+  profit, operating income, net income, diluted EPS — with a SEC EDGAR link.
+  Verified live: NVIDIA FY2024 renders the full income statement.
+- **A verification badge on material numbers.** Financial turns now run a
+  verification pass over the figures pulled from SEC EDGAR and show a
+  **Verified N/N** card ("6 of 6 material figures verified against SEC EDGAR
+  XBRL"). Every reported number is extracted as a source-tagged claim and checked
+  against its filing value before the run is badged. Verified live end-to-end.
+  (This proves each number is sourced; catching a *restated* figure via
+  independent recompute is the next step.)
+- **Fix: wrong fiscal-year label.** A comparative figure shown inside a later
+  10-K is tagged by SEC with the *later* filing's fiscal year, so NVIDIA's
+  FY2024 numbers were labelled "FY2026". The card now labels by the period the
+  figures actually cover — **FY2024 · period ended 2024-01-28**.
+
+290 lib + 127 UI + engine/research gates green.
+
 ## v0.8.6 — Skills (drop-in playbooks + self-evolution)
 
 A decentralized skills system, in the SKILL.md format (agentskills.io-compatible):
@@ -212,7 +276,7 @@ chat engine has been fully removed (not just disabled) — ~2400 lines of dead
 code deleted, clean build, 205 backend + 114 UI tests green. See the Phase A–G
 entries below for the full rebuild history.
 
-## Unreleased — Agentic analyst cutover (Phases A–B: contracts, SQLite, unified actor loop)
+## Pre-v0.6.0 — Agentic analyst cutover (Phases A–B: contracts, SQLite, unified actor loop)
 
 First phase of the persistent workspace-scoped analyst rebuild. Foundation only;
 the app now runs on the unified agent path (see the Phase G cutover entry); the legacy JSON chat engine is unreachable at runtime.

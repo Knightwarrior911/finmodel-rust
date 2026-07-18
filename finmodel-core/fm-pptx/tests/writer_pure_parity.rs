@@ -4,8 +4,8 @@
 mod common;
 
 use fm_pptx::writer::{
-    fmt_to_numfmt, format_value, normalize_heading, pick_slide_archetype, split_into_chunks,
-    FmtValue,
+    FmtValue, fmt_to_numfmt, format_value, normalize_heading, pick_slide_archetype,
+    split_into_chunks,
 };
 use serde_json::Value;
 
@@ -78,7 +78,11 @@ fn format_value_matches() {
             "float" => FmtValue::Float(inv.as_f64().unwrap()),
             other => panic!("unknown kind {other}"),
         };
-        assert_eq!(format_value(&v), case["out"].as_str().unwrap(), "format_value {kind} {inv}");
+        assert_eq!(
+            format_value(&v),
+            case["out"].as_str().unwrap(),
+            "format_value {kind} {inv}"
+        );
     }
 }
 

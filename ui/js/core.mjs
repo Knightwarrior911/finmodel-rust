@@ -10,7 +10,8 @@ function bridge() {
 // Every command returns a JSON *string* (or throws an AppError object).
 export async function call(name, payload = {}) {
   const t = bridge();
-  if (!t || !t.core || !t.core.invoke) throw new Error("Not running inside the app window.");
+  if (!t || !t.core || !t.core.invoke)
+    throw new Error("Not running inside the app window.");
   const res = await t.core.invoke(name, payload);
   if (typeof res !== "string") return res;
   try {
@@ -33,13 +34,18 @@ export function on(event, handler) {
 export function escapeHtml(s) {
   return String(s == null ? "" : s).replace(
     /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
   );
 }
 
 // Remove model pseudo-control tokens (e.g. <|eom|>, <|eot_id|>) some models leak.
 export function stripControlTokens(s) {
-  return String(s == null ? "" : s).replace(/<\|[^|>]*\|>/g, "").trim();
+  return String(s == null ? "" : s)
+    .replace(/<\|[^|>]*\|>/g, "")
+    .trim();
 }
 
 // Sanitized markdown → HTML. Escape EVERYTHING first, then re-inject only a
@@ -51,20 +57,30 @@ export function renderMarkdown(md) {
   const out = [];
   let listType = null; // "ul" | "ol" | null
   const closeList = () => {
-    if (listType) { out.push(`</${listType}>`); listType = null; }
+    if (listType) {
+      out.push(`</${listType}>`);
+      listType = null;
+    }
   };
   const inline = (t) =>
     t
       .replace(
         /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-        (_m, txt, url) => `<a href="#" class="md-link" data-url="${url}">${txt}</a>`
+        (_m, txt, url) =>
+          `<a href="#" class="md-link" data-url="${url}">${txt}</a>`,
       )
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/`([^`]+)`/g, "<code>$1</code>");
 
-  const isTableSep = (s) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(s.trim());
+  const isTableSep = (s) =>
+    /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(s.trim());
   const splitRow = (s) =>
-    s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    s
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -85,19 +101,29 @@ export function renderMarkdown(md) {
     }
 
     // GFM table: header line with pipes + a separator on the next line.
-    if (line.includes("|") && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+    if (
+      line.includes("|") &&
+      i + 1 < lines.length &&
+      isTableSep(lines[i + 1])
+    ) {
       closeList();
       const headers = splitRow(line);
       i += 2; // skip header + separator
       const rows = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+      while (
+        i < lines.length &&
+        lines[i].includes("|") &&
+        lines[i].trim() !== ""
+      ) {
         rows.push(splitRow(lines[i]));
         i++;
       }
       i--; // step back; loop will advance
       const thead = `<thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead>`;
       const tbody = `<tbody>${rows
-        .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+        .map(
+          (r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`,
+        )
         .join("")}</tbody>`;
       out.push(`<table class="md-table">${thead}${tbody}</table>`);
       continue;
@@ -112,10 +138,18 @@ export function renderMarkdown(md) {
       const n = Math.min(h[1].length, 6);
       out.push(`<h${n}>${inline(h[2])}</h${n}>`);
     } else if (ul) {
-      if (listType !== "ul") { closeList(); out.push("<ul>"); listType = "ul"; }
+      if (listType !== "ul") {
+        closeList();
+        out.push("<ul>");
+        listType = "ul";
+      }
       out.push(`<li>${inline(ul[1])}</li>`);
     } else if (ol) {
-      if (listType !== "ol") { closeList(); out.push("<ol>"); listType = "ol"; }
+      if (listType !== "ol") {
+        closeList();
+        out.push("<ol>");
+        listType = "ol";
+      }
       out.push(`<li>${inline(ol[1])}</li>`);
     } else if (line === "") {
       closeList();
@@ -179,7 +213,8 @@ export async function copyToClipboard(text) {
 export function currentTheme() {
   const stored = localStorage.getItem("theme");
   if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+  return window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
 }
@@ -238,13 +273,13 @@ export function relTime(iso) {
   const then = Date.parse(iso);
   if (isNaN(then)) return "";
   const secs = Math.max(0, (Date.now() - then) / 1000);
-  if (secs < 60) return "just now";
+  if (secs < 60) return "now";
   const mins = secs / 60;
-  if (mins < 60) return `${Math.floor(mins)}m ago`;
+  if (mins < 60) return `${Math.floor(mins)}m`;
   const hrs = mins / 60;
-  if (hrs < 24) return `${Math.floor(hrs)}h ago`;
+  if (hrs < 24) return `${Math.floor(hrs)}h`;
   const days = hrs / 24;
-  if (days < 7) return `${Math.floor(days)}d ago`;
+  if (days < 7) return `${Math.floor(days)}d`;
   return new Date(then).toLocaleDateString();
 }
 
@@ -259,7 +294,10 @@ const FOCUSABLE =
 
 export function activateDialog(dialog, opts = {}) {
   const returnTo =
-    opts.returnFocus || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    opts.returnFocus ||
+    (document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null);
   // Inert every body child that does not contain the dialog.
   const bodyKids = Array.from(document.body.children);
   const inerted = [];
@@ -272,7 +310,7 @@ export function activateDialog(dialog, opts = {}) {
   }
   const focusables = () =>
     Array.from(dialog.querySelectorAll(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null || el === document.activeElement
+      (el) => el.offsetParent !== null || el === document.activeElement,
     );
   const onKeydown = (e) => {
     if (e.key === "Escape") {
@@ -300,11 +338,14 @@ export function activateDialog(dialog, opts = {}) {
   dialog.addEventListener("keydown", onKeydown);
   // Initial focus.
   const init =
-    (opts.initialFocus && dialog.querySelector(opts.initialFocus)) || focusables()[0] || dialog;
+    (opts.initialFocus && dialog.querySelector(opts.initialFocus)) ||
+    focusables()[0] ||
+    dialog;
   if (init && init.focus) init.focus();
   return function deactivate() {
     dialog.removeEventListener("keydown", onKeydown);
     for (const el of inerted) el.removeAttribute("inert");
-    if (returnTo && returnTo.focus && document.contains(returnTo)) returnTo.focus();
+    if (returnTo && returnTo.focus && document.contains(returnTo))
+      returnTo.focus();
   };
 }

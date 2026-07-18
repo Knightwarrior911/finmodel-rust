@@ -55,12 +55,12 @@ pub fn extract_financial_section(text_pages: &[String], notes_window: usize) -> 
     let rev_re = regex::Regex::new(
         r"(?i)(?:revenues?|net sales|net revenue|net turnover|turnover|total revenue|sales revenue|net sales revenue)\b[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}"
     ).ok();
-    let tot_asset_re = regex::Regex::new(
-        r"(?i)total (?:assets|equity)\b[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}"
-    ).ok();
+    let tot_asset_re =
+        regex::Regex::new(r"(?i)total (?:assets|equity)\b[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}").ok();
     let cfo_re = regex::Regex::new(
-        r"(?i)(?:operating activities|net cash)\b[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}"
-    ).ok();
+        r"(?i)(?:operating activities|net cash)\b[^\n]*?\d[\d \u{00A0}\u{202F}]{2,}",
+    )
+    .ok();
     let year_re = regex::Regex::new(r"\b20[0-9]{2}\b").unwrap();
 
     // Check if a page has an anchor phrase + data row + >=2 year references
@@ -145,7 +145,12 @@ pub fn is_insurer_text(text: &str) -> bool {
 
 /// Detect sector from filing face text. Returns "industrial", "bank", or "insurer".
 pub fn detect_sector(text_pages: &[String]) -> &'static str {
-    let combined: String = text_pages.iter().take(10).cloned().collect::<Vec<String>>().join("\n");
+    let combined: String = text_pages
+        .iter()
+        .take(10)
+        .cloned()
+        .collect::<Vec<String>>()
+        .join("\n");
     if is_insurer_text(&combined) {
         return "insurer";
     }
@@ -161,9 +166,8 @@ mod tests {
 
     #[test]
     fn test_detect_sector_industrial() {
-        let pages = vec![
-            "Annual Report 2024\nRevenue 100 200 300\nOperating profit 30 40 50".to_string(),
-        ];
+        let pages =
+            vec!["Annual Report 2024\nRevenue 100 200 300\nOperating profit 30 40 50".to_string()];
         assert_eq!(detect_sector(&pages), "industrial");
     }
 

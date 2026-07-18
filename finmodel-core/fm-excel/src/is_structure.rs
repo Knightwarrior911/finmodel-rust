@@ -49,19 +49,46 @@ pub struct ISRow {
     pub row_type: RowType,
     pub bold: bool,
     pub driver_key: String,
-    pub driver_format: String, // "pct" | "num"
+    pub driver_format: String,  // "pct" | "num"
     pub hist_numer_key: String, // "__growth" = YoY growth
     pub hist_denom_key: String,
 }
 
 fn li(key: &str, label: &str, bold: bool) -> ISRow {
-    ISRow { key: key.into(), label: label.into(), row_type: RowType::LineItem, bold, driver_key: String::new(), driver_format: "num".into(), hist_numer_key: String::new(), hist_denom_key: String::new() }
+    ISRow {
+        key: key.into(),
+        label: label.into(),
+        row_type: RowType::LineItem,
+        bold,
+        driver_key: String::new(),
+        driver_format: "num".into(),
+        hist_numer_key: String::new(),
+        hist_denom_key: String::new(),
+    }
 }
 fn st(key: &str, label: &str) -> ISRow {
-    ISRow { key: key.into(), label: label.into(), row_type: RowType::Subtotal, bold: true, driver_key: String::new(), driver_format: "num".into(), hist_numer_key: String::new(), hist_denom_key: String::new() }
+    ISRow {
+        key: key.into(),
+        label: label.into(),
+        row_type: RowType::Subtotal,
+        bold: true,
+        driver_key: String::new(),
+        driver_format: "num".into(),
+        hist_numer_key: String::new(),
+        hist_denom_key: String::new(),
+    }
 }
 fn sec(label: &str) -> ISRow {
-    ISRow { key: String::new(), label: label.into(), row_type: RowType::SectionHeader, bold: true, driver_key: String::new(), driver_format: "num".into(), hist_numer_key: String::new(), hist_denom_key: String::new() }
+    ISRow {
+        key: String::new(),
+        label: label.into(),
+        row_type: RowType::SectionHeader,
+        bold: true,
+        driver_key: String::new(),
+        driver_format: "num".into(),
+        hist_numer_key: String::new(),
+        hist_denom_key: String::new(),
+    }
 }
 fn drv(label: &str, driver_key: &str, hist_numer: &str, hist_denom: &str) -> ISRow {
     ISRow {
@@ -76,10 +103,28 @@ fn drv(label: &str, driver_key: &str, hist_numer: &str, hist_denom: &str) -> ISR
     }
 }
 fn mo(key: &str, label: &str, numer: &str, denom: &str) -> ISRow {
-    ISRow { key: key.into(), label: label.into(), row_type: RowType::Memo, bold: false, driver_key: String::new(), driver_format: "pct".into(), hist_numer_key: numer.into(), hist_denom_key: denom.into() }
+    ISRow {
+        key: key.into(),
+        label: label.into(),
+        row_type: RowType::Memo,
+        bold: false,
+        driver_key: String::new(),
+        driver_format: "pct".into(),
+        hist_numer_key: numer.into(),
+        hist_denom_key: denom.into(),
+    }
 }
 fn sp() -> ISRow {
-    ISRow { key: String::new(), label: String::new(), row_type: RowType::Spacer, bold: false, driver_key: String::new(), driver_format: "num".into(), hist_numer_key: String::new(), hist_denom_key: String::new() }
+    ISRow {
+        key: String::new(),
+        label: String::new(),
+        row_type: RowType::Spacer,
+        bold: false,
+        driver_key: String::new(),
+        driver_format: "num".into(),
+        hist_numer_key: String::new(),
+        hist_denom_key: String::new(),
+    }
 }
 
 /// A revenue segment (label + data key).
@@ -121,21 +166,35 @@ pub fn build_standard_is_detailed(
     if !segments.is_empty() {
         for seg in segments {
             rows.push(li(&seg.key, &format!("  {}", seg.label), false));
-            rows.push(drv(&format!("{} Growth %", seg.label), &format!("{}_growth_pct", seg.key), "__growth", &seg.key));
+            rows.push(drv(
+                &format!("{} Growth %", seg.label),
+                &format!("{}_growth_pct", seg.key),
+                "__growth",
+                &seg.key,
+            ));
         }
         rows.push(sp());
         rows.push(st("revenue", "Total Revenue"));
         rows.push(sp());
     } else {
         rows.push(li("revenue", "Revenue", true));
-        rows.push(drv("Revenue Growth %", "revenue_growth_pct", "__growth", "revenue"));
+        rows.push(drv(
+            "Revenue Growth %",
+            "revenue_growth_pct",
+            "__growth",
+            "revenue",
+        ));
         rows.push(sp());
     }
 
     // ── COGS / OpEx ──────────────────────────────────────────────────────────
     if !opex_items.is_empty() {
-        let cogs_items: Vec<&OpexItem> = opex_items.iter().filter(|o| o.category == "cogs").collect();
-        let rd_items: Vec<&OpexItem> = opex_items.iter().filter(|o| o.category == "opex_rd").collect();
+        let cogs_items: Vec<&OpexItem> =
+            opex_items.iter().filter(|o| o.category == "cogs").collect();
+        let rd_items: Vec<&OpexItem> = opex_items
+            .iter()
+            .filter(|o| o.category == "opex_rd")
+            .collect();
         let other_oe: Vec<&OpexItem> = opex_items.iter().filter(|o| o.category == "opex").collect();
 
         if !cogs_items.is_empty() {
@@ -151,23 +210,41 @@ pub fn build_standard_is_detailed(
                 }
             }
             rows.push(st("gross_profit", "Gross Profit"));
-            rows.push(drv("Gross Margin %", "gross_margin_pct", "gross_profit", "revenue"));
+            rows.push(drv(
+                "Gross Margin %",
+                "gross_margin_pct",
+                "gross_profit",
+                "revenue",
+            ));
             rows.push(sp());
         }
         if !rd_items.is_empty() || !other_oe.is_empty() {
             rows.push(sec("OPERATING EXPENSES"));
             for (idx, ri) in rd_items.iter().enumerate() {
-                let key = if idx == 0 { "rd".to_string() } else { ri.key.clone() };
+                let key = if idx == 0 {
+                    "rd".to_string()
+                } else {
+                    ri.key.clone()
+                };
                 rows.push(li(&key, &format!("  {}", ri.label), false));
                 if idx == 0 {
                     rows.push(drv("R&D % of Revenue", "rd_pct_rev", "rd", "revenue"));
                 }
             }
             for (idx, oi) in other_oe.iter().enumerate() {
-                let key = if idx == 0 { "sga".to_string() } else { oi.key.clone() };
+                let key = if idx == 0 {
+                    "sga".to_string()
+                } else {
+                    oi.key.clone()
+                };
                 rows.push(li(&key, &format!("  {}", oi.label), false));
                 if idx == 0 {
-                    rows.push(drv(&format!("{} % of Revenue", oi.label), "sga_pct_rev", "sga", "revenue"));
+                    rows.push(drv(
+                        &format!("{} % of Revenue", oi.label),
+                        "sga_pct_rev",
+                        "sga",
+                        "revenue",
+                    ));
                 }
             }
         }
@@ -176,7 +253,12 @@ pub fn build_standard_is_detailed(
             rows.push(sec("COST OF REVENUES"));
             rows.push(li("cogs", "  Cost of Revenue", false));
             rows.push(st("gross_profit", "Gross Profit"));
-            rows.push(drv("Gross Margin %", "gross_margin_pct", "gross_profit", "revenue"));
+            rows.push(drv(
+                "Gross Margin %",
+                "gross_margin_pct",
+                "gross_profit",
+                "revenue",
+            ));
             rows.push(sp());
         }
         rows.push(sec("OPERATING EXPENSES"));
@@ -201,7 +283,12 @@ pub fn build_standard_is_detailed(
     rows.push(li("da", "  (+) Depreciation & Amortization", false));
     rows.push(drv("D&A % of Revenue", "da_pct_rev", "da", "revenue"));
     rows.push(st("ebitda", "EBITDA"));
-    rows.push(mo("ebitda_margin", "  EBITDA Margin %", "ebitda", "revenue"));
+    rows.push(mo(
+        "ebitda_margin",
+        "  EBITDA Margin %",
+        "ebitda",
+        "revenue",
+    ));
     rows.push(sp());
     rows.push(sec("OTHER INCOME / EXPENSE"));
     rows.push(li("interest_expense", "  Interest Expense", false));
@@ -210,12 +297,22 @@ pub fn build_standard_is_detailed(
     rows.push(st("ebt", "EBT"));
     rows.push(sp());
     rows.push(li("income_tax", "  Income Tax", false));
-    rows.push(drv("Effective Tax Rate %", "tax_rate_pct", "income_tax", "ebt"));
+    rows.push(drv(
+        "Effective Tax Rate %",
+        "tax_rate_pct",
+        "income_tax",
+        "ebt",
+    ));
     rows.push(st("net_income", "Net Income"));
     rows.push(mo("net_margin", "  Net Margin %", "net_income", "revenue"));
     rows.push(li("nci_income_loss", "  Less: Net Income to NCI", false));
     rows.push(st("ni_common", "Net Income to Common"));
-    rows.push(mo("ni_common_margin", "  Net Margin % (to Common)", "ni_common", "revenue"));
+    rows.push(mo(
+        "ni_common_margin",
+        "  Net Margin % (to Common)",
+        "ni_common",
+        "revenue",
+    ));
     rows.push(sp());
     rows.push(sec("PER SHARE DATA"));
     rows.push(li("eps_diluted", "  EPS — Diluted", false));
@@ -230,17 +327,41 @@ pub fn build_standard_is_detailed(
 pub fn build_utility_is() -> Vec<ISRow> {
     vec![
         li("revenue", "Operating Revenues", true),
-        drv("Revenue Growth %", "revenue_growth_pct", "__growth", "revenue"),
+        drv(
+            "Revenue Growth %",
+            "revenue_growth_pct",
+            "__growth",
+            "revenue",
+        ),
         sp(),
         sec("OPERATING EXPENSES"),
         li("utility_om", "  Operation & Maintenance", false),
-        drv("O&M % of Revenue", "gross_margin_pct", "utility_om", "revenue"),
+        drv(
+            "O&M % of Revenue",
+            "gross_margin_pct",
+            "utility_om",
+            "revenue",
+        ),
         li("da", "  Depreciation & Amortization", false),
         drv("D&A % of Revenue", "da_pct_rev", "da", "revenue"),
-        li("utility_taxes_other", "  Taxes other than income taxes", false),
-        drv("Taxes other % of Revenue", "sga_pct_rev", "utility_taxes_other", "revenue"),
+        li(
+            "utility_taxes_other",
+            "  Taxes other than income taxes",
+            false,
+        ),
+        drv(
+            "Taxes other % of Revenue",
+            "sga_pct_rev",
+            "utility_taxes_other",
+            "revenue",
+        ),
         li("utility_other", "  Other operating expenses", false),
-        drv("Other OpEx % of Revenue", "rd_pct_rev", "utility_other", "revenue"),
+        drv(
+            "Other OpEx % of Revenue",
+            "rd_pct_rev",
+            "utility_other",
+            "revenue",
+        ),
         st("utility_total_opex", "Total Operating Expenses"),
         sp(),
         st("ebit", "Operating Income (EBIT)"),
@@ -261,7 +382,12 @@ pub fn build_utility_is() -> Vec<ISRow> {
         mo("net_margin", "  Net Margin %", "net_income", "revenue"),
         li("nci_income_loss", "  Less: Net Income to NCI", false),
         st("ni_common", "Net Income to Common"),
-        mo("ni_common_margin", "  Net Margin % (to Common)", "ni_common", "revenue"),
+        mo(
+            "ni_common_margin",
+            "  Net Margin % (to Common)",
+            "ni_common",
+            "revenue",
+        ),
         sp(),
         sec("PER SHARE DATA"),
         li("eps_diluted", "  EPS — Diluted", false),
@@ -276,16 +402,31 @@ pub fn build_bank_is() -> Vec<ISRow> {
     vec![
         sec("INTEREST INCOME"),
         li("revenue", "Interest & Fee Income", true),
-        drv("Interest Income Growth %", "revenue_growth_pct", "__growth", "revenue"),
+        drv(
+            "Interest Income Growth %",
+            "revenue_growth_pct",
+            "__growth",
+            "revenue",
+        ),
         sp(),
         sec("INTEREST EXPENSE"),
         li("cogs", "  Interest Expense", false),
         st("gross_profit", "Net Interest Income"),
-        drv("Net Interest Margin (NIM) %", "gross_margin_pct", "gross_profit", "revenue"),
+        drv(
+            "Net Interest Margin (NIM) %",
+            "gross_margin_pct",
+            "gross_profit",
+            "revenue",
+        ),
         sp(),
         sec("NON-INTEREST INCOME / EXPENSE"),
         li("sga", "  Non-Interest Expense", false),
-        drv("Efficiency Ratio % of Revenue", "sga_pct_rev", "sga", "revenue"),
+        drv(
+            "Efficiency Ratio % of Revenue",
+            "sga_pct_rev",
+            "sga",
+            "revenue",
+        ),
         li("rd", "  Provision for Credit Losses", false),
         drv("Credit Cost % of Revenue", "rd_pct_rev", "rd", "revenue"),
         sp(),
@@ -300,7 +441,12 @@ pub fn build_bank_is() -> Vec<ISRow> {
         sec("BELOW THE LINE"),
         li("interest_income", "  Other Interest Income", false),
         li("interest_expense", "  Long-Term Debt Interest", false),
-        drv("Long-Term Debt Interest Rate %", "interest_rate_pct", "", ""),
+        drv(
+            "Long-Term Debt Interest Rate %",
+            "interest_rate_pct",
+            "",
+            "",
+        ),
         st("ebt", "Pre-Tax Income"),
         sp(),
         li("income_tax", "  Income Tax", false),
@@ -309,7 +455,12 @@ pub fn build_bank_is() -> Vec<ISRow> {
         mo("net_margin", "  Net Margin %", "net_income", "revenue"),
         li("nci_income_loss", "  Less: Net Income to NCI", false),
         st("ni_common", "Net Income to Common"),
-        mo("ni_common_margin", "  Net Margin % (to Common)", "ni_common", "revenue"),
+        mo(
+            "ni_common_margin",
+            "  Net Margin % (to Common)",
+            "ni_common",
+            "revenue",
+        ),
         sp(),
         sec("PER SHARE DATA"),
         li("eps_diluted", "  EPS — Diluted", false),
@@ -324,16 +475,31 @@ pub fn build_insurance_is() -> Vec<ISRow> {
     vec![
         sec("REVENUES"),
         li("revenue", "Premiums Earned", true),
-        drv("Premium Growth %", "revenue_growth_pct", "__growth", "revenue"),
+        drv(
+            "Premium Growth %",
+            "revenue_growth_pct",
+            "__growth",
+            "revenue",
+        ),
         sp(),
         sec("BENEFITS & EXPENSES"),
         li("cogs", "  Benefits / Losses & LAE Incurred", false),
         li("rd", "  Acquisition & Underwriting Expenses", false),
-        drv("Acquisition Cost % of Premiums", "rd_pct_rev", "rd", "revenue"),
+        drv(
+            "Acquisition Cost % of Premiums",
+            "rd_pct_rev",
+            "rd",
+            "revenue",
+        ),
         li("sga", "  General & Administrative Expenses", false),
         drv("G&A % of Premiums", "sga_pct_rev", "sga", "revenue"),
         st("gross_profit", "Total Benefits & Expenses"),
-        drv("Combined Ratio %", "gross_margin_pct", "gross_profit", "revenue"),
+        drv(
+            "Combined Ratio %",
+            "gross_margin_pct",
+            "gross_profit",
+            "revenue",
+        ),
         sp(),
         st("ebit", "Underwriting Income"),
         mo("ebit_margin", "  Underwriting Margin %", "ebit", "revenue"),
@@ -355,7 +521,12 @@ pub fn build_insurance_is() -> Vec<ISRow> {
         mo("net_margin", "  Net Margin %", "net_income", "revenue"),
         li("nci_income_loss", "  Less: Net Income to NCI", false),
         st("ni_common", "Net Income to Common"),
-        mo("ni_common_margin", "  Net Margin % (to Common)", "ni_common", "revenue"),
+        mo(
+            "ni_common_margin",
+            "  Net Margin % (to Common)",
+            "ni_common",
+            "revenue",
+        ),
         sp(),
         sec("PER SHARE DATA"),
         li("eps_diluted", "  EPS — Diluted", false),
@@ -370,12 +541,22 @@ pub fn build_reit_is() -> Vec<ISRow> {
     vec![
         sec("REVENUES"),
         li("revenue", "Rental & Property Revenue", true),
-        drv("Revenue Growth %", "revenue_growth_pct", "__growth", "revenue"),
+        drv(
+            "Revenue Growth %",
+            "revenue_growth_pct",
+            "__growth",
+            "revenue",
+        ),
         sp(),
         sec("PROPERTY OPERATING EXPENSES"),
         li("cogs", "  Property Operating Expenses", false),
         st("gross_profit", "Net Operating Income (NOI)"),
-        drv("NOI Margin %", "gross_margin_pct", "gross_profit", "revenue"),
+        drv(
+            "NOI Margin %",
+            "gross_margin_pct",
+            "gross_profit",
+            "revenue",
+        ),
         sp(),
         sec("CORPORATE EXPENSES"),
         li("sga", "  General & Administrative", false),
@@ -403,7 +584,12 @@ pub fn build_reit_is() -> Vec<ISRow> {
         mo("net_margin", "  Net Margin %", "net_income", "revenue"),
         li("nci_income_loss", "  Less: Net Income to NCI", false),
         st("ni_common", "Net Income to Common"),
-        mo("ni_common_margin", "  Net Margin % (to Common)", "ni_common", "revenue"),
+        mo(
+            "ni_common_margin",
+            "  Net Margin % (to Common)",
+            "ni_common",
+            "revenue",
+        ),
         sp(),
         sec("FFO / AFFO  (supplemental REIT metrics)"),
         li("ffo", "  FFO  (Net Income + D&A)", true),
@@ -483,7 +669,10 @@ mod tests {
     fn filing_labels_override_preserving_indent() {
         let mut rows = build_standard_is(true, true, true);
         let mut fl = HashMap::new();
-        fl.insert("rd".to_string(), "Research and development expenses".to_string());
+        fl.insert(
+            "rd".to_string(),
+            "Research and development expenses".to_string(),
+        );
         fl.insert("da".to_string(), "SHOULD BE SKIPPED".to_string());
         apply_filing_labels(&mut rows, &fl);
         let rd = rows.iter().find(|r| r.key == "rd").unwrap();

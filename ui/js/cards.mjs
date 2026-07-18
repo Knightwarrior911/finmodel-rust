@@ -28,6 +28,30 @@ function cardShell(kind, inner) {
   return el;
 }
 
+// ── verification ────────────────────────────────────────────────────
+// The analyst's verify step (Task 4.2): shows how many material figures were
+// checked against their primary source and the rolled-up run badge.
+function renderVerification(card) {
+  const status = card.status || "partial_unverified";
+  const label =
+    status === "verified"
+      ? "Verified"
+      : status === "verified_with_warnings"
+        ? "Verified (warnings)"
+        : "Partial — unverified";
+  const verified = Number(card.verified || 0);
+  const total = Number(card.total || 0);
+  const src = card.source ? ` against ${escapeHtml(card.source)}` : "";
+  return cardShell(
+    `verify status-${escapeHtml(status)}`,
+    `<div class="card-head">
+       <span class="card-title">${escapeHtml(label)}</span>
+       <span class="verify-badge status-${escapeHtml(status)}">${escapeHtml(String(verified))}/${escapeHtml(String(total))}</span>
+     </div>
+     <p class="card-note">${escapeHtml(String(verified))} of ${escapeHtml(String(total))} material figures verified${src}.</p>`,
+  );
+}
+
 // ── model ───────────────────────────────────────────────────────────
 function valuationStrip(v) {
   if (!v || !v.has_dcf) return "";
@@ -52,7 +76,9 @@ function renderModel(card) {
   const compsNote =
     comps && comps.count != null
       ? `<p class="card-note">Comps: ${comps.count} peer${comps.count === 1 ? "" : "s"}${
-          comps.excluded && comps.excluded.length ? ` (${comps.excluded.length} excluded)` : ""
+          comps.excluded && comps.excluded.length
+            ? ` (${comps.excluded.length} excluded)`
+            : ""
         }</p>`
       : "";
   const caseTag =
@@ -97,8 +123,11 @@ function renderBenchmark(card) {
       const cells = headers
         .map((h) => {
           const raw = r[h.key];
-          const val = h.key === "ticker" ? escapeHtml(raw || "") : escapeHtml((BENCH_FMT[h.key] || String)(raw));
-          const numCls = h.key === "ticker" ? "" : " class=\"num\"";
+          const val =
+            h.key === "ticker"
+              ? escapeHtml(raw || "")
+              : escapeHtml((BENCH_FMT[h.key] || String)(raw));
+          const numCls = h.key === "ticker" ? "" : ' class="num"';
           return `<td${numCls}>${val}</td>`;
         })
         .join("");
@@ -125,8 +154,12 @@ function renderBenchmark(card) {
     headers.map((h) => h.label).join("\t"),
     ...rows.map((r) =>
       headers
-        .map((h) => (h.key === "ticker" ? r[h.key] || "" : (BENCH_FMT[h.key] || String)(r[h.key])))
-        .join("\t")
+        .map((h) =>
+          h.key === "ticker"
+            ? r[h.key] || ""
+            : (BENCH_FMT[h.key] || String)(r[h.key]),
+        )
+        .join("\t"),
     ),
   ].join("\n");
   const copyBtn = el.querySelector("[data-copy-table]");
@@ -145,8 +178,10 @@ function renderSearch(card) {
   const hits = card.hits || [];
   const rows = hits
     .map(
-      (h) => `<li class="hit-row" data-reader-url="${escapeHtml(h.url)}" data-reader-title="${escapeHtml(
-        h.title || ""
+      (
+        h,
+      ) => `<li class="hit-row" data-reader-url="${escapeHtml(h.url)}" data-reader-title="${escapeHtml(
+        h.title || "",
       )}" tabindex="0" role="button">
         <div class="hit-main">
           <span class="hit-title">${escapeHtml(h.title || domainOf(h.url))}</span>
@@ -154,7 +189,7 @@ function renderSearch(card) {
         </div>
         ${h.snippet ? `<p class="hit-snippet">${escapeHtml(h.snippet)}</p>` : ""}
         <button type="button" class="btn-ghost hit-open" data-url="${escapeHtml(h.url)}">Open ↗</button>
-      </li>`
+      </li>`,
     )
     .join("");
   const inner = `
@@ -182,10 +217,12 @@ function renderNews(card) {
   const items = card.items || [];
   const rows = items
     .map(
-      (n) => `<li class="news-row" data-url="${escapeHtml(n.url)}" role="button" tabindex="0">
+      (
+        n,
+      ) => `<li class="news-row" data-url="${escapeHtml(n.url)}" role="button" tabindex="0">
         <span class="news-title">${escapeHtml(n.title)}</span>
         <span class="news-src num">${escapeHtml(n.source || "")}${n.published ? " · " + escapeHtml(n.published) : ""}</span>
-      </li>`
+      </li>`,
     )
     .join("");
   const inner = `
@@ -202,12 +239,15 @@ function renderDeal(card) {
     .map(
       ([k, v]) =>
         `<div class="fact"><span class="fact-k">${escapeHtml(k.replace(/_/g, " "))}</span><span class="fact-v">${escapeHtml(
-          typeof v === "object" ? JSON.stringify(v) : String(v)
-        )}</span></div>`
+          typeof v === "object" ? JSON.stringify(v) : String(v),
+        )}</span></div>`,
     )
     .join("");
   const sources = (card.sources_read || [])
-    .map((u) => `<li><a href="#" class="md-link" data-url="${escapeHtml(u)}">${escapeHtml(domainOf(u))}</a></li>`)
+    .map(
+      (u) =>
+        `<li><a href="#" class="md-link" data-url="${escapeHtml(u)}">${escapeHtml(domainOf(u))}</a></li>`,
+    )
     .join("");
   const head =
     [card.acquirer, card.target].filter(Boolean).join(" / ") || "Deal research";
@@ -241,11 +281,13 @@ function renderQuote(card) {
 function renderFilings(card) {
   const rows = (card.rows || [])
     .map(
-      (f) => `<tr class="filing-row" data-url="${escapeHtml(f.url)}" role="button" tabindex="0">
+      (
+        f,
+      ) => `<tr class="filing-row" data-url="${escapeHtml(f.url)}" role="button" tabindex="0">
         <td class="num">${escapeHtml(f.form_type || "")}</td>
         <td class="num">${escapeHtml(f.filing_date || "")}</td>
         <td class="num">${escapeHtml(f.fiscal_period_end || "")}</td>
-      </tr>`
+      </tr>`,
     )
     .join("");
   const inner = `
@@ -256,10 +298,51 @@ function renderFilings(card) {
   return cardShell("filings", inner);
 }
 
+// ── financials (exact reported figures from SEC EDGAR XBRL) ──────────
+function renderFinancials(card) {
+  const rows = (card.rows || [])
+    .map(
+      (r) =>
+        `<tr><td>${escapeHtml(r.label || "")}</td><td class="num">${escapeHtml(
+          r.display != null ? String(r.display) : String(r.value ?? ""),
+        )}</td></tr>`,
+    )
+    .join("");
+  const fy = card.fiscal_year
+    ? `FY${escapeHtml(String(card.fiscal_year))}`
+    : "";
+  const sub = [
+    fy,
+    card.period_end ? `period ended ${escapeHtml(card.period_end)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const src = card.source
+    ? `<div class="card-sources"><a href="#" class="md-link" data-url="${escapeHtml(card.source)}">SEC EDGAR</a></div>`
+    : "";
+  const inner = `
+    <div class="card-head">
+      <span class="card-title">${escapeHtml(card.entity || card.ticker || "Financials")}</span>
+      ${sub ? `<span class="card-sub">${sub}</span>` : ""}
+    </div>
+    <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Line item</th><th scope="col">${escapeHtml(
+      card.currency || "Value",
+    )}</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="2" class="card-note">No figures.</td></tr>'
+    }</tbody></table></div>
+    ${src}`;
+  return cardShell("financials", inner);
+}
+
 // ── filing_doc (10-K/10-Q reader) ───────────────────────────────────
 function renderFilingDoc(card) {
   const items = card.items || [];
-  const chips = items.map((id) => `<span class="filing-item-chip num">Item ${escapeHtml(id)}</span>`).join("");
+  const chips = items
+    .map(
+      (id) =>
+        `<span class="filing-item-chip num">Item ${escapeHtml(id)}</span>`,
+    )
+    .join("");
   const sub = [
     escapeHtml(card.form || ""),
     card.item ? `Item ${escapeHtml(card.item)}` : null,
@@ -315,7 +398,10 @@ function renderAssumptions(card) {
   const el = cardShell("assumptions", inner);
   el.querySelectorAll("input").forEach((inp) => {
     inp.addEventListener("input", () => {
-      inp.classList.toggle("edited", inp.value.trim() !== (inp.dataset.orig || ""));
+      inp.classList.toggle(
+        "edited",
+        inp.value.trim() !== (inp.dataset.orig || ""),
+      );
     });
   });
   return el;
@@ -325,11 +411,13 @@ function collectOverrides(cardEl) {
   const overrides = [];
   cardEl.querySelectorAll("tbody tr").forEach((tr) => {
     const values = Array.from(tr.querySelectorAll("input")).map((inp) => {
-      if (!inp.classList.contains("edited") || inp.value.trim() === "") return null;
+      if (!inp.classList.contains("edited") || inp.value.trim() === "")
+        return null;
       const n = Number(inp.value.trim());
       return isFinite(n) ? n : null;
     });
-    if (values.some((v) => v != null)) overrides.push({ key: tr.dataset.key, values });
+    if (values.some((v) => v != null))
+      overrides.push({ key: tr.dataset.key, values });
   });
   return overrides;
 }
@@ -350,9 +438,9 @@ function citeRefs(citations, srcById) {
       const url = safeHttpUrl(src.final_url || src.requested_url || "");
       const attrs = url ? ` data-url="${escapeHtml(url)}"` : "";
       return `<button type="button" class="cite-ref"${attrs} title="${escapeHtml(
-        c.quote || ""
+        c.quote || "",
       )}" aria-label="Source ${escapeHtml(c.source_id || "")}: ${escapeHtml(
-        c.quote || ""
+        c.quote || "",
       )}">[${escapeHtml(c.source_id || "")}]</button>`;
     })
     .join("");
@@ -370,8 +458,8 @@ function renderResearchAnswer(card) {
     .map(
       (s) =>
         `<section class="answer-section"><h4 class="answer-heading">${escapeHtml(
-          s.heading || ""
-        )}</h4>${(s.paragraphs || []).map((p) => citedPara(p, srcById)).join("")}</section>`
+          s.heading || "",
+        )}</h4>${(s.paragraphs || []).map((p) => citedPara(p, srcById)).join("")}</section>`,
     )
     .join("");
   const srcRows = (a.sources || [])
@@ -384,22 +472,24 @@ function renderResearchAnswer(card) {
         <span class="src-id num">${escapeHtml(s.id || "")}</span>
         <span class="src-domain">${escapeHtml(s.domain || domainOf(url))}</span>
         <span class="src-status src-status-${escapeHtml(String(s.status || ""))}">${escapeHtml(
-          String(s.status || "")
+          String(s.status || ""),
         )} · ${escapeHtml(String(s.kind || ""))}</span>
         ${openBtn}
       </li>`;
     })
     .join("");
-  const lims = (a.limitations || []).map((l) => `<li>${escapeHtml(l)}</li>`).join("");
+  const lims = (a.limitations || [])
+    .map((l) => `<li>${escapeHtml(l)}</li>`)
+    .join("");
   const inner = `
     <div class="card-head">
       <span class="card-title">Research</span>
       <span class="card-sub">confidence: ${escapeHtml(String(a.confidence || ""))}</span>
     </div>
     <p class="answer-summary">${escapeHtml(a.summary?.text || "")} ${citeRefs(
-    a.summary?.citations,
-    srcById
-  )}</p>
+      a.summary?.citations,
+      srcById,
+    )}</p>
     ${sections}
     ${lims ? `<div class="answer-limitations"><span class="card-note">Limitations</span><ul>${lims}</ul></div>` : ""}
     <details class="source-tray">
@@ -421,15 +511,17 @@ function renderResearchDigest(card) {
         <div class="hit-main">
           <span class="hit-title">${escapeHtml(it.title || domainOf(url))}</span>
           <span class="src-status src-status-${escapeHtml(String(it.status || ""))}">${escapeHtml(
-        String(it.status || "")
-      )}</span>
+            String(it.status || ""),
+          )}</span>
         </div>
         ${it.snippet ? `<p class="hit-snippet">${escapeHtml(it.snippet)}</p>` : ""}
         ${openBtn}
       </li>`;
     })
     .join("");
-  const lims = (d.limitations || []).map((l) => `<li>${escapeHtml(l)}</li>`).join("");
+  const lims = (d.limitations || [])
+    .map((l) => `<li>${escapeHtml(l)}</li>`)
+    .join("");
   const inner = `
     <div class="card-head"><span class="card-title">Source digest — no synthesis</span></div>
     <ul class="hit-list">${rows || '<li class="card-note">No sources.</li>'}</ul>
@@ -439,29 +531,69 @@ function renderResearchDigest(card) {
 
 // ── dispatch + interaction ──────────────────────────────────────────
 export function renderCard(card) {
-  if (!card || typeof card !== "object") return document.createComment("empty card");
+  if (!card || typeof card !== "object")
+    return document.createComment("empty card");
   let el;
   switch (card.type) {
-    case "model": el = renderModel(card); break;
-    case "benchmark": el = renderBenchmark(card); break;
-    case "search": el = renderSearch(card); break;
-    case "page": el = renderPage(card); break;
-    case "news": el = renderNews(card); break;
-    case "deal": el = renderDeal(card); break;
-    case "quote": el = renderQuote(card); break;
-    case "filings": el = renderFilings(card); break;
-    case "filing_doc": el = renderFilingDoc(card); break;
-    case "assumptions": el = renderAssumptions(card); break;
-    case "research_answer": el = renderResearchAnswer(card); break;
-    case "research_digest": el = renderResearchDigest(card); break;
+    case "model":
+      el = renderModel(card);
+      break;
+    case "benchmark":
+      el = renderBenchmark(card);
+      break;
+    case "search":
+      el = renderSearch(card);
+      break;
+    case "page":
+      el = renderPage(card);
+      break;
+    case "news":
+      el = renderNews(card);
+      break;
+    case "deal":
+      el = renderDeal(card);
+      break;
+    case "quote":
+      el = renderQuote(card);
+      break;
+    case "filings":
+      el = renderFilings(card);
+      break;
+    case "financials":
+      el = renderFinancials(card);
+      break;
+    case "filing_doc":
+      el = renderFilingDoc(card);
+      break;
+    case "assumptions":
+      el = renderAssumptions(card);
+      break;
+    case "research_answer":
+      el = renderResearchAnswer(card);
+      break;
+    case "verification":
+      el = renderVerification(card);
+      break;
+    case "research_digest":
+      el = renderResearchDigest(card);
+      break;
     case "error":
-      el = cardShell("error", `<p class="card-note err">${escapeHtml(card.message || "Tool failed.")}</p>`);
+      el = cardShell(
+        "error",
+        `<p class="card-note err">${escapeHtml(card.message || "Tool failed.")}</p>`,
+      );
       break;
     case "tool_contract":
-      el = cardShell("error", `<p class="card-note err">${escapeHtml(card.message || "Invalid tool arguments.")}</p>`);
+      el = cardShell(
+        "error",
+        `<p class="card-note err">${escapeHtml(card.message || "Invalid tool arguments.")}</p>`,
+      );
       break;
     default:
-      el = cardShell("unknown", `<p class="card-note">${escapeHtml(card.type || "result")}</p>`);
+      el = cardShell(
+        "unknown",
+        `<p class="card-note">${escapeHtml(card.type || "result")}</p>`,
+      );
   }
   wireCard(el);
   return el;
@@ -513,7 +645,7 @@ function wireCard(el) {
   el.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const row = e.target.closest("[data-reader-url],[data-url]");
-    if (row && (row.getAttribute("role") === "button")) {
+    if (row && row.getAttribute("role") === "button") {
       e.preventDefault();
       row.click();
     }
@@ -544,6 +676,7 @@ async function buildFromAssumptions(cardEl, sessionId) {
     cardEl.replaceWith(renderCard(modelCard));
   } catch (err) {
     if (btn) btn.disabled = false;
-    if (status) status.textContent = `Build failed: ${err && err.message ? err.message : err}`;
+    if (status)
+      status.textContent = `Build failed: ${err && err.message ? err.message : err}`;
   }
 }

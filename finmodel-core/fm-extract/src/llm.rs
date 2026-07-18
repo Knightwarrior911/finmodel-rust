@@ -34,7 +34,11 @@ pub enum LlmError {
 ///
 /// Model override: `FINMODEL_LLM_MODEL` env var (for OpenRouter, a model id like
 /// `anthropic/claude-sonnet-4` or `openai/gpt-4o`).
-pub fn llm_complete(system_text: &str, user_text: &str, max_tokens: u32) -> Result<String, LlmError> {
+pub fn llm_complete(
+    system_text: &str,
+    user_text: &str,
+    max_tokens: u32,
+) -> Result<String, LlmError> {
     let openrouter_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
     let deepseek_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default();
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
@@ -42,7 +46,13 @@ pub fn llm_complete(system_text: &str, user_text: &str, max_tokens: u32) -> Resu
     if !openrouter_key.trim().is_empty() {
         let model = std::env::var("FINMODEL_LLM_MODEL")
             .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string());
-        return llm_complete_openrouter(system_text, user_text, max_tokens, &model, openrouter_key.trim());
+        return llm_complete_openrouter(
+            system_text,
+            user_text,
+            max_tokens,
+            &model,
+            openrouter_key.trim(),
+        );
     }
     if !deepseek_key.trim().is_empty() {
         return llm_complete_deepseek(system_text, user_text, max_tokens);
@@ -102,7 +112,8 @@ fn claude_args(sys_path: &str, model: &str) -> Vec<String> {
         "--output-format".into(),
         "text".into(),
         "-p".into(),
-        "Process the piped input per the system instructions and return only the requested JSON.".into(),
+        "Process the piped input per the system instructions and return only the requested JSON."
+            .into(),
     ]
 }
 
@@ -170,7 +181,10 @@ fn llm_complete_via_cli(system_text: &str, user_text: &str) -> Result<String, Ll
 
     if rc != 0 {
         let err_trimmed: String = err_raw.chars().take(400).collect();
-        return Err(LlmError::CliError { rc, stderr: err_trimmed });
+        return Err(LlmError::CliError {
+            rc,
+            stderr: err_trimmed,
+        });
     }
 
     let out = out_raw.trim().to_string();
@@ -200,7 +214,11 @@ fn strip_code_fences(s: &str) -> String {
 }
 
 /// Call DeepSeek API (openai-compatible).
-fn llm_complete_deepseek(_system_text: &str, _user_text: &str, _max_tokens: u32) -> Result<String, LlmError> {
+fn llm_complete_deepseek(
+    _system_text: &str,
+    _user_text: &str,
+    _max_tokens: u32,
+) -> Result<String, LlmError> {
     Err(LlmError::Io(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "DeepSeek API caller not yet implemented; use Claude CLI or set ANTHROPIC_API_KEY",
@@ -208,7 +226,11 @@ fn llm_complete_deepseek(_system_text: &str, _user_text: &str, _max_tokens: u32)
 }
 
 /// Call Anthropic API directly.
-fn llm_complete_anthropic(_system_text: &str, _user_text: &str, _max_tokens: u32) -> Result<String, LlmError> {
+fn llm_complete_anthropic(
+    _system_text: &str,
+    _user_text: &str,
+    _max_tokens: u32,
+) -> Result<String, LlmError> {
     Err(LlmError::Io(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "Anthropic API caller not yet implemented; use Claude CLI",
@@ -339,7 +361,10 @@ fn parse_openrouter_response(body: &serde_json::Value) -> Result<String, LlmErro
                 .and_then(|e| e.get("message"))
                 .and_then(|m| m.as_str())
                 .unwrap_or("no choices in OpenRouter response");
-            LlmError::CliError { rc: 1, stderr: err_msg.to_string() }
+            LlmError::CliError {
+                rc: 1,
+                stderr: err_msg.to_string(),
+            }
         })
 }
 

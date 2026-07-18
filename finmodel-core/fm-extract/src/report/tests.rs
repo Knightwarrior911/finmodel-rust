@@ -94,9 +94,10 @@ fn overlay_interim_bs_overrides_balance_sheet_keeps_income() {
         cash: Some(15.0),
         ..Default::default()
     };
-    interim
-        .field_sources
-        .insert("total_assets".to_string(), "https://x/interim.pdf".to_string());
+    interim.field_sources.insert(
+        "total_assets".to_string(),
+        "https://x/interim.pdf".to_string(),
+    );
 
     annual.overlay_interim_bs(&interim);
 
@@ -104,7 +105,11 @@ fn overlay_interim_bs_overrides_balance_sheet_keeps_income() {
     assert_eq!(annual.net_income, Some(60.0));
     assert_eq!(annual.total_assets, Some(120.0), "BS overridden");
     assert_eq!(annual.cash, Some(15.0), "BS overridden");
-    assert_eq!(annual.total_equity, Some(40.0), "interim None → keep annual");
+    assert_eq!(
+        annual.total_equity,
+        Some(40.0),
+        "interim None → keep annual"
+    );
     assert_eq!(
         annual.field_sources.get("total_assets").map(String::as_str),
         Some("https://x/interim.pdf"),
@@ -144,12 +149,22 @@ fn is_valid_filing_gates_on_balance_sheet_and_pages() {
 fn extract_amount_scaling_and_sanity() {
     // Comma number → returned as-is.
     assert_eq!(
-        extract_amount("Revenue 12 1,234,567", &[r"Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)"], "income_statement", "auto"),
+        extract_amount(
+            "Revenue 12 1,234,567",
+            &[r"Revenue\s+\d+\s+(\d{1,3}(?:,\d{3})+)"],
+            "income_statement",
+            "auto"
+        ),
         Some(1_234_567.0)
     );
     // Decimal < 10000 in an income line → millions → thousands.
     assert_eq!(
-        extract_amount("Adjusted EBITDA of 400.3 million", &[r"[Aa]djusted\s+EBITDA.{0,60}?(\d+\.?\d*)\s*(?:million|mln)"], "adjusted_ebitda", "auto"),
+        extract_amount(
+            "Adjusted EBITDA of 400.3 million",
+            &[r"[Aa]djusted\s+EBITDA.{0,60}?(\d+\.?\d*)\s*(?:million|mln)"],
+            "adjusted_ebitda",
+            "auto"
+        ),
         Some(400_300.0)
     );
     // Generic section requires > 1000.

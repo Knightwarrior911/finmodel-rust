@@ -1,7 +1,7 @@
 //! Sensitivities tab — port of `writer.py::_write_sensitivities`.
 
 use crate::input::WorkbookInput;
-use crate::model::{col_name, Sheet, BLUE, FMT_MULT, FMT_NUM, FMT_PCT, LIGHT_BLUE, DATA0, LABEL};
+use crate::model::{BLUE, DATA0, FMT_MULT, FMT_NUM, FMT_PCT, LABEL, LIGHT_BLUE, Sheet, col_name};
 use crate::sheets::dcf::rows as dr;
 
 // SENS_R
@@ -26,11 +26,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let mut s = Sheet::new("Sensitivities");
 
     s.title(TITLE, format!("{} — Sensitivity Analysis", m.company));
-    s.text(
-        SUBTITLE,
-        LABEL,
-        "Implied Share Price Sensitivities",
-    );
+    s.text(SUBTITLE, LABEL, "Implied Share Price Sensitivities");
     // Python hardcodes USD in the units line even for non-USD models.
     s.text(UNITS, LABEL, "(USD $ per share)");
 
@@ -88,10 +84,19 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            let cache = dcf.sensitivity_gordon.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            let cache = dcf
+                .sensitivity_gordon
+                .get(i)
+                .and_then(|row| row.get(j))
+                .copied()
+                .unwrap_or(0.0);
             s.formula_cached(r, col, formula, cache);
             if i == mid {
-                let fill = if j == dcf.gordon_growth_range.len() / 2 { BLUE } else { LIGHT_BLUE };
+                let fill = if j == dcf.gordon_growth_range.len() / 2 {
+                    BLUE
+                } else {
+                    LIGHT_BLUE
+                };
                 s.fill(r, col, fill);
             }
         }
@@ -126,10 +131,19 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 "=IF({shares}<>0,({sum}+{tv_pv}{bridge})/{shares},0)",
                 sum = ufcf_sum(&wacc_ref)
             );
-            let cache = dcf.sensitivity_ebitda.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            let cache = dcf
+                .sensitivity_ebitda
+                .get(i)
+                .and_then(|row| row.get(j))
+                .copied()
+                .unwrap_or(0.0);
             s.formula_cached(r, col, formula, cache);
             if i == mid {
-                let fill = if j == dcf.ebitda_multiple_range.len() / 2 { BLUE } else { LIGHT_BLUE };
+                let fill = if j == dcf.ebitda_multiple_range.len() / 2 {
+                    BLUE
+                } else {
+                    LIGHT_BLUE
+                };
                 s.fill(r, col, fill);
             }
         }

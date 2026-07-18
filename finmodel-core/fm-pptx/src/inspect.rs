@@ -13,18 +13,17 @@
 //!   the layout/master), while `xfrm` reflects only the shape's own `a:xfrm`.
 //!   Both are reproduced.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::pkg::Package;
-use crate::xmldom::{Element, A, P, R};
+use crate::xmldom::{A, Element, P, R};
 
 const RT_THEME: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 const RT_LAYOUT: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout";
 const RT_MASTER: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster";
-const RT_SLIDE: &str =
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
+const RT_SLIDE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
 const URI_TABLE: &str = "http://schemas.openxmlformats.org/drawingml/2006/table";
 const URI_CHART: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 
@@ -96,7 +95,10 @@ fn xml_color_solid(elem: &Element) -> Value {
         out.insert("sys".into(), json!(sy.attr("val")));
         out.insert(
             "sysLastClr".into(),
-            json!(format!("#{}", sy.attr("lastClr").unwrap_or("").to_uppercase())),
+            json!(format!(
+                "#{}",
+                sy.attr("lastClr").unwrap_or("").to_uppercase()
+            )),
         );
     }
     if let Some(pr) = elem.child(A, "prstClr") {
@@ -135,7 +137,10 @@ fn extract_fill(sp_pr: Option<&Element>) -> Value {
         let mut stops: Vec<Value> = Vec::new();
         if let Some(gs_lst) = gf.child(A, "gsLst") {
             for gs in gs_lst.children_named(A, "gs") {
-                let pos = gs.attr("pos").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let pos = gs
+                    .attr("pos")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
                 let mut stop = Map::new();
                 stop.insert("pos".into(), json!(pos / 1000.0));
                 if let Value::Object(cm) = xml_color_solid(gs) {
@@ -155,8 +160,14 @@ fn extract_fill(sp_pr: Option<&Element>) -> Value {
         return Value::Object(out);
     }
     if let Some(pf) = sp_pr.child(A, "pattFill") {
-        let fg = pf.child(A, "fgClr").map(xml_color_solid).unwrap_or(Value::Null);
-        let bg = pf.child(A, "bgClr").map(xml_color_solid).unwrap_or(Value::Null);
+        let fg = pf
+            .child(A, "fgClr")
+            .map(xml_color_solid)
+            .unwrap_or(Value::Null);
+        let bg = pf
+            .child(A, "bgClr")
+            .map(xml_color_solid)
+            .unwrap_or(Value::Null);
         return json!({"type": "pattern", "preset": pf.attr("prst"), "fg": fg, "bg": bg});
     }
     if let Some(bf) = sp_pr.child(A, "blipFill") {
@@ -259,10 +270,22 @@ fn extract_xfrm(sp_pr: Option<&Element>) -> Value {
     let off = xfrm.child(A, "off");
     let ext = xfrm.child(A, "ext");
     let mut out = Map::new();
-    out.insert("left".into(), off.map(|o| emu_to_in(o.attr("x"))).unwrap_or(Value::Null));
-    out.insert("top".into(), off.map(|o| emu_to_in(o.attr("y"))).unwrap_or(Value::Null));
-    out.insert("width".into(), ext.map(|e| emu_to_in(e.attr("cx"))).unwrap_or(Value::Null));
-    out.insert("height".into(), ext.map(|e| emu_to_in(e.attr("cy"))).unwrap_or(Value::Null));
+    out.insert(
+        "left".into(),
+        off.map(|o| emu_to_in(o.attr("x"))).unwrap_or(Value::Null),
+    );
+    out.insert(
+        "top".into(),
+        off.map(|o| emu_to_in(o.attr("y"))).unwrap_or(Value::Null),
+    );
+    out.insert(
+        "width".into(),
+        ext.map(|e| emu_to_in(e.attr("cx"))).unwrap_or(Value::Null),
+    );
+    out.insert(
+        "height".into(),
+        ext.map(|e| emu_to_in(e.attr("cy"))).unwrap_or(Value::Null),
+    );
     if let Some(rot) = xfrm.attr("rot") {
         out.insert("rotationDeg".into(), ang_to_deg(Some(rot)));
     }
@@ -310,19 +333,33 @@ fn extract_paragraph(p_elem: &Element) -> Value {
             }
         }
         if let Some(ln_spc) = p_pr.child(A, "lnSpc") {
-            let spc = ln_spc.child(A, "spcPct").or_else(|| ln_spc.child(A, "spcPts"));
+            let spc = ln_spc
+                .child(A, "spcPct")
+                .or_else(|| ln_spc.child(A, "spcPts"));
             if let Some(spc) = spc {
-                out.insert("lineSpacing".into(), json!({ spc.local.clone(): spc.attr("val") }));
+                out.insert(
+                    "lineSpacing".into(),
+                    json!({ spc.local.clone(): spc.attr("val") }),
+                );
             }
         }
-        for (label, node) in [("spcBef", p_pr.child(A, "spcBef")), ("spcAft", p_pr.child(A, "spcAft"))] {
+        for (label, node) in [
+            ("spcBef", p_pr.child(A, "spcBef")),
+            ("spcAft", p_pr.child(A, "spcAft")),
+        ] {
             if let Some(node) = node {
                 if let Some(pts) = node.child(A, "spcPts") {
-                    let v = pts.attr("val").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    let v = pts
+                        .attr("val")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.0);
                     out.insert(label.into(), json!({"pts": v / 100.0}));
                 }
                 if let Some(pct) = node.child(A, "spcPct") {
-                    let v = pct.attr("val").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    let v = pct
+                        .attr("val")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.0);
                     out.insert(label.into(), json!({"pct": v / 1000.0}));
                 }
             }
@@ -333,7 +370,9 @@ fn extract_paragraph(p_elem: &Element) -> Value {
                 for a in &bu.attrs {
                     attrs.insert(a.local.clone(), json!(a.value));
                 }
-                let entry = out.entry("bullet".to_string()).or_insert_with(|| Value::Object(Map::new()));
+                let entry = out
+                    .entry("bullet".to_string())
+                    .or_insert_with(|| Value::Object(Map::new()));
                 if let Value::Object(bm) = entry {
                     bm.insert(bu_tag.into(), Value::Object(attrs));
                 }
@@ -345,7 +384,9 @@ fn extract_paragraph(p_elem: &Element) -> Value {
     for r in p_elem.children_named(A, "r") {
         let mut run = Map::new();
         if let Some(r_pr) = r.child(A, "rPr") {
-            for k in ["sz", "b", "i", "u", "strike", "baseline", "spc", "lang", "kern"] {
+            for k in [
+                "sz", "b", "i", "u", "strike", "baseline", "spc", "lang", "kern",
+            ] {
                 if let Some(v) = r_pr.attr(k) {
                     run.insert(k.into(), json!(v));
                 }
@@ -370,7 +411,10 @@ fn extract_paragraph(p_elem: &Element) -> Value {
             }
         }
         let t = r.child(A, "t");
-        run.insert("text".into(), json!(t.map(|t| t.text.clone()).unwrap_or_default()));
+        run.insert(
+            "text".into(),
+            json!(t.map(|t| t.text.clone()).unwrap_or_default()),
+        );
         runs.push(Value::Object(run));
     }
 
@@ -397,8 +441,19 @@ fn extract_text_frame(tx_body: Option<&Element>) -> Value {
     if let Some(body_pr) = tx_body.child(A, "bodyPr") {
         let mut margins = Map::new();
         for k in [
-            "anchor", "anchorCtr", "wrap", "lIns", "tIns", "rIns", "bIns", "rot", "vert",
-            "spcCol", "numCol", "fromWordArt", "compatLnSpc",
+            "anchor",
+            "anchorCtr",
+            "wrap",
+            "lIns",
+            "tIns",
+            "rIns",
+            "bIns",
+            "rot",
+            "vert",
+            "spcCol",
+            "numCol",
+            "fromWordArt",
+            "compatLnSpc",
         ] {
             if let Some(v) = body_pr.attr(k) {
                 if matches!(k, "lIns" | "tIns" | "rIns" | "bIns") {
@@ -427,7 +482,10 @@ fn extract_text_frame(tx_body: Option<&Element>) -> Value {
         }
     }
 
-    let paragraphs: Vec<Value> = tx_body.children_named(A, "p").map(extract_paragraph).collect();
+    let paragraphs: Vec<Value> = tx_body
+        .children_named(A, "p")
+        .map(extract_paragraph)
+        .collect();
     // Plain-text concatenation.
     let mut plain: Vec<String> = Vec::new();
     for p in &paragraphs {
@@ -464,8 +522,22 @@ fn extract_table(tbl: &Element) -> Value {
         let mut cells: Vec<Value> = Vec::new();
         for tc in tr.children_named(A, "tc") {
             let mut cell = Map::new();
-            cell.insert("gridSpan".into(), json!(tc.attr("gridSpan").and_then(|s| s.parse::<i64>().ok()).unwrap_or(1)));
-            cell.insert("rowSpan".into(), json!(tc.attr("rowSpan").and_then(|s| s.parse::<i64>().ok()).unwrap_or(1)));
+            cell.insert(
+                "gridSpan".into(),
+                json!(
+                    tc.attr("gridSpan")
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or(1)
+                ),
+            );
+            cell.insert(
+                "rowSpan".into(),
+                json!(
+                    tc.attr("rowSpan")
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or(1)
+                ),
+            );
             cell.insert("hMerge".into(), json!(tc.attr("hMerge") == Some("1")));
             cell.insert("vMerge".into(), json!(tc.attr("vMerge") == Some("1")));
             if let Some(tx) = tc.child(A, "txBody") {
@@ -524,11 +596,15 @@ fn cnvpr_of(shape: &Element) -> Option<&Element> {
 
 /// The `p:spPr`/`a:spPr` used by `_shape_info` — first descendant.
 fn sppr_of(shape: &Element) -> Option<&Element> {
-    shape.descendant(P, "spPr").or_else(|| shape.descendant(A, "spPr"))
+    shape
+        .descendant(P, "spPr")
+        .or_else(|| shape.descendant(A, "spPr"))
 }
 
 fn txbody_of(shape: &Element) -> Option<&Element> {
-    shape.descendant(P, "txBody").or_else(|| shape.descendant(A, "txBody"))
+    shape
+        .descendant(P, "txBody")
+        .or_else(|| shape.descendant(A, "txBody"))
 }
 
 /// Own geometry (x, y, cx, cy) in EMU for a shape, from the correct xfrm host.
@@ -557,7 +633,9 @@ fn own_geom(shape: &Element) -> (Option<i64>, Option<i64>, Option<i64>, Option<i
 fn base_ph_type(ph_type: &str) -> Option<&'static str> {
     Some(match ph_type {
         "title" | "ctrTitle" => "title",
-        "body" | "chart" | "clipArt" | "dgm" | "media" | "obj" | "pic" | "subTitle" | "tbl" => "body",
+        "body" | "chart" | "clipArt" | "dgm" | "media" | "obj" | "pic" | "subTitle" | "tbl" => {
+            "body"
+        }
         "dt" => "dt",
         "ftr" => "ftr",
         "sldNum" => "sldNum",
@@ -568,7 +646,8 @@ fn base_ph_type(ph_type: &str) -> Option<&'static str> {
 /// Placeholder geometry maps for inheritance resolution.
 struct PhGeom {
     /// master placeholder geom keyed by master ph type string.
-    master_by_type: std::collections::HashMap<String, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>,
+    master_by_type:
+        std::collections::HashMap<String, (Option<i64>, Option<i64>, Option<i64>, Option<i64>)>,
 }
 
 impl PhGeom {
@@ -617,12 +696,19 @@ fn effective_geom_slide(
         .and_then(|lo| {
             shape_tree(lo).and_then(|tree| {
                 tree.children.iter().find_map(|sh| {
-                    ph_of(sh).filter(|lph| ph_idx_str(lph) == idx).map(|_| effective_geom_layout(sh, phg))
+                    ph_of(sh)
+                        .filter(|lph| ph_idx_str(lph) == idx)
+                        .map(|_| effective_geom_layout(sh, phg))
                 })
             })
         })
         .unwrap_or((None, None, None, None));
-    (own.0.or(base.0), own.1.or(base.1), own.2.or(base.2), own.3.or(base.3))
+    (
+        own.0.or(base.0),
+        own.1.or(base.1),
+        own.2.or(base.2),
+        own.3.or(base.3),
+    )
 }
 
 // ── shape typing ──────────────────────────────────────────────────────────────
@@ -644,9 +730,14 @@ fn shape_type_str(shape: &Element) -> Option<&'static str> {
         "sp" => {
             if ph_of(shape).is_some() {
                 Some("PLACEHOLDER (14)")
-            } else if sppr_of(shape).and_then(|s| s.child(A, "custGeom")).is_some() {
+            } else if sppr_of(shape)
+                .and_then(|s| s.child(A, "custGeom"))
+                .is_some()
+            {
                 Some("FREEFORM (5)")
-            } else if sppr_of(shape).and_then(|s| s.child(A, "prstGeom")).is_some()
+            } else if sppr_of(shape)
+                .and_then(|s| s.child(A, "prstGeom"))
+                .is_some()
                 && !is_truthy_txbox(shape)
             {
                 Some("AUTO_SHAPE (1)")
@@ -720,7 +811,9 @@ fn auto_shape_type(shape: &Element) -> Option<String> {
     match shape.local.as_str() {
         // Shape: only when is_autoshape (prstGeom present AND not txBox).
         "sp" => {
-            let has_prst = sppr_of(shape).and_then(|s| s.child(A, "prstGeom")).is_some();
+            let has_prst = sppr_of(shape)
+                .and_then(|s| s.child(A, "prstGeom"))
+                .is_some();
             if has_prst && !is_truthy_txbox(shape) {
                 sppr_of(shape)
                     .and_then(|s| s.child(A, "prstGeom"))
@@ -746,7 +839,10 @@ fn auto_shape_type(shape: &Element) -> Option<String> {
 /// matching `list(sh.adjustments)` == [] for rect/ellipse/line geometry.
 fn shape_adjustments(sp_pr: Option<&Element>) -> Vec<f64> {
     let mut out = Vec::new();
-    if let Some(av) = sp_pr.and_then(|s| s.child(A, "prstGeom")).and_then(|pg| pg.child(A, "avLst")) {
+    if let Some(av) = sp_pr
+        .and_then(|s| s.child(A, "prstGeom"))
+        .and_then(|pg| pg.child(A, "avLst"))
+    {
         for gd in av.children_named(A, "gd") {
             if let Some(fmla) = gd.attr("fmla") {
                 if let Some(rest) = fmla.strip_prefix("val ") {
@@ -761,10 +857,15 @@ fn shape_adjustments(sp_pr: Option<&Element>) -> Vec<f64> {
 }
 
 /// `_shape_info(sh, include_xml=False)` with effective geometry `(x,y,cx,cy)`.
-fn shape_info(shape: &Element, geom: (Option<i64>, Option<i64>, Option<i64>, Option<i64>)) -> Value {
+fn shape_info(
+    shape: &Element,
+    geom: (Option<i64>, Option<i64>, Option<i64>, Option<i64>),
+) -> Value {
     let mut info = Map::new();
     let cnv = cnvpr_of(shape);
-    let id = cnv.and_then(|c| c.attr("id")).and_then(|s| s.parse::<i64>().ok());
+    let id = cnv
+        .and_then(|c| c.attr("id"))
+        .and_then(|s| s.parse::<i64>().ok());
     info.insert("id".into(), id.map(|n| json!(n)).unwrap_or(Value::Null));
     info.insert("name".into(), json!(cnv.and_then(|c| c.attr("name"))));
     let st = shape_type_str(shape);
@@ -802,7 +903,9 @@ fn shape_info(shape: &Element, geom: (Option<i64>, Option<i64>, Option<i64>, Opt
 
     if let Some(ph) = ph_of(shape) {
         let idx = ph_idx_str(ph).parse::<i64>().unwrap_or(0);
-        let t = placeholder_type_str(&ph_type_str(ph)).map(|s| json!(s)).unwrap_or(Value::Null);
+        let t = placeholder_type_str(&ph_type_str(ph))
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null);
         info.insert("placeholder".into(), json!({"idx": idx, "type": t}));
     }
 
@@ -812,10 +915,16 @@ fn shape_info(shape: &Element, geom: (Option<i64>, Option<i64>, Option<i64>, Opt
             if let Some(cxn) = nv.child(P, "cNvCxnSpPr") {
                 let mut m = Map::new();
                 if let Some(s) = cxn.child(A, "stCxn") {
-                    m.insert("start".into(), json!({"id": s.attr("id"), "idx": s.attr("idx")}));
+                    m.insert(
+                        "start".into(),
+                        json!({"id": s.attr("id"), "idx": s.attr("idx")}),
+                    );
                 }
                 if let Some(e) = cxn.child(A, "endCxn") {
-                    m.insert("end".into(), json!({"id": e.attr("id"), "idx": e.attr("idx")}));
+                    m.insert(
+                        "end".into(),
+                        json!({"id": e.attr("id"), "idx": e.attr("idx")}),
+                    );
                 }
                 if !m.is_empty() {
                     info.insert("connector".into(), Value::Object(m));
@@ -841,7 +950,6 @@ fn shape_info(shape: &Element, geom: (Option<i64>, Option<i64>, Option<i64>, Opt
 
     Value::Object(info)
 }
-
 
 // ── package navigation ────────────────────────────────────────────────────────
 
@@ -895,14 +1003,19 @@ fn rels_path_for(part: &str) -> String {
 
 /// The spTree of a slide/layout/master part element.
 fn shape_tree(part_root: &Element) -> Option<&Element> {
-    part_root.child(P, "cSld").and_then(|c| c.child(P, "spTree"))
+    part_root
+        .child(P, "cSld")
+        .and_then(|c| c.child(P, "spTree"))
 }
 
 /// Iterate the shape elements of an spTree (sp/pic/graphicFrame/grpSp/cxnSp).
 fn tree_shapes(tree: &Element) -> impl Iterator<Item = &Element> {
-    tree.children
-        .iter()
-        .filter(|c| matches!(c.local.as_str(), "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp"))
+    tree.children.iter().filter(|c| {
+        matches!(
+            c.local.as_str(),
+            "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp"
+        )
+    })
 }
 
 // ── theme ─────────────────────────────────────────────────────────────────────
@@ -915,22 +1028,37 @@ fn theme_from_master(pkg: &Package, master_part: &str) -> Value {
     out.insert("fonts".into(), Value::Object(Map::new()));
     out.insert("rawXml".into(), Value::Null);
 
-    let rels = pkg.get(&rels_path_for(master_part)).map(parse_rels).unwrap_or_default();
-    let theme_target = rels.iter().find(|(_, ty, _)| ty == RT_THEME).map(|(_, _, t)| t.clone());
+    let rels = pkg
+        .get(&rels_path_for(master_part))
+        .map(parse_rels)
+        .unwrap_or_default();
+    let theme_target = rels
+        .iter()
+        .find(|(_, ty, _)| ty == RT_THEME)
+        .map(|(_, _, t)| t.clone());
     if let Some(tgt) = theme_target {
         let theme_part = resolve_target(master_part, &tgt);
         if let Some(blob) = pkg.get(&theme_part) {
-            out.insert("rawXml".into(), json!(String::from_utf8_lossy(blob).into_owned()));
+            out.insert(
+                "rawXml".into(),
+                json!(String::from_utf8_lossy(blob).into_owned()),
+            );
             if let Ok(root) = Element::parse(blob) {
                 let mut all = Vec::new();
                 root.iter_all(&mut all);
-                if let Some(clr) = all.iter().find(|e| e.local == "clrScheme" && e.ns.as_deref() == Some(A)) {
+                if let Some(clr) = all
+                    .iter()
+                    .find(|e| e.local == "clrScheme" && e.ns.as_deref() == Some(A))
+                {
                     out.insert("clrSchemeName".into(), json!(clr.attr("name")));
                     for child in &clr.children {
                         colors.insert(child.local.clone(), xml_color_solid(child));
                     }
                 }
-                if let Some(fs) = all.iter().find(|e| e.local == "fontScheme" && e.ns.as_deref() == Some(A)) {
+                if let Some(fs) = all
+                    .iter()
+                    .find(|e| e.local == "fontScheme" && e.ns.as_deref() == Some(A))
+                {
                     out.insert("fontSchemeName".into(), json!(fs.attr("name")));
                     for kind in ["majorFont", "minorFont"] {
                         if let Some(node) = fs.child(A, kind) {
@@ -990,7 +1118,10 @@ fn ordered_targets(
         Ok(r) => r,
         Err(_) => return out,
     };
-    let rels = pkg.get(&rels_path_for(source_part)).map(parse_rels).unwrap_or_default();
+    let rels = pkg
+        .get(&rels_path_for(source_part))
+        .map(parse_rels)
+        .unwrap_or_default();
     let rid_target = |rid: &str| -> Option<String> {
         rels.iter()
             .find(|(id, ty, _)| id == rid && ty == reltype)
@@ -1020,8 +1151,12 @@ pub fn inspect_pptx(path: &str) -> Result<Value, String> {
         .descendant(P, "sldSz")
         .map(|s| {
             (
-                s.attr("cx").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
-                s.attr("cy").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
+                s.attr("cx")
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(0),
+                s.attr("cy")
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(0),
             )
         })
         .unwrap_or((0, 0));
@@ -1040,14 +1175,19 @@ pub fn inspect_pptx(path: &str) -> Result<Value, String> {
         let name = pkg
             .get(mp)
             .and_then(|b| Element::parse(b).ok())
-            .and_then(|r| r.child(P, "cSld").and_then(|c| c.attr("name").map(|s| s.to_string())))
+            .and_then(|r| {
+                r.child(P, "cSld")
+                    .and_then(|c| c.attr("name").map(|s| s.to_string()))
+            })
             .unwrap_or_default();
         masters.push(json!({"name": name, "theme": theme_from_master(&pkg, mp)}));
     }
     let phg = master_parts
         .first()
         .map(|m| build_phgeom(&pkg, m))
-        .unwrap_or(PhGeom { master_by_type: std::collections::HashMap::new() });
+        .unwrap_or(PhGeom {
+            master_by_type: std::collections::HashMap::new(),
+        });
 
     // Layouts.
     let mut layouts = Vec::new();
@@ -1057,7 +1197,11 @@ pub fn inspect_pptx(path: &str) -> Result<Value, String> {
             None => continue,
         };
         let root = Element::parse(bytes)?;
-        let name = root.child(P, "cSld").and_then(|c| c.attr("name")).unwrap_or("").to_string();
+        let name = root
+            .child(P, "cSld")
+            .and_then(|c| c.attr("name"))
+            .unwrap_or("")
+            .to_string();
         let ltype = root.attr("type");
         let (shape_count, elements) = match shape_tree(&root) {
             Some(tree) => {
@@ -1087,7 +1231,10 @@ pub fn inspect_pptx(path: &str) -> Result<Value, String> {
         };
         let root = Element::parse(bytes)?;
         // layout for this slide (for slide-placeholder inheritance + name).
-        let srels = pkg.get(&rels_path_for(sp)).map(parse_rels).unwrap_or_default();
+        let srels = pkg
+            .get(&rels_path_for(sp))
+            .map(parse_rels)
+            .unwrap_or_default();
         let layout_part = srels
             .iter()
             .find(|(_, ty, _)| ty == RT_LAYOUT)
@@ -1098,7 +1245,10 @@ pub fn inspect_pptx(path: &str) -> Result<Value, String> {
             .and_then(|b| Element::parse(b).ok());
         let layout_name = layout_root
             .as_ref()
-            .and_then(|r| r.child(P, "cSld").and_then(|c| c.attr("name").map(|s| s.to_string())))
+            .and_then(|r| {
+                r.child(P, "cSld")
+                    .and_then(|c| c.attr("name").map(|s| s.to_string()))
+            })
             .unwrap_or_default();
         let layout_tree_owner = layout_root.as_ref();
 

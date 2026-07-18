@@ -49,7 +49,8 @@ pub fn is_valid_name(name: &str) -> bool {
     let t = name.trim();
     !t.is_empty()
         && t.len() <= 64
-        && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn skills_dir(config_dir: &Path) -> PathBuf {
@@ -142,7 +143,8 @@ pub fn save_skill(config_dir: &Path, name: &str, content: &str) -> Result<PathBu
     if !is_valid_name(name) {
         return Err("invalid skill name".into());
     }
-    let parsed = parse_skill(content).ok_or("content is not a valid SKILL.md (need name + description frontmatter)")?;
+    let parsed = parse_skill(content)
+        .ok_or("content is not a valid SKILL.md (need name + description frontmatter)")?;
     if parsed.name.trim() != name.trim() {
         return Err(format!(
             "frontmatter name `{}` must match file name `{}`",

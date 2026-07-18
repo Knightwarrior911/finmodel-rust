@@ -57,8 +57,7 @@ fn fixed_table() -> AdHocTable {
             .with_group("Profitability"),
         ColumnSpec::metric("net_margin", "Net Margin", ColKind::Percent)
             .with_group("Profitability"),
-        ColumnSpec::metric("ev_ebitda", "EV / EBITDA", ColKind::Multiple)
-            .with_group("Valuation"),
+        ColumnSpec::metric("ev_ebitda", "EV / EBITDA", ColKind::Multiple).with_group("Valuation"),
     ];
 
     let rows = vec![

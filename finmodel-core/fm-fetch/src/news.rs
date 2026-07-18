@@ -84,7 +84,10 @@ fn parse_recency(query: &str) -> Option<Recency> {
             "day" => (format!("when:{}d", n.clamp(1, 60)), n * 86_400),
             "week" => (format!("when:{}d", (n * 7).clamp(1, 90)), n * 7 * 86_400),
             "month" => (format!("when:{}d", (n * 30).clamp(1, 365)), n * 30 * 86_400),
-            _ => (format!("when:{}d", (n * 365).clamp(1, 365)), n * 365 * 86_400),
+            _ => (
+                format!("when:{}d", (n * 365).clamp(1, 365)),
+                n * 365 * 86_400,
+            ),
         };
         return Some(Recency {
             when_op,
@@ -350,7 +353,10 @@ mod tests {
 
     #[test]
     fn parses_day_and_keyword_windows() {
-        assert_eq!(parse_recency("news past 3 days").unwrap().when_op, "when:3d");
+        assert_eq!(
+            parse_recency("news past 3 days").unwrap().when_op,
+            "when:3d"
+        );
         assert_eq!(parse_recency("deals today").unwrap().when_op, "when:1d");
         assert_eq!(
             parse_recency("filings this week").unwrap().when_op,

@@ -50,7 +50,10 @@ impl TurnBlock {
         estimate_tokens(&self.full_text)
     }
     fn summary_tokens(&self) -> usize {
-        self.summary.as_deref().map(estimate_tokens).unwrap_or_else(|| self.full_tokens())
+        self.summary
+            .as_deref()
+            .map(estimate_tokens)
+            .unwrap_or_else(|| self.full_tokens())
     }
     fn can_compact(&self) -> bool {
         self.summary.is_some() && !self.unresolved
@@ -115,7 +118,10 @@ pub fn compact_turns(turns: &[TurnBlock], model_allowance: usize) -> Compaction 
     let mut total = 0usize;
     for (i, t) in turns.iter().enumerate() {
         let (content, is_c) = if compacted[i] {
-            (t.summary.clone().unwrap_or_else(|| t.full_text.clone()), true)
+            (
+                t.summary.clone().unwrap_or_else(|| t.full_text.clone()),
+                true,
+            )
         } else {
             (t.full_text.clone(), false)
         };
@@ -149,8 +155,7 @@ pub fn system_policy(now_utc_date: &str, confidentiality: &str) -> String {
 /// Assemble the full ordered context for a provider request.
 #[allow(clippy::too_many_arguments)]
 pub fn build_context(
-    now_utc_date: &str,
-    confidentiality: &str,
+    system_prompt: &str,
     workspace_instructions: &str,
     rolling_summary: Option<&str>,
     recalled_memories: &[String],
@@ -161,10 +166,12 @@ pub fn build_context(
     model_allowance: usize,
 ) -> Vec<ContextMessage> {
     let mut out = Vec::new();
-    // 1. dated system/security policy
+    // 1. dated system/security policy (caller-supplied so the live analyst prompt
+    //    with its tool-routing guidance is the authority; `system_policy` is the
+    //    default for callers without a richer prompt).
     out.push(ContextMessage {
         role: "system".into(),
-        content: system_policy(now_utc_date, confidentiality),
+        content: system_prompt.to_string(),
     });
     // 2. workspace instructions/confidentiality
     if !workspace_instructions.trim().is_empty() {
@@ -201,7 +208,10 @@ pub fn build_context(
     if !artifact_source_refs.is_empty() {
         out.push(ContextMessage {
             role: "system".into(),
-            content: format!("Active references:\n- {}", artifact_source_refs.join("\n- ")),
+            content: format!(
+                "Active references:\n- {}",
+                artifact_source_refs.join("\n- ")
+            ),
         });
     }
     // 7. current user turn
@@ -223,7 +233,13 @@ pub fn build_context(
 mod tests {
     use super::*;
 
-    fn turn(id: &str, role: &str, full: &str, summary: Option<&str>, unresolved: bool) -> TurnBlock {
+    fn turn(
+        id: &str,
+        role: &str,
+        full: &str,
+        summary: Option<&str>,
+        unresolved: bool,
+    ) -> TurnBlock {
         TurnBlock {
             message_id: id.into(),
             role: role.into(),
@@ -262,7 +278,11 @@ mod tests {
             assert!(!t.compacted, "latest four must stay full");
         }
         // total reduced to <= 70% target.
-        assert!(c.total_tokens <= allowance * 7 / 10, "total {}", c.total_tokens);
+        assert!(
+            c.total_tokens <= allowance * 7 / 10,
+            "total {}",
+            c.total_tokens
+        );
     }
 
     #[test]
@@ -282,7 +302,10 @@ mod tests {
         // All four are in the always-kept tail, so none compact.
         assert!(!c.compacted_any);
         assert!(c.turns.iter().all(|t| !t.compacted));
-        assert!(c.total_tokens > allowance * 7 / 10, "degenerate stays over target");
+        assert!(
+            c.total_tokens > allowance * 7 / 10,
+            "degenerate stays over target"
+        );
     }
 
     #[test]
@@ -322,8 +345,7 @@ mod tests {
             turn("a1", "assistant", "first answer", Some("ans1"), false),
         ];
         let ctx = build_context(
-            "2026-07-17",
-            "confidential",
+            &system_policy("2026-07-17", "confidential"),
             "Prefer USD millions.",
             Some("earlier summary"),
             &["User prefers one-decimal margins".into()],
@@ -338,7 +360,17 @@ mod tests {
         // references(system), current user, tools(system)
         assert_eq!(
             roles,
-            vec!["system", "system", "system", "system", "user", "assistant", "system", "user", "system"]
+            vec![
+                "system",
+                "system",
+                "system",
+                "system",
+                "user",
+                "assistant",
+                "system",
+                "user",
+                "system"
+            ]
         );
         assert!(ctx[0].content.contains("2026-07-17"));
         assert!(ctx.last().unwrap().content.contains("get_quote"));
@@ -349,8 +381,7 @@ mod tests {
     fn build_context_omits_empty_optionals() {
         let branch = vec![turn("u1", "user", "hi", None, false)];
         let ctx = build_context(
-            "2026-07-17",
-            "standard",
+            &system_policy("2026-07-17", "standard"),
             "",
             None,
             &[],

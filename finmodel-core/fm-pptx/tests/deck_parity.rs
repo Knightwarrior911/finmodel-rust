@@ -10,7 +10,9 @@
 
 mod common;
 
-use fm_pptx::writer::deck::{write_ev_bridge_deck, write_ifrs_bridge_deck, EvBridgeInput, IfrsInput};
+use fm_pptx::writer::deck::{
+    EvBridgeInput, IfrsInput, write_ev_bridge_deck, write_ifrs_bridge_deck,
+};
 use serde_json::Value;
 
 const PINNED_DATE: &str = "January 2026";
@@ -76,7 +78,11 @@ fn run_deck(tag: &str, deck: fm_pptx::writer::deck::PptxDeckWriter) {
     let _ = std::fs::remove_file(&out);
     if !diffs.is_empty() {
         let shown: Vec<String> = diffs.iter().take(40).cloned().collect();
-        panic!("{} shape-tree diff(s) vs PPTX_deck_{tag} oracle:\n{}", diffs.len(), shown.join("\n"));
+        panic!(
+            "{} shape-tree diff(s) vs PPTX_deck_{tag} oracle:\n{}",
+            diffs.len(),
+            shown.join("\n")
+        );
     }
 }
 
@@ -88,7 +94,13 @@ fn ev_bridge_deck_matches_oracle() {
 
 #[test]
 fn ifrs_bridge_deck_matches_oracle() {
-    let deck = write_ifrs_bridge_deck(&ifrs_input(), "DemoCo", "FY2025", 100_000_000_000.0, PINNED_DATE)
-        .expect("ifrs deck");
+    let deck = write_ifrs_bridge_deck(
+        &ifrs_input(),
+        "DemoCo",
+        "FY2025",
+        100_000_000_000.0,
+        PINNED_DATE,
+    )
+    .expect("ifrs deck");
     run_deck("ifrs", deck);
 }

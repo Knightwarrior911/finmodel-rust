@@ -30,6 +30,18 @@ pub fn agent_cancel(
     Ok(registry.cancel(&conversation_id, &run_id))
 }
 
+/// Idempotently pause (resumably interrupt) a conversation's active run. The run
+/// ends `RunInterrupted` (resumable via `agent_resume`), distinct from the
+/// terminal `agent_cancel`. Returns true iff a matching active run was signalled.
+#[tauri::command(rename_all = "snake_case")]
+pub fn agent_pause(
+    registry: tauri::State<'_, ActorRegistry>,
+    conversation_id: String,
+    run_id: String,
+) -> AppResult<bool> {
+    Ok(registry.pause(&conversation_id, &run_id))
+}
+
 /// All active `(conversation_id, run_id)` pairs, as JSON.
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_active_runs(registry: tauri::State<'_, ActorRegistry>) -> AppResult<String> {
@@ -59,7 +71,10 @@ pub async fn get_run_events_after(
 ) -> AppResult<String> {
     let handle = store(&app)?.handle.clone();
     let events = handle
-        .call(move |db| db.events_after(&run_id, sequence).map_err(|e| e.to_string()))
+        .call(move |db| {
+            db.events_after(&run_id, sequence)
+                .map_err(|e| e.to_string())
+        })
         .await
         .map_err(AppError::Engine)?;
     Ok(serde_json::to_string(&events)?)
@@ -68,14 +83,13 @@ pub async fn get_run_events_after(
 /// A conversation snapshot: the active root→leaf branch (messages + ordered
 /// parts), the active run (if any), and its `last_sequence` for gap-closing.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn get_run_snapshot(
-    app: tauri::AppHandle,
-    conversation_id: String,
-) -> AppResult<String> {
+pub async fn get_run_snapshot(app: tauri::AppHandle, conversation_id: String) -> AppResult<String> {
     let handle = store(&app)?.handle.clone();
     let json = handle
         .call(move |db| -> Result<serde_json::Value, String> {
-            let branch = db.branch_path(&conversation_id).map_err(|e| e.to_string())?;
+            let branch = db
+                .branch_path(&conversation_id)
+                .map_err(|e| e.to_string())?;
             let mut messages = Vec::new();
             for m in &branch {
                 let parts = db.message_parts(&m.id).map_err(|e| e.to_string())?;
@@ -102,18 +116,80 @@ pub async fn get_run_snapshot(
 /// `resumed_from_run_id`, seeded from the last complete boundary. Never reuses a
 /// partially executed side effect; never reopens a terminal run.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn agent_resume(app: tauri::AppHandle, interrupted_run_id: String) -> AppResult<String> {
+pub async fn agent_resume(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, ActorRegistry>,
+    interrupted_run_id: String,
+) -> AppResult<String> {
+    use crate::commands::settings::read_settings;
     let handle = store(&app)?.handle.clone();
-    // Resolve the conversation from the interrupted run.
     let rid = interrupted_run_id.clone();
-    let conversation_id = handle
-        .call(move |db| db.get_run(&rid).map(|o| o.map(|r| r.conversation_id)))
+    let orig = handle
+        .call(move |db| db.get_run(&rid).ok().flatten())
         .await
-        .map_err(|e| AppError::Engine(e.to_string()))?
         .ok_or_else(|| AppError::Config("run not found".into()))?;
-    let new_id = actor::resume_run(&handle, &conversation_id, &interrupted_run_id, None)
-        .await
-        .ok_or_else(|| AppError::Config("run is not resumable".into()))?;
+    let conversation_id = orig.conversation_id.clone();
+    // Insert the linked resumed run (validates status == interrupted).
+    let new_id = actor::resume_run(
+        &handle,
+        &conversation_id,
+        &interrupted_run_id,
+        orig.model.clone(),
+    )
+    .await
+    .ok_or_else(|| AppError::Config("run is not resumable".into()))?;
+    // Rebuild the launch context from the original turn so the resumed run is
+    // actually driven (not left an orphan): user text, workspace, model, tools.
+    let user_msg = match orig.user_message_id.clone() {
+        Some(mid) => handle
+            .call(move |db| {
+                db.message_parts(&mid).ok().and_then(|parts| {
+                    parts
+                        .iter()
+                        .find(|p| p.kind == "text")
+                        .and_then(|p| {
+                            serde_json::from_str::<serde_json::Value>(&p.payload_json).ok()
+                        })
+                        .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(String::from))
+                })
+            })
+            .await
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    let conv_for_ws = conversation_id.clone();
+    let ws = handle
+        .call(move |db| db.conversation_workspace(&conv_for_ws).ok().flatten())
+        .await;
+    let workspace = ws.unwrap_or_else(|| {
+        store(&app)
+            .map(|s| s.default_workspace_id.clone())
+            .unwrap_or_default()
+    });
+    let settings = read_settings(&app);
+    let model = orig
+        .model
+        .clone()
+        .unwrap_or_else(|| settings.model.trim().to_string());
+    let tools_ok = settings
+        .model_capability
+        .as_ref()
+        .map(|c| c.model_id == model && c.native_tools)
+        .unwrap_or(false);
+    launch_run(LaunchSpec {
+        app: app.clone(),
+        registry: (*registry).clone(),
+        handle: handle.clone(),
+        conversation_id,
+        run_id: new_id.clone(),
+        workspace_id: workspace,
+        user_msg,
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model,
+        tools_ok,
+        policy: fm_agent::budget::Policy::INTERACTIVE,
+    })
+    .await?;
     Ok(new_id)
 }
 
@@ -121,6 +197,100 @@ fn new_id() -> String {
     let mut bytes = [0u8; 16];
     rand::Rng::fill(&mut rand::thread_rng(), &mut bytes);
     fm_agent::ids::format_uuid_v4(bytes)
+}
+
+/// Everything the shared launch path needs to register + drive a run.
+struct LaunchSpec {
+    app: tauri::AppHandle,
+    registry: ActorRegistry,
+    handle: crate::store::StoreHandle,
+    conversation_id: String,
+    run_id: String,
+    workspace_id: String,
+    user_msg: String,
+    api_key: String,
+    model: String,
+    tools_ok: bool,
+    policy: fm_agent::budget::Policy,
+}
+
+/// Shared launch path for `agent_send` and `agent_resume`: register the run with
+/// the [`ActorRegistry`], build the driver/context/machine, and spawn `run_turn`
+/// on a RunHandle-guarded task. On registration failure the inserted run row is
+/// marked failed so boot repair never sees an orphan stuck in running/preparing.
+async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
+    use crate::agent::driver::LiveDriver;
+    use crate::agent::events::TauriEventSink;
+    use crate::agent::executors::SessionContext;
+    use fm_agent::machine::AgentMachine;
+    use fm_agent::types::Confidentiality;
+
+    let LaunchSpec {
+        app,
+        registry,
+        handle,
+        conversation_id,
+        run_id,
+        workspace_id,
+        user_msg,
+        api_key,
+        model,
+        tools_ok,
+        policy,
+    } = spec;
+
+    let run_handle = match registry.start_run(&conversation_id, &run_id) {
+        Ok(h) => h,
+        Err(e) => {
+            // Do not leave an orphan in running/preparing: mark the row failed.
+            let rid = run_id.clone();
+            let now = crate::store::now_iso();
+            handle
+                .call(move |db| {
+                    let _ =
+                        db.finish_run(&rid, "failed", "failed", Some("start_failed"), None, &now);
+                })
+                .await;
+            return Err(AppError::Config(e.to_string()));
+        }
+    };
+    let cancel = run_handle.cancellation_token();
+    let interrupt = run_handle.interrupt_token();
+    let cfg = fm_extract::LlmConfig { api_key, model };
+    let ctx = SessionContext {
+        workspace_id,
+        conversation_id: conversation_id.clone(),
+        run_id: run_id.clone(),
+        user_msg,
+        confidentiality: Confidentiality::Standard,
+        cancel,
+        interrupt,
+    };
+    let driver = LiveDriver::new(
+        app.clone(),
+        handle.clone(),
+        cfg,
+        ctx,
+        tools_ok,
+        registry.clone(),
+    );
+    let sink = TauriEventSink::new(app.clone());
+    let machine = AgentMachine::new(policy);
+    let handle_bg = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        // Keep the RunHandle alive for the turn so cancel/pause + RAII deregister work.
+        let _guard = run_handle;
+        let _outcome = actor::run_turn(
+            &handle_bg,
+            &sink,
+            &conversation_id,
+            &run_id,
+            machine,
+            driver,
+        )
+        .await;
+    });
+    Ok(())
 }
 
 /// Start a unified agent turn. Creates (or appends to) a SQLite conversation,
@@ -140,15 +310,9 @@ pub async fn agent_send(
     project_id: Option<String>,
     text: String,
 ) -> AppResult<String> {
-    use crate::agent::driver::LiveDriver;
-    use crate::agent::events::TauriEventSink;
-    use crate::agent::executors::SessionContext;
     use crate::commands::settings::read_settings;
     use fm_agent::budget::Policy;
-    use fm_agent::machine::AgentMachine;
-    use fm_agent::types::Confidentiality;
     use serde_json::json;
-    use tokio_util::sync::CancellationToken;
 
     let text = text.trim().to_string();
     if text.is_empty() {
@@ -199,7 +363,9 @@ pub async fn agent_send(
             }
             // Link the user turn under the current active leaf so multi-turn
             // conversations keep their whole root->leaf branch (history).
-            let parent = db.active_leaf_id(&conv_for_insert).map_err(|e| e.to_string())?;
+            let parent = db
+                .active_leaf_id(&conv_for_insert)
+                .map_err(|e| e.to_string())?;
             db.insert_message(
                 &user_msg_id,
                 &conv_for_insert,
@@ -239,43 +405,26 @@ pub async fn agent_send(
         .await
         .map_err(AppError::Engine)?;
 
-    let run_handle = registry
-        .start_run(&conv_id, &run_id)
-        .map_err(|e| AppError::Config(e.to_string()))?;
-    let cancel: CancellationToken = run_handle.cancellation_token();
-
-    let cfg = fm_extract::LlmConfig {
-        api_key: settings.openrouter_api_key.trim().to_string(),
-        model: model.clone(),
-    };
     let tools_ok = settings
         .model_capability
         .as_ref()
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
 
-    let ctx = SessionContext {
-        workspace_id: workspace,
+    launch_run(LaunchSpec {
+        app: app.clone(),
+        registry: (*registry).clone(),
+        handle: handle.clone(),
         conversation_id: conv_id.clone(),
         run_id: run_id.clone(),
+        workspace_id: workspace,
         user_msg: text,
-        confidentiality: Confidentiality::Standard,
-        cancel,
-    };
-
-    let driver = LiveDriver::new(app.clone(), handle.clone(), cfg, ctx, tools_ok, (*registry).clone());
-    let sink = TauriEventSink::new(app.clone());
-    let machine = AgentMachine::new(Policy::INTERACTIVE);
-    let conv_bg = conv_id.clone();
-    let run_bg = run_id.clone();
-    let handle_bg = handle.clone();
-
-    tauri::async_runtime::spawn(async move {
-        // Keep the RunHandle alive for the turn so cancel + RAII deregister work.
-        let _guard = run_handle;
-        let _outcome =
-            actor::run_turn(&handle_bg, &sink, &conv_bg, &run_bg, machine, driver).await;
-    });
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model,
+        tools_ok,
+        policy: Policy::INTERACTIVE,
+    })
+    .await?;
 
     Ok(json!({
         "conversation_id": conv_id,
@@ -305,10 +454,7 @@ pub fn agent_approve(
 /// List saved memories for a workspace (defaults to the active one). Returns a
 /// JSON array of `{id, kind, content, created_at}`, newest first.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn memory_list(
-    app: tauri::AppHandle,
-    workspace_id: Option<String>,
-) -> AppResult<String> {
+pub async fn memory_list(app: tauri::AppHandle, workspace_id: Option<String>) -> AppResult<String> {
     let app_store = store(&app)?;
     let handle = app_store.handle.clone();
     let ws = workspace_id.unwrap_or_else(|| app_store.default_workspace_id.clone());
@@ -316,8 +462,8 @@ pub async fn memory_list(
         .call(move |db| {
             let mut out: Vec<serde_json::Value> = Vec::new();
             if let Ok(mut stmt) = db.conn().prepare(
-                "SELECT id, kind, content, created_at FROM memories \
-                 WHERE (workspace_id=?1 OR scope_type='global') AND valid_to IS NULL ORDER BY created_at DESC LIMIT 200",
+                "SELECT id, kind, content, created_at, pinned FROM memories \
+                 WHERE (workspace_id=?1 OR scope_type='global') AND valid_to IS NULL ORDER BY pinned DESC, created_at DESC LIMIT 200",
             ) {
                 if let Ok(mapped) = stmt.query_map([&ws], |r| {
                     Ok(serde_json::json!({
@@ -325,6 +471,7 @@ pub async fn memory_list(
                         "kind": r.get::<_, String>(1)?,
                         "content": r.get::<_, String>(2)?,
                         "created_at": r.get::<_, String>(3)?,
+                        "pinned": r.get::<_, i64>(4)? != 0,
                     }))
                 }) {
                     out.extend(mapped.flatten());
@@ -345,6 +492,33 @@ pub async fn memory_delete(app: tauri::AppHandle, id: i64) -> AppResult<String> 
             use crate::store::memory::{MemoryRepository, SqliteMemoryRepository};
             SqliteMemoryRepository::new(db).delete(id).is_ok()
         })
+        .await;
+    Ok(serde_json::json!({ "ok": ok }).to_string())
+}
+
+/// Pin or unpin a saved memory (Task 7.2) — a pinned memory is protected from
+/// automatic forgetting. Reversible via the same command.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn memory_pin(app: tauri::AppHandle, id: i64, pinned: bool) -> AppResult<String> {
+    let handle = store(&app)?.handle.clone();
+    let ok = handle
+        .call(move |db| db.set_memory_pinned(id, pinned).unwrap_or(false))
+        .await;
+    Ok(serde_json::json!({ "ok": ok }).to_string())
+}
+
+/// Edit a saved memory's text (Task 7.2 — user correction). Empty text is
+/// rejected; use `memory_delete` to remove.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn memory_edit(app: tauri::AppHandle, id: i64, value: String) -> AppResult<String> {
+    let v = value.trim().to_string();
+    if v.is_empty() {
+        return Err(AppError::Config("memory text cannot be empty".into()));
+    }
+    let handle = store(&app)?.handle.clone();
+    let now = crate::store::now_iso();
+    let ok = handle
+        .call(move |db| db.update_memory_value(id, &v, &now).unwrap_or(false))
         .await;
     Ok(serde_json::json!({ "ok": ok }).to_string())
 }
@@ -489,13 +663,46 @@ pub async fn conversation_set_project(
 
 // ── Skills (SKILL.md library) ─────────────────────────────────────────────
 
-/// List skills as JSON `[{name, description}]`.
+/// List skills as JSON `[{name, description, state, use_count, source_version}]`.
+/// Lifecycle state (Task 7.2/7.3) is overlaid best-effort; a skill with no
+/// lifecycle row (or an unavailable store) defaults to `active`.
 #[tauri::command(rename_all = "snake_case")]
-pub fn skills_list(app: tauri::AppHandle) -> AppResult<String> {
+pub async fn skills_list(app: tauri::AppHandle) -> AppResult<String> {
     let dir = config_dir(&app)?;
-    let items: Vec<serde_json::Value> = crate::agent::skills::list_skills(&dir)
+    let skills = crate::agent::skills::list_skills(&dir);
+    let states: std::collections::HashMap<String, (String, i64, i64)> = match store(&app) {
+        Ok(st) => {
+            let handle = st.handle.clone();
+            let names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+            handle
+                .call(move |db| {
+                    let mut m = std::collections::HashMap::new();
+                    for n in names {
+                        if let Ok(Some((state, uses, ver, _sup))) = db.skill_lifecycle_state(&n) {
+                            m.insert(n, (state, uses, ver));
+                        }
+                    }
+                    m
+                })
+                .await
+        }
+        Err(_) => std::collections::HashMap::new(),
+    };
+    let items: Vec<serde_json::Value> = skills
         .into_iter()
-        .map(|s| serde_json::json!({ "name": s.name, "description": s.description }))
+        .map(|s| {
+            let (state, uses, ver) = states
+                .get(&s.name)
+                .cloned()
+                .unwrap_or_else(|| ("active".to_string(), 0, 1));
+            serde_json::json!({
+                "name": s.name,
+                "description": s.description,
+                "state": state,
+                "use_count": uses,
+                "source_version": ver,
+            })
+        })
         .collect();
     serde_json::to_string(&items).map_err(|e| AppError::Engine(e.to_string()))
 }
@@ -512,10 +719,18 @@ pub fn skills_get(app: tauri::AppHandle, name: String) -> AppResult<String> {
 }
 
 /// Save a skill (`content` = full SKILL.md; frontmatter `name` must equal `name`).
+/// A saved/edited skill is recorded `active` in the lifecycle store (Task 7.3),
+/// best-effort so a store failure never blocks the save.
 #[tauri::command(rename_all = "snake_case")]
-pub fn skills_save(app: tauri::AppHandle, name: String, content: String) -> AppResult<()> {
+pub async fn skills_save(app: tauri::AppHandle, name: String, content: String) -> AppResult<()> {
     let dir = config_dir(&app)?;
     crate::agent::skills::save_skill(&dir, &name, &content).map_err(AppError::Config)?;
+    if let Ok(st) = store(&app) {
+        let handle = st.handle.clone();
+        let n = name.clone();
+        let now = crate::store::now_iso();
+        let _ = handle.call(move |db| db.upsert_skill(&n, 1, &now)).await;
+    }
     Ok(())
 }
 
@@ -524,6 +739,19 @@ pub fn skills_save(app: tauri::AppHandle, name: String, content: String) -> AppR
 pub fn skills_delete(app: tauri::AppHandle, name: String) -> AppResult<()> {
     let dir = config_dir(&app)?;
     crate::agent::skills::delete_skill(&dir, &name).map_err(AppError::Config)?;
+    Ok(())
+}
+
+/// Restore a stale/archived skill to `active` so it re-enters default context
+/// (Task 7.2/7.3). Reversible: skills are never silently lost.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn skill_restore(app: tauri::AppHandle, name: String) -> AppResult<()> {
+    let handle = store(&app)?.handle.clone();
+    let now = crate::store::now_iso();
+    handle
+        .call(move |db| db.restore_skill(&name, &now))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
     Ok(())
 }
 

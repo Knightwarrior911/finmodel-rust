@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use crate::model::{cell_ref, Cell, Sheet, Value, LABEL, TAN};
+use crate::model::{Cell, LABEL, Sheet, TAN, Value, cell_ref};
 
 // ── Palette (mirrors output_writer.py SPEC colors, as 8-hex ARGB) ────────────
 /// Title bar — SPEC `BRAND_BLUE` `#2558B3` (distinct from the model's `#255BE3`).
@@ -225,15 +225,23 @@ pub fn pick_adhoc_layout(
 ) -> LayoutDecision {
     let mut rationale = Vec::new();
     let mut layout = grain.base_layout();
-    rationale.push(format!("Q1 grain={} -> {}", grain.as_str(), layout.as_str()));
+    rationale.push(format!(
+        "Q1 grain={} -> {}",
+        grain.as_str(),
+        layout.as_str()
+    ));
 
     if n_metrics >= 20 && layout != Layout::Long {
         layout = Layout::Dashboard;
-        rationale.push(format!("Q2 metrics={n_metrics} >=20 -> escalate to multi-tab"));
+        rationale.push(format!(
+            "Q2 metrics={n_metrics} >=20 -> escalate to multi-tab"
+        ));
     }
     let freeze_first_col = (9..=20).contains(&n_metrics);
     if freeze_first_col {
-        rationale.push(format!("Q2 metrics={n_metrics} in [9,20] -> freeze first col"));
+        rationale.push(format!(
+            "Q2 metrics={n_metrics} in [9,20] -> freeze first col"
+        ));
     }
 
     let qual = if qualitative_max_chars == 0 {
@@ -250,7 +258,9 @@ pub fn pick_adhoc_layout(
     let section_dividers = n_entities > 15 && n_entities <= 50;
     if n_entities > 50 && layout == Layout::Wide {
         layout = Layout::Dashboard;
-        rationale.push(format!("Q4 entities={n_entities} >50 -> split to multi-tab"));
+        rationale.push(format!(
+            "Q4 entities={n_entities} >50 -> split to multi-tab"
+        ));
     }
 
     let use_autofilter = needs_sort_filter;
@@ -258,8 +268,7 @@ pub fn pick_adhoc_layout(
         rationale.push("Q5 -> AutoFilter on".to_string());
     }
 
-    let summary_stats =
-        is_comparative && matches!(layout, Layout::Wide | Layout::TimeSeries);
+    let summary_stats = is_comparative && matches!(layout, Layout::Wide | Layout::TimeSeries);
     if summary_stats {
         rationale.push("S7 comparative -> summary stats row".to_string());
     }
@@ -285,8 +294,14 @@ fn stat_value(func: &str, vals: &[f64]) -> Option<f64> {
     }
     match func {
         "AVERAGE" => Some(vals.iter().sum::<f64>() / vals.len() as f64),
-        "MIN" => vals.iter().cloned().fold(None, |a, x| Some(a.map_or(x, |m: f64| m.min(x)))),
-        "MAX" => vals.iter().cloned().fold(None, |a, x| Some(a.map_or(x, |m: f64| m.max(x)))),
+        "MIN" => vals
+            .iter()
+            .cloned()
+            .fold(None, |a, x| Some(a.map_or(x, |m: f64| m.min(x)))),
+        "MAX" => vals
+            .iter()
+            .cloned()
+            .fold(None, |a, x| Some(a.map_or(x, |m: f64| m.max(x)))),
         "MEDIAN" => {
             let mut v = vals.to_vec();
             v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -327,7 +342,9 @@ impl AdHocTable {
         }
         let n_label = self.columns.iter().filter(|c| c.is_label).count();
         if n_label != 1 {
-            return Err(format!("exactly one label column required, found {n_label}"));
+            return Err(format!(
+                "exactly one label column required, found {n_label}"
+            ));
         }
         Ok(())
     }
@@ -418,11 +435,15 @@ impl AdHocTable {
         let mut s = Sheet::new(decision.layout.sheet_name());
 
         // ── Title + units (setup_table) ──────────────────────────────────
-        s.merge(2, LABEL, Cell {
-            value: Some(Value::Text(self.title.clone())),
-            fill: Some(ADHOC_TITLE.to_string()),
-            ..Default::default()
-        });
+        s.merge(
+            2,
+            LABEL,
+            Cell {
+                value: Some(Value::Text(self.title.clone())),
+                fill: Some(ADHOC_TITLE.to_string()),
+                ..Default::default()
+            },
+        );
         let units = if self.units.is_empty() {
             decision.layout.default_units().to_string()
         } else {
@@ -445,11 +466,15 @@ impl AdHocTable {
                 if !grp.is_empty() {
                     // Merged (span>1) or single: only the top-left cell carries
                     // value + fill (openpyxl reports merged fill on top-left).
-                    s.merge(row, LABEL + i as u32, Cell {
-                        value: Some(Value::Text(grp.to_uppercase())),
-                        fill: Some(TAN.to_string()),
-                        ..Default::default()
-                    });
+                    s.merge(
+                        row,
+                        LABEL + i as u32,
+                        Cell {
+                            value: Some(Value::Text(grp.to_uppercase())),
+                            fill: Some(TAN.to_string()),
+                            ..Default::default()
+                        },
+                    );
                 }
                 i = j;
             }
@@ -465,22 +490,22 @@ impl AdHocTable {
             if !c.units.is_empty() {
                 note_parts.push(format!("Units: {}", c.units));
             }
-            s.merge(row, LABEL + i as u32, Cell {
-                value: Some(Value::Text(c.header.clone())),
-                fill: Some(ADHOC_HEADER.to_string()),
-                comment: (!note_parts.is_empty()).then(|| note_parts.join("\n")),
-                ..Default::default()
-            });
+            s.merge(
+                row,
+                LABEL + i as u32,
+                Cell {
+                    value: Some(Value::Text(c.header.clone())),
+                    fill: Some(ADHOC_HEADER.to_string()),
+                    comment: (!note_parts.is_empty()).then(|| note_parts.join("\n")),
+                    ..Default::default()
+                },
+            );
         }
         row += 1;
         let data_start = row;
 
         // Label column index (validated to exist exactly once).
-        let label_offset = self
-            .columns
-            .iter()
-            .position(|c| c.is_label)
-            .unwrap_or(0);
+        let label_offset = self.columns.iter().position(|c| c.is_label).unwrap_or(0);
         let label_key = &self.columns[label_offset].key;
 
         // ── Data rows ─────────────────────────────────────────────────────
@@ -509,21 +534,21 @@ impl AdHocTable {
                 ("Max", "MAX"),
             ] {
                 let stat_row = row;
-                s.merge(stat_row, LABEL + label_offset as u32, Cell {
-                    value: Some(Value::Text(label.to_string())),
-                    fill: Some(ADHOC_SUMMARY.to_string()),
-                    ..Default::default()
-                });
+                s.merge(
+                    stat_row,
+                    LABEL + label_offset as u32,
+                    Cell {
+                        value: Some(Value::Text(label.to_string())),
+                        fill: Some(ADHOC_SUMMARY.to_string()),
+                        ..Default::default()
+                    },
+                );
                 for (i, c) in self.columns.iter().enumerate() {
                     if c.is_label || c.kind.is_qualitative() {
                         continue;
                     }
                     let col = LABEL + i as u32;
-                    let rng = format!(
-                        "{}:{}",
-                        cell_ref(data_start, col),
-                        cell_ref(data_end, col)
-                    );
+                    let rng = format!("{}:{}", cell_ref(data_start, col), cell_ref(data_end, col));
                     // Cache the computed statistic so offline viewers
                     // (LibreOffice pre-recalc) show a number, not 0.
                     let vals: Vec<f64> = self
@@ -534,13 +559,17 @@ impl AdHocTable {
                             _ => None,
                         })
                         .collect();
-                    s.merge(stat_row, col, Cell {
-                        formula: Some(format!("={func}({rng})")),
-                        cached: stat_value(func, &vals),
-                        fill: Some(ADHOC_SUMMARY.to_string()),
-                        num_fmt: c.kind.num_fmt(),
-                        ..Default::default()
-                    });
+                    s.merge(
+                        stat_row,
+                        col,
+                        Cell {
+                            formula: Some(format!("={func}({rng})")),
+                            cached: stat_value(func, &vals),
+                            fill: Some(ADHOC_SUMMARY.to_string()),
+                            num_fmt: c.kind.num_fmt(),
+                            ..Default::default()
+                        },
+                    );
                 }
                 row += 1;
             }
@@ -570,13 +599,14 @@ impl AdHocTable {
         label_value: &str,
     ) {
         // Blank cells contribute nothing (write_blank → no gated content).
-        let is_blank = matches!(v, CellVal::Empty)
-            || matches!(v, CellVal::Text(t) if t.is_empty());
+        let is_blank = matches!(v, CellVal::Empty) || matches!(v, CellVal::Text(t) if t.is_empty());
         if is_blank {
             return;
         }
 
-        let src = self.sources.get(&(label_value.to_string(), spec.key.clone()));
+        let src = self
+            .sources
+            .get(&(label_value.to_string(), spec.key.clone()));
 
         if spec.is_label {
             if let CellVal::Text(t) = v {
@@ -629,9 +659,18 @@ mod tests {
         let d = pick_adhoc_layout(Grain::Company, 3, 5, 0, false, false);
         assert_eq!(d.layout, Layout::Wide);
         assert_eq!(d.layout.sheet_name(), "Comparison");
-        assert_eq!(pick_adhoc_layout(Grain::DataPoint, 3, 5, 0, false, false).layout, Layout::Long);
-        assert_eq!(pick_adhoc_layout(Grain::Period, 3, 5, 0, false, false).layout, Layout::TimeSeries);
-        assert_eq!(pick_adhoc_layout(Grain::Event, 3, 5, 0, false, false).layout, Layout::EventLog);
+        assert_eq!(
+            pick_adhoc_layout(Grain::DataPoint, 3, 5, 0, false, false).layout,
+            Layout::Long
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Period, 3, 5, 0, false, false).layout,
+            Layout::TimeSeries
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Event, 3, 5, 0, false, false).layout,
+            Layout::EventLog
+        );
     }
 
     #[test]
@@ -645,26 +684,53 @@ mod tests {
 
     #[test]
     fn many_metrics_escalate_to_dashboard_but_long_stays() {
-        assert_eq!(pick_adhoc_layout(Grain::Company, 19, 5, 0, false, false).layout, Layout::Wide);
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 19, 5, 0, false, false).layout,
+            Layout::Wide
+        );
         // n_metrics >= 20 escalates WIDE → DASHBOARD.
-        assert_eq!(pick_adhoc_layout(Grain::Company, 20, 5, 0, false, false).layout, Layout::Dashboard);
-        assert_eq!(pick_adhoc_layout(Grain::Company, 25, 5, 0, false, false).layout, Layout::Dashboard);
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 20, 5, 0, false, false).layout,
+            Layout::Dashboard
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 25, 5, 0, false, false).layout,
+            Layout::Dashboard
+        );
         // LONG never escalates on metric count.
-        assert_eq!(pick_adhoc_layout(Grain::DataPoint, 25, 5, 0, false, false).layout, Layout::Long);
+        assert_eq!(
+            pick_adhoc_layout(Grain::DataPoint, 25, 5, 0, false, false).layout,
+            Layout::Long
+        );
     }
 
     #[test]
     fn many_entities_split_wide_to_dashboard() {
         assert!(pick_adhoc_layout(Grain::Company, 3, 30, 0, false, false).section_dividers);
-        assert_eq!(pick_adhoc_layout(Grain::Company, 3, 60, 0, false, false).layout, Layout::Dashboard);
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 3, 60, 0, false, false).layout,
+            Layout::Dashboard
+        );
     }
 
     #[test]
     fn qualitative_thresholds() {
-        assert_eq!(pick_adhoc_layout(Grain::Company, 3, 5, 0, false, false).qualitative_handling, "none");
-        assert_eq!(pick_adhoc_layout(Grain::Company, 3, 5, 49, false, false).qualitative_handling, "in_cell");
-        assert_eq!(pick_adhoc_layout(Grain::Company, 3, 5, 100, false, false).qualitative_handling, "in_comment");
-        assert_eq!(pick_adhoc_layout(Grain::Company, 3, 5, 250, false, false).qualitative_handling, "separate_column");
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 3, 5, 0, false, false).qualitative_handling,
+            "none"
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 3, 5, 49, false, false).qualitative_handling,
+            "in_cell"
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 3, 5, 100, false, false).qualitative_handling,
+            "in_comment"
+        );
+        assert_eq!(
+            pick_adhoc_layout(Grain::Company, 3, 5, 250, false, false).qualitative_handling,
+            "separate_column"
+        );
     }
 
     #[test]
@@ -722,11 +788,12 @@ mod tests {
         assert_eq!(cached_of("=MIN(D10:D11)"), Some(1.0));
         assert_eq!(cached_of("=MAX(D10:D11)"), Some(2.0));
         // Label column never gets a stat formula.
-        assert!(!sheet.cells.values().any(|c| c
-            .formula
-            .as_deref()
-            .map(|f| f.contains("C10:C11"))
-            .unwrap_or(false)));
+        assert!(!sheet.cells.values().any(|c| {
+            c.formula
+                .as_deref()
+                .map(|f| f.contains("C10:C11"))
+                .unwrap_or(false)
+        }));
     }
 
     #[test]

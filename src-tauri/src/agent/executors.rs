@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use fm_agent::types::{ArtifactRef, Confidentiality, SourceRef, ToolResultEnvelope, Trust};
+use fm_agent::types::{ArtifactRef, Claim, Confidentiality, SourceRef, ToolResultEnvelope, Trust};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -24,6 +24,8 @@ pub struct SessionContext {
     pub user_msg: String,
     pub confidentiality: Confidentiality,
     pub cancel: CancellationToken,
+    /// Resumable pause signal, distinct from `cancel` (terminal stop).
+    pub interrupt: CancellationToken,
 }
 
 impl SessionContext {
@@ -35,6 +37,7 @@ impl SessionContext {
             user_msg: user_msg.into(),
             confidentiality: Confidentiality::Standard,
             cancel: CancellationToken::new(),
+            interrupt: CancellationToken::new(),
         }
     }
 }
@@ -130,9 +133,24 @@ fn trust_from_policy(p: TrustPolicy) -> Trust {
 }
 
 /// Map a legacy `(summary, card)` pair into the uniform envelope.
-pub fn envelope_from_card(summary: String, card: Value, trust: Trust) -> ToolResultEnvelope {
-    let sources = extract_sources(&card);
+pub fn envelope_from_card(
+    summary: String,
+    card: Value,
+    trust: Trust,
+    workspace_id: &str,
+) -> ToolResultEnvelope {
+    let sources = extract_sources(&card, workspace_id);
     let artifacts = extract_artifacts(&card);
+    let claims = extract_claims(&card, workspace_id);
+    // Persist only bounded model text to provider context (Task 1.2 step 3); the
+    // full structured result rides `display`/`data` for the UI/store.
+    const SUMMARY_MAX: usize = 6000;
+    let summary = if summary.chars().count() > SUMMARY_MAX {
+        let head: String = summary.chars().take(SUMMARY_MAX).collect();
+        format!("{head}…")
+    } else {
+        summary
+    };
     ToolResultEnvelope {
         data: card.clone(),
         display: card,
@@ -140,16 +158,20 @@ pub fn envelope_from_card(summary: String, card: Value, trust: Trust) -> ToolRes
         sources,
         artifacts,
         warnings: Vec::new(),
+        claims,
+        progress: None,
+        terminate: false,
         trust,
     }
 }
-
-fn extract_sources(card: &Value) -> Vec<SourceRef> {
+fn extract_sources(card: &Value, workspace_id: &str) -> Vec<SourceRef> {
     let mut out = Vec::new();
     if let Some(url) = card.get("url").and_then(|v| v.as_str()) {
         if !url.is_empty() {
             out.push(SourceRef {
-                id: format!("src-{}", short_hash(url)),
+                // Workspace-scoped so the same URI never cross-links a source row
+                // across a confidentiality boundary (Task 4.1).
+                id: format!("src-{}", short_hash(&format!("{workspace_id}\u{1}{url}"))),
                 kind: card
                     .get("type")
                     .and_then(|v| v.as_str())
@@ -201,6 +223,80 @@ fn extract_artifacts(card: &Value) -> Vec<ArtifactRef> {
     out
 }
 
+/// Extract material numeric claims from a tool result card (Task 4.2). Today the
+/// exact-reported `financials` card (SEC EDGAR XBRL) is the claim source: each
+/// row becomes a `Claim` keyed `{ticker}.{metric}.{period}`, backed by the same
+/// workspace-scoped source id the citation uses. These are what `verify_run`
+/// checks against their source value before a run is badged verified.
+fn extract_claims(card: &Value, workspace_id: &str) -> Vec<Claim> {
+    let mut out = Vec::new();
+    if card.get("type").and_then(|v| v.as_str()) != Some("financials") {
+        return out;
+    }
+    let entity = card
+        .get("entity")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let ticker = card
+        .get("ticker")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let period = card
+        .get("fiscal_year")
+        .and_then(|v| v.as_str())
+        .map(|f| format!("FY{f}"))
+        .unwrap_or_default();
+    let period_end = card
+        .get("period_end")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let currency = card
+        .get("currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USD");
+    let source_url = card.get("source").and_then(|v| v.as_str()).unwrap_or("");
+    let source_id = format!(
+        "src-{}",
+        short_hash(&format!("{workspace_id}\u{1}{source_url}"))
+    );
+    let rows = match card.get("rows").and_then(|v| v.as_array()) {
+        Some(r) => r,
+        None => return out,
+    };
+    for r in rows {
+        let label = r.get("label").and_then(|v| v.as_str()).unwrap_or("");
+        let value = match r.get("value") {
+            Some(v) if v.is_number() => v.to_string(),
+            _ => continue,
+        };
+        if label.is_empty() {
+            continue;
+        }
+        let metric = label.to_lowercase().replace(' ', "_");
+        let key = format!("{ticker}.{metric}.{}", period.to_lowercase());
+        let unit = if label.to_lowercase().contains("eps") {
+            format!("{currency}/shares")
+        } else {
+            currency.to_string()
+        };
+        out.push(Claim {
+            claim_key: key,
+            entity: entity.clone(),
+            normalized_value: value.clone(),
+            unit,
+            currency: Some(currency.to_string()),
+            scale: "1".into(),
+            period: period.clone(),
+            locator: format!("10-K XBRL (period ended {period_end})"),
+            source_id: source_id.clone(),
+            quote_hash: short_hash(&format!("{metric}\u{1}{value}")),
+        });
+    }
+    out
+}
+
 fn short_hash(s: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -230,7 +326,7 @@ pub fn execute<B: ToolBackend>(
     let (summary, card) = backend
         .invoke(name, args, ctx)
         .map_err(ExecuteError::Runtime)?;
-    Ok(envelope_from_card(summary, card, trust))
+    Ok(envelope_from_card(summary, card, trust, &ctx.workspace_id))
 }
 
 /// Execute a batch of independent calls concurrently. Returns a conservative
@@ -290,13 +386,69 @@ mod tests {
     use fm_agent::types::Trust;
 
     #[test]
+    fn source_ids_are_workspace_scoped() {
+        let card = json!({ "type": "web", "url": "https://a.com", "title": "A" });
+        let a = envelope_from_card("s".into(), card.clone(), Trust::Untrusted, "ws-a");
+        let b = envelope_from_card("s".into(), card, Trust::Untrusted, "ws-b");
+        assert_eq!(a.sources.len(), 1);
+        assert_eq!(b.sources.len(), 1);
+        // Same URL under two workspaces must mint DIFFERENT source ids — no
+        // cross-confidentiality-boundary citation linkage (Task 4.1).
+        assert_ne!(a.sources[0].id, b.sources[0].id);
+        // Same workspace + same URL → stable id (dedup within a workspace).
+        let a2 = envelope_from_card(
+            "s".into(),
+            json!({ "type": "web", "url": "https://a.com" }),
+            Trust::Untrusted,
+            "ws-a",
+        );
+        assert_eq!(a.sources[0].id, a2.sources[0].id);
+    }
+
+    #[test]
+    fn financials_card_extracts_material_claims() {
+        // The exact-reported `financials` card (SEC EDGAR XBRL) is the claim
+        // source (Task 4.2): each numeric row becomes a Claim with a workspace-
+        // scoped source id, EPS carrying a per-share unit.
+        let card = json!({
+            "type": "financials",
+            "ticker": "NVDA",
+            "entity": "NVIDIA Corp",
+            "fiscal_year": "2024",
+            "period_end": "2024-01-28",
+            "currency": "USD",
+            "source": "https://www.sec.gov/cgi-bin/browse-edgar?CIK=NVDA&type=10-K",
+            "rows": [
+                { "label": "Revenue", "value": 60922000000i64, "display": "60,922.0" },
+                { "label": "Diluted EPS", "value": 11.93, "display": "11.93" },
+                { "label": "Segment", "value": "Data Center", "display": "Data Center" }
+            ]
+        });
+        let env = envelope_from_card("s".into(), card, Trust::Trusted, "ws-a");
+        // Only the two numeric rows become claims; the string row is skipped.
+        assert_eq!(env.claims.len(), 2);
+        let rev = env
+            .claims
+            .iter()
+            .find(|c| c.claim_key == "nvda.revenue.fy2024")
+            .unwrap();
+        assert_eq!(rev.normalized_value, "60922000000");
+        assert_eq!(rev.unit, "USD");
+        assert_eq!(rev.entity, "NVIDIA Corp");
+        assert!(rev.source_id.starts_with("src-"));
+        let eps = env
+            .claims
+            .iter()
+            .find(|c| c.claim_key == "nvda.diluted_eps.fy2024")
+            .unwrap();
+        assert_eq!(eps.unit, "USD/shares");
+    }
+
+    #[test]
     fn rejects_unknown_and_invalid_before_backend() {
         let reg = ToolRegistry::builtin();
-        let backend = FakeBackend::new().seed_ok(
-            "get_quote",
-            "should not run",
-            quote_card("AAPL", 1.0),
-        );
+        let backend =
+            FakeBackend::new().seed_ok("get_quote", "should not run", quote_card("AAPL", 1.0));
         let ctx = SessionContext::test_ctx("c1", "quote AAPL");
         let err = execute(&reg, &backend, "nope", &json!({}), &ctx).unwrap_err();
         assert!(matches!(
@@ -316,11 +468,8 @@ mod tests {
     #[test]
     fn maps_card_to_envelope_with_registry_trust() {
         let reg = ToolRegistry::builtin();
-        let backend = FakeBackend::new().seed_ok(
-            "get_quote",
-            "AAPL 190.00 USD",
-            quote_card("AAPL", 190.0),
-        );
+        let backend =
+            FakeBackend::new().seed_ok("get_quote", "AAPL 190.00 USD", quote_card("AAPL", 190.0));
         let ctx = SessionContext::test_ctx("c1", "quote AAPL");
         let env = execute(
             &reg,
@@ -410,14 +559,7 @@ mod tests {
         let backend = FakeBackend::new().seed_ok("get_news", "n", json!({"type":"news"}));
         let ctx = SessionContext::test_ctx("c1", "news");
         ctx.cancel.cancel();
-        let err = execute(
-            &reg,
-            &backend,
-            "get_news",
-            &json!({"query": "NVDA"}),
-            &ctx,
-        )
-        .unwrap_err();
+        let err = execute(&reg, &backend, "get_news", &json!({"query": "NVDA"}), &ctx).unwrap_err();
         assert_eq!(err, ExecuteError::Cancelled);
         assert!(backend.calls.lock().is_empty());
     }
@@ -426,11 +568,8 @@ mod tests {
     fn research_is_a_normal_registry_tool() {
         let reg = ToolRegistry::builtin();
         assert!(reg.get("research").is_some());
-        let backend = FakeBackend::new().seed_ok(
-            "research",
-            "summary",
-            json!({"type":"research_answer"}),
-        );
+        let backend =
+            FakeBackend::new().seed_ok("research", "summary", json!({"type":"research_answer"}));
         let ctx = SessionContext::test_ctx("c1", "what changed in NVDA guidance?");
         let env = execute(
             &reg,

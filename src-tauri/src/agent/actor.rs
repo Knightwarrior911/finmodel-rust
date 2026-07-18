@@ -8,7 +8,8 @@
 //! (in-memory) store, exactly as the plan's fake-store acceptance requires.
 
 use fm_agent::machine::{Action, AgentMachine, Input, ToolCall};
-use fm_agent::types::{ApprovalResponse, EventKind, StopReason};
+use fm_agent::types::{ApprovalResponse, ArtifactRef, EventKind, Plan, SourceRef, StopReason};
+use fm_agent::Policy;
 
 use crate::agent::events::{AgentEventEnvelope, EventSink};
 use crate::store::{now_iso, StoreHandle};
@@ -21,12 +22,33 @@ pub struct ModelOut {
     pub tokens: u64,
 }
 
+/// A workflow the driver selected during `prepare`, carried into the plan
+/// payload so the UI attributes the run to a workflow (id + version).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowSelection {
+    pub id: String,
+    pub version: u32,
+}
+
+/// A control signal the pump observes at I/O boundaries. `Cancel` is a terminal
+/// user stop (`RunCancelled`); `Interrupt` is a resumable pause (`RunInterrupted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlSignal {
+    Cancel,
+    Interrupt,
+}
+
 /// What [`Driver::prepare`] resolved.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PreparedInfo {
     pub uses_tools: bool,
     pub plan_needed: bool,
     pub needs_verification: bool,
+    /// The workflow selected for this run, if any (interactive turns leave None).
+    pub workflow: Option<WorkflowSelection>,
+    /// A policy escalation to feed the reducer before execution when a workflow
+    /// (or workflow-class capability) was accepted; None keeps the launch policy.
+    pub escalation: Option<Policy>,
 }
 
 /// The I/O side of a turn. Each method corresponds to an [`Action`] the reducer
@@ -36,18 +58,48 @@ pub struct PreparedInfo {
 /// Per-batch tool execution outcome reported by the driver, so the actor can
 /// emit an honest durable ToolSucceeded/ToolFailed per call (the replayed UI
 /// must never render a failed tool as succeeded).
+/// One tool result's UI part (card) carried out of the batch so the actor emits
+/// a durable `ResultPartAdded` — the single event/replay render path (Task 2.1),
+/// replacing the transitional `chat_tool` card channel.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ResultPart {
+    pub tool_call_id: String,
+    pub name: String,
+    /// The UI card payload (the tool result's `display`).
+    pub card: serde_json::Value,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolBatchOutcome {
     /// Conservative token charge for the batch.
     pub tokens: u64,
     /// Ids whose execution failed (validation / runtime / cancelled).
     pub failed: Vec<String>,
+    /// Sources promoted from this batch's tool results (deduped by id).
+    pub sources: Vec<SourceRef>,
+    /// Artifacts promoted from this batch's tool results (deduped by id).
+    pub artifacts: Vec<ArtifactRef>,
+    /// Per-tool UI cards, in execution order, for durable `ResultPartAdded`.
+    pub parts: Vec<ResultPart>,
+}
+
+/// Metadata for a queued tool call, persisted as a `tool_invocations` row before
+/// execution so reload/resume can reconcile completed vs in-flight side effects.
+/// `ToolSpec` owns canonical-arg / idempotency identity.
+#[derive(Clone, Debug, Default)]
+pub struct ToolCallMeta {
+    pub name: String,
+    pub risk: String,
+    pub canonical_args_json: Option<String>,
+    pub idempotency_hash: Option<String>,
 }
 
 #[allow(async_fn_in_trait)]
 pub trait Driver {
     async fn prepare(&mut self) -> PreparedInfo;
-    async fn make_plan(&mut self);
+    /// Build the one visible versioned plan for this turn. Never empty when the
+    /// reducer entered `Planning` (no hidden planner, no empty `PlanUpdated`).
+    async fn make_plan(&mut self) -> Plan;
     async fn request_model(&mut self) -> ModelOut;
     /// Ask the model to repair one malformed call, then re-request. Returns the
     /// next model output.
@@ -56,6 +108,11 @@ pub trait Driver {
     async fn schedule_tools(&mut self, batch: &[String]) -> ToolBatchOutcome;
     async fn synthesize(&mut self);
     async fn verify(&mut self) -> bool;
+    /// Take the verification card produced by the last `verify()`, if any, so the
+    /// actor emits it as a durable `ResultPartAdded` (Task 2.1). Default: none.
+    fn take_verify_card(&mut self) -> Option<serde_json::Value> {
+        None
+    }
     /// Run bounded memory extraction; returns the count of rows saved so the
     /// loop emits exactly one `MemoryUpdated {count}` before the terminal event
     /// (zero → no notice). The count is required: the UI drops count-less
@@ -63,6 +120,18 @@ pub trait Driver {
     async fn extract_memory(&mut self) -> usize;
     /// Block until the parked approval is resolved.
     async fn await_approval(&mut self, tool_call_id: &str) -> ApprovalResponse;
+    /// Metadata for a queued tool call, used to persist its `tool_invocations`
+    /// row before execution (canonical args + idempotency identity).
+    fn call_meta(&self, tool_call_id: &str) -> ToolCallMeta;
+
+    /// Monotonic elapsed milliseconds since the run started. The pump feeds this
+    /// to the reducer as `Input::Tick` at every I/O boundary so the deadline is
+    /// the authoritative post-boundary budget check.
+    fn elapsed_ms(&self) -> u64;
+    /// A pending control signal (user pause/stop) observed at I/O boundaries. The
+    /// pump feeds `Cancel`/`Interrupt` to the reducer before accepting a normal
+    /// success result, so a stop/pause preempts the next boundary promptly.
+    fn control_signal(&self) -> Option<ControlSignal>;
 }
 
 /// The terminal outcome of a turn plus the durable envelopes emitted (for tests
@@ -132,6 +201,37 @@ fn new_uuid() -> String {
     fm_agent::ids::format_uuid_v4(bytes)
 }
 
+/// Emit a `PlanUpdated` carrying the whole current plan (Task 3.2). The plan is
+/// revised in place as tool/verification transitions complete steps — progress is
+/// never inferred from elapsed time — and the complete revision is emitted whole.
+async fn emit_plan(
+    store: &StoreHandle,
+    sink: &dyn EventSink,
+    conversation_id: &str,
+    run_id: &str,
+    plan: &fm_agent::types::Plan,
+    workflow: &Option<WorkflowSelection>,
+) -> AgentEventEnvelope {
+    let mut payload = serde_json::to_value(plan).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(w) = workflow {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert(
+                "workflow".into(),
+                serde_json::json!({ "id": w.id, "version": w.version }),
+            );
+        }
+    }
+    emit_durable(
+        store,
+        sink,
+        conversation_id,
+        run_id,
+        EventKind::PlanUpdated,
+        payload,
+    )
+    .await
+}
+
 /// Drive `machine` to a terminal, persisting+broadcasting durable events. The
 /// caller has already created the `agent_runs` row (status `running`).
 pub async fn run_turn<D: Driver>(
@@ -158,12 +258,43 @@ pub async fn run_turn<D: Driver>(
 
     let mut prev_phase = machine.phase();
     let mut action = machine.start();
+    // The workflow selected in `prepare`, echoed into the plan payload.
+    let mut workflow_sel: Option<WorkflowSelection> = None;
+    // Plan version echoed into the checkpoint; completed invocation ids let a
+    // resumed run skip already-finished idempotent calls (Phase 0.5 substrate).
+    let mut plan_version: u32 = 0;
+    let mut completed_invocations: Vec<String> = Vec::new();
+    // The current plan (Task 3.2), captured at MakePlan and revised in place as
+    // tool/verification transitions complete steps; the whole revision re-emits.
+    let mut plan: Option<fm_agent::types::Plan> = None;
 
     loop {
+        // At real I/O boundaries feed the reducer clock + control BEFORE running
+        // the boundary: the deadline is the authoritative post-boundary budget
+        // check, and a user Stop/Pause preempts the next boundary. A tripped
+        // deadline or a control signal yields a terminal Emit we fall through to.
+        if is_io_boundary(&action) {
+            let ticked = machine.next(Input::Tick {
+                elapsed_ms: driver.elapsed_ms(),
+            });
+            if matches!(ticked, Action::Emit { .. }) {
+                action = ticked;
+            } else if let Some(sig) = driver.control_signal() {
+                action = machine.next(match sig {
+                    ControlSignal::Cancel => Input::Cancel,
+                    ControlSignal::Interrupt => Input::Interrupt,
+                });
+            }
+        }
         // Execute the current action; produce the next reducer input.
         let input: Input = match action {
             Action::Prepare => {
                 let info = driver.prepare().await;
+                if let Some(policy) = info.escalation {
+                    // Escalate the run budget before execution (returns Wait).
+                    let _ = machine.next(Input::WorkflowAccepted { policy });
+                }
+                workflow_sel = info.workflow.clone();
                 Input::Prepared {
                     uses_tools: info.uses_tools,
                     plan_needed: info.plan_needed,
@@ -171,18 +302,12 @@ pub async fn run_turn<D: Driver>(
                 }
             }
             Action::MakePlan => {
-                driver.make_plan().await;
+                let made = driver.make_plan().await;
+                plan_version = made.version;
                 events.push(
-                    emit_durable(
-                        store,
-                        sink,
-                        conversation_id,
-                        run_id,
-                        EventKind::PlanUpdated,
-                        serde_json::json!({}),
-                    )
-                    .await,
+                    emit_plan(store, sink, conversation_id, run_id, &made, &workflow_sel).await,
                 );
+                plan = Some(made);
                 Input::PlanReady
             }
             Action::RequestModel => {
@@ -202,7 +327,45 @@ pub async fn run_turn<D: Driver>(
                 }
             }
             Action::ScheduleTools { batch } => {
+                let batch_id = new_uuid();
+                // Promote the next pending plan step to Running as this tool batch
+                // begins (Task 3.2 — a transition, not a time-based guess).
+                if let Some(p) = plan.as_mut() {
+                    if p.advance_active().is_some() {
+                        p.version += 1;
+                        plan_version = p.version;
+                        events.push(
+                            emit_plan(store, sink, conversation_id, run_id, p, &workflow_sel).await,
+                        );
+                    }
+                }
                 for id in &batch {
+                    // Persist the invocation (status running) BEFORE execution so a
+                    // crash mid-batch is reconcilable on resume.
+                    let meta = driver.call_meta(id);
+                    let (rid, bid, inv, name, risk, args) = (
+                        run_id.to_string(),
+                        batch_id.clone(),
+                        id.clone(),
+                        meta.name.clone(),
+                        meta.risk.clone(),
+                        meta.canonical_args_json.clone(),
+                    );
+                    store
+                        .call(move |db| {
+                            let _ = db.insert_tool_invocation(
+                                &inv,
+                                &rid,
+                                None,
+                                Some(&bid),
+                                &name,
+                                "running",
+                                &risk,
+                                args.as_deref(),
+                                &now_iso(),
+                            );
+                        })
+                        .await;
                     events.push(
                         emit_durable(
                             store,
@@ -210,14 +373,26 @@ pub async fn run_turn<D: Driver>(
                             conversation_id,
                             run_id,
                             EventKind::ToolStarted,
-                            serde_json::json!({ "tool_call_id": id }),
+                            serde_json::json!({ "tool_call_id": id, "name": meta.name }),
                         )
                         .await,
                     );
                 }
                 let outcome = driver.schedule_tools(&batch).await;
                 for id in &batch {
-                    let kind = if outcome.failed.iter().any(|f| f == id) {
+                    let failed = outcome.failed.iter().any(|f| f == id);
+                    let inv = id.clone();
+                    let status = if failed { "failed" } else { "succeeded" };
+                    let err = if failed { Some("tool_failed") } else { None };
+                    store
+                        .call(move |db| {
+                            let _ = db.finish_tool_invocation(&inv, status, None, err, &now_iso());
+                        })
+                        .await;
+                    if !failed {
+                        completed_invocations.push(id.clone());
+                    }
+                    let kind = if failed {
                         EventKind::ToolFailed
                     } else {
                         EventKind::ToolSucceeded
@@ -234,7 +409,131 @@ pub async fn run_turn<D: Driver>(
                         .await,
                     );
                 }
-                Input::ToolsCompleted { tokens: outcome.tokens }
+                // Promote sources/artifacts from committed results before the
+                // model consumes them, then emit typed ArtifactCreated events
+                // (Task 1.2 steps 2 & 4). Best-effort here; dedup/normalization
+                // is Phase 4.1.
+                if !outcome.sources.is_empty() || !outcome.artifacts.is_empty() {
+                    let conv = conversation_id.to_string();
+                    let ws = store
+                        .call(move |db| db.conversation_workspace(&conv).ok().flatten())
+                        .await
+                        .unwrap_or_default();
+                    for s in &outcome.sources {
+                        let (id, kind, uri) =
+                            (s.id.clone(), s.kind.clone(), s.canonical_uri.clone());
+                        let (title, pubr, pub_at, acc) = (
+                            s.title.clone(),
+                            s.publisher.clone(),
+                            s.published_at.clone(),
+                            s.accessed_at.clone(),
+                        );
+                        let wsc = ws.clone();
+                        store
+                            .call(move |db| {
+                                let _ = db.insert_source(
+                                    &id,
+                                    &wsc,
+                                    &kind,
+                                    &uri,
+                                    title.as_deref(),
+                                    pubr.as_deref(),
+                                    pub_at.as_deref(),
+                                    acc.as_deref(),
+                                    None,
+                                );
+                            })
+                            .await;
+                    }
+                    for a in &outcome.artifacts {
+                        let (id, kind, label, mime, ver, sha) = (
+                            a.id.clone(),
+                            a.kind.clone(),
+                            a.label.clone(),
+                            a.mime.clone(),
+                            a.version as i64,
+                            a.sha256.clone(),
+                        );
+                        let wsc = ws.clone();
+                        let conv2 = conversation_id.to_string();
+                        let rid = run_id.to_string();
+                        store
+                            .call(move |db| {
+                                let _ = db.insert_artifact(
+                                    &id,
+                                    &wsc,
+                                    Some(&conv2),
+                                    Some(&rid),
+                                    &kind,
+                                    &label,
+                                    &mime,
+                                    None,
+                                    ver,
+                                    None,
+                                    &sha,
+                                    &now_iso(),
+                                );
+                            })
+                            .await;
+                        events.push(
+                            emit_durable(
+                                store,
+                                sink,
+                                conversation_id,
+                                run_id,
+                                EventKind::ArtifactCreated,
+                                serde_json::json!({
+                                    "id": a.id,
+                                    "kind": a.kind,
+                                    "label": a.label,
+                                    "mime": a.mime,
+                                    "version": a.version,
+                                }),
+                            )
+                            .await,
+                        );
+                    }
+                }
+                // Emit a durable ResultPartAdded per tool card (Task 2.1): the
+                // single event/replay render path. The card rides `display`; the
+                // UI reduces this instead of the transitional `chat_tool` channel.
+                for part in &outcome.parts {
+                    events.push(
+                        emit_durable(
+                            store,
+                            sink,
+                            conversation_id,
+                            run_id,
+                            EventKind::ResultPartAdded,
+                            serde_json::json!({
+                                "tool_call_id": part.tool_call_id,
+                                "name": part.name,
+                                "card": part.card,
+                            }),
+                        )
+                        .await,
+                    );
+                }
+                // Mark the step(s) this batch was executing Done (Task 3.2).
+                if let Some(p) = plan.as_mut() {
+                    let running: Vec<String> = p
+                        .steps
+                        .iter()
+                        .filter(|s| s.status == fm_agent::types::PlanStepStatus::Running)
+                        .map(|s| s.id.clone())
+                        .collect();
+                    if !running.is_empty() {
+                        let refs: Vec<&str> = running.iter().map(|s| s.as_str()).collect();
+                        p.complete_steps(&refs);
+                        plan_version = p.version;
+                        events.push(
+                            emit_plan(store, sink, conversation_id, run_id, p, &workflow_sel).await,
+                        );
+                    }
+                }
+                Input::ToolsCompleted {
+                    tokens: outcome.tokens,
+                }
             }
             Action::RequestApproval { tool_call_id } => {
                 events.push(
@@ -264,6 +563,35 @@ pub async fn run_turn<D: Driver>(
             }
             Action::Synthesize => {
                 driver.synthesize().await;
+                // Synthesis is the terminal work step: complete every step still
+                // open so the delivered plan reads fully done (Task 3.2).
+                if let Some(p) = plan.as_mut() {
+                    let open: Vec<String> = p
+                        .steps
+                        .iter()
+                        .filter(|s| s.status != fm_agent::types::PlanStepStatus::Done)
+                        .map(|s| s.id.clone())
+                        .collect();
+                    if !open.is_empty() {
+                        let refs: Vec<&str> = open.iter().map(|s| s.as_str()).collect();
+                        p.complete_steps(&refs);
+                        plan_version = p.version;
+                        events.push(
+                            emit_plan(store, sink, conversation_id, run_id, p, &workflow_sel).await,
+                        );
+                    }
+                }
+                // Typed durable checkpoint: reducer phase, plan version, completed
+                // invocation ids, budget snapshot, and last durable sequence.
+                let last_seq = events.last().and_then(|e| e.sequence).unwrap_or(0);
+                let checkpoint = serde_json::json!({
+                    "checkpoint_version": 1,
+                    "phase": phase_str(machine.phase()),
+                    "plan_version": plan_version,
+                    "completed_invocation_ids": completed_invocations,
+                    "budget": machine.budget(),
+                    "last_sequence": last_seq,
+                });
                 events.push(
                     emit_durable(
                         store,
@@ -271,7 +599,7 @@ pub async fn run_turn<D: Driver>(
                         conversation_id,
                         run_id,
                         EventKind::AssistantCheckpoint,
-                        serde_json::json!({}),
+                        checkpoint,
                     )
                     .await,
                 );
@@ -279,6 +607,24 @@ pub async fn run_turn<D: Driver>(
             }
             Action::Verify => {
                 let ok = driver.verify().await;
+                // Emit the verification card on the durable render path (Task 2.1).
+                if let Some(card) = driver.take_verify_card() {
+                    events.push(
+                        emit_durable(
+                            store,
+                            sink,
+                            conversation_id,
+                            run_id,
+                            EventKind::ResultPartAdded,
+                            serde_json::json!({
+                                "tool_call_id": "verify",
+                                "name": "verify",
+                                "card": card,
+                            }),
+                        )
+                        .await,
+                    );
+                }
                 Input::Verified { ok }
             }
             Action::ExtractMemory => {
@@ -303,7 +649,11 @@ pub async fn run_turn<D: Driver>(
                 }
                 Input::MemoryDone
             }
-            Action::Emit { event, stop, partial } => {
+            Action::Emit {
+                event,
+                stop,
+                partial,
+            } => {
                 // Persist the terminal event and finalize the run row.
                 let env = emit_durable(
                     store,
@@ -371,6 +721,22 @@ pub async fn run_turn<D: Driver>(
         partial: false,
         durable_events: events,
     }
+}
+
+/// Real provider/tool/verification boundaries, before which the pump feeds the
+/// reducer clock (`Tick`) and any control signal. Excludes `Prepare` (run just
+/// started), `MakePlan` (fast, local), `RequestApproval` (parked — the deadline
+/// does not run while awaiting approval), `ExtractMemory` (post-answer auxiliary),
+/// and the terminal `Emit`/`Wait`.
+fn is_io_boundary(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::RequestModel
+            | Action::RepairToolCall { .. }
+            | Action::ScheduleTools { .. }
+            | Action::Synthesize
+            | Action::Verify
+    )
 }
 
 fn terminal_status(event: EventKind) -> &'static str {

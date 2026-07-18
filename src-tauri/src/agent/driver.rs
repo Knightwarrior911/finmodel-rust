@@ -10,11 +10,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use fm_agent::machine::ToolCall;
-use fm_agent::types::{ApprovalResponse, Risk, ToolResultEnvelope};
+use fm_agent::types::{ApprovalResponse, Plan, PlanStep, PlanStepStatus, Risk, ToolResultEnvelope};
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use crate::agent::actor::{Driver, ModelOut, PreparedInfo, ToolBatchOutcome};
+use crate::agent::actor::{
+    ControlSignal, Driver, ModelOut, PreparedInfo, ToolBatchOutcome, ToolCallMeta,
+};
 use crate::agent::executors::{execute_batch, ExecuteError, SessionContext, ToolBackend};
 use crate::agent::scheduler::{plan_batches, PlannedCall};
 use crate::agent::tools::ToolRegistry;
@@ -22,18 +24,32 @@ use crate::agent::tools::ToolRegistry;
 /// Common English stopwords excluded from recall terms; kept small and
 /// finance-neutral so OR-joined recall queries don't match every stored note.
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "that", "this", "with", "you", "your", "are", "was",
-    "were", "will", "would", "can", "could", "should", "have", "has", "had",
-    "not", "but", "from", "what", "why", "how", "when", "where", "who", "which",
-    "did", "does", "get", "got", "let", "our", "out", "its", "about", "into",
-    "over", "than", "then", "them", "they", "any", "all", "please",
+    "the", "and", "for", "that", "this", "with", "you", "your", "are", "was", "were", "will",
+    "would", "can", "could", "should", "have", "has", "had", "not", "but", "from", "what", "why",
+    "how", "when", "where", "who", "which", "did", "does", "get", "got", "let", "our", "out",
+    "its", "about", "into", "over", "than", "then", "them", "they", "any", "all", "please",
 ];
 
 fn is_question_word(w: &str) -> bool {
     matches!(
         w,
-        "what" | "why" | "how" | "when" | "where" | "who" | "which" | "did" | "do" | "does"
-            | "is" | "are" | "can" | "could" | "should" | "would" | "will"
+        "what"
+            | "why"
+            | "how"
+            | "when"
+            | "where"
+            | "who"
+            | "which"
+            | "did"
+            | "do"
+            | "does"
+            | "is"
+            | "are"
+            | "can"
+            | "could"
+            | "should"
+            | "would"
+            | "will"
     )
 }
 
@@ -119,6 +135,23 @@ pub struct PendingCall {
     pub risk: Risk,
 }
 
+/// Build a [`ToolCallMeta`] from a pending call (canonical args + snake_case
+/// risk), for the pre-execution `tool_invocations` row. `None` → an empty meta.
+fn call_meta_from_pending(p: Option<&PendingCall>) -> ToolCallMeta {
+    match p {
+        Some(p) => ToolCallMeta {
+            name: p.name.clone(),
+            risk: serde_json::to_value(p.risk)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default(),
+            canonical_args_json: serde_json::to_string(&p.args).ok(),
+            idempotency_hash: None,
+        },
+        None => ToolCallMeta::default(),
+    }
+}
+
 /// Scripted provider + registry-backed tool execution.
 pub struct ScriptedDriver<B: ToolBackend> {
     pub info: PreparedInfo,
@@ -137,6 +170,10 @@ pub struct ScriptedDriver<B: ToolBackend> {
     pub batches: Arc<Mutex<Vec<Vec<String>>>>,
     /// Count of rows scripted memory extraction reports as saved.
     pub memory_saved: usize,
+    /// Elapsed ms reported to the pump clock (tests set this to trip the deadline).
+    pub elapsed_ms: u64,
+    /// Control signal the pump observes at boundaries (tests set cancel/interrupt).
+    pub control: Option<ControlSignal>,
 }
 
 impl<B: ToolBackend> ScriptedDriver<B> {
@@ -146,6 +183,8 @@ impl<B: ToolBackend> ScriptedDriver<B> {
                 uses_tools: true,
                 plan_needed: true,
                 needs_verification: true,
+                workflow: None,
+                escalation: None,
             },
             model_outs: Vec::new(),
             next_model: 0,
@@ -158,6 +197,8 @@ impl<B: ToolBackend> ScriptedDriver<B> {
             results: Arc::new(Mutex::new(HashMap::new())),
             batches: Arc::new(Mutex::new(Vec::new())),
             memory_saved: 0,
+            elapsed_ms: 0,
+            control: None,
         }
     }
 
@@ -190,9 +231,20 @@ impl<B: ToolBackend> ScriptedDriver<B> {
 
 impl<B: ToolBackend> Driver for ScriptedDriver<B> {
     async fn prepare(&mut self) -> PreparedInfo {
-        self.info
+        self.info.clone()
     }
-    async fn make_plan(&mut self) {}
+    async fn make_plan(&mut self) -> Plan {
+        Plan {
+            objective: "scripted plan".into(),
+            assumptions: Vec::new(),
+            steps: vec![PlanStep {
+                id: "s1".into(),
+                label: "step".into(),
+                status: PlanStepStatus::Pending,
+            }],
+            version: 1,
+        }
+    }
     async fn request_model(&mut self) -> ModelOut {
         self.take_model()
     }
@@ -246,7 +298,13 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
             }
             self.results.lock().extend(wave_results);
         }
-        ToolBatchOutcome { tokens: total, failed }
+        ToolBatchOutcome {
+            tokens: total,
+            failed,
+            sources: Vec::new(),
+            artifacts: Vec::new(),
+            parts: Vec::new(),
+        }
     }
     async fn synthesize(&mut self) {}
     async fn verify(&mut self) -> bool {
@@ -257,6 +315,15 @@ impl<B: ToolBackend> Driver for ScriptedDriver<B> {
     }
     async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {
         self.approval
+    }
+    fn elapsed_ms(&self) -> u64 {
+        self.elapsed_ms
+    }
+    fn control_signal(&self) -> Option<ControlSignal> {
+        self.control
+    }
+    fn call_meta(&self, tool_call_id: &str) -> ToolCallMeta {
+        call_meta_from_pending(self.pending.get(tool_call_id))
     }
 }
 
@@ -271,6 +338,24 @@ pub fn ro_call(id: &str, name: &str) -> ToolCall {
     }
 }
 
+/// Refine a write tool's risk from its real target path at proposal time, so an
+/// overwrite (existing file) or export (outside the output root) routes through
+/// approval (Task 4.3) instead of auto-running. `build_model` is currently the
+/// only write tool; its output is `{out_dir}/{stem}_model.xlsx`. Returns None
+/// when the risk can't be refined (no out_dir / non-write tool / missing args),
+/// and the caller keeps the tool's base risk.
+fn refine_write_risk(name: &str, args: &Value, out_dir: Option<&std::path::Path>) -> Option<Risk> {
+    let root = out_dir?;
+    match name {
+        "build_model" => {
+            let ticker = args.get("ticker")?.as_str()?;
+            let target = root.join(crate::commands::model::model_filename(ticker));
+            Some(crate::agent::security::classify_write_risk(root, &target))
+        }
+        _ => None,
+    }
+}
+
 /// Map an accumulated provider stream into a reducer [`ModelOut`], classifying
 /// each complete tool call's risk / approval need / argument validity through
 /// the [`ToolRegistry`]. This is the exact seam a live OpenRouter driver's
@@ -280,16 +365,20 @@ pub fn ro_call(id: &str, name: &str) -> ToolCall {
 pub fn model_out_from_stream(
     registry: &ToolRegistry,
     acc: &crate::agent::provider::StreamAccumulator,
+    out_dir: Option<&std::path::Path>,
 ) -> ModelOut {
     let mut calls = Vec::new();
     for c in acc.complete_calls() {
         let args: Value = serde_json::from_str(&c.arguments).unwrap_or(Value::Null);
         let args_valid = registry.validate_call(&c.name, &args).is_ok();
         let spec = registry.get(&c.name);
-        let risk = spec.map(|s| s.risk).unwrap_or(Risk::ReadOnly);
-        // Unknown tools fail closed: the reducer already drops `!args_valid`
-        // calls, but never let an unrecognized name be classified as auto-run.
-        let needs_approval = spec.map(|s| !s.risk.auto_runs()).unwrap_or(true);
+        let base = spec.map(|s| s.risk).unwrap_or(Risk::ReadOnly);
+        // Refine write-risk from the real target at proposal time so an
+        // overwrite/export routes through approval (Task 4.3). Unknown tools fail
+        // closed: the reducer drops `!args_valid` calls, and an unrecognized name
+        // never auto-runs.
+        let risk = refine_write_risk(&c.name, &args, out_dir).unwrap_or(base);
+        let needs_approval = spec.map(|_| !risk.auto_runs()).unwrap_or(true);
         calls.push(ToolCall {
             tool_call_id: c.id.clone(),
             name: c.name.clone(),
@@ -342,6 +431,88 @@ pub struct LiveDriver {
     registry_hub: crate::agent::registry::ActorRegistry,
     /// No-key turns: whether the FallbackDispatcher decision was already issued.
     fallback_served: bool,
+    /// The workflow id selected in `prepare`, so `make_plan` can build the
+    /// workflow-grounded plan from its template (Task 3.2).
+    selected_workflow: Option<String>,
+    /// Material numeric claims extracted from this run's tool results, verified in
+    /// `verify()` against their source value before the run is badged (Task 4.2).
+    run_claims: Vec<fm_agent::types::Claim>,
+    /// The verification card produced by `verify()`, taken by the actor and
+    /// emitted as a durable `ResultPartAdded` (Task 2.1 single render path).
+    verify_card: Option<Value>,
+}
+
+/// Authoritative value for a run claim in the current verification slice (Task
+/// 4.2): the claim's own source-recorded figure, parsed to a number. EPS-style
+/// per-share values use the rounded-currency tolerance; other exact figures use
+/// exact-quantity. An unparseable value returns `None` (→ `Unverified`; missing
+/// evidence never certifies). Free fn so the verify loop is testable without an
+/// `AppHandle`. Genuine recompute (fm-value metrics) is the documented next step.
+fn claim_authoritative(
+    claim: &fm_agent::types::Claim,
+) -> Option<(f64, crate::agent::verification::MetricClass, u32)> {
+    use crate::agent::verification::MetricClass;
+    claim.normalized_value.parse::<f64>().ok().map(|v| {
+        let class = if claim.unit.contains("/shares") {
+            MetricClass::RoundedCurrency
+        } else {
+            MetricClass::ExactQuantity
+        };
+        (v, class, 0)
+    })
+}
+
+/// Independent authoritative value for a claim (Task 4.2/4.4). For a derivable
+/// metric it recomputes from sibling claims via an accounting identity — today
+/// `gross_profit == revenue - cost_of_revenue` — so a restated/inconsistent
+/// figure fails verification instead of certifying itself. `values` maps each
+/// run claim_key (`{ticker}.{metric}.{period}`) to its numeric value. Falls back
+/// to the direct source-recorded value when no identity applies.
+fn recompute_authoritative(
+    claim: &fm_agent::types::Claim,
+    values: &std::collections::HashMap<String, f64>,
+) -> Option<(f64, crate::agent::verification::MetricClass, u32)> {
+    use crate::agent::verification::MetricClass;
+    let parts: Vec<&str> = claim.claim_key.splitn(3, '.').collect();
+    if parts.len() == 3 && parts[1] == "gross_profit" {
+        let (ticker, period) = (parts[0], parts[2]);
+        let rev = values.get(&format!("{ticker}.revenue.{period}"));
+        let cost = values.get(&format!("{ticker}.cost_of_revenue.{period}"));
+        if let (Some(r), Some(c)) = (rev, cost) {
+            // Exact accounting identity over source-recorded quantities.
+            return Some((r - c, MetricClass::ExactQuantity, 0));
+        }
+    }
+    claim_authoritative(claim)
+}
+
+/// Drop the oldest history turns from a provider message list, preserving all
+/// leading `system` layers, the latest `KEEP_LATEST` turns, and the current user
+/// turn (Task 3.4 overflow fallback). After the drain, drops any leading orphaned
+/// `tool` reply (whose assistant `tool_calls` message was removed) so OpenAI-style
+/// providers never reject a dangling tool message. Returns whether it pruned.
+fn prune_history(messages: &mut Vec<serde_json::Value>) -> bool {
+    let sys_end = messages
+        .iter()
+        .position(|m| m.get("role").and_then(|r| r.as_str()) != Some("system"))
+        .unwrap_or(messages.len());
+    let keep_tail = crate::agent::context::KEEP_LATEST + 1;
+    if messages.len() <= sys_end + keep_tail {
+        return false;
+    }
+    let drop_to = messages.len() - keep_tail;
+    if drop_to <= sys_end {
+        return false;
+    }
+    messages.drain(sys_end..drop_to);
+    while messages
+        .get(sys_end)
+        .and_then(|m| m.get("role").and_then(|r| r.as_str()))
+        == Some("tool")
+    {
+        messages.remove(sys_end);
+    }
+    true
 }
 
 impl LiveDriver {
@@ -356,7 +527,7 @@ impl LiveDriver {
     ) -> Self {
         let messages = crate::commands::chat::seed_agent_messages(&ctx.user_msg);
         let tools = if tools_enabled {
-            crate::commands::chat::agent_tool_schemas()
+            ToolRegistry::shared().agent_schemas()
         } else {
             Vec::new()
         };
@@ -375,18 +546,21 @@ impl LiveDriver {
             turn_results: Vec::new(),
             registry_hub,
             fallback_served: false,
+            selected_workflow: None,
+            run_claims: Vec::new(),
+            verify_card: None,
         }
     }
 
-    /// Chain the global personalization + project instruction layers onto the
-    /// base system prompt (`messages[0]`) before the model call. The project
-    /// layer is keyed by the conversation's `project_id` (its folder), looked up
-    /// from the store. See [`crate::agent::grounding`]. No-op when neither layer
-    /// is present.
-    async fn apply_grounding(&mut self) {
+    /// Resolve the workspace grounding layer (global personalization + project
+    /// instructions) and the skill catalog block for this run (see
+    /// [`crate::agent::grounding`]). Returns `(workspace_instructions, catalog)`;
+    /// the caller places them in the canonical context layers (Task 3.3). Empty
+    /// string / `None` when a layer is absent.
+    async fn grounding_layers(&self) -> (String, Option<String>) {
         use tauri::Manager;
         let Ok(dir) = self.app.path().app_config_dir() else {
-            return;
+            return (String::new(), None);
         };
         let global = crate::agent::grounding::read_global(&dir);
         let conv = self.ctx.conversation_id.clone();
@@ -397,33 +571,42 @@ impl LiveDriver {
         let project = project_id
             .as_deref()
             .and_then(|pid| crate::agent::grounding::read_project(&dir, pid));
-        let catalog =
-            crate::agent::skills::catalog_block(&crate::agent::skills::list_skills(&dir));
-        if global.is_none() && project.is_none() && catalog.is_none() {
-            return;
-        }
-        let Some(first) = self.messages.get_mut(0) else {
-            return;
-        };
-        if first.get("role").and_then(|r| r.as_str()) != Some("system") {
-            return;
-        }
-        let base = first
-            .get("content")
-            .and_then(|c| c.as_str())
-            .unwrap_or("")
-            .to_string();
-        let mut chained =
-            crate::agent::grounding::chain(&base, global.as_deref(), project.as_deref());
-        if let Some(cat) = catalog {
-            chained.push_str("\n\n");
-            chained.push_str(&cat);
-        }
-        first["content"] = serde_json::json!(chained);
+        // Exclude aged-out (stale/archived) skills from the default catalog
+        // (Task 7.3); hand-dropped skills with no lifecycle row stay visible.
+        let inactive: std::collections::HashSet<String> = self
+            .store
+            .call(|db| db.inactive_skill_names().unwrap_or_default())
+            .await
+            .into_iter()
+            .collect();
+        let mut skills = crate::agent::skills::list_skills(&dir);
+        skills.retain(|s| !inactive.contains(&s.name));
+        let catalog = crate::agent::skills::catalog_block(&skills);
+        let instructions = [global, project]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        (instructions, catalog)
+    }
+
+    /// Overflow fallback (Task 3.4): drop the oldest history turns, preserving all
+    /// leading system layers, the latest `KEEP_LATEST` turns, and the current user
+    /// turn. Deterministic and idempotent-safe; the pump retries a context
+    /// overflow at most once, then terminates visibly. Returns whether it pruned.
+    fn prune_oldest_turns(&mut self) -> bool {
+        prune_history(&mut self.messages)
     }
 
     fn remaining(&self) -> std::time::Duration {
         self.deadline.saturating_sub(self.started.elapsed())
+    }
+
+    /// The output root the live `build_model` executor writes to, for refining
+    /// write-risk (overwrite/export) at proposal time (Task 4.3). Mirrors the
+    /// command's resolution via one shared helper so the two never drift.
+    fn out_dir_path(&self) -> Option<std::path::PathBuf> {
+        crate::commands::model::default_output_root(&self.app)
     }
 
     /// Transitional live UI event: same shape as the legacy `chat_tool` channel
@@ -539,6 +722,24 @@ impl LiveDriver {
             "tool_calls": calls,
         }));
     }
+
+    /// Accept a completed provider stream: record content, seed pending tool
+    /// calls, append the assistant message (tool_calls or prose), and derive the
+    /// reducer `ModelOut`. Shared by the primary path and every retry arm so the
+    /// accept logic never drifts across arms.
+    fn accept_stream(&mut self, acc: &crate::agent::provider::StreamAccumulator) -> ModelOut {
+        self.last_content = acc.content.clone();
+        self.seed_pending_from_acc(acc);
+        if !acc.complete_calls().is_empty() {
+            self.append_assistant_tool_calls(acc);
+        } else if !acc.content.trim().is_empty() {
+            self.messages.push(serde_json::json!({
+                "role": "assistant",
+                "content": acc.content,
+            }));
+        }
+        model_out_from_stream(&self.registry, acc, self.out_dir_path().as_deref())
+    }
 }
 
 impl LiveDriver {
@@ -548,16 +749,30 @@ impl LiveDriver {
     fn fallback_model_out(&mut self) -> ModelOut {
         use crate::agent::fallback::{dispatch, FallbackDecision};
         if self.fallback_served {
-            return ModelOut { calls: vec![], final_answer: true, tokens: 0 };
+            return ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 0,
+            };
         }
         self.fallback_served = true;
         match dispatch(&self.registry, &self.ctx.user_msg) {
             FallbackDecision::Tool { name, args } => {
                 let id = "fb-1".to_string();
-                let risk = self.registry.get(&name).map(|s| s.risk).unwrap_or(Risk::ReadOnly);
+                let risk = self
+                    .registry
+                    .get(&name)
+                    .map(|s| s.risk)
+                    .unwrap_or(Risk::ReadOnly);
                 let args_valid = self.registry.validate_call(&name, &args).is_ok();
-                self.pending
-                    .insert(id.clone(), PendingCall { name: name.clone(), args, risk });
+                self.pending.insert(
+                    id.clone(),
+                    PendingCall {
+                        name: name.clone(),
+                        args,
+                        risk,
+                    },
+                );
                 self.last_content = String::new();
                 ModelOut {
                     calls: vec![ToolCall {
@@ -575,7 +790,11 @@ impl LiveDriver {
                 self.last_content =
                     "I couldn't map that to a tool. Try 'build AAPL', 'benchmark AAPL, MSFT',                      'news NVDA', 'search …', or add an OpenRouter API key in Settings for full                      natural-language chat."
                         .to_string();
-                ModelOut { calls: vec![], final_answer: true, tokens: 0 }
+                ModelOut {
+                    calls: vec![],
+                    final_answer: true,
+                    tokens: 0,
+                }
             }
         }
     }
@@ -583,12 +802,17 @@ impl LiveDriver {
 
 impl Driver for LiveDriver {
     async fn prepare(&mut self) -> PreparedInfo {
-        // Rebuild provider context from the persisted branch so multi-turn
-        // conversations are not amnesiac (parity: branch context). The branch
-        // already includes the just-inserted current user turn.
+        // Assemble provider context through the canonical layered builder
+        // (Task 3.3): analyst policy → workspace grounding → recalled memories →
+        // compacted branch history → current user turn. Long missions stay under
+        // the model allowance via `compact_turns` inside `build_context` (latest
+        // four + unresolved turns kept full). The analyst system prompt (with its
+        // tool-routing guidance) is the authoritative policy layer; the skill
+        // catalog rides it.
+        use crate::agent::context::{self, TurnBlock};
         let conv = self.ctx.conversation_id.clone();
         let store = self.store.clone();
-        let history: Vec<(String, String)> = store
+        let mut branch_turns: Vec<TurnBlock> = store
             .call(move |db| {
                 let mut out = Vec::new();
                 if let Ok(branch) = db.branch_path(&conv) {
@@ -596,15 +820,13 @@ impl Driver for LiveDriver {
                         if m.role != "user" && m.role != "assistant" {
                             continue;
                         }
+                        let mut text = String::new();
                         if let Ok(parts) = db.message_parts(&m.id) {
-                            let mut text = String::new();
                             for part in &parts {
                                 if part.kind != "text" {
                                     continue;
                                 }
-                                if let Ok(v) =
-                                    serde_json::from_str::<Value>(&part.payload_json)
-                                {
+                                if let Ok(v) = serde_json::from_str::<Value>(&part.payload_json) {
                                     if let Some(t) = v.get("text").and_then(|x| x.as_str()) {
                                         if !text.is_empty() {
                                             text.push('\n');
@@ -613,28 +835,33 @@ impl Driver for LiveDriver {
                                     }
                                 }
                             }
-                            if !text.trim().is_empty() {
-                                out.push((m.role.clone(), text));
-                            }
+                        }
+                        if !text.trim().is_empty() {
+                            out.push(TurnBlock {
+                                message_id: m.id.clone(),
+                                role: m.role.clone(),
+                                full_text: text,
+                                summary: m.context_summary.clone(),
+                                unresolved: false,
+                            });
                         }
                     }
                 }
                 out
             })
             .await;
-        let mut msgs = crate::commands::chat::seed_agent_messages("");
-        msgs.truncate(1); // keep only the dated system/policy message
-        for (role, text) in history {
-            msgs.push(serde_json::json!({ "role": role, "content": text }));
-        }
-        if msgs.len() == 1 {
-            // Defensive: never send an empty turn to the provider.
-            msgs.push(serde_json::json!({ "role": "user", "content": self.ctx.user_msg }));
-        }
-        // Recall: inject workspace-scoped memories matching this turn. Manual
-        // saves are workspace-scoped; the store's scope filter AND-joins, so
-        // querying workspace + conversation together would exclude workspace-
-        // only rows — query the workspace scope where saved notes live.
+        // The trailing user turn is the current message; `build_context` places
+        // it as the final `user` layer, so split it off the history.
+        let current_turn = if branch_turns.last().map(|t| t.role.as_str()) == Some("user") {
+            branch_turns
+                .pop()
+                .map(|t| t.full_text)
+                .unwrap_or_else(|| self.ctx.user_msg.clone())
+        } else {
+            self.ctx.user_msg.clone()
+        };
+        // Recall workspace-scoped memories matching this turn (record their use).
+        let mut recalled_memories: Vec<String> = Vec::new();
         {
             let ws = self.ctx.workspace_id.clone();
             let run = self.ctx.run_id.clone();
@@ -662,18 +889,7 @@ impl Driver for LiveDriver {
                     })
                     .await;
                 if !recalled.is_empty() {
-                    let block = recalled
-                        .iter()
-                        .map(|(_, c, _)| format!("- {c}"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    msgs.insert(
-                        1,
-                        serde_json::json!({
-                            "role": "system",
-                            "content": format!("Recalled context (saved by the user; use if relevant):\n{block}")
-                        }),
-                    );
+                    recalled_memories = recalled.iter().map(|(_, c, _)| c.clone()).collect();
                     let ids: Vec<(i64, f64)> =
                         recalled.iter().map(|(id, _, r)| (*id, *r)).collect();
                     self.store
@@ -688,18 +904,112 @@ impl Driver for LiveDriver {
                 }
             }
         }
-        self.messages = msgs;
-        self.apply_grounding().await;
-        // Always route through Executing so request_model runs (provider or the
-        // no-key FallbackDispatcher); uses_tools:false would skip it entirely.
+        // Analyst system prompt (authoritative policy layer) + skill catalog +
+        // workspace grounding.
+        let base_prompt = crate::commands::chat::seed_agent_messages("")
+            .into_iter()
+            .next()
+            .and_then(|m| m.get("content").and_then(|c| c.as_str()).map(String::from))
+            .unwrap_or_default();
+        let (ws_instructions, catalog) = self.grounding_layers().await;
+        let system_prompt = match catalog {
+            Some(cat) => format!("{base_prompt}\n\n{cat}"),
+            None => base_prompt,
+        };
+        let ctx_msgs = context::build_context(
+            &system_prompt,
+            &ws_instructions,
+            None,
+            &recalled_memories,
+            &branch_turns,
+            &[],
+            &current_turn,
+            None,
+            96_000,
+        );
+        self.messages = ctx_msgs
+            .into_iter()
+            .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+            .collect();
+        // Deterministic workflow selection (Task 3.1). A high-confidence intent
+        // escalates the run to the workflow policy, turns on planning and its
+        // verification requirement, and tags the plan. An under-specified ask
+        // stays on the interactive policy. Never select a workflow whose required
+        // tools are missing from the live registry — fall back to interactive.
+        let registry = crate::agent::tools::ToolRegistry::shared();
+        let selected = fm_agent::workflows::select_workflow(&self.ctx.user_msg)
+            .and_then(fm_agent::workflows::workflow)
+            .filter(|spec| {
+                spec.required_tools
+                    .iter()
+                    .all(|t| registry.get(t).is_some())
+            });
+        self.selected_workflow = selected.as_ref().map(|s| s.id.to_string());
+        if let Some(spec) = selected {
+            return PreparedInfo {
+                uses_tools: true,
+                plan_needed: true,
+                needs_verification: spec.needs_verification,
+                workflow: Some(crate::agent::actor::WorkflowSelection {
+                    id: spec.id.to_string(),
+                    version: 1,
+                }),
+                escalation: Some(spec.policy),
+            };
+        }
+        // Interactive: no workflow selected. Still verify when a claim-producing
+        // tool (exact reported figures / model / comps) is enabled, so the run is
+        // badged and material numbers are checked (Task 4.2/4.4). verify() is a
+        // no-op when the turn produces no claims.
+        let has_number_tool = self.tools.iter().any(|t| {
+            matches!(
+                t.pointer("/function/name").and_then(|v| v.as_str()),
+                Some("get_financials") | Some("build_model") | Some("benchmark_peers")
+            )
+        });
         PreparedInfo {
             uses_tools: true,
             plan_needed: false,
-            needs_verification: false,
+            needs_verification: has_number_tool,
+            workflow: None,
+            escalation: None,
         }
     }
 
-    async fn make_plan(&mut self) {}
+    async fn make_plan(&mut self) -> Plan {
+        let objective: String = {
+            let t: String = self.ctx.user_msg.trim().chars().take(140).collect();
+            if t.is_empty() {
+                "Analyze the request".to_string()
+            } else {
+                t
+            }
+        };
+        // A selected workflow grounds the plan in its stable template steps
+        // (Task 3.2); an interactive turn uses a minimal two-step plan.
+        if let Some(id) = self.selected_workflow.clone() {
+            if let Some(spec) = fm_agent::workflows::workflow(&id) {
+                return spec.initial_plan(&objective);
+            }
+        }
+        Plan {
+            objective,
+            assumptions: Vec::new(),
+            steps: vec![
+                PlanStep {
+                    id: "research".into(),
+                    label: "Research primary sources".into(),
+                    status: PlanStepStatus::Pending,
+                },
+                PlanStep {
+                    id: "synthesize".into(),
+                    label: "Synthesize a sourced answer".into(),
+                    status: PlanStepStatus::Pending,
+                },
+            ],
+            version: 1,
+        }
+    }
 
     async fn request_model(&mut self) -> ModelOut {
         // No key: deterministic FallbackDispatcher instead of a provider call.
@@ -713,16 +1023,12 @@ impl Driver for LiveDriver {
                 tokens: 0,
             };
         }
+        // Per-request ceiling = the reducer's remaining deadline; the adapter
+        // (chat.rs) enforces it alongside connect + no-progress timeouts, and the
+        // reducer's boundary Tick owns the overall deadline (Task 1.3). The former
+        // temporary in-driver `remaining().is_zero()` early-return is intentionally
+        // gone now that stream timing lives in the adapter.
         let remaining = self.remaining();
-        if remaining.is_zero() {
-            self.last_content =
-                "(stopped: chat deadline elapsed — try a shorter question or another model)".into();
-            return ModelOut {
-                calls: vec![],
-                final_answer: true,
-                tokens: 0,
-            };
-        }
 
         let mut tools = self.tools.clone();
         let req = crate::commands::chat::build_chat_request(
@@ -744,20 +1050,12 @@ impl Driver for LiveDriver {
         .await;
 
         match result {
-            Ok(acc) => {
-                self.last_content = acc.content.clone();
-                self.seed_pending_from_acc(&acc);
-                if !acc.complete_calls().is_empty() {
-                    self.append_assistant_tool_calls(&acc);
-                } else if !acc.content.trim().is_empty() {
-                    self.messages.push(serde_json::json!({
-                        "role": "assistant",
-                        "content": acc.content,
-                    }));
-                }
-                model_out_from_stream(&self.registry, &acc)
-            }
-            Err(e) if e == "tools_unsupported" && !tools.is_empty() => {
+            Ok(acc) => self.accept_stream(&acc),
+            Err(e)
+                if crate::agent::provider::classify_provider_error(&e)
+                    == crate::agent::provider::ProviderError::ToolIncompatible
+                    && !tools.is_empty() =>
+            {
                 // Drop tools and retry once as a direct answer.
                 self.tools.clear();
                 tools.clear();
@@ -773,7 +1071,13 @@ impl Driver for LiveDriver {
                     false,
                 );
                 match crate::commands::chat::stream_completion_for_agent(
-                    &app, &conv, &run, &cfg, &req, &cancel, self.remaining(),
+                    &app,
+                    &conv,
+                    &run,
+                    &cfg,
+                    &req,
+                    &cancel,
+                    self.remaining(),
                 )
                 .await
                 {
@@ -785,11 +1089,85 @@ impl Driver for LiveDriver {
                                 "content": acc.content,
                             }));
                         }
-                        model_out_from_stream(&self.registry, &acc)
+                        model_out_from_stream(&self.registry, &acc, self.out_dir_path().as_deref())
                     }
                     Err(err) => {
                         self.last_content = format!(
                             "⚠ the model request failed — check your API key and model in Settings. ({err})"
+                        );
+                        ModelOut {
+                            calls: vec![],
+                            final_answer: true,
+                            tokens: 0,
+                        }
+                    }
+                }
+            }
+            Err(e)
+                if crate::agent::provider::classify_provider_error(&e)
+                    == crate::agent::provider::ProviderError::ContextOverflow
+                    && self.prune_oldest_turns() =>
+            {
+                // Context overflow: prune oldest history and retry once (Task 3.4).
+                let req = crate::commands::chat::build_chat_request(
+                    &self.cfg.model,
+                    &self.messages,
+                    &tools,
+                    true,
+                    !tools.is_empty(),
+                );
+                match crate::commands::chat::stream_completion_for_agent(
+                    &app,
+                    &conv,
+                    &run,
+                    &cfg,
+                    &req,
+                    &cancel,
+                    self.remaining(),
+                )
+                .await
+                {
+                    Ok(acc) => self.accept_stream(&acc),
+                    Err(err) => {
+                        self.last_content = format!(
+                            "⚠ the request exceeded the model's context window even after compaction. ({err})"
+                        );
+                        ModelOut {
+                            calls: vec![],
+                            final_answer: true,
+                            tokens: 0,
+                        }
+                    }
+                }
+            }
+            Err(e) if crate::agent::provider::classify_provider_error(&e).is_retryable() => {
+                // Transient category (rate limit / capacity / transport / timeout):
+                // retry the same request once after a short backoff (Task 6.1). A
+                // second transient failure falls through to a visible stop. Failover
+                // across roster profiles is the tested `request_with_retry` core.
+                tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                let req = crate::commands::chat::build_chat_request(
+                    &self.cfg.model,
+                    &self.messages,
+                    &tools,
+                    true,
+                    !tools.is_empty(),
+                );
+                match crate::commands::chat::stream_completion_for_agent(
+                    &app,
+                    &conv,
+                    &run,
+                    &cfg,
+                    &req,
+                    &cancel,
+                    self.remaining(),
+                )
+                .await
+                {
+                    Ok(acc) => self.accept_stream(&acc),
+                    Err(err) => {
+                        self.last_content = format!(
+                            "⚠ the model request failed after a retry — the provider is rate-limited or unavailable. ({err})"
                         );
                         ModelOut {
                             calls: vec![],
@@ -838,6 +1216,11 @@ impl Driver for LiveDriver {
 
         let mut total = 0u64;
         let mut failed: Vec<String> = Vec::new();
+        // Sources/artifacts from committed results; the actor promotes them to the
+        // store and emits ArtifactCreated after the batch (Task 1.2).
+        let mut batch_sources: Vec<fm_agent::types::SourceRef> = Vec::new();
+        let mut batch_artifacts: Vec<fm_agent::types::ArtifactRef> = Vec::new();
+        let mut batch_parts: Vec<crate::agent::actor::ResultPart> = Vec::new();
         for wave in waves {
             let calls: Vec<(String, String, Value)> = wave
                 .iter()
@@ -883,9 +1266,9 @@ impl Driver for LiveDriver {
 
             let (tokens, mut wave_results) = tokio::task::spawn_blocking(move || {
                 let backend = crate::commands::chat::ChatToolBackend { app: &app };
-                let registry = ToolRegistry::builtin();
+                let registry = ToolRegistry::shared();
                 let mut results = HashMap::new();
-                let tokens = execute_batch(&registry, &backend, &calls_owned, &ctx, &mut results);
+                let tokens = execute_batch(registry, &backend, &calls_owned, &ctx, &mut results);
                 (tokens, results)
             })
             .await
@@ -894,11 +1277,21 @@ impl Driver for LiveDriver {
             total = total.saturating_add(tokens);
             // Walk in call order (not HashMap order) so cards keep execution order.
             for (id, name, _) in &calls {
-                let Some(res) = wave_results.remove(id) else { continue };
+                let Some(res) = wave_results.remove(id) else {
+                    continue;
+                };
                 match res {
                     Ok(env) => {
                         self.emit_tool(name, "done", Some(&env.display));
                         self.turn_results.push((name.clone(), env.display.clone()));
+                        batch_parts.push(crate::agent::actor::ResultPart {
+                            tool_call_id: id.clone(),
+                            name: name.clone(),
+                            card: env.display.clone(),
+                        });
+                        batch_sources.extend(env.sources.iter().cloned());
+                        batch_artifacts.extend(env.artifacts.iter().cloned());
+                        self.run_claims.extend(env.claims.iter().cloned());
                         self.messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": id,
@@ -915,7 +1308,12 @@ impl Driver for LiveDriver {
                             "type": "error", "tool": name, "message": e.to_string(),
                         });
                         self.emit_tool(name, "error", Some(&card));
-                        self.turn_results.push((name.clone(), card));
+                        self.turn_results.push((name.clone(), card.clone()));
+                        batch_parts.push(crate::agent::actor::ResultPart {
+                            tool_call_id: id.clone(),
+                            name: name.clone(),
+                            card: card.clone(),
+                        });
                         self.messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": id,
@@ -932,7 +1330,19 @@ impl Driver for LiveDriver {
                 self.emit_fanout("fanout_done", calls.len());
             }
         }
-        ToolBatchOutcome { tokens: total, failed }
+        {
+            let mut seen = std::collections::HashSet::new();
+            batch_sources.retain(|s| seen.insert(s.id.clone()));
+            let mut seen = std::collections::HashSet::new();
+            batch_artifacts.retain(|a| seen.insert(a.id.clone()));
+        }
+        ToolBatchOutcome {
+            tokens: total,
+            failed,
+            sources: batch_sources,
+            artifacts: batch_artifacts,
+            parts: batch_parts,
+        }
     }
 
     async fn synthesize(&mut self) {
@@ -971,8 +1381,7 @@ impl Driver for LiveDriver {
                 .map_err(|e| e.to_string())?;
                 let mut ordinal: i64 = 0;
                 for (tool, card) in &results {
-                    let payload =
-                        serde_json::json!({ "tool": tool, "card": card }).to_string();
+                    let payload = serde_json::json!({ "tool": tool, "card": card }).to_string();
                     db.insert_part(&mk(), &msg_id, ordinal, "result", &payload, None)
                         .map_err(|e| e.to_string())?;
                     ordinal += 1;
@@ -993,7 +1402,47 @@ impl Driver for LiveDriver {
     }
 
     async fn verify(&mut self) -> bool {
-        true
+        // Verify this run's material numeric claims (Task 4.2/4.4). Each claim is
+        // checked against its authoritative value: a derivable metric is recomputed
+        // from sibling claims via an accounting identity (gross_profit == revenue -
+        // cost_of_revenue) so an inconsistent figure fails; other figures verify
+        // against their source-recorded value under a metric-specific tolerance. A
+        // failed check rolls the run up to partial_unverified and the reducer runs
+        // one repair pass before publishing partial. No claims → nothing to check.
+        if self.run_claims.is_empty() {
+            return true;
+        }
+        use crate::agent::verification::{verify_run, ClaimStatus};
+        let values: std::collections::HashMap<String, f64> = self
+            .run_claims
+            .iter()
+            .filter_map(|c| {
+                c.normalized_value
+                    .parse::<f64>()
+                    .ok()
+                    .map(|v| (c.claim_key.clone(), v))
+            })
+            .collect();
+        let report = verify_run(&self.run_claims, |c| recompute_authoritative(c, &values));
+        let verified = report
+            .claims
+            .iter()
+            .filter(|c| c.status == ClaimStatus::Verified)
+            .count();
+        let card = serde_json::json!({
+            "type": "verification",
+            "status": report.status.badge(),
+            "verified": verified,
+            "total": report.claims.len(),
+            "source": "SEC EDGAR XBRL",
+        });
+        // Stash the card; the actor emits it as a durable ResultPartAdded (2.1).
+        self.verify_card = Some(card);
+        !report.needs_repair()
+    }
+
+    fn take_verify_card(&mut self) -> Option<Value> {
+        self.verify_card.take()
     }
 
     async fn extract_memory(&mut self) -> usize {
@@ -1045,18 +1494,72 @@ impl Driver for LiveDriver {
         usize::from(saved)
     }
 
-    async fn await_approval(&mut self, _tool_call_id: &str) -> ApprovalResponse {
+    async fn await_approval(&mut self, tool_call_id: &str) -> ApprovalResponse {
+        // Persist a durable `pending_interactions` row BEFORE parking (Task 4.3),
+        // so a walked-away approval survives restart and is deniable by the expiry
+        // sweep (`agent::approvals::expire_and_deny_stale_approvals`). Without this
+        // insert the sweep has no rows to act on. Store errors are non-fatal —
+        // parking still proceeds and the in-driver safety timeout below applies.
+        let pending_id = {
+            let mut b = [0u8; 16];
+            rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+            fm_agent::ids::format_uuid_v4(b)
+        };
+        {
+            let pid = pending_id.clone();
+            let run = self.ctx.run_id.clone();
+            let tc = tool_call_id.to_string();
+            let now = crate::store::now_iso();
+            let req = serde_json::json!({ "tool_call_id": tool_call_id }).to_string();
+            self.store
+                .call(move |db| {
+                    let _ = db.insert_pending(&pid, &run, Some(&tc), "approval", &req, &now);
+                })
+                .await;
+        }
+
         // Park until agent_approve resolves it; deny on cancel or a 10-minute
         // safety timeout so a walked-away user can never leave a run wedged.
         let rx = self.registry_hub.park_approval(&self.ctx.run_id);
-        tokio::select! {
+        let resp = tokio::select! {
             _ = self.ctx.cancel.cancelled() => ApprovalResponse::Deny,
             _ = tokio::time::sleep(std::time::Duration::from_secs(600)) => ApprovalResponse::Deny,
             r = rx => r.unwrap_or(ApprovalResponse::Deny),
+        };
+
+        // Record the resolution (idempotent — a no-op if the expiry sweep already
+        // resolved it; first answer wins).
+        {
+            let pid = pending_id;
+            let now = crate::store::now_iso();
+            let resp_json = serde_json::json!({ "response": &resp }).to_string();
+            self.store
+                .call(move |db| {
+                    let _ = db.resolve_pending(&pid, &resp_json, &now);
+                })
+                .await;
+        }
+        resp
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    fn control_signal(&self) -> Option<ControlSignal> {
+        if self.ctx.cancel.is_cancelled() {
+            Some(ControlSignal::Cancel)
+        } else if self.ctx.interrupt.is_cancelled() {
+            Some(ControlSignal::Interrupt)
+        } else {
+            None
         }
     }
-}
 
+    fn call_meta(&self, tool_call_id: &str) -> ToolCallMeta {
+        call_meta_from_pending(self.pending.get(tool_call_id))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1085,14 +1588,130 @@ mod tests {
     }
 
     #[test]
+    fn prune_history_keeps_system_and_tail_and_drops_orphan_tool() {
+        use serde_json::json;
+        let sys = |c: &str| json!({ "role": "system", "content": c });
+        let user = |c: &str| json!({ "role": "user", "content": c });
+        let asst = |c: &str| json!({ "role": "assistant", "content": c });
+        let tool = |c: &str| json!({ "role": "tool", "content": c });
+        // system x2, then a long history whose drain boundary lands on a `tool`
+        // reply, then the latest KEEP_LATEST+1 turns.
+        let mut msgs = vec![sys("policy"), sys("workspace")];
+        for i in 0..6 {
+            msgs.push(asst(&format!("a{i}")));
+            msgs.push(tool(&format!("t{i}")));
+        }
+        msgs.push(user("current question"));
+        let before = msgs.len();
+        assert!(super::prune_history(&mut msgs));
+        assert!(msgs.len() < before);
+        // Leading system layers preserved.
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[1]["role"], "system");
+        // The first history message after the system block is NEVER an orphaned
+        // tool reply (provider would reject it).
+        assert_ne!(msgs[2]["role"], "tool");
+        // The current user turn survives as the last message.
+        assert_eq!(msgs.last().unwrap()["content"], "current question");
+        // A second prune with nothing left to drop is a no-op.
+        let mut small = vec![sys("p"), user("q")];
+        assert!(!super::prune_history(&mut small));
+    }
+    #[test]
     fn memory_directive_rejects_questions_and_non_saves() {
         // Question forms are recall requests, not saves.
-        assert_eq!(parse_memory_directive("remember what I said about TSLA?"), None);
+        assert_eq!(
+            parse_memory_directive("remember what I said about TSLA?"),
+            None
+        );
         assert_eq!(parse_memory_directive("Remember how we modeled it?"), None);
         // Not a save directive at all.
         assert_eq!(parse_memory_directive("what are Tesla's 2025 sales?"), None);
         // Empty content after the prefix.
         assert_eq!(parse_memory_directive("remember: "), None);
+    }
+
+    #[test]
+    fn run_claims_verify_against_their_source_value() {
+        use crate::agent::executors::envelope_from_card;
+        use crate::agent::verification::{verify_run, ClaimStatus};
+        let card = serde_json::json!({
+            "type": "financials", "ticker": "NVDA", "entity": "NVIDIA Corp",
+            "fiscal_year": "2024", "period_end": "2024-01-28", "currency": "USD",
+            "source": "https://sec.gov/x",
+            "rows": [
+                { "label": "Revenue", "value": 60922000000i64, "display": "60,922.0" },
+                { "label": "Diluted EPS", "value": 11.93, "display": "11.93" }
+            ]
+        });
+        let env = envelope_from_card("s".into(), card, fm_agent::types::Trust::Trusted, "ws-a");
+        assert_eq!(env.claims.len(), 2);
+        // The loop `verify()` runs: every source-recorded figure verifies against
+        // itself under its metric tolerance (Task 4.2 slice) → run is Verified.
+        let report = verify_run(&env.claims, claim_authoritative);
+        assert_eq!(report.status, ClaimStatus::Verified);
+        assert!(!report.needs_repair());
+        // An unparseable claim value is Unverified — missing evidence never
+        // certifies (guards the reducer's repair path against a bad extraction).
+        let mut bad = env.claims.clone();
+        bad[0].normalized_value = "n/a".into();
+        let report = verify_run(&bad, claim_authoritative);
+        assert_eq!(report.status, ClaimStatus::Unverified);
+        assert!(report.needs_repair());
+    }
+
+    #[test]
+    fn gross_profit_identity_catches_an_inconsistent_figure() {
+        use crate::agent::executors::envelope_from_card;
+        use crate::agent::verification::{verify_run, ClaimStatus};
+        use std::collections::HashMap;
+        // A consistent card: gross_profit == revenue - cost_of_revenue.
+        let good = serde_json::json!({
+            "type": "financials", "ticker": "NVDA", "entity": "NVIDIA Corp",
+            "fiscal_year": "2024", "period_end": "2024-01-28", "currency": "USD",
+            "source": "https://sec.gov/x",
+            "rows": [
+                { "label": "Revenue", "value": 60922000000i64, "display": "$60.92B" },
+                { "label": "Cost of revenue", "value": 16621000000i64, "display": "$16.62B" },
+                { "label": "Gross profit", "value": 44301000000i64, "display": "$44.30B" }
+            ]
+        });
+        let env = envelope_from_card("s".into(), good, fm_agent::types::Trust::Trusted, "ws-a");
+        let values: HashMap<String, f64> = env
+            .claims
+            .iter()
+            .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+            .collect();
+        let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
+        assert_eq!(report.status, ClaimStatus::Verified, "{:?}", report.claims);
+
+        // Restate gross_profit to an inconsistent value: the accounting identity
+        // must catch it (Unverified → the run is partial, never a verified badge).
+        let bad = serde_json::json!({
+            "type": "financials", "ticker": "NVDA", "entity": "NVIDIA Corp",
+            "fiscal_year": "2024", "period_end": "2024-01-28", "currency": "USD",
+            "source": "https://sec.gov/x",
+            "rows": [
+                { "label": "Revenue", "value": 60922000000i64, "display": "$60.92B" },
+                { "label": "Cost of revenue", "value": 16621000000i64, "display": "$16.62B" },
+                { "label": "Gross profit", "value": 50000000000i64, "display": "$50.00B" }
+            ]
+        });
+        let env = envelope_from_card("s".into(), bad, fm_agent::types::Trust::Trusted, "ws-a");
+        let values: HashMap<String, f64> = env
+            .claims
+            .iter()
+            .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+            .collect();
+        let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
+        assert_eq!(report.status, ClaimStatus::Unverified);
+        assert!(report.needs_repair());
+        let gp = report
+            .claims
+            .iter()
+            .find(|c| c.claim_key == "nvda.gross_profit.fy2024")
+            .unwrap();
+        assert_eq!(gp.status, ClaimStatus::Unverified);
     }
 
     #[test]
@@ -1116,11 +1735,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             static N: AtomicU64 = AtomicU64::new(0);
             let n = N.fetch_add(1, Ordering::Relaxed);
-            let p = std::env::temp_dir().join(format!(
-                "fmdrv-{tag}-{}-{}",
-                std::process::id(),
-                n
-            ));
+            let p = std::env::temp_dir().join(format!("fmdrv-{tag}-{}-{}", std::process::id(), n));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             TempDir(p)
@@ -1338,12 +1953,7 @@ mod tests {
             Risk::LocalCreate,
         );
         // Export outside output root requires approval (Export risk).
-        driver.seed_pending(
-            "ex",
-            "build_model",
-            json!({"ticker":"MSFT"}),
-            Risk::Export,
-        );
+        driver.seed_pending("ex", "build_model", json!({"ticker":"MSFT"}), Risk::Export);
         driver.info.plan_needed = false;
         driver.info.needs_verification = true;
         driver.approval = ApprovalResponse::ApproveOnce;
@@ -1378,14 +1988,22 @@ mod tests {
         assert!(kinds.contains(&EventKind::ApprovalRequested));
         assert!(kinds.contains(&EventKind::ApprovalResolved));
         // Approval must precede the export tool start.
-        let apr = kinds.iter().position(|k| *k == EventKind::ApprovalRequested).unwrap();
+        let apr = kinds
+            .iter()
+            .position(|k| *k == EventKind::ApprovalRequested)
+            .unwrap();
         let starts: Vec<(usize, String)> = sink
             .events
             .lock()
             .iter()
             .enumerate()
             .filter(|(_, e)| e.event.kind == EventKind::ToolStarted)
-            .filter_map(|(i, e)| Some((i, e.event.payload.get("tool_call_id")?.as_str()?.to_string())))
+            .filter_map(|(i, e)| {
+                Some((
+                    i,
+                    e.event.payload.get("tool_call_id")?.as_str()?.to_string(),
+                ))
+            })
             .collect();
         let ex_start = starts.iter().find(|(_, id)| id == "ex").unwrap().0;
         assert!(apr < ex_start, "approval before export execution");
@@ -1400,7 +2018,7 @@ mod tests {
             r#"{"choices":[],"usage":{"total_tokens":42}}"#,
             "[DONE]",
         ]);
-        let out = model_out_from_stream(&reg, &acc);
+        let out = model_out_from_stream(&reg, &acc, None);
         assert!(out.final_answer);
         assert!(out.calls.is_empty());
         assert_eq!(out.tokens, 42);
@@ -1415,7 +2033,7 @@ mod tests {
             r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
             "[DONE]",
         ]);
-        let out = model_out_from_stream(&reg, &acc);
+        let out = model_out_from_stream(&reg, &acc, None);
         assert!(!out.final_answer);
         assert_eq!(out.calls.len(), 2);
         for c in &out.calls {
@@ -1432,11 +2050,42 @@ mod tests {
             r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","function":{"name":"build_model","arguments":"{\"ticker\":\"MSFT\"}"}}]}}]}"#,
             "[DONE]",
         ]);
-        let out = model_out_from_stream(&reg, &acc);
+        let out = model_out_from_stream(&reg, &acc, None);
         assert_eq!(out.calls.len(), 1);
         assert_eq!(out.calls[0].risk, Risk::LocalCreate);
         assert!(!out.calls[0].needs_approval); // new immutable version auto-runs
         assert!(out.calls[0].args_valid);
+    }
+
+    #[test]
+    fn stream_build_model_overwrite_refines_to_approval() {
+        use std::io::Write;
+        let reg = ToolRegistry::builtin();
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","function":{"name":"build_model","arguments":"{\"ticker\":\"MSFT\"}"}}]}}]}"#,
+            "[DONE]",
+        ]);
+        let dir =
+            std::env::temp_dir().join(format!("fmwr-{}-{}", std::process::id(), fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Fresh output dir: a new model is LocalCreate → auto-runs (Task 4.3).
+        let out = model_out_from_stream(&reg, &acc, Some(&dir));
+        assert_eq!(out.calls[0].risk, Risk::LocalCreate);
+        assert!(!out.calls[0].needs_approval);
+        // Target already exists → overwrite → LocalOverwrite → MUST gate on approval.
+        let stem = fm_build::ticker_to_stem("MSFT");
+        let target = dir.join(format!("{stem}_model.xlsx"));
+        std::fs::File::create(&target)
+            .unwrap()
+            .write_all(b"x")
+            .unwrap();
+        let out2 = model_out_from_stream(&reg, &acc, Some(&dir));
+        assert_eq!(out2.calls[0].risk, Risk::LocalOverwrite);
+        assert!(
+            out2.calls[0].needs_approval,
+            "an overwrite must route through approval (Task 4.3)"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1447,12 +2096,18 @@ mod tests {
             r#"{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"y","function":{"name":"frobnicate","arguments":"{}"}}]}}]}"#,
             "[DONE]",
         ]);
-        let out = model_out_from_stream(&reg, &acc);
+        let out = model_out_from_stream(&reg, &acc, None);
         assert_eq!(out.calls.len(), 2);
-        assert!(!out.calls[0].args_valid, "bad ticker fails semantic validation");
+        assert!(
+            !out.calls[0].args_valid,
+            "bad ticker fails semantic validation"
+        );
         assert!(!out.calls[1].args_valid, "unknown tool has no spec");
         assert_eq!(out.calls[1].risk, Risk::ReadOnly); // unknown defaults to read-only
-        assert!(out.calls[1].needs_approval, "unknown tool fails closed (never auto-run)");
+        assert!(
+            out.calls[1].needs_approval,
+            "unknown tool fails closed (never auto-run)"
+        );
     }
 
     #[tokio::test]
@@ -1465,7 +2120,10 @@ mod tests {
             &reg,
         )
         .unwrap();
-        assert!(plan.needs_verification, "earnings is a numeric-finance turn");
+        assert!(
+            plan.needs_verification,
+            "earnings is a numeric-finance turn"
+        );
         for t in ["list_filings", "read_filing", "get_news", "get_quote"] {
             assert!(
                 plan.steps.iter().any(|s| s.tool_name == t),
@@ -1498,9 +2156,24 @@ mod tests {
         let ctx = SessionContext::test_ctx("c1", "NVDA earnings review beat/miss + guidance");
         let mut driver = ScriptedDriver::new(backend, ctx);
         let results = driver.results.clone();
-        driver.seed_pending("lf", "list_filings", json!({"ticker":"NVDA"}), Risk::ReadOnly);
-        driver.seed_pending("rf", "read_filing", json!({"ticker":"NVDA","item":"7"}), Risk::ReadOnly);
-        driver.seed_pending("nw", "get_news", json!({"query":"NVDA guidance"}), Risk::ReadOnly);
+        driver.seed_pending(
+            "lf",
+            "list_filings",
+            json!({"ticker":"NVDA"}),
+            Risk::ReadOnly,
+        );
+        driver.seed_pending(
+            "rf",
+            "read_filing",
+            json!({"ticker":"NVDA","item":"7"}),
+            Risk::ReadOnly,
+        );
+        driver.seed_pending(
+            "nw",
+            "get_news",
+            json!({"query":"NVDA guidance"}),
+            Risk::ReadOnly,
+        );
         driver.seed_pending("qt", "get_quote", json!({"ticker":"NVDA"}), Risk::ReadOnly);
         // R1: two independent reads. R2: dependent read_filing + news. R3: final.
         driver.model_outs = vec![
@@ -1514,7 +2187,11 @@ mod tests {
                 final_answer: false,
                 tokens: 60,
             },
-            ModelOut { calls: vec![], final_answer: true, tokens: 30 },
+            ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 30,
+            },
         ];
         driver.verify_ok = true;
 
@@ -1584,9 +2261,19 @@ mod tests {
         let ctx = SessionContext::test_ctx("c1", "comps NVDA vs AMD EV/EBITDA");
         let mut driver = ScriptedDriver::new(backend, ctx);
         let results = driver.results.clone();
-        driver.seed_pending("bp", "benchmark_peers", json!({"tickers":["NVDA","AMD"]}), Risk::ReadOnly);
+        driver.seed_pending(
+            "bp",
+            "benchmark_peers",
+            json!({"tickers":["NVDA","AMD"]}),
+            Risk::ReadOnly,
+        );
         driver.seed_pending("qt", "get_quote", json!({"ticker":"NVDA"}), Risk::ReadOnly);
-        driver.seed_pending("lf", "list_filings", json!({"ticker":"NVDA"}), Risk::ReadOnly);
+        driver.seed_pending(
+            "lf",
+            "list_filings",
+            json!({"ticker":"NVDA"}),
+            Risk::ReadOnly,
+        );
         // R1: two independent reads. R2: dependent peer-pool benchmark. R3: final.
         driver.model_outs = vec![
             ModelOut {
@@ -1599,7 +2286,11 @@ mod tests {
                 final_answer: false,
                 tokens: 50,
             },
-            ModelOut { calls: vec![], final_answer: true, tokens: 30 },
+            ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 30,
+            },
         ];
         driver.verify_ok = true;
 
@@ -1639,7 +2330,11 @@ mod tests {
                 final_answer: false,
                 tokens: 40,
             },
-            ModelOut { calls: vec![], final_answer: true, tokens: 20 },
+            ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 20,
+            },
         ];
         driver.verify_ok = true;
 
@@ -1652,7 +2347,10 @@ mod tests {
             evs.iter()
                 .filter(|e| {
                     e.event.payload.get("tool_call_id").and_then(|v| v.as_str()) == Some(id)
-                        && matches!(e.event.kind, EventKind::ToolSucceeded | EventKind::ToolFailed)
+                        && matches!(
+                            e.event.kind,
+                            EventKind::ToolSucceeded | EventKind::ToolFailed
+                        )
                 })
                 .map(|e| e.event.kind)
                 .collect()

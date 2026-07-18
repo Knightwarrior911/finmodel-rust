@@ -50,7 +50,11 @@ fn ev_bridge_reproduces_oracle() {
     let diffs = compare_workbook(&wb, &snap);
     if !diffs.is_empty() {
         let shown: Vec<String> = diffs.iter().take(40).map(|d| d.to_string()).collect();
-        panic!("{} cell diff(s) vs EV_BRIDGE oracle:\n{}", diffs.len(), shown.join("\n"));
+        panic!(
+            "{} cell diff(s) vs EV_BRIDGE oracle:\n{}",
+            diffs.len(),
+            shown.join("\n")
+        );
     }
 }
 
@@ -85,6 +89,10 @@ fn ev_bridge_sparse_reproduces_oracle() {
     let diffs = compare_workbook(&wb, &snap);
     if !diffs.is_empty() {
         let shown: Vec<String> = diffs.iter().take(40).map(|d| d.to_string()).collect();
-        panic!("{} cell diff(s) vs EV_BRIDGE_SPARSE oracle:\n{}", diffs.len(), shown.join("\n"));
+        panic!(
+            "{} cell diff(s) vs EV_BRIDGE_SPARSE oracle:\n{}",
+            diffs.len(),
+            shown.join("\n")
+        );
     }
 }

@@ -13,6 +13,20 @@
 use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+/// The generated-workbook filename for a ticker — the single naming source
+/// shared by the build command and the write-risk refinement (Task 4.3), so the
+/// two never drift.
+pub fn model_filename(ticker: &str) -> String {
+    format!("{}_model.xlsx", fm_build::ticker_to_stem(ticker))
+}
+
+/// The default output root for generated workbooks when the analyst hasn't set an
+/// explicit path: `{documents}/finmodel`. Single source of truth for
+/// `build_model`'s target root + the write-risk refinement.
+pub fn default_output_root(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().document_dir().ok().map(|d| d.join("finmodel"))
+}
+
 use crate::commands::settings::read_settings;
 use crate::error::{AppError, AppResult};
 
@@ -396,13 +410,10 @@ fn render_build(
     let xlsx_path = if let Some(p) = opts.out_path.as_ref().filter(|p| !p.trim().is_empty()) {
         std::path::PathBuf::from(p)
     } else {
-        let out_dir = app
-            .path()
-            .document_dir()
-            .map_err(|e| AppError::Io(format!("no documents dir: {e}")))?
-            .join("finmodel");
+        let out_dir =
+            default_output_root(app).ok_or_else(|| AppError::Io("no documents dir".into()))?;
         std::fs::create_dir_all(&out_dir)?;
-        out_dir.join(format!("{}_model.xlsx", fm_build::ticker_to_stem(ticker)))
+        out_dir.join(model_filename(ticker))
     };
     if let Some(parent) = xlsx_path.parent() {
         std::fs::create_dir_all(parent)?;

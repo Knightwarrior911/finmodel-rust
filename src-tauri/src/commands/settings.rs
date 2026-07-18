@@ -27,7 +27,11 @@ fn default_base_url() -> String {
 /// default when unset/blank (a `Settings::default()` leaves it empty).
 pub fn provider_base(s: &Settings) -> String {
     let b = s.base_url.trim().trim_end_matches('/');
-    if b.is_empty() { default_base_url() } else { b.to_string() }
+    if b.is_empty() {
+        default_base_url()
+    } else {
+        b.to_string()
+    }
 }
 
 /// The chat-completions endpoint for the configured provider.
@@ -90,6 +94,10 @@ pub struct Settings {
     /// Capability cache for the currently selected model (Phase 1.3).
     #[serde(default)]
     pub model_capability: Option<ModelCapability>,
+    /// Explicit worker/verifier/fallback role profiles (Task 1.5). Absent → every
+    /// role uses the orchestrator (the flat `model`/`base_url` above).
+    #[serde(default)]
+    pub model_profiles: Option<crate::agent::model_router::ModelProfiles>,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
@@ -143,21 +151,28 @@ pub fn write_settings(app: &tauri::AppHandle, s: &Settings) -> AppResult<()> {
     Ok(())
 }
 
-/// Return `{ has_key, model, …, model_capability }` — never the raw key.
-#[tauri::command(rename_all = "snake_case")]
-pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
-    let s = read_settings(&app);
-    Ok(serde_json::json!({
+/// Build the settings view object exposed to the UI (Task 1.5 adds
+/// `model_profiles`) — never the raw key. Pure over `Settings` so the shape is
+/// unit-testable without an `AppHandle`.
+pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
+    serde_json::json!({
         "has_key": !s.openrouter_api_key.trim().is_empty(),
         "model": s.model,
         "edgar_contact": s.edgar_contact,
         "out_dir": s.out_dir,
         "mcp_command": s.mcp_command,
         "mcp_args": s.mcp_args,
-        "version": app.package_info().version.to_string(),
+        "version": version,
         "model_capability": s.model_capability,
+        "model_profiles": s.model_profiles,
     })
-    .to_string())
+}
+
+/// Return `{ has_key, model, …, model_capability, model_profiles }` — never the raw key.
+#[tauri::command(rename_all = "snake_case")]
+pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
+    let s = read_settings(&app);
+    Ok(settings_view_json(&s, &app.package_info().version.to_string()).to_string())
 }
 
 /// Save settings. A blank `api_key` keeps the existing one (so the frontend can
@@ -173,6 +188,7 @@ pub fn save_settings(
     out_dir: Option<String>,
     mcp_command: Option<String>,
     mcp_args: Option<Vec<String>>,
+    model_profiles: Option<crate::agent::model_router::ModelProfiles>,
 ) -> AppResult<String> {
     let mut s = read_settings(&app);
     if !api_key.trim().is_empty() {
@@ -204,6 +220,11 @@ pub fn save_settings(
     }
     if let Some(a) = mcp_args {
         s.mcp_args = a;
+    }
+    // Explicit role profiles (Task 1.5). Present → set (an empty object clears the
+    // roles back to orchestrator-only); absent → keep existing.
+    if let Some(mp) = model_profiles {
+        s.model_profiles = Some(mp);
     }
     write_settings(&app, &s)?;
     // Settings change kills any live MCP child (Phase 3.2).
@@ -349,7 +370,9 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
                 Ok(m) => m,
                 Err(e) => {
                     clear_matching_cache(&mut s);
-                    return Err(AppError::Engine(format!("OpenRouter model probe failed: {e}")));
+                    return Err(AppError::Engine(format!(
+                        "OpenRouter model probe failed: {e}"
+                    )));
                 }
             };
             let Some(m) = models.iter().find(|m| m.id == wanted) else {
@@ -409,7 +432,6 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
     .await
     .map_err(|e| AppError::Engine(format!("model probe task failed: {e}")))?
 }
-
 
 /// Probe native tool-calling by **forcing** the `ping` function and verifying
 /// `choices[0].message.tool_calls` contains a `ping` entry. HTTP 2xx alone is
@@ -523,7 +545,11 @@ enum ProbeOutcome {
 /// POST a probe body. Success returns the JSON body; 400/404 with
 /// unsupported-parameter language → Unsupported; other statuses → hard error
 /// with a **redacted** category (never the provider body).
-fn post_probe_json(api_key: &str, chat_url: &str, body: &serde_json::Value) -> Result<ProbeOutcome, String> {
+fn post_probe_json(
+    api_key: &str,
+    chat_url: &str,
+    body: &serde_json::Value,
+) -> Result<ProbeOutcome, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -630,4 +656,67 @@ fn days_to_ymd(mut days: i64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::model_router::{ModelProfile, ModelProfiles};
+
+    fn worker_profile() -> ModelProfile {
+        ModelProfile {
+            provider_base: "https://api.deepseek.com/v1".into(),
+            model: "deepseek-chat".into(),
+            context_window: 64_000,
+            native_tools: true,
+            structured_output: true,
+            cost_per_mtok_in: None,
+            cost_per_mtok_out: None,
+            credential_ref: "deepseek_api_key".into(),
+        }
+    }
+
+    #[test]
+    fn settings_view_exposes_model_profiles_never_key() {
+        let mut s = Settings {
+            model: "gpt-4".into(),
+            openrouter_api_key: "secret".into(),
+            ..Default::default()
+        };
+        s.model_profiles = Some(ModelProfiles {
+            worker: Some(worker_profile()),
+            verifier: None,
+            fallbacks: vec![],
+        });
+        let v = settings_view_json(&s, "9.9.9");
+        // The raw key never leaks; only a boolean presence flag.
+        assert_eq!(v.get("has_key").and_then(|b| b.as_bool()), Some(true));
+        assert!(v.get("openrouter_api_key").is_none());
+        // The role profiles round-trip out to the UI.
+        let worker_model = v
+            .get("model_profiles")
+            .and_then(|p| p.get("worker"))
+            .and_then(|w| w.get("model"))
+            .and_then(|m| m.as_str());
+        assert_eq!(worker_model, Some("deepseek-chat"));
+        assert_eq!(v.get("version").and_then(|x| x.as_str()), Some("9.9.9"));
+    }
+
+    #[test]
+    fn settings_persist_round_trips_model_profiles() {
+        // read_settings/write_settings persist via serde; prove the profiles
+        // survive a serialize→deserialize cycle (the on-disk round-trip).
+        let mut s = Settings::default();
+        s.model_profiles = Some(ModelProfiles {
+            worker: Some(worker_profile()),
+            verifier: None,
+            fallbacks: vec![],
+        });
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.model_profiles, s.model_profiles);
+        // Absent profiles deserialize to None (orchestrator-only default).
+        let bare: Settings = serde_json::from_str("{}").unwrap();
+        assert!(bare.model_profiles.is_none());
+    }
 }

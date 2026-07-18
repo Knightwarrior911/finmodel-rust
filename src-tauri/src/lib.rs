@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod commands;
-pub mod store;
 mod error;
+pub mod store;
 
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
@@ -17,6 +17,13 @@ pub fn run() {
         .manage(commands::artifacts::ArtifactRegistry::default())
         .manage(agent::registry::ActorRegistry::default())
         .setup(|app| {
+            // Fail fast (debug) if any workflow references an unregistered tool;
+            // in release, log and continue (the registry stays authoritative).
+            if let Err((wf, tool)) = agent::tools::ToolRegistry::shared().validate_workflows() {
+                let msg = format!("workflow '{wf}' references unregistered tool '{tool}'");
+                debug_assert!(false, "{msg}");
+                eprintln!("startup: {msg}");
+            }
             // Open the SQLite store (Phase A). The legacy JSON conversation
             // directory stays the live source of truth until the Phase G
             // cutover, so the import here is non-destructive and a store failure
@@ -37,6 +44,51 @@ pub fn run() {
                             handle,
                             default_workspace_id: workspace_id,
                         });
+                        // Approval-expiry sweep (Task 4.3): every 60s, expire
+                        // pending approvals older than the 10-minute safety window
+                        // and DENY their parked oneshots so `await_approval` never
+                        // wedges. The 600s cutoff matches the in-driver timeout, so
+                        // the sweep never denies earlier than existing behavior.
+                        if let (Some(store), Some(reg)) = (
+                            app.try_state::<store::AppStore>(),
+                            app.try_state::<agent::registry::ActorRegistry>(),
+                        ) {
+                            let handle = store.handle.clone();
+                            let registry = (*reg).clone();
+                            tauri::async_runtime::spawn(async move {
+                                let mut ticker =
+                                    tokio::time::interval(std::time::Duration::from_secs(60));
+                                loop {
+                                    ticker.tick().await;
+                                    let now = store::now_iso();
+                                    let cutoff = store::iso_seconds_ago(600);
+                                    let _ = agent::approvals::expire_and_deny_stale_approvals(
+                                        &handle, &registry, &cutoff, &now,
+                                    )
+                                    .await;
+                                }
+                            });
+                        }
+                        // Skill aging (Task 7.3): once at startup then daily, mark
+                        // long-unused skills `stale` (30d) then `archived` (90d) so
+                        // they leave the default catalog while staying restorable.
+                        if let Some(store) = app.try_state::<store::AppStore>() {
+                            let handle = store.handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let mut ticker = tokio::time::interval(
+                                    std::time::Duration::from_secs(24 * 60 * 60),
+                                );
+                                loop {
+                                    ticker.tick().await;
+                                    let now = store::now_iso();
+                                    let stale = store::iso_seconds_ago(30 * 24 * 60 * 60);
+                                    let archive = store::iso_seconds_ago(90 * 24 * 60 * 60);
+                                    let _ = handle
+                                        .call(move |db| db.age_skills(&stale, &archive, &now))
+                                        .await;
+                                }
+                            });
+                        }
                     }
                     Err(e) => eprintln!("store init failed (continuing on JSON): {e}"),
                 },

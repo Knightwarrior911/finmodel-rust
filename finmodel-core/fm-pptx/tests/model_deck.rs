@@ -3,7 +3,9 @@
 //! Python oracle exists for these, so we build → save → inspect and assert on
 //! slide count and the presence of cover/tile/table text runs.
 
-use fm_pptx::writer::deck::{write_benchmark_deck, write_model_deck, ModelDeckInput, PptxDeckWriter};
+use fm_pptx::writer::deck::{
+    ModelDeckInput, PptxDeckWriter, write_benchmark_deck, write_model_deck,
+};
 use serde_json::Value;
 
 const PINNED_DATE: &str = "January 2026";
@@ -42,7 +44,13 @@ fn model_input() -> ModelDeckInput {
         ticker: "AAPL".into(),
         company: "Apple Inc.".into(),
         currency: "USD".into(),
-        periods: vec!["2022".into(), "2023".into(), "2024".into(), "2025E".into(), "2026E".into()],
+        periods: vec![
+            "2022".into(),
+            "2023".into(),
+            "2024".into(),
+            "2025E".into(),
+            "2026E".into(),
+        ],
         revenue: vec![300.0, 320.0, 383.0, 400.0, 420.0],
         ebitda: vec![100.0, 110.0, 120.0, 130.0, 140.0],
         hist_n: 3,
@@ -68,11 +76,23 @@ fn model_deck_has_expected_slides_and_text() {
     assert_eq!(got.get("slideCount").and_then(|c| c.as_i64()), Some(5));
     let texts = all_text(&got);
     let joined = texts.join("\n");
-    assert!(joined.contains("AAPL — Financial model summary"), "cover title missing:\n{joined}");
-    assert!(joined.contains("Implied price"), "scorecard tile metric missing");
-    assert!(texts.iter().any(|t| t.contains("Apple Inc.")), "company subtitle missing");
+    assert!(
+        joined.contains("AAPL — Financial model summary"),
+        "cover title missing:\n{joined}"
+    );
+    assert!(
+        joined.contains("Implied price"),
+        "scorecard tile metric missing"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("Apple Inc.")),
+        "company subtitle missing"
+    );
     assert!(texts.iter().any(|t| t == "MSFT"), "comps peer cell missing");
-    assert!(texts.iter().any(|t| t == "22.0x"), "comps multiple cell missing");
+    assert!(
+        texts.iter().any(|t| t == "22.0x"),
+        "comps multiple cell missing"
+    );
 }
 
 #[test]
@@ -93,7 +113,8 @@ fn benchmark_deck_cover_table_and_margin_chart() {
         vec!["AAPL".into(), "383".into(), "32.1%".into()],
         vec!["MSFT".into(), "245".into(), "48.5%".into()],
     ];
-    let deck = write_benchmark_deck("Tech peer benchmark", &headers, &rows, PINNED_DATE).expect("bench deck");
+    let deck = write_benchmark_deck("Tech peer benchmark", &headers, &rows, PINNED_DATE)
+        .expect("bench deck");
     let got = inspect_saved("bench", deck);
     // cover + table + EBITDA-margin chart = 3
     assert_eq!(got.get("slideCount").and_then(|c| c.as_i64()), Some(3));
@@ -107,7 +128,14 @@ fn benchmark_deck_cover_table_and_margin_chart() {
 
 #[test]
 fn add_table_rejects_oversized_grids() {
-    let mut deck = PptxDeckWriter::new(&fm_pptx::writer::deck::BrandProfile::default(), "CONFIDENTIAL", PINNED_DATE);
+    let mut deck = PptxDeckWriter::new(
+        &fm_pptx::writer::deck::BrandProfile::default(),
+        "CONFIDENTIAL",
+        PINNED_DATE,
+    );
     let headers: Vec<String> = (0..9).map(|i| format!("C{i}")).collect();
-    assert!(deck.add_table("Too many columns here now", &headers, &[], "src").is_err());
+    assert!(
+        deck.add_table("Too many columns here now", &headers, &[], "src")
+            .is_err()
+    );
 }

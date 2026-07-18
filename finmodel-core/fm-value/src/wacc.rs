@@ -83,7 +83,10 @@ pub fn compute_wacc(
     let (equity_weight, debt_weight) = if total_capital <= 0.0 {
         (1.0, 0.0)
     } else {
-        (target_market_cap / total_capital, target_debt / total_capital)
+        (
+            target_market_cap / total_capital,
+            target_debt / total_capital,
+        )
     };
     let raw_wacc = equity_weight * ke + debt_weight * after_tax_kd;
     let wacc = raw_wacc.clamp(0.05, 0.30);

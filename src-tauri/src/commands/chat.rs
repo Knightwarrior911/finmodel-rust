@@ -13,11 +13,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 
+use crate::agent::executors::{SessionContext, ToolBackend};
 use crate::commands::mcp::McpManager;
 use crate::commands::settings::read_settings;
 use crate::error::{AppError, AppResult};
-use crate::agent::executors::{SessionContext, ToolBackend};
-
 
 /// Cap retained provider/error text before UI/persistence (roadmap: 8 KiB).
 const MAX_ERROR_CHARS: usize = 8 * 1024;
@@ -199,7 +198,11 @@ pub async fn delete_conversation(app: tauri::AppHandle, id: String) -> AppResult
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn rename_conversation(app: tauri::AppHandle, id: String, title: String) -> AppResult<String> {
+pub async fn rename_conversation(
+    app: tauri::AppHandle,
+    id: String,
+    title: String,
+) -> AppResult<String> {
     let store = app
         .try_state::<crate::store::AppStore>()
         .ok_or_else(|| AppError::Config("store unavailable".into()))?;
@@ -596,7 +599,13 @@ async fn openrouter_stream_async(
                         continue;
                     }
                     if let Some(chunk) = apply_delta(&mut content, &mut calls, &mut meta, payload) {
-                        emit_chat(app, "chat_delta", conv_id, run_id, json!({ "text": chunk }));
+                        emit_agent_ephemeral(
+                            app,
+                            conv_id,
+                            run_id,
+                            fm_agent::types::EventKind::AssistantTextDelta,
+                            json!({ "text": chunk }),
+                        );
                     }
                 }
             }
@@ -676,9 +685,11 @@ pub(crate) async fn stream_completion_for_agent(
         } => Ok(legacy_to_accumulator(content, tool_calls, meta)),
         // Cancelled is user-initiated, so its partial content is kept intentionally.
         // Mid-stream failures arrive as Failed below and surface as Err.
-        StreamOutcome::Cancelled { content } => {
-            Ok(legacy_to_accumulator(content, Vec::new(), TurnMeta::default()))
-        }
+        StreamOutcome::Cancelled { content } => Ok(legacy_to_accumulator(
+            content,
+            Vec::new(),
+            TurnMeta::default(),
+        )),
         StreamOutcome::ToolsUnsupported => Err("tools_unsupported".into()),
         StreamOutcome::Failed(e) => Err(e),
     }
@@ -688,217 +699,12 @@ pub(crate) async fn stream_completion_for_agent(
 pub(crate) fn seed_agent_messages(user_text: &str) -> Vec<Value> {
     let today = &iso_now()[..10];
     let system = format!(
-        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory."
+        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory.\n\nNever compute material percentages, growth rates, ratios, or multiples in prose — call a deterministic tool (get_financials, benchmark_peers, build_model) and cite its source. The structured tool result, not your own arithmetic, is the authority for every material number."
     );
     vec![
         json!({ "role": "system", "content": system }),
         json!({ "role": "user", "content": user_text }),
     ]
-}
-
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ToolName {
-    BuildModel,
-    BenchmarkPeers,
-    WebSearch,
-    ReadPage,
-    GetNews,
-    ResearchDeal,
-    GetQuote,
-    ListFilings,
-    ReadFiling,
-    AnalyzePdf,
-    Research,
-    GetFinancials,
-    UseSkill,
-}
-
-impl ToolName {
-    pub(crate) fn from_str(s: &str) -> Option<Self> {
-        Some(match s {
-            "build_model" => ToolName::BuildModel,
-            "benchmark_peers" => ToolName::BenchmarkPeers,
-            "web_search" => ToolName::WebSearch,
-            "read_page" => ToolName::ReadPage,
-            "get_news" => ToolName::GetNews,
-            "research_deal" => ToolName::ResearchDeal,
-            "get_quote" => ToolName::GetQuote,
-            "get_financials" => ToolName::GetFinancials,
-            "list_filings" => ToolName::ListFilings,
-            "read_filing" => ToolName::ReadFiling,
-            "analyze_pdf" => ToolName::AnalyzePdf,
-            "research" => ToolName::Research,
-            "use_skill" => ToolName::UseSkill,
-            _ => return None,
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Typed intent router + argument registry (Phase 1.1 / 1.2)
-// ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/// OpenAI function-tool schemas exposed to the LLM.
-pub(crate) fn tool_schemas() -> Vec<Value> {
-    fn f(name: &str, description: &str, params: Value) -> Value {
-        json!({ "type": "function", "function": { "name": name, "description": description, "parameters": params } })
-    }
-    vec![
-        f(
-            "build_model",
-            "Build a 3-statement + DCF Excel model for a ticker from SEC EDGAR. By default it presents an editable assumptions grid to the user; the user finalizes it manually. Set skip_review=true to build immediately without review.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "ticker": { "type": "string", "description": "Ticker, e.g. AAPL or SAND.ST" },
-                    "period": { "type": "string", "enum": ["annual", "quarter", "semi", "ltm"] },
-                    "years": { "type": "integer", "description": "Projection years (1-10)" },
-                    "skip_review": { "type": "boolean", "description": "Build immediately, skipping the assumptions grid" },
-                    "peers": { "type": "array", "items": { "type": "string" }, "description": "Optional peer tickers for a trading-comps tab" },
-                    "case": { "type": "string", "enum": ["base", "upside", "downside"], "description": "Scenario case (default base)" }
-                },
-                "required": ["ticker"]
-            }),
-        ),
-        f(
-            "benchmark_peers",
-            "Benchmark a set of peer tickers (revenue, margins, ROE, leverage) into a comparison workbook.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "tickers": { "type": "array", "items": { "type": "string" }, "description": "Peer tickers" },
-                    "period": { "type": "string", "enum": ["annual", "quarter", "semi", "ltm"] },
-                    "multiples": { "type": "boolean" },
-                    "usd": { "type": "boolean" }
-                },
-                "required": ["tickers"]
-            }),
-        ),
-        f(
-            "get_news",
-            "Fetch recent news headlines for a ticker or query.",
-            json!({
-                "type": "object",
-                "properties": { "query": { "type": "string" }, "limit": { "type": "integer" } },
-                "required": ["query"]
-            }),
-        ),
-        f(
-            "get_quote",
-            "Fetch the latest share price quote for a ticker.",
-            json!({ "type": "object", "properties": { "ticker": { "type": "string" } }, "required": ["ticker"] }),
-        ),
-        f(
-            "get_financials",
-            "Get a company's EXACT reported annual financials (revenue/sales, gross profit, operating income, net income, diluted EPS) straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "ticker": { "type": "string", "description": "US-listed ticker, e.g. TSLA" },
-                    "year": { "type": "integer", "description": "Fiscal year, e.g. 2025 (default: latest reported)" }
-                },
-                "required": ["ticker"]
-            }),
-        ),
-        f(
-            "list_filings",
-            "List recent SEC EDGAR filings for a US ticker.",
-            json!({
-                "type": "object",
-                "properties": { "ticker": { "type": "string" }, "form": { "type": "string", "description": "e.g. 10-K, 10-Q, 8-K" } },
-                "required": ["ticker"]
-            }),
-        ),
-        f(
-            "read_filing",
-            "Read the narrative text of a company's latest SEC filing (10-K/10-Q): risk factors (item 1A), MD&A (item 7), business description (item 1). For a SPECIFIC reported figure — revenue/sales, net income, EPS, margins — prefer `research` (cited) or `build_model`; do not scrape numbers out of narrative items. Never use web_search for filing content.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "ticker": { "type": "string" },
-                    "form": { "type": "string", "description": "e.g. 10-K, 10-Q (default 10-K)" },
-                    "item": { "type": "string", "description": "Item id, e.g. 1A (risk factors), 7 (MD&A)" }
-                },
-                "required": ["ticker"]
-            }),
-        ),
-        f(
-            "analyze_pdf",
-            "Analyze a local annual-report PDF (registered via the file picker) into a 3-statement + DCF model. Requires an OpenRouter API key and a picker-minted artifact_id — never a raw filesystem path.",
-            json!({
-                "type": "object", "additionalProperties": false,
-                "properties": {
-                    "artifact_id": { "type": "string", "description": "Opaque handle from pick_pdf_artifact" },
-                    "label": { "type": "string", "description": "Company/ticker label for the workbook" }
-                },
-                "required": ["artifact_id"]
-            }),
-        ),
-    ]
-}
-
-/// Model-callable schemas for the unified agent loop: the native tool set plus
-/// the research/web tools the legacy native loop deliberately withheld
-/// (`research` wraps the search→read→synthesize pipeline; the keyed agent path
-/// selects it via tool-calling rather than `route_intent`).
-pub(crate) fn agent_tool_schemas() -> Vec<Value> {
-    fn f(name: &str, description: &str, params: Value) -> Value {
-        json!({ "type": "function", "function": { "name": name, "description": description, "parameters": params } })
-    }
-    let mut v = tool_schemas();
-    v.push(f(
-        "research",
-        "Research a question with web search + page/filing reading + cited synthesis. Use for current, factual, entity, or numeric questions that need up-to-date primary-source evidence (e.g. revenue growth, market trends, guidance). Returns a cited answer.",
-        json!({
-            "type": "object",
-            "properties": { "query": { "type": "string", "description": "The research question, in full." } },
-            "required": ["query"]
-        }),
-    ));
-    v.push(f(
-        "web_search",
-        "Search the web and return ranked results with canonical URL, source, and date. Prefer `research` for a full cited answer; use this for a quick link lookup.",
-        json!({
-            "type": "object",
-            "properties": { "query": { "type": "string" } },
-            "required": ["query"]
-        }),
-    ));
-    v.push(f(
-        "read_page",
-        "Fetch and read the readable text of a public web page by URL (HTTP(S) only; SSRF-guarded).",
-        json!({
-            "type": "object",
-            "properties": { "url": { "type": "string" } },
-            "required": ["url"]
-        }),
-    ));
-    v.push(f(
-        "use_skill",
-        "Load a named skill's full step-by-step instructions from the user's skill library (see the Skills catalog in the system prompt), then follow them. Call this when the request matches a listed skill.",
-        json!({
-            "type": "object",
-            "properties": { "name": { "type": "string", "description": "The skill name from the catalog." } },
-            "required": ["name"]
-        }),
-    ));
-    v
 }
 
 /// Truncate a string to `max` chars for the LLM tool result.
@@ -917,25 +723,26 @@ fn truncate(s: &str, max: usize) -> String {
 /// `conversation_id` is a trusted app value used only for artifact ownership.
 pub(crate) fn run_tool(
     app: &tauri::AppHandle,
-    tool: ToolName,
+    name: &str,
     args: &Value,
     user_msg: &str,
     conversation_id: &str,
 ) -> Result<(String, Value), String> {
-    match tool {
-        ToolName::BuildModel => tool_build_model(app, args),
-        ToolName::BenchmarkPeers => tool_benchmark(app, args),
-        ToolName::WebSearch => tool_web_search(app, args),
-        ToolName::ReadPage => tool_read_page(app, args),
-        ToolName::GetNews => tool_get_news(args),
-        ToolName::ResearchDeal => tool_research_deal(app, args),
-        ToolName::GetQuote => tool_get_quote(args),
-        ToolName::GetFinancials => tool_get_financials(args),
-        ToolName::ListFilings => tool_list_filings(args),
-        ToolName::ReadFiling => tool_read_filing(app, args),
-        ToolName::AnalyzePdf => tool_analyze_pdf(app, args, conversation_id),
-        ToolName::Research => tool_research(app, args, user_msg),
-        ToolName::UseSkill => tool_use_skill(app, args),
+    match name {
+        "build_model" => tool_build_model(app, args),
+        "benchmark_peers" => tool_benchmark(app, args),
+        "web_search" => tool_web_search(app, args),
+        "read_page" => tool_read_page(app, args),
+        "get_news" => tool_get_news(args),
+        "research_deal" => tool_research_deal(app, args),
+        "get_quote" => tool_get_quote(args),
+        "get_financials" => tool_get_financials(args),
+        "list_filings" => tool_list_filings(args),
+        "read_filing" => tool_read_filing(app, args),
+        "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
+        "research" => tool_research(app, args, user_msg),
+        "use_skill" => tool_use_skill(app, args),
+        other => Err(format!("unknown tool: {other}")),
     }
 }
 
@@ -945,14 +752,21 @@ pub(crate) fn run_tool(
 /// result card (display is null) since the payload is instructions, not data.
 fn tool_use_skill(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
     use tauri::Manager;
-    let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if name.is_empty() {
         return Err("use_skill requires a `name`".into());
     }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let skill = crate::agent::skills::get_skill(&dir, name)
         .ok_or_else(|| format!("skill `{name}` not found"))?;
-    let summary = format!("Skill `{}` — {}\n\n{}", skill.name, skill.description, skill.body);
+    let summary = format!(
+        "Skill `{}` — {}\n\n{}",
+        skill.name, skill.description, skill.body
+    );
     Ok((summary, Value::Null))
 }
 
@@ -968,8 +782,7 @@ impl ToolBackend for ChatToolBackend<'_> {
         args: &Value,
         ctx: &SessionContext,
     ) -> Result<(String, Value), String> {
-        let tool = ToolName::from_str(name).ok_or_else(|| format!("unknown tool: {name}"))?;
-        run_tool(self.app, tool, args, &ctx.user_msg, &ctx.conversation_id)
+        run_tool(self.app, name, args, &ctx.user_msg, &ctx.conversation_id)
     }
 }
 
@@ -1356,6 +1169,27 @@ fn tool_get_quote(args: &Value) -> Result<(String, Value), String> {
     Ok((text, card))
 }
 
+/// Label the fiscal year a set of annual figures covers. Company-facts tags a
+/// datapoint with the *reporting* filing's fiscal year, so a comparative figure
+/// (e.g. FY2024 shown inside a later 10-K) carries the later `fy` and would
+/// mislabel the card and its verified `claim_key`. Trust the issuer's `fy` only
+/// when it agrees with the period-end year (±1, to honour off-calendar fiscal
+/// names like a January-ending year labelled by the prior year); otherwise fall
+/// back to the period-end year, which is authoritative for the period covered.
+fn fiscal_year_label(fy: i64, period_end: &str) -> String {
+    let pe_year: i64 = period_end
+        .get(0..4)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if fy > 0 && pe_year > 0 && (fy - pe_year).abs() <= 1 {
+        fy.to_string()
+    } else if pe_year > 0 {
+        pe_year.to_string()
+    } else {
+        period_end.get(0..4).unwrap_or("").to_string()
+    }
+}
+
 /// Fetch exact reported financials for a ticker straight from SEC EDGAR XBRL
 /// company facts — the deterministic, citable source for a reported figure
 /// (revenue/net income/EPS), instead of scraping narrative filing prose.
@@ -1377,9 +1211,18 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     // First candidate tag with an annual (10-K, fp=FY) value: the requested
     // fiscal year, else the latest; latest filing wins for a period (restatement).
     let pick = |tags: &[&str], unit: &str| -> Option<(f64, i64, String, String)> {
-        let endof = |v: &Value| v.get("end").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let filedof =
-            |v: &Value| v.get("filed").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let endof = |v: &Value| {
+            v.get("end")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+        let filedof = |v: &Value| {
+            v.get("filed")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
         for &tag in tags {
             let Some(vals) = us.get(tag).and_then(|e| e["units"][unit].as_array()) else {
                 continue;
@@ -1397,7 +1240,11 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
             if ann.is_empty() {
                 continue;
             }
-            ann.sort_by(|a, b| endof(a).cmp(&endof(b)).then_with(|| filedof(a).cmp(&filedof(b))));
+            ann.sort_by(|a, b| {
+                endof(a)
+                    .cmp(&endof(b))
+                    .then_with(|| filedof(a).cmp(&filedof(b)))
+            });
             let chosen = match want_year {
                 Some(y) => ann
                     .iter()
@@ -1445,7 +1292,11 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
             ],
             "USD",
         ),
-        ("Cost of revenue", &["CostOfRevenue", "CostOfGoodsAndServicesSold"], "USD"),
+        (
+            "Cost of revenue",
+            &["CostOfRevenue", "CostOfGoodsAndServicesSold"],
+            "USD",
+        ),
         ("Gross profit", &["GrossProfit"], "USD"),
         ("Operating income", &["OperatingIncomeLoss"], "USD"),
         ("Net income", &["NetIncomeLoss", "ProfitLoss"], "USD"),
@@ -1479,11 +1330,7 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
             want_year.map(|y| format!(" FY{y}")).unwrap_or_default()
         ));
     }
-    let fy_label = if fy > 0 {
-        fy.to_string()
-    } else {
-        period_end.get(0..4).unwrap_or("").to_string()
-    };
+    let fy_label = fiscal_year_label(fy, &period_end);
     let header = format!(
         "{} ({}) — FY{} (period ended {}, per 10-K filed {}):",
         entity, ticker, fy_label, period_end, filed
@@ -1692,17 +1539,51 @@ fn emit_chat(app: &tauri::AppHandle, event: &str, conv_id: &str, run_id: &str, m
     emit(app, event, payload);
 }
 
-
+/// Emit an ephemeral event on the single `agent_event` channel (Task 2.1). Used
+/// for the streaming text delta so the UI consumes ONE channel; ephemeral events
+/// carry no sequence and never determine terminal state.
+fn emit_agent_ephemeral(
+    app: &tauri::AppHandle,
+    conv_id: &str,
+    run_id: &str,
+    kind: fm_agent::types::EventKind,
+    payload: Value,
+) {
+    let mut b = [0u8; 16];
+    rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+    let env = crate::agent::events::AgentEventEnvelope::ephemeral(
+        fm_agent::ids::format_uuid_v4(b),
+        conv_id.to_string(),
+        run_id.to_string(),
+        kind,
+        payload,
+        crate::store::now_iso(),
+    );
+    let _ = app.emit(crate::agent::events::CHANNEL, &env);
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn fiscal_year_label_prefers_period_over_stale_reporting_fy() {
+        // A comparative figure carries the *reporting* filing's fy (2026) but its
+        // period ended 2024-01-28 → label by the period year, not the stale fy.
+        assert_eq!(fiscal_year_label(2026, "2024-01-28"), "2024");
+        // Issuer fy that agrees with the period (±1) is trusted, honouring an
+        // off-calendar January-ending year labelled by the prior year.
+        assert_eq!(fiscal_year_label(2023, "2024-01-28"), "2023");
+        assert_eq!(fiscal_year_label(2024, "2024-12-31"), "2024");
+        // Missing/zero fy falls back to the period-end year.
+        assert_eq!(fiscal_year_label(0, "2025-06-30"), "2025");
+        assert_eq!(fiscal_year_label(0, ""), "");
+    }
+
+    #[test]
     #[ignore] // live: hits SEC EDGAR XBRL
     fn get_financials_tsla_fy2025_revenue_live() {
-        let (text, card) =
-            tool_get_financials(&json!({ "ticker": "TSLA", "year": 2025 })).unwrap();
+        let (text, card) = tool_get_financials(&json!({ "ticker": "TSLA", "year": 2025 })).unwrap();
         eprintln!("{text}");
         assert!(text.contains("Revenue"), "must report a revenue line");
         let rev = card["rows"]

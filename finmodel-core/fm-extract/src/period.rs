@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::ltm::{self, days_to_iso, facts_for, latest_instant, Fact, LtmData};
+use crate::ltm::{self, Fact, LtmData, days_to_iso, facts_for, latest_instant};
 
 /// Which reporting period the metrics reflect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -88,7 +88,9 @@ fn year_parts(end: i64) -> (i32, String) {
 fn extract_discrete(facts: &Value, currency: &str, kind: DiscreteKind) -> Option<PeriodData> {
     let (gaap, tm, _tax) = crate::xbrl::select_taxonomy(facts)?;
     let flow = |key: &str| -> Option<(f64, i64)> {
-        let fv = tm.get(key).and_then(|tags| facts_for(gaap, tags, currency))?;
+        let fv = tm
+            .get(key)
+            .and_then(|tags| facts_for(gaap, tags, currency))?;
         match kind {
             DiscreteKind::Annual => annual_flow(&fv),
             DiscreteKind::Quarter => discrete_flow(&fv, 1),
@@ -96,7 +98,8 @@ fn extract_discrete(facts: &Value, currency: &str, kind: DiscreteKind) -> Option
         }
     };
     let inst = |key: &str| -> Option<(f64, i64)> {
-        tm.get(key).and_then(|tags| latest_instant(gaap, tags, currency))
+        tm.get(key)
+            .and_then(|tags| latest_instant(gaap, tags, currency))
     };
 
     let rev = flow("revenue")?;
@@ -130,7 +133,8 @@ fn extract_discrete(facts: &Value, currency: &str, kind: DiscreteKind) -> Option
     set(&mut d.buybacks, flow("buybacks"));
 
     let inst_guard = |v: Option<(f64, i64)>| -> Option<f64> {
-        v.filter(|(_, end)| *end >= anchor - STALE).map(|(val, _)| val)
+        v.filter(|(_, end)| *end >= anchor - STALE)
+            .map(|(val, _)| val)
     };
     d.cash = inst_guard(inst("cash"));
     d.long_term_debt = inst_guard(inst("long_term_debt"));
@@ -168,7 +172,11 @@ fn extract_discrete(facts: &Value, currency: &str, kind: DiscreteKind) -> Option
 
 /// Calendar quarter of a `YYYY-MM-DD` end date (ceil(month/3)).
 fn quarter_from_end(iso: &str) -> u32 {
-    let m: u32 = iso.splitn(3, '-').nth(1).and_then(|s| s.parse().ok()).unwrap_or(12);
+    let m: u32 = iso
+        .splitn(3, '-')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(12);
     ((m + 2) / 3).clamp(1, 4)
 }
 
@@ -193,7 +201,11 @@ fn discrete_flow(fv: &[Fact], n_quarters: i64) -> Option<(f64, i64)> {
     // Interim (sub-annual durational) facts, any form (10-Q, 6-K half-years, …).
     let interim: Vec<&Fact> = fv
         .iter()
-        .filter(|f| f.start.map(|s| (10..320).contains(&(f.end - s))).unwrap_or(false))
+        .filter(|f| {
+            f.start
+                .map(|s| (10..320).contains(&(f.end - s)))
+                .unwrap_or(false)
+        })
         .collect();
     let latest_end = interim.iter().map(|f| f.end).max()?;
     // A native discrete fact of the wanted length ENDING at the latest interim
@@ -279,7 +291,7 @@ mod tests {
         let facts = facts_json(&[(
             REV,
             &[
-                ("2025-01-01", "2025-03-31", 90.0, "10-Q"),  // Q1 YTD (3mo)
+                ("2025-01-01", "2025-03-31", 90.0, "10-Q"), // Q1 YTD (3mo)
                 ("2025-01-01", "2025-06-30", 190.0, "10-Q"), // H1 YTD (6mo)
                 ("2025-01-01", "2025-09-30", 300.0, "10-Q"), // 9mo YTD
             ],

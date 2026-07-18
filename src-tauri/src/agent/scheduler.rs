@@ -5,6 +5,9 @@
 //! writes and dependents run in order.
 
 use fm_agent::types::Risk;
+use std::future::Future;
+
+use crate::store::StoreHandle;
 
 /// One accepted call awaiting scheduling.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,6 +99,69 @@ pub fn plan_batches(calls: &[PlannedCall]) -> Vec<Vec<String>> {
     batches
 }
 
+/// The result of running the due-schedule sweep once (Task 8.3).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScheduleSweep {
+    /// Schedules whose follow-up succeeded (finalized `done`).
+    pub done: Vec<String>,
+    /// Schedules whose follow-up failed but will retry (returned to `pending`).
+    pub retried: Vec<String>,
+    /// Schedules that failed terminally (reached `max_attempts`).
+    pub failed: Vec<String>,
+}
+
+/// Claim and run every schedule due at `now`, exactly once each (Task 8.3). For
+/// each claimed schedule, `run(id)` executes the follow-up; success finalizes it
+/// `done`, failure bumps `attempts` and either retries (back to `pending` with a
+/// backed-off `retry_next_due`, which MUST be strictly after `now` so it is not
+/// re-claimed in this sweep) or fails terminally after `max_attempts`. The claim
+/// is transactional (8.1), so concurrent workers never double-run a schedule.
+/// Store + injected `run`, so it is testable without a live actor.
+pub async fn run_due_schedules<R, Fut>(
+    store: &StoreHandle,
+    now: &str,
+    owner: &str,
+    max_attempts: i64,
+    retry_next_due: &str,
+    mut run: R,
+) -> ScheduleSweep
+where
+    R: FnMut(String) -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let mut sweep = ScheduleSweep::default();
+    loop {
+        let (n, o) = (now.to_string(), owner.to_string());
+        let claimed = store
+            .call(move |db| db.claim_due_schedule(&n, &o).unwrap_or(None))
+            .await;
+        let Some(id) = claimed else { break };
+        if run(id.clone()).await {
+            let (id2, n2) = (id.clone(), now.to_string());
+            store
+                .call(move |db| {
+                    let _ = db.finish_schedule(&id2, "succeeded", &n2);
+                })
+                .await;
+            sweep.done.push(id);
+        } else {
+            let (id2, rd) = (id.clone(), retry_next_due.to_string());
+            let (_, terminal) = store
+                .call(move |db| {
+                    db.fail_schedule_attempt(&id2, max_attempts, &rd)
+                        .unwrap_or((0, true))
+                })
+                .await;
+            if terminal {
+                sweep.failed.push(id);
+            } else {
+                sweep.retried.push(id);
+            }
+        }
+    }
+    sweep
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,7 +194,10 @@ mod tests {
             PlannedCall::write("w2", Risk::LocalDelete),
         ];
         let batches = plan_batches(&calls);
-        assert_eq!(batches, vec![vec!["w1".to_string()], vec!["w2".to_string()]]);
+        assert_eq!(
+            batches,
+            vec![vec!["w1".to_string()], vec!["w2".to_string()]]
+        );
     }
 
     #[test]
@@ -141,7 +210,10 @@ mod tests {
         ];
         let batches = plan_batches(&calls);
         // Wave 1: a + c (both ready reads). Wave 2: b.
-        assert_eq!(batches, vec![vec!["a".to_string(), "c".into()], vec!["b".into()]]);
+        assert_eq!(
+            batches,
+            vec![vec!["a".to_string(), "c".into()], vec!["b".into()]]
+        );
     }
 
     #[test]
@@ -152,7 +224,10 @@ mod tests {
             PlannedCall::write("new", Risk::LocalCreate),
         ];
         let batches = plan_batches(&calls);
-        assert_eq!(batches, vec![vec!["r".to_string()], vec!["new".to_string()]]);
+        assert_eq!(
+            batches,
+            vec![vec!["r".to_string()], vec!["new".to_string()]]
+        );
     }
 
     #[test]

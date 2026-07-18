@@ -6,9 +6,9 @@
 //! URIs resolved, then query by `(namespace-uri, local-name)` exactly as the
 //! reference code does with `_q(ns, tag)`.
 
+use quick_xml::NsReader;
 use quick_xml::events::Event;
 use quick_xml::name::ResolveResult;
-use quick_xml::NsReader;
 
 /// DrawingML main namespace (`a:`).
 pub const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -69,7 +69,10 @@ impl Element {
                     }
                 }
                 Event::Text(t) => {
-                    let txt = t.unescape().map_err(|e| format!("text unescape: {e}"))?.into_owned();
+                    let txt = t
+                        .unescape()
+                        .map_err(|e| format!("text unescape: {e}"))?
+                        .into_owned();
                     if let Some(top) = stack.last_mut() {
                         top.text.push_str(&txt);
                     }
@@ -168,7 +171,9 @@ impl Element {
         out.push('<');
         out.push_str(&qname(self.ns.as_deref(), &self.local));
         let mut attrs: Vec<&Attr> = self.attrs.iter().collect();
-        attrs.sort_by(|a, b| (a.ns.as_deref(), a.local.as_str()).cmp(&(b.ns.as_deref(), b.local.as_str())));
+        attrs.sort_by(|a, b| {
+            (a.ns.as_deref(), a.local.as_str()).cmp(&(b.ns.as_deref(), b.local.as_str()))
+        });
         for a in attrs {
             out.push(' ');
             out.push_str(&qname(a.ns.as_deref(), &a.local));
@@ -211,10 +216,9 @@ impl Element {
     fn collect_ns(&self, root_ns: &Option<String>, out: &mut Vec<(String, String)>) {
         let consider = |ns: &Option<String>, out: &mut Vec<(String, String)>| {
             if let Some(uri) = ns {
-                if root_ns.as_deref() != Some(uri.as_str())
-                    && !out.iter().any(|(u, _)| u == uri)
-                {
-                    let pfx = conventional_prefix(uri).unwrap_or_else(|| format!("ns{}", out.len()));
+                if root_ns.as_deref() != Some(uri.as_str()) && !out.iter().any(|(u, _)| u == uri) {
+                    let pfx =
+                        conventional_prefix(uri).unwrap_or_else(|| format!("ns{}", out.len()));
                     out.push((uri.clone(), pfx));
                 }
             }
@@ -267,15 +271,17 @@ impl Element {
 }
 
 fn conventional_prefix(uri: &str) -> Option<String> {
-    Some(match uri {
-        A => "a",
-        P => "p",
-        R => "r",
-        CT => "ct",
-        PR => "pr",
-        _ => return None,
-    }
-    .to_string())
+    Some(
+        match uri {
+            A => "a",
+            P => "p",
+            R => "r",
+            CT => "ct",
+            PR => "pr",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 fn prefixed(
@@ -306,7 +312,9 @@ fn escape_attr(s: &str) -> String {
 }
 
 fn escape_text(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn qname(ns: Option<&str>, local: &str) -> String {

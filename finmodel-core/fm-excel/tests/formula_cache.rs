@@ -4,7 +4,7 @@
 //! `Formula::set_result`, so offline opens show a number before recalculation.
 //! Not part of the snapshot gate (openpyxl data_only=False only sees formulas).
 
-use calamine::{open_workbook_auto, Data, Reader};
+use calamine::{Data, Reader, open_workbook_auto};
 use fm_excel::model::{Sheet, Workbook};
 use fm_excel::render::render;
 use std::path::PathBuf;
@@ -30,9 +30,7 @@ fn formula_cached_result_lands_in_xlsx() {
     let mut archive = zip::ZipArchive::new(cursor).expect("zip");
     let mut sheet_xml = String::new();
     {
-        let mut f = archive
-            .by_name("xl/worksheets/sheet1.xml")
-            .expect("sheet1");
+        let mut f = archive.by_name("xl/worksheets/sheet1.xml").expect("sheet1");
         use std::io::Read;
         f.read_to_string(&mut sheet_xml).unwrap();
     }

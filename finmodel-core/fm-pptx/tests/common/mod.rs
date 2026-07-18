@@ -5,7 +5,10 @@ use serde_json::Value;
 
 /// Repo `tieout/excel_snapshots` directory.
 pub fn snap_dir() -> String {
-    format!("{}/../../tieout/excel_snapshots", env!("CARGO_MANIFEST_DIR"))
+    format!(
+        "{}/../../tieout/excel_snapshots",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 /// Repo `tests/fixtures/pptx` directory.
@@ -66,7 +69,10 @@ fn walk(got: &Value, want: &Value, path: &str, ignore: &[&str], out: &mut Vec<St
             }
         }
         (Value::Number(g), Value::Number(w)) => {
-            let (gf, wf) = (g.as_f64().unwrap_or(f64::NAN), w.as_f64().unwrap_or(f64::NAN));
+            let (gf, wf) = (
+                g.as_f64().unwrap_or(f64::NAN),
+                w.as_f64().unwrap_or(f64::NAN),
+            );
             if (gf - wf).abs() > 1e-3 {
                 out.push(format!("{path}: number {gf} != {wf}"));
             }

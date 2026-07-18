@@ -18,7 +18,10 @@ fn snap_path(name: &str) -> String {
 fn nonzero(mo: &serde_json::Value, key: &str) -> bool {
     mo["income_statement"][key]
         .as_array()
-        .map(|a| a.iter().any(|v| v.as_f64().map(|n| n != 0.0).unwrap_or(false)))
+        .map(|a| {
+            a.iter()
+                .any(|v| v.as_f64().map(|n| n != 0.0).unwrap_or(false))
+        })
         .unwrap_or(false)
 }
 
@@ -27,12 +30,23 @@ fn dump_sand_full_xlsx() {
     let snap = load_snapshot(&snap_path("SAND_ST")).expect("snapshot");
     let mut input = workbook_input_from_snapshot(&snap).expect("input");
     let mo = &snap["model_output"];
-    input.is_structure =
-        build_is_structure("standard", nonzero(mo, "cogs"), nonzero(mo, "rd"), nonzero(mo, "sga"));
+    input.is_structure = build_is_structure(
+        "standard",
+        nonzero(mo, "cogs"),
+        nonzero(mo, "rd"),
+        nonzero(mo, "sga"),
+    );
     let wb = build_workbook(&input);
 
-    let out = format!("{}/../../tests/snapshots/SAND_ST_rust.xlsx", env!("CARGO_MANIFEST_DIR"));
-    std::fs::create_dir_all(format!("{}/../../tests/snapshots", env!("CARGO_MANIFEST_DIR"))).ok();
+    let out = format!(
+        "{}/../../tests/snapshots/SAND_ST_rust.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::create_dir_all(format!(
+        "{}/../../tests/snapshots",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .ok();
     render(&wb, &out).expect("render");
     assert!(std::path::Path::new(&out).exists());
 }

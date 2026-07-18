@@ -8,33 +8,40 @@
 //!
 //! Inspect per-cell values: `cargo test -p fm-cli --test parity -- --nocapture`
 
-use std::collections::HashMap;
-use std::path::Path;
 use fm_engine::ModelEngine;
 use fm_types::{CompanyConfig, ProjectedStatements, ReconciledData, StatementData};
-
+use std::collections::HashMap;
+use std::path::Path;
 
 const COMPANIES: &[(&str, &str, &str)] = &[
-    ("ASML_AS",   "ASML.AS",  "EUR"),
-    ("ATCO-B_ST", "ATCO-B.ST","SEK"),
-    ("NESN_SW",   "NESN.SW",  "CHF"),
-    ("NOVO-B_CO", "NOVO-B.CO","DKK"),
-    ("SAND_ST",   "SAND.ST",  "SEK"),
+    ("ASML_AS", "ASML.AS", "EUR"),
+    ("ATCO-B_ST", "ATCO-B.ST", "SEK"),
+    ("NESN_SW", "NESN.SW", "CHF"),
+    ("NOVO-B_CO", "NOVO-B.CO", "DKK"),
+    ("SAND_ST", "SAND.ST", "SEK"),
 ];
 
 fn model_cache_path(name: &str) -> String {
     // Committed fixture (the tie-out modelcache is gitignored) — makes the
     // parity gate runnable on CI / fresh clones, not just locally.
-    format!("{}/tests/fixtures/{}_model.json", env!("CARGO_MANIFEST_DIR"), name)
+    format!(
+        "{}/tests/fixtures/{}_model.json",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
 }
 
 fn snapshot_path(name: &str) -> String {
-    format!("{}/../../tieout/excel_snapshots/{}_snapshot.json", env!("CARGO_MANIFEST_DIR"), name)
+    format!(
+        "{}/../../tieout/excel_snapshots/{}_snapshot.json",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
 }
 
 fn load_json(path: &str) -> serde_json::Value {
-    let text = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
+    let text =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {path}: {e}"));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
 }
 
@@ -56,7 +63,12 @@ fn cache_to_statement_data(cache_obj: &serde_json::Value) -> StatementData {
 
 fn build_reconciled_data(cache: &serde_json::Value, ccy: &str) -> ReconciledData {
     let years = cache["years_found"]
-        .as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     ReconciledData {
         income_statement: cache_to_statement_data(&cache["income_statement"]),
@@ -68,9 +80,10 @@ fn build_reconciled_data(cache: &serde_json::Value, ccy: &str) -> ReconciledData
 }
 
 /// Python model_output stores values as flat arrays indexed by snapshot periods.
-fn parse_python_model_output(mo: &serde_json::Value, periods: &[String])
-    -> HashMap<String, HashMap<String, f64>>
-{
+fn parse_python_model_output(
+    mo: &serde_json::Value,
+    periods: &[String],
+) -> HashMap<String, HashMap<String, f64>> {
     let mut result = HashMap::new();
     for stmt in &["income_statement", "balance_sheet", "cash_flow_statement"] {
         let mut map = HashMap::new();
@@ -79,7 +92,10 @@ fn parse_python_model_output(mo: &serde_json::Value, periods: &[String])
                 if let Some(arr) = val.as_array() {
                     for (i, v) in arr.iter().enumerate() {
                         if let Some(n) = v.as_f64() {
-                            map.insert(format!("{}.{}", key, periods.get(i).unwrap_or(&String::new())), n);
+                            map.insert(
+                                format!("{}.{}", key, periods.get(i).unwrap_or(&String::new())),
+                                n,
+                            );
                         }
                     }
                 }
@@ -96,37 +112,63 @@ fn flatten_projections(ps: &ProjectedStatements) -> HashMap<String, HashMap<Stri
         for (key, vals) in sd {
             for (i, v) in vals.iter().enumerate() {
                 if let Some(val) = v {
-                    map.insert(format!("{}.{}", key, periods.get(i).unwrap_or(&String::new())), *val);
+                    map.insert(
+                        format!("{}.{}", key, periods.get(i).unwrap_or(&String::new())),
+                        *val,
+                    );
                 }
             }
         }
         map
     }
     let mut r = HashMap::new();
-    r.insert("income_statement".into(), flatten(&ps.income_statement, &ps.periods));
-    r.insert("balance_sheet".into(), flatten(&ps.balance_sheet, &ps.periods));
-    r.insert("cash_flow_statement".into(), flatten(&ps.cash_flow, &ps.periods));
+    r.insert(
+        "income_statement".into(),
+        flatten(&ps.income_statement, &ps.periods),
+    );
+    r.insert(
+        "balance_sheet".into(),
+        flatten(&ps.balance_sheet, &ps.periods),
+    );
+    r.insert(
+        "cash_flow_statement".into(),
+        flatten(&ps.cash_flow, &ps.periods),
+    );
     r
 }
 
 /// Try matching a Rust key against Python's keys (which may have E/A suffix).
 fn try_match<'a>(key: &str, py_map: &'a HashMap<String, f64>) -> Option<&'a f64> {
-    if let Some(v) = py_map.get(key) { return Some(v); }
-    if let Some(v) = py_map.get(&format!("{}E", key)) { return Some(v); }
-    if let Some(v) = py_map.get(&format!("{}A", key)) { return Some(v); }
+    if let Some(v) = py_map.get(key) {
+        return Some(v);
+    }
+    if let Some(v) = py_map.get(&format!("{}E", key)) {
+        return Some(v);
+    }
+    if let Some(v) = py_map.get(&format!("{}A", key)) {
+        return Some(v);
+    }
     None
 }
 
 fn run_parity(name: &str, ccy: &str) {
     let cpath = model_cache_path(name);
-    assert!(Path::new(&cpath).exists(), "missing committed parity fixture: {cpath}");
+    assert!(
+        Path::new(&cpath).exists(),
+        "missing committed parity fixture: {cpath}"
+    );
 
     let cache = load_json(&cpath);
     let snapshot = load_json(&snapshot_path(name));
     let reconciled = build_reconciled_data(&cache, ccy);
 
     let snap_periods: Vec<String> = snapshot["periods"]
-        .as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let config = CompanyConfig {
@@ -142,19 +184,33 @@ fn run_parity(name: &str, ccy: &str) {
     let n = 5usize;
 
     let mut assumptions: HashMap<String, Vec<f64>> = HashMap::new();
-    for (k, v) in &scalar { assumptions.insert(k.clone(), vec![*v; n]); }
-    assumptions.entry("revenue_growth".into()).or_insert(vec![0.03; n]);
-    assumptions.entry("gross_margin".into()).or_insert(vec![0.30; n]);
-    assumptions.entry("tax_rate".into()).or_insert(vec![0.21; n]);
+    for (k, v) in &scalar {
+        assumptions.insert(k.clone(), vec![*v; n]);
+    }
+    assumptions
+        .entry("revenue_growth".into())
+        .or_insert(vec![0.03; n]);
+    assumptions
+        .entry("gross_margin".into())
+        .or_insert(vec![0.30; n]);
+    assumptions
+        .entry("tax_rate".into())
+        .or_insert(vec![0.21; n]);
 
     let projected = engine.project(&assumptions);
     let rust_out = flatten_projections(&projected);
-    let mo = snapshot.get("model_output").expect("snapshot has model_output");
+    let mo = snapshot
+        .get("model_output")
+        .expect("snapshot has model_output");
     let py_out = parse_python_model_output(mo, &snap_periods);
 
     let rg = scalar.get("revenue_growth").copied().unwrap_or(0.0);
     let gm = scalar.get("gross_margin").copied().unwrap_or(0.0);
-    println!("  Derived: rev_growth={:.1}%, gross_margin={:.1}%", rg*100.0, gm*100.0);
+    println!(
+        "  Derived: rev_growth={:.1}%, gross_margin={:.1}%",
+        rg * 100.0,
+        gm * 100.0
+    );
 
     let mut grand_compared = 0u32;
     let mut grand_diffs = 0u32;
@@ -169,30 +225,54 @@ fn run_parity(name: &str, ccy: &str) {
             if let Some(pv) = try_match(rkey, py_map) {
                 compared += 1;
                 let diff = (rv - pv).abs();
-                let rel = if pv.abs() > 1e-9 { diff / pv.abs() } else { diff };
+                let rel = if pv.abs() > 1e-9 {
+                    diff / pv.abs()
+                } else {
+                    diff
+                };
                 if rel > 0.15 && diff > 1.0 {
                     val_diffs += 1;
                     if val_diffs <= 20 {
-                        println!("  [{}] {}: Rust={:.1}, Python={:.1} ({:.1}%)",
-                                 stmt, rkey, rv, pv, rel * 100.0);
+                        println!(
+                            "  [{}] {}: Rust={:.1}, Python={:.1} ({:.1}%)",
+                            stmt,
+                            rkey,
+                            rv,
+                            pv,
+                            rel * 100.0
+                        );
                     }
                 }
             }
         }
 
-        assert!(compared > 0,
-                "[{}] Zero keys matched for {} — period label mismatch",
-                name, stmt);
-        println!("  {}: compared={}, >15% diffs={}", stmt, compared, val_diffs);
+        assert!(
+            compared > 0,
+            "[{}] Zero keys matched for {} — period label mismatch",
+            name,
+            stmt
+        );
+        println!(
+            "  {}: compared={}, >15% diffs={}",
+            stmt, compared, val_diffs
+        );
         grand_compared += compared;
         grand_diffs += val_diffs;
     }
 
-    println!("  TOTAL: {} keys compared, {} >15% diff(s)", grand_compared, grand_diffs);
-    println!("  STATUS: {} gap(s) to resolve before parity gate", grand_diffs);
-    assert_eq!(grand_diffs, 0,
-               "{name}: {grand_diffs} projection parity diff(s) vs the Python \
-                reference (see the per-cell lines above)");
+    println!(
+        "  TOTAL: {} keys compared, {} >15% diff(s)",
+        grand_compared, grand_diffs
+    );
+    println!(
+        "  STATUS: {} gap(s) to resolve before parity gate",
+        grand_diffs
+    );
+    assert_eq!(
+        grand_diffs, 0,
+        "{name}: {grand_diffs} projection parity diff(s) vs the Python \
+                reference (see the per-cell lines above)"
+    );
 }
 
 #[test]
@@ -208,5 +288,10 @@ fn parity_atco_snapshot_exists() {
     let snap = load_json(&snapshot_path("ATCO-B_ST"));
     assert!(snap.get("model_output").is_some());
     assert!(snap.get("sheets").is_some());
-    assert!(snap.get("periods").and_then(|p| p.as_array()).map(|a| a.len() > 0).unwrap_or(false));
+    assert!(
+        snap.get("periods")
+            .and_then(|p| p.as_array())
+            .map(|a| a.len() > 0)
+            .unwrap_or(false)
+    );
 }

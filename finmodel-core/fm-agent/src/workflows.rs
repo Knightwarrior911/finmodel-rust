@@ -51,7 +51,10 @@ impl WorkflowSpec {
         for req in self.required_input {
             let present = args.get(*req).map(|v| !v.is_null()).unwrap_or(false);
             if !present {
-                return Err(format!("workflow `{}` missing required input `{}`", self.id, req));
+                return Err(format!(
+                    "workflow `{}` missing required input `{}`",
+                    self.id, req
+                ));
             }
         }
         Ok(())
@@ -64,7 +67,58 @@ impl WorkflowSpec {
 
     /// Whether `required_tools` is a subset of `allowed_tools` (a spec invariant).
     pub fn is_consistent(&self) -> bool {
-        self.required_tools.iter().all(|t| self.allowed_tools.contains(t))
+        self.required_tools
+            .iter()
+            .all(|t| self.allowed_tools.contains(t))
+    }
+
+    /// The initial visible plan: the `plan_template` arrow-chain split into
+    /// stable, ordered steps (`s1..sN`). The orchestrator may refine labels,
+    /// objective, and assumptions, but must not delete or invent these steps —
+    /// authority-changing steps stay fixed (Task 3.2).
+    pub fn initial_plan(&self, objective: &str) -> crate::types::Plan {
+        let steps: Vec<crate::types::PlanStep> = self
+            .plan_template
+            .split('→')
+            .map(|s| s.trim().trim_end_matches('.').trim())
+            .filter(|s| !s.is_empty())
+            .enumerate()
+            .map(|(i, label)| crate::types::PlanStep {
+                id: format!("s{}", i + 1),
+                label: label.to_string(),
+                status: crate::types::PlanStepStatus::Pending,
+            })
+            .collect();
+        let objective: String = if objective.trim().is_empty() {
+            self.label.to_string()
+        } else {
+            objective.trim().chars().take(140).collect()
+        };
+        crate::types::Plan {
+            objective,
+            assumptions: Vec::new(),
+            steps,
+            version: 1,
+        }
+    }
+
+    /// The expected output parts still missing from `produced` (Task 9.1). A
+    /// workflow may not reach success while any expected part is missing — the
+    /// completion gate. Duplicates in `produced` are fine.
+    pub fn missing_parts(
+        &self,
+        produced: &[crate::types::PartKind],
+    ) -> Vec<crate::types::PartKind> {
+        self.expected_parts
+            .iter()
+            .copied()
+            .filter(|want| !produced.contains(want))
+            .collect()
+    }
+
+    /// Whether every expected part has been produced.
+    pub fn is_complete(&self, produced: &[crate::types::PartKind]) -> bool {
+        self.missing_parts(produced).is_empty()
     }
 }
 
@@ -181,6 +235,92 @@ pub fn workflow(id: &str) -> Option<WorkflowSpec> {
     builtin_workflows().into_iter().find(|w| w.id == id)
 }
 
+/// Deterministically select a workflow id from a user message using
+/// high-confidence keyword intents, most specific first. Under-specified or
+/// ambiguous asks return `None` — the run stays on the interactive policy and
+/// proposes a reversible scope rather than committing to a workflow. A typed
+/// low-temperature classifier for the ambiguous middle is a planned refinement.
+pub fn select_workflow(user_msg: &str) -> Option<&'static str> {
+    let m = user_msg.to_lowercase();
+    let has = |ns: &[&str]| ns.iter().any(|n| m.contains(n));
+    if has(&[
+        "pitch",
+        "deck",
+        "board-ready",
+        "board ready",
+        "pitch book",
+        "meeting prep",
+        "board deck",
+    ]) {
+        return Some("pitch_prep");
+    }
+    if has(&[
+        "m&a",
+        "precedent transaction",
+        "precedents",
+        "deal screen",
+        "screen deals",
+        "announced deals",
+        "acquisitions since",
+        "deals since",
+        "deal activity",
+    ]) {
+        return Some("ma_screen");
+    }
+    if has(&[
+        "ev/ebitda",
+        "ev / ebitda",
+        "p/e",
+        "trading comps",
+        "comps",
+        "multiples",
+        "comparable companies",
+    ]) {
+        return Some("trading_comps");
+    }
+    if has(&[
+        "dcf",
+        "3-statement",
+        "three-statement",
+        "3 statement",
+        "discounted cash flow",
+        "base/bull/bear",
+        "bull and bear",
+        "intrinsic value",
+    ]) {
+        return Some("dcf_model");
+    }
+    if has(&[
+        "earnings",
+        "just reported",
+        "beat/miss",
+        "beat or miss",
+        "beat vs miss",
+        "guidance",
+        "quarterly results",
+        "q1 results",
+        "q2 results",
+        "q3 results",
+        "q4 results",
+        "latest quarter",
+    ]) {
+        return Some("earnings_review");
+    }
+    if has(&[
+        "brief",
+        "overview",
+        "company profile",
+        "tell me about",
+        "summary of",
+        "write-up",
+        "primer",
+        "deep dive",
+    ]) {
+        return Some("company_brief");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +329,14 @@ mod tests {
     fn six_workflows_present() {
         let ws = builtin_workflows();
         assert_eq!(ws.len(), 6);
-        for id in ["company_brief", "earnings_review", "trading_comps", "dcf_model", "ma_screen", "pitch_prep"] {
+        for id in [
+            "company_brief",
+            "earnings_review",
+            "trading_comps",
+            "dcf_model",
+            "ma_screen",
+            "pitch_prep",
+        ] {
             assert!(workflow(id).is_some(), "missing {id}");
         }
     }
@@ -214,7 +361,9 @@ mod tests {
     #[test]
     fn input_validation() {
         let comps = workflow("trading_comps").unwrap();
-        assert!(comps.validate_input(&serde_json::json!({"tickers":["NVDA","AMD"]})).is_ok());
+        assert!(comps
+            .validate_input(&serde_json::json!({"tickers":["NVDA","AMD"]}))
+            .is_ok());
         assert!(comps.validate_input(&serde_json::json!({})).is_err());
     }
 
@@ -244,6 +393,118 @@ mod tests {
 
     #[test]
     fn deal_workflows_default_confidential() {
-        assert_eq!(workflow("earnings_review").unwrap().default_confidentiality, Confidentiality::Confidential);
+        assert_eq!(
+            workflow("earnings_review").unwrap().default_confidentiality,
+            Confidentiality::Confidential
+        );
+    }
+
+    #[test]
+    fn golden_fixtures_select_expected_workflow() {
+        assert_eq!(
+            select_workflow(
+                "NVDA just reported — beat/miss versus the prior period and explain guidance changes."
+            ),
+            Some("earnings_review")
+        );
+        assert_eq!(
+            select_workflow(
+                "Compare NVDA, AMD, and INTC on current EV/EBITDA and P/E and give me an Excel workbook."
+            ),
+            Some("trading_comps")
+        );
+    }
+
+    #[test]
+    fn all_six_workflows_accept_a_representative_request() {
+        let cases = [
+            ("Give me a brief on Apple's cloud segment", "company_brief"),
+            ("Review NVDA earnings and guidance", "earnings_review"),
+            (
+                "Trading comps for the megacap chipmakers on EV/EBITDA",
+                "trading_comps",
+            ),
+            ("Build a base/bull/bear DCF for MSFT", "dcf_model"),
+            (
+                "Screen announced European payments deals since 2024",
+                "ma_screen",
+            ),
+            (
+                "Prepare a board-ready acquisition pitch for Deal X",
+                "pitch_prep",
+            ),
+        ];
+        for (msg, id) in cases {
+            assert_eq!(select_workflow(msg), Some(id), "request: {msg}");
+            // Every selected workflow must actually exist in the registry.
+            assert!(workflow(id).is_some());
+        }
+    }
+
+    #[test]
+    fn underspecified_ask_stays_interactive() {
+        assert_eq!(select_workflow("Check on NVDA"), None);
+        assert_eq!(select_workflow("what's up with tesla"), None);
+        assert_eq!(select_workflow(""), None);
+    }
+
+    #[test]
+    fn initial_plan_splits_template_into_stable_steps() {
+        let er = workflow("earnings_review").unwrap();
+        let plan = er.initial_plan("NVDA earnings");
+        assert_eq!(plan.objective, "NVDA earnings");
+        assert_eq!(plan.version, 1);
+        // 5-arrow template → 5 stable steps s1..s5.
+        assert_eq!(plan.steps.len(), 5);
+        assert_eq!(plan.steps[0].id, "s1");
+        assert_eq!(plan.steps[0].label, "Latest filing");
+        assert_eq!(plan.steps[4].id, "s5");
+        assert!(plan
+            .steps
+            .iter()
+            .all(|s| s.status == crate::types::PlanStepStatus::Pending));
+        assert!(!plan.is_empty());
+    }
+
+    #[test]
+    fn every_workflow_has_a_non_empty_initial_plan() {
+        for w in builtin_workflows() {
+            let plan = w.initial_plan("");
+            assert!(!plan.is_empty(), "empty plan for {}", w.id);
+            assert!(!plan.steps.is_empty(), "no steps for {}", w.id);
+        }
+    }
+
+    #[test]
+    fn completion_gate_requires_all_expected_parts() {
+        use crate::types::PartKind;
+        let er = workflow("earnings_review").unwrap();
+        // earnings_review expects [Result, Sources].
+        assert!(!er.is_complete(&[PartKind::Result]));
+        assert_eq!(
+            er.missing_parts(&[PartKind::Result]),
+            vec![PartKind::Sources]
+        );
+        assert!(er.is_complete(&[PartKind::Result, PartKind::Sources]));
+    }
+
+    #[test]
+    fn every_workflow_completes_only_with_its_expected_parts() {
+        for w in builtin_workflows() {
+            let full: Vec<_> = w.expected_parts.to_vec();
+            assert!(
+                w.is_complete(&full),
+                "{} should complete with all parts",
+                w.id
+            );
+            if w.expected_parts.len() > 1 {
+                let missing_one: Vec<_> = w.expected_parts.iter().skip(1).copied().collect();
+                assert!(
+                    !w.is_complete(&missing_one),
+                    "{} must not reach success missing an expected part",
+                    w.id
+                );
+            }
+        }
     }
 }

@@ -68,7 +68,9 @@ pub fn chain(base: &str, global: Option<&str>, project: Option<&str>) -> String 
 /// (e.g. `..\..\evil`). UUIDs and slugs pass; path separators and dots are out.
 pub fn is_valid_id(id: &str) -> bool {
     let t = id.trim();
-    !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !t.is_empty()
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Path a project's grounding file lives at (for the setter command). Returns
@@ -131,7 +133,10 @@ mod tests {
             r#"{ "personalization": ["Prefer USD", "Be concise"] }"#,
         )
         .unwrap();
-        assert_eq!(read_global(&d).as_deref(), Some("- Prefer USD\n- Be concise"));
+        assert_eq!(
+            read_global(&d).as_deref(),
+            Some("- Prefer USD\n- Be concise")
+        );
         std::fs::remove_dir_all(&d).ok();
     }
 
@@ -151,7 +156,10 @@ mod tests {
         std::fs::create_dir_all(&pdir).unwrap();
         std::fs::write(pdir.join("claude.md"), "benchmark against AMD").unwrap();
         // claude.md fallback when finmodel.md absent
-        assert_eq!(read_project(&d, "p1").as_deref(), Some("benchmark against AMD"));
+        assert_eq!(
+            read_project(&d, "p1").as_deref(),
+            Some("benchmark against AMD")
+        );
         // finmodel.md wins when present
         std::fs::write(pdir.join("finmodel.md"), "NVDA vs AMD/INTC").unwrap();
         assert_eq!(read_project(&d, "p1").as_deref(), Some("NVDA vs AMD/INTC"));

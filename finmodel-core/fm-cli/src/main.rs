@@ -1031,7 +1031,7 @@ fn parse_research_mode(
             return Err(format!(
                 "unknown mode '{other}' (web|company|earnings|filing|deal|comparison)"
             )
-            .into())
+            .into());
         }
     })
 }

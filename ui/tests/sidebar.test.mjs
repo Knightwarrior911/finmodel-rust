@@ -45,8 +45,15 @@ test("sidebar toggle exposes aria-expanded / controls", async () => {
   assert.equal(toggle.getAttribute("aria-controls"), "sidebar");
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   toggle.click();
-  assert.equal(toggle.getAttribute("aria-expanded"), "false", "collapsed → expanded false");
-  assert.ok(document.getElementById("sidebar").hasAttribute("inert"), "collapsed sidebar inert");
+  assert.equal(
+    toggle.getAttribute("aria-expanded"),
+    "false",
+    "collapsed → expanded false",
+  );
+  assert.ok(
+    document.getElementById("sidebar").hasAttribute("inert"),
+    "collapsed sidebar inert",
+  );
 });
 
 test("rename failure announces + offers retry, retains title", async () => {
@@ -85,4 +92,62 @@ test("delete confirm then failure announces + retry", async () => {
   const alert = document.getElementById("sidebarAlert");
   assert.equal(alert.hidden, false);
   assert.match(alert.textContent, /locked/);
+});
+
+async function bootWithProjects(convos, projects) {
+  const ctx = setupDom();
+  ctx.invokeHandlers.list_conversations = async () => convos;
+  ctx.invokeHandlers.projects_list = async () => projects;
+  const sb = await importModule("sidebar.mjs");
+  sb.initSidebar({ onSelect: () => {}, onNew: () => {} });
+  await sb.refresh();
+  await tick();
+  return { ctx, sb };
+}
+
+test("move menu preselects the conversation's current project", async () => {
+  const convos = [
+    {
+      id: "1-aaaa",
+      title: "In folder",
+      updated: new Date().toISOString(),
+      project_id: "proj_x",
+    },
+    { id: "2-bbbb", title: "Loose one", updated: new Date().toISOString() },
+  ];
+  await bootWithProjects(convos, [{ id: "proj_x", name: "Deals" }]);
+
+  const looseRow = document.querySelector('.conv-row[data-id="2-bbbb"]');
+  looseRow.querySelector(".conv-move").click();
+  const looseSel = looseRow.querySelector(".conv-move-sel");
+  assert.ok(looseSel, "loose chat shows the move picker");
+  assert.equal(looseSel.value, "", "loose chat preselects — No project —");
+
+  const folderRow = document.querySelector('.conv-row[data-id="1-aaaa"]');
+  folderRow.querySelector(".conv-move").click();
+  const folderSel = folderRow.querySelector(".conv-move-sel");
+  assert.ok(folderSel, "in-folder chat shows the move picker");
+  assert.equal(
+    folderSel.value,
+    "proj_x",
+    "in-folder chat preselects its own project",
+  );
+});
+
+test("move menu with no projects shows a hint, not a dead-end picker", async () => {
+  const convos = [
+    { id: "1-aaaa", title: "Solo", updated: new Date().toISOString() },
+  ];
+  await bootWithProjects(convos, []);
+  const row = document.querySelector('.conv-row[data-id="1-aaaa"]');
+  row.querySelector(".conv-move").click();
+  assert.equal(
+    row.querySelector(".conv-move-sel"),
+    null,
+    "no picker rendered when zero projects",
+  );
+  assert.match(
+    row.querySelector(".conv-actions").textContent,
+    /No projects yet/,
+  );
 });

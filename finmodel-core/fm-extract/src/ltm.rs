@@ -78,7 +78,7 @@ pub(crate) struct Fact {
     pub start: Option<i64>,
     pub end: i64,
     pub val: f64,
-    pub is_annual: bool, // 10-K / 20-F
+    pub is_annual: bool,    // 10-K / 20-F
     pub is_quarterly: bool, // 10-Q
 }
 
@@ -153,7 +153,11 @@ fn ltm_flow(
         .max_by_key(|f| f.end)?;
 
     // Latest interim YTD (10-Q): among the latest end date, the longest duration.
-    let latest_q_end = facts.iter().filter(|f| f.is_quarterly && f.start.is_some()).map(|f| f.end).max();
+    let latest_q_end = facts
+        .iter()
+        .filter(|f| f.is_quarterly && f.start.is_some())
+        .map(|f| f.end)
+        .max();
     let latest_q_end = match latest_q_end {
         Some(e) if e > annual.end => e,
         _ => return Some((annual.val, false, annual.end)), // no newer interim → annual
@@ -220,10 +224,14 @@ pub fn extract_ltm(facts: &Value, currency: &str) -> Option<LtmData> {
         tm.get(key).and_then(|tags| ltm_flow(gaap, tags, currency))
     };
     let inst = |key: &str| -> Option<(f64, i64)> {
-        tm.get(key).and_then(|tags| latest_instant(gaap, tags, currency))
+        tm.get(key)
+            .and_then(|tags| latest_instant(gaap, tags, currency))
     };
 
-    let mut d = LtmData { currency: currency.to_string(), ..Default::default() };
+    let mut d = LtmData {
+        currency: currency.to_string(),
+        ..Default::default()
+    };
 
     // Revenue anchors the company's latest reported period. Every other flow /
     // instant must be within ~1 year of it, else it's a discontinued / stale tag
@@ -259,7 +267,8 @@ pub fn extract_ltm(facts: &Value, currency: &str) -> Option<LtmData> {
 
     // Balance-sheet instants: latest point-in-time, same staleness guard.
     let inst_guard = |v: Option<(f64, i64)>| -> Option<f64> {
-        v.filter(|(_, end)| *end >= anchor - STALE_DAYS).map(|(val, _)| val)
+        v.filter(|(_, end)| *end >= anchor - STALE_DAYS)
+            .map(|(val, _)| val)
     };
     d.cash = inst_guard(inst("cash"));
     d.long_term_debt = inst_guard(inst("long_term_debt"));
@@ -332,7 +341,11 @@ mod tests {
             }}
         });
         let d = extract_ltm(&facts, "USD").expect("ltm");
-        assert!((d.revenue.unwrap() - 1100.0).abs() < 1e-6, "LTM revenue {:?}", d.revenue);
+        assert!(
+            (d.revenue.unwrap() - 1100.0).abs() < 1e-6,
+            "LTM revenue {:?}",
+            d.revenue
+        );
         assert!(d.is_ltm);
         assert_eq!(d.as_of, "2025-09-30");
         assert_eq!(d.total_equity, Some(5500.0)); // latest instant, not the 10-K

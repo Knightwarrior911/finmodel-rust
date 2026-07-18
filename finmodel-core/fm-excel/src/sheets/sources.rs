@@ -1,7 +1,7 @@
 //! Sources & Audit Trail tab. Mirrors writer.py `_write_sources`.
 
 use crate::input::WorkbookInput;
-use crate::model::{Sheet, DATA0, LABEL, RED};
+use crate::model::{DATA0, LABEL, RED, Sheet};
 
 pub fn build(input: &WorkbookInput) -> Sheet {
     let mut s = Sheet::new("Sources");

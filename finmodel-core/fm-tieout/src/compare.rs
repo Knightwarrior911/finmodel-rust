@@ -11,31 +11,57 @@ const CANONICAL_INDUSTRIAL: &[(&str, &[&str])] = &[
     (
         "income_statement",
         &[
-            "revenue", "cogs", "gross_profit", "sga", "rd", "da", "ebit",
-            "ebita", "interest_expense", "interest_income", "income_tax",
+            "revenue",
+            "cogs",
+            "gross_profit",
+            "sga",
+            "rd",
+            "da",
+            "ebit",
+            "ebita",
+            "interest_expense",
+            "interest_income",
+            "income_tax",
             "net_income",
         ],
     ),
     (
         "balance_sheet",
         &[
-            "cash", "accounts_receivable", "inventory",
-            "total_current_assets", "ppe_net", "goodwill",
-            "intangibles_net", "total_assets", "accounts_payable",
-            "long_term_debt", "total_liabilities", "total_equity",
+            "cash",
+            "accounts_receivable",
+            "inventory",
+            "total_current_assets",
+            "ppe_net",
+            "goodwill",
+            "intangibles_net",
+            "total_assets",
+            "accounts_payable",
+            "long_term_debt",
+            "total_liabilities",
+            "total_equity",
         ],
     ),
     (
         "cash_flow_statement",
         &[
-            "cfo", "capex", "cfi", "dividends_paid", "cff",
+            "cfo",
+            "capex",
+            "cfi",
+            "dividends_paid",
+            "cff",
             "net_change_cash",
         ],
     ),
 ];
 
 const ABS_KEYS_INDUSTRIAL: &[&str] = &[
-    "cogs", "sga", "rd", "interest_expense", "income_tax", "capex",
+    "cogs",
+    "sga",
+    "rd",
+    "interest_expense",
+    "income_tax",
+    "capex",
     "dividends_paid",
 ];
 
@@ -136,14 +162,12 @@ pub fn compare(gt: &GroundTruth, model: &ModelOutput) -> Score {
 
                 // Normalize the model value (abs + round) to match Python's
                 // `_norm()`.
-                let model_normalized = model_val
-                    .map(|v| normalize_value(key, v, &abs_keys));
+                let model_normalized = model_val.map(|v| normalize_value(key, v, &abs_keys));
 
                 // A match requires the model value to be present AND to equal
                 // the ground-truth value after both are rounded.
                 let gt_rounded = gt_val.round();
-                let is_match = model_normalized
-                    .map_or(false, |mv| (mv - gt_rounded).abs() < 0.001);
+                let is_match = model_normalized.map_or(false, |mv| (mv - gt_rounded).abs() < 0.001);
 
                 if is_match {
                     total_matched += 1;
@@ -154,13 +178,7 @@ pub fn compare(gt: &GroundTruth, model: &ModelOutput) -> Score {
                         key: key.to_string(),
                         year,
                         ground_truth: Some(gt_val),
-                        model: model_val.map(|v| {
-                            if abs_keys.contains(key) {
-                                v.abs()
-                            } else {
-                                v
-                            }
-                        }),
+                        model: model_val.map(|v| if abs_keys.contains(key) { v.abs() } else { v }),
                     });
                 }
             }
@@ -275,11 +293,9 @@ mod tests {
         let score = super::compare(&gt, &model);
 
         assert_eq!(
-            score.matched,
-            47,
+            score.matched, 47,
             "expected 47/48 after corruption, got {}/{}",
-            score.matched,
-            score.trusted
+            score.matched, score.trusted
         );
         assert_eq!(score.mismatches.len(), 1, "expected exactly 1 mismatch");
 

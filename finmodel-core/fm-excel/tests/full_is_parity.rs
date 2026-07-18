@@ -29,13 +29,20 @@ fn cases() -> Vec<(&'static str, String, &'static str)> {
 }
 
 fn path(name: &str) -> String {
-    format!("{}/../../tieout/excel_snapshots/{}_snapshot.json", env!("CARGO_MANIFEST_DIR"), name)
+    format!(
+        "{}/../../tieout/excel_snapshots/{}_snapshot.json",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
 }
 
 fn nonzero(mo: &serde_json::Value, key: &str) -> bool {
     mo["income_statement"][key]
         .as_array()
-        .map(|a| a.iter().any(|v| v.as_f64().map(|n| n != 0.0).unwrap_or(false)))
+        .map(|a| {
+            a.iter()
+                .any(|v| v.as_f64().map(|n| n != 0.0).unwrap_or(false))
+        })
         .unwrap_or(false)
 }
 
@@ -50,8 +57,12 @@ fn full_is_reproduces_oracle() {
         let mut input = workbook_input_from_snapshot(&committed).expect("input");
         input.meta.sector = sector.to_string();
         let mo = &committed["model_output"];
-        input.is_structure =
-            build_is_structure(sector, nonzero(mo, "cogs"), nonzero(mo, "rd"), nonzero(mo, "sga"));
+        input.is_structure = build_is_structure(
+            sector,
+            nonzero(mo, "cogs"),
+            nonzero(mo, "rd"),
+            nonzero(mo, "sga"),
+        );
 
         let wb = build_workbook(&input);
         for d in compare_workbook(&wb, &oracle) {
@@ -63,7 +74,12 @@ fn full_is_reproduces_oracle() {
 
     if !failures.is_empty() {
         let shown: Vec<&str> = failures.iter().take(40).map(|s| s.as_str()).collect();
-        panic!("{} full-IS diffs on {:?}:\n{}", failures.len(), GATED, shown.join("\n"));
+        panic!(
+            "{} full-IS diffs on {:?}:\n{}",
+            failures.len(),
+            GATED,
+            shown.join("\n")
+        );
     }
 }
 
@@ -79,7 +95,12 @@ fn sector_relabels_assumptions_drivers() {
     let mut input = workbook_input_from_snapshot(&committed).expect("input");
     input.meta.sector = "utility".to_string();
     let mo = &committed["model_output"];
-    input.is_structure = build_is_structure("utility", nonzero(mo, "cogs"), nonzero(mo, "rd"), nonzero(mo, "sga"));
+    input.is_structure = build_is_structure(
+        "utility",
+        nonzero(mo, "cogs"),
+        nonzero(mo, "rd"),
+        nonzero(mo, "sga"),
+    );
     let wb = build_workbook(&input);
     let asmp = wb.sheet("Assumptions").expect("Assumptions");
 
@@ -97,7 +118,8 @@ fn sector_relabels_assumptions_drivers() {
         // Cross-check the oracle carries the same label.
         let oref = format!("C{}", row + 1);
         let orc = oracle["sheets"]["Assumptions"].as_array().and_then(|rows| {
-            rows.iter().flat_map(|r| r["cells"].as_array().cloned().unwrap_or_default())
+            rows.iter()
+                .flat_map(|r| r["cells"].as_array().cloned().unwrap_or_default())
                 .find(|c| c["ref"] == oref)
                 .and_then(|c| c["value"].as_str().map(String::from))
         });
@@ -110,16 +132,29 @@ fn sector_relabels_assumptions_drivers() {
 /// cogs_seg / opex_ structure + formulas match the Python oracle.
 #[test]
 fn xbrl_detail_reproduces_oracle() {
-    use fm_excel::is_structure::{build_standard_is_detailed, CogsDetail, OpexItem, Segment};
+    use fm_excel::is_structure::{CogsDetail, OpexItem, Segment, build_standard_is_detailed};
 
     let oracle = load_snapshot(&path("SAND_ST_xbrl_full")).expect("xbrl oracle");
     let mut input = workbook_input_from_snapshot(&oracle).expect("input");
 
-    let seg = |label: &str, key: &str| Segment { label: label.into(), key: key.into() };
-    let opx = |label: &str, key: &str, cat: &str| OpexItem { label: label.into(), key: key.into(), category: cat.into() };
-    let cd = |label: &str, key: &str| CogsDetail { label: label.into(), key: key.into() };
+    let seg = |label: &str, key: &str| Segment {
+        label: label.into(),
+        key: key.into(),
+    };
+    let opx = |label: &str, key: &str, cat: &str| OpexItem {
+        label: label.into(),
+        key: key.into(),
+        category: cat.into(),
+    };
+    let cd = |label: &str, key: &str| CogsDetail {
+        label: label.into(),
+        key: key.into(),
+    };
     let segments = vec![seg("Products", "rev_seg_a"), seg("Services", "rev_seg_b")];
-    let cogs_detail = vec![cd("Cost of products", "cogs_seg_a"), cd("Cost of services", "cogs_seg_b")];
+    let cogs_detail = vec![
+        cd("Cost of products", "cogs_seg_a"),
+        cd("Cost of services", "cogs_seg_b"),
+    ];
     let opex_items = vec![
         opx("Cost of products", "cogs_seg_a", "cogs"),
         opx("Cost of services", "cogs_seg_b", "cogs"),
@@ -127,7 +162,8 @@ fn xbrl_detail_reproduces_oracle() {
         opx("Selling, General & Administrative", "sga", "opex"),
         opx("Marketing", "opex_marketing", "opex"),
     ];
-    input.is_structure = build_standard_is_detailed(true, true, true, &segments, &opex_items, &cogs_detail);
+    input.is_structure =
+        build_standard_is_detailed(true, true, true, &segments, &opex_items, &cogs_detail);
 
     let wb = build_workbook(&input);
     let failures: Vec<String> = compare_workbook(&wb, &oracle)
@@ -137,6 +173,10 @@ fn xbrl_detail_reproduces_oracle() {
         .collect();
     if !failures.is_empty() {
         let shown: Vec<&str> = failures.iter().take(40).map(|s| s.as_str()).collect();
-        panic!("{} XBRL-detail diffs:\n{}", failures.len(), shown.join("\n"));
+        panic!(
+            "{} XBRL-detail diffs:\n{}",
+            failures.len(),
+            shown.join("\n")
+        );
     }
 }

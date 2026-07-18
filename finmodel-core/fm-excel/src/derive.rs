@@ -133,14 +133,23 @@ pub fn build_assumptions_block(
 ) -> AssumptionsBlock {
     let n_hist = model.n_hist();
     let n_proj = model.n_proj();
-    let proj_periods: Vec<String> =
-        model.periods.iter().filter(|p| p.ends_with('E')).cloned().collect();
+    let proj_periods: Vec<String> = model
+        .periods
+        .iter()
+        .filter(|p| p.ends_with('E'))
+        .cloned()
+        .collect();
 
     let data = ReconciledData {
         income_statement: hist_slice(&model.income_statement, n_hist),
         balance_sheet: hist_slice(&model.balance_sheet, n_hist),
         cash_flow_statement: hist_slice(&model.cash_flow_statement, n_hist),
-        periods: model.periods.iter().filter(|p| p.ends_with('A')).cloned().collect(),
+        periods: model
+            .periods
+            .iter()
+            .filter(|p| p.ends_with('A'))
+            .cloned()
+            .collect(),
         currency: String::new(),
     };
     let config = CompanyConfig {
@@ -160,14 +169,24 @@ pub fn build_assumptions_block(
 
     let base = build_scenario("Base", &a, n_proj, 0.0, 0.0, 0.0, tg, mult_base);
     let upside = build_scenario(
-        "Upside", &a, n_proj,
-        UPSIDE_REVENUE_GROWTH_DELTA, UPSIDE_GROSS_MARGIN_DELTA, UPSIDE_CAPEX_DELTA,
-        tg + TERMINAL_GROWTH_DELTA, mult_up,
+        "Upside",
+        &a,
+        n_proj,
+        UPSIDE_REVENUE_GROWTH_DELTA,
+        UPSIDE_GROSS_MARGIN_DELTA,
+        UPSIDE_CAPEX_DELTA,
+        tg + TERMINAL_GROWTH_DELTA,
+        mult_up,
     );
     let downside = build_scenario(
-        "Downside", &a, n_proj,
-        -UPSIDE_REVENUE_GROWTH_DELTA, -UPSIDE_GROSS_MARGIN_DELTA, -UPSIDE_CAPEX_DELTA,
-        tg - TERMINAL_GROWTH_DELTA, mult_down,
+        "Downside",
+        &a,
+        n_proj,
+        -UPSIDE_REVENUE_GROWTH_DELTA,
+        -UPSIDE_GROSS_MARGIN_DELTA,
+        -UPSIDE_CAPEX_DELTA,
+        tg - TERMINAL_GROWTH_DELTA,
+        mult_down,
     );
 
     AssumptionsBlock {

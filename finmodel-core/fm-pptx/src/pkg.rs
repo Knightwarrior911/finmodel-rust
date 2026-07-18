@@ -39,7 +39,8 @@ impl Package {
             }
             let name = f.name().to_string();
             let mut buf = Vec::with_capacity(f.size() as usize);
-            f.read_to_end(&mut buf).map_err(|e| format!("read {name}: {e}"))?;
+            f.read_to_end(&mut buf)
+                .map_err(|e| format!("read {name}: {e}"))?;
             names.push(name);
             data.push(buf);
         }
@@ -83,7 +84,8 @@ impl Package {
         for (name, bytes) in self.names.iter().zip(self.data.iter()) {
             zw.start_file(name.clone(), opts)
                 .map_err(|e| format!("start {name}: {e}"))?;
-            zw.write_all(bytes).map_err(|e| format!("write {name}: {e}"))?;
+            zw.write_all(bytes)
+                .map_err(|e| format!("write {name}: {e}"))?;
         }
         zw.finish().map_err(|e| format!("finish zip: {e}"))?;
         Ok(())

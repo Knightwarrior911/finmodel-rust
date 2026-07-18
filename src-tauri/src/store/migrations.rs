@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::models::{MigrationReport, Quarantined};
 
 /// Current schema version this build understands.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Per-connection PRAGMAs. Safe to call on every open.
 pub fn apply_connection_pragmas(conn: &Connection) -> rusqlite::Result<()> {
@@ -61,6 +61,9 @@ pub fn migrate(conn: &mut Connection) -> rusqlite::Result<i64> {
         match v {
             0 => apply_v1(&tx)?,
             1 => apply_v2(&tx)?,
+            2 => apply_v3(&tx)?,
+            3 => apply_v4(&tx)?,
+            4 => apply_v5(&tx)?,
             other => {
                 return Err(rusqlite::Error::SqliteFailure(
                     rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -345,6 +348,93 @@ CREATE INDEX idx_projects_workspace ON projects(workspace_id);
     )
 }
 
+/// The v3 schema: durable child delegations (Task 5.1) plus commitments and
+/// schedules for proactive follow-through (Task 8.1). All additive tables.
+fn apply_v3(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        r#"
+CREATE TABLE delegations (
+  id TEXT PRIMARY KEY,
+  parent_run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+  child_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+  parent_tool_call_id TEXT,
+  status TEXT NOT NULL,
+  task_json TEXT NOT NULL,
+  result_json TEXT,
+  dispatched_at TEXT NOT NULL,
+  finished_at TEXT,
+  delivery_state TEXT NOT NULL DEFAULT 'pending',
+  claim_id TEXT,
+  claimed_at TEXT,
+  error_code TEXT
+);
+CREATE INDEX idx_delegations_parent ON delegations(parent_run_id);
+CREATE INDEX idx_delegations_delivery ON delegations(delivery_state);
+
+CREATE TABLE commitments (
+  id TEXT PRIMARY KEY,
+  run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+  message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  due_semantics TEXT,
+  confidence REAL NOT NULL DEFAULT 0.0,
+  schedule_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_commitments_status ON commitments(status);
+
+CREATE TABLE schedules (
+  id TEXT PRIMARY KEY,
+  commitment_id TEXT REFERENCES commitments(id) ON DELETE CASCADE,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+  timezone TEXT NOT NULL,
+  recurrence TEXT,
+  next_due TEXT NOT NULL,
+  scope_json TEXT NOT NULL,
+  budget_json TEXT,
+  approval_id TEXT,
+  claim_owner TEXT,
+  claimed_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_outcome TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_schedules_due ON schedules(next_due, status);
+"#,
+    )
+}
+
+/// v4: deterministic skill lifecycle (Task 7.3). Tracks each SKILL.md file's
+/// state (active/stale/archived), usage, source version, and supersession, so
+/// aged-out skills are excluded from default context yet remain restorable. The
+/// skill body still lives in the file layer (`agent::skills`); this is metadata.
+fn apply_v4(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        r#"
+CREATE TABLE skill_lifecycle (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL DEFAULT 'active',
+  last_used TEXT,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  source_version INTEGER NOT NULL DEFAULT 1,
+  supersedes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_skill_lifecycle_state ON skill_lifecycle(state);
+"#,
+    )
+}
+
+/// v5: user-pinned memories (Task 7.2). A pinned memory is protected from
+/// automatic forgetting/aging and surfaced in the management surface. Additive.
+fn apply_v5(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch("ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
+}
+
 /// Escape a string for embedding as a single-quoted SQLite literal in triggers
 /// is unnecessary here; kept intentionally small — no dynamic SQL in v1.
 // (No dynamic DDL; migrations are static.)
@@ -514,8 +604,15 @@ fn import_one(
             for m in &group {
                 if let Some(content) = m.get("content").and_then(|v| v.as_str()) {
                     if !content.is_empty() {
-                        insert_part(&tx, new_id(), &mid, part_ord, "text",
-                            &Value::String(content.to_string()), Some(content))?;
+                        insert_part(
+                            &tx,
+                            new_id(),
+                            &mid,
+                            part_ord,
+                            "text",
+                            &Value::String(content.to_string()),
+                            Some(content),
+                        )?;
                         part_ord += 1;
                     }
                 }
@@ -534,7 +631,10 @@ fn import_one(
         } else {
             // user (or system) message: one message, one text part.
             let mid = new_id();
-            let content = msgs[i].get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let content = msgs[i]
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let ts = msgs[i].get("ts").and_then(|v| v.as_str()).unwrap_or(now);
             let role_norm = if role == "user" { "user" } else { "system" };
             tx.execute(
@@ -542,8 +642,15 @@ fn import_one(
                  VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'complete', ?6)",
                 rusqlite::params![mid, conv_id, ordinal, parent, role_norm, ts],
             )?;
-            insert_part(&tx, new_id(), &mid, 0, "text",
-                &Value::String(content.to_string()), Some(content))?;
+            insert_part(
+                &tx,
+                new_id(),
+                &mid,
+                0,
+                "text",
+                &Value::String(content.to_string()),
+                Some(content),
+            )?;
             parent = Some(mid.clone());
             last_message_id = Some(mid);
             ordinal += 1;

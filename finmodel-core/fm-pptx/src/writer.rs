@@ -6,7 +6,7 @@
 //! against the Python originals over an input matrix. The deck writer (6.4)
 //! lives in [`deck`].
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub mod deck;
 pub mod pkgbuild;
@@ -67,7 +67,10 @@ pub fn pick_slide_archetype(
     } else if is_dated || data_shape == "events" {
         rationale.push("is_dated/events -> timeline".to_string());
         ARCH_TIMELINE
-    } else if matches!(data_shape, "framework" | "priorities" | "initiatives" | "strategy") {
+    } else if matches!(
+        data_shape,
+        "framework" | "priorities" | "initiatives" | "strategy"
+    ) {
         rationale.push(format!("data_shape={data_shape} -> strategy_framework"));
         ARCH_STRATEGY
     } else if matches!(data_shape, "process" | "structure") {
@@ -100,7 +103,8 @@ pub fn pick_slide_archetype(
 
 /// `split_into_chunks(items, archetype)`.
 pub fn split_into_chunks(items: &[Value], archetype: &str) -> Result<Vec<Vec<Value>>, String> {
-    let (max_per_slide, _) = density_limits(archetype).ok_or_else(|| format!("unknown archetype: {archetype}"))?;
+    let (max_per_slide, _) =
+        density_limits(archetype).ok_or_else(|| format!("unknown archetype: {archetype}"))?;
     Ok(items.chunks(max_per_slide).map(|c| c.to_vec()).collect())
 }
 
@@ -301,11 +305,7 @@ pub fn fmt_int_grouped(n: i64) -> String {
     let neg = n < 0;
     let digits = n.unsigned_abs().to_string();
     let s = group_int(&digits);
-    if neg {
-        format!("-{s}")
-    } else {
-        s
-    }
+    if neg { format!("-{s}") } else { s }
 }
 
 /// `{:.<dec>%}` (value scaled by 100 with a `%` suffix).

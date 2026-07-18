@@ -6,7 +6,7 @@ use fm_excel::is_structure::build_is_structure;
 use fm_excel::model::Value;
 use fm_excel::sheets::build_workbook;
 use fm_excel::snapshot::{load_snapshot, workbook_input_from_snapshot};
-use fm_value::{compute_dcf, compute_wacc, fallback_peer_set, DCFAssumptions, DCFScenario};
+use fm_value::{DCFAssumptions, DCFScenario, compute_dcf, compute_wacc, fallback_peer_set};
 
 fn path(name: &str) -> String {
     format!(
@@ -23,10 +23,7 @@ fn snapshot_path_has_no_valuation_tabs() {
     assert!(input.dcf.is_none() && input.wacc.is_none());
     let wb = build_workbook(&input);
     let names: Vec<&str> = wb.sheets.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(
-        names,
-        ["Cover", "Assumptions", "IS", "BS", "CF", "Sources"]
-    );
+    assert_eq!(names, ["Cover", "Assumptions", "IS", "BS", "CF", "Sources"]);
 }
 
 #[test]
@@ -50,7 +47,11 @@ fn valuation_tabs_emit_with_cross_links() {
         .first()
         .copied()
         .unwrap_or(0.21);
-    let peer_set = fallback_peer_set(&input.meta.ticker, mkt_cap, input.assumptions.target_de_ratio);
+    let peer_set = fallback_peer_set(
+        &input.meta.ticker,
+        mkt_cap,
+        input.assumptions.target_de_ratio,
+    );
     let wacc = compute_wacc(
         &peer_set,
         mkt_cap,
@@ -104,13 +105,15 @@ fn valuation_tabs_emit_with_cross_links() {
 
     // Cover valuation summary is live (not the placeholder).
     let cover = wb.sheet("Cover").unwrap();
-    let has_placeholder = cover.cells.values().any(|c| {
-        matches!(&c.value, Some(Value::Text(t)) if t.contains("not yet built"))
-    });
+    let has_placeholder = cover
+        .cells
+        .values()
+        .any(|c| matches!(&c.value, Some(Value::Text(t)) if t.contains("not yet built")));
     assert!(!has_placeholder, "Cover still shows DCF placeholder");
-    let has_implied = cover.cells.values().any(|c| {
-        matches!(&c.value, Some(Value::Text(t)) if t == "DCF Implied Price")
-    });
+    let has_implied = cover
+        .cells
+        .values()
+        .any(|c| matches!(&c.value, Some(Value::Text(t)) if t == "DCF Implied Price"));
     assert!(has_implied, "Cover missing DCF Implied Price label");
 
     // DCF links to WACC single source of truth.

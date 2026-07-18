@@ -121,7 +121,9 @@ pub struct Ledger {
 
 impl Ledger {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, entry: LedgerEntry) {

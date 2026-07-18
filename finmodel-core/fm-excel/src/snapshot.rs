@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap};
 use serde_json::Value as Json;
 
 use crate::input::{Meta, ModelOutput, Statement, Verification, WorkbookInput};
-use crate::model::{cell_ref, Cell, Value, Workbook};
+use crate::model::{Cell, Value, Workbook, cell_ref};
 use crate::{ExcelError, Result};
 
 /// Numeric equality tolerance. Derived drivers are `round(_, 6)`; injected /
@@ -259,7 +259,7 @@ pub fn compare_workbook(wb: &Workbook, snap: &Json) -> Vec<Diff> {
                 sheet: "*".into(),
                 reference: "*".into(),
                 message: "snapshot has no `sheets`".into(),
-            }]
+            }];
         }
     };
 
@@ -318,7 +318,7 @@ pub fn compare_workbook(wb: &Workbook, snap: &Json) -> Vec<Diff> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Sheet, BLUE};
+    use crate::model::{BLUE, Sheet};
     use serde_json::json;
 
     fn snap() -> Json {

@@ -47,14 +47,21 @@ fn which(name: &str) -> Option<String> {
 ///
 /// Returns `Err` with an actionable message when no render backend is present —
 /// exactly the degraded-environment path (soffice/pdftoppm absent).
-pub fn render_deck(deck_path: &str, out_dir: Option<&str>, dpi: u32) -> Result<Vec<PathBuf>, String> {
+pub fn render_deck(
+    deck_path: &str,
+    out_dir: Option<&str>,
+    dpi: u32,
+) -> Result<Vec<PathBuf>, String> {
     let deck = Path::new(deck_path);
     if !deck.exists() {
         return Err(format!("deck not found: {deck_path}"));
     }
     let out = match out_dir {
         Some(d) => PathBuf::from(d),
-        None => deck.parent().unwrap_or_else(|| Path::new(".")).join("preview"),
+        None => deck
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("preview"),
     };
 
     let soffice = match find_soffice() {
@@ -71,7 +78,12 @@ pub fn render_deck(deck_path: &str, out_dir: Option<&str>, dpi: u32) -> Result<V
     render_soffice(deck, &out, dpi, &soffice)
 }
 
-fn render_soffice(deck: &Path, out_dir: &Path, dpi: u32, soffice: &str) -> Result<Vec<PathBuf>, String> {
+fn render_soffice(
+    deck: &Path,
+    out_dir: &Path,
+    dpi: u32,
+    soffice: &str,
+) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("create out dir: {e}"))?;
     let stem = deck.file_stem().and_then(|s| s.to_str()).unwrap_or("deck");
 

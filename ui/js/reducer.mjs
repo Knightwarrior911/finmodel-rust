@@ -51,6 +51,10 @@ export function createStore() {
     lastAnnounce: null,
     runStatus: null,
     approvalRequest: null,
+    schemaError: null,
+    plan: null,
+    seqRunId: null,
+    seqApplied: 0,
   };
 }
 
@@ -64,13 +68,45 @@ export function createStore() {
  * @param {Object} envelope - { event: { type, ... }, conversation_id, run_id, durability, ... }
  * @returns {ConversationState}
  */
+// The event-envelope schema this client understands (matches Rust
+// events::SCHEMA_VERSION). A strictly-newer version means the desktop app was
+// updated under a running window — reject with a recoverable refresh message
+// rather than misreducing unknown shapes (Task 1.4).
+export const KNOWN_SCHEMA_VERSION = 2;
+
 export function reduce(prev, envelope) {
+  const sv = envelope.schema_version;
+  if (typeof sv === "number" && sv > KNOWN_SCHEMA_VERSION) {
+    return {
+      ...prev,
+      schemaError: "This app was updated — please refresh to continue.",
+    };
+  }
+  // Idempotent replay: durable events carry a per-run monotonic sequence, so a
+  // re-delivered (run_id, sequence) is a no-op. Reload (snapshot + gap-close via
+  // get_run_events_after) therefore reproduces byte-equivalent state (Task 2.1).
+  const seq = envelope.sequence;
+  if (
+    typeof seq === "number" &&
+    envelope.run_id === prev.seqRunId &&
+    seq <= prev.seqApplied
+  ) {
+    return prev;
+  }
+  const next = reduceInner(prev, envelope);
+  if (typeof seq === "number") {
+    return { ...next, seqRunId: envelope.run_id, seqApplied: seq };
+  }
+  return next;
+}
+
+function reduceInner(prev, envelope) {
   const ev = envelope.event || {};
-  const type = ev.type;
+  // Accept the Rust envelope ({ kind, payload:{…} }) and legacy flat shapes.
+  const type = ev.type || ev.kind;
+  const p = ev.payload || ev;
   const runId = envelope.run_id || prev.activeRunId;
   const convId = envelope.conversation_id || prev.conversationId;
-
-  // Helper: create new state with one field updated.
   const set = (fields) => ({ ...prev, ...fields });
 
   switch (type) {
@@ -89,74 +125,74 @@ export function reduce(prev, envelope) {
 
     case "PhaseChanged":
     case "phase_changed":
-      return set({
-        phaseLabel: ev.phase || ev.detail || prev.phaseLabel,
-      });
+      return set({ phaseLabel: p.phase || p.detail || prev.phaseLabel });
 
     case "PlanUpdated":
     case "plan_updated":
-    case "plan":
+    case "plan": {
+      const hasPlan = p.objective !== undefined || p.steps !== undefined;
       return set({
-        phaseLabel: ev.detail || ev.text || "Planning…",
+        plan: hasPlan ? p : prev.plan,
+        phaseLabel: hasPlan ? "Planning…" : p.detail || p.text || "Planning…",
       });
+    }
 
     case "AssistantTextDelta":
     case "assistant_text_delta":
     case "chat_delta": {
-      const text = (prev.draftText || "") + (ev.text || "");
+      const text = (prev.draftText || "") + (p.text || "");
       return set({ draftText: text });
     }
 
     case "AssistantCheckpoint":
     case "assistant_checkpoint":
     case "chat_done": {
-      const finalText = ev.text || prev.draftText;
+      // Legacy path carries final text here; the Rust checkpoint does not (the
+      // assistant turn persists as parts, rebuilt from the snapshot). Only
+      // commit a message when there is text to commit.
+      const finalText = p.text || prev.draftText;
+      if (!finalText) return set({ draftText: "" });
       const msg = makeMessage(prev.conversationId, "assistant", finalText, false);
-      return set({
-        messages: [...prev.messages, msg],
-        draftText: "",
-      });
+      return set({ messages: [...prev.messages, msg], draftText: "" });
     }
 
     case "UserMessage":
     case "user_message": {
-      const msg = makeMessage(convId, "user", ev.text || ev.detail || "", false);
-      return set({
-        messages: [...prev.messages, msg],
-        lastQuestion: ev.text || ev.detail || prev.lastQuestion,
-      });
+      const text = p.text || p.detail || "";
+      const msg = makeMessage(convId, "user", text, false);
+      return set({ messages: [...prev.messages, msg], lastQuestion: text || prev.lastQuestion });
     }
 
     case "ToolQueued":
     case "tool_queued":
     case "ToolStarted":
     case "tool_started":
-      return set({ phaseLabel: ev.label || ev.name || "Running tool…" });
+      return set({ phaseLabel: p.label || p.name || "Running tool…" });
 
     case "ToolSucceeded":
     case "tool_succeeded":
-      return set({ phaseLabel: null });
-
     case "ToolFailed":
     case "tool_failed":
+    case "ToolCancelled":
+    case "tool_cancelled":
       return set({ phaseLabel: null });
 
     case "ToolWarning":
     case "tool_warning":
-      return set({ phaseLabel: ev.detail || "Warning" });
+      return set({ phaseLabel: p.detail || "Warning" });
 
-    case "ToolCancelled":
-    case "tool_cancelled":
+    case "ArtifactCreated":
+    case "artifact_created":
       return set({ phaseLabel: null });
 
     case "ApprovalRequested":
     case "approval_requested":
       return set({
         approvalRequest: {
-          tool_call_id: ev.tool_call_id,
-          name: ev.name,
-          query: ev.query || ev.detail,
-          risk: ev.risk,
+          tool_call_id: p.tool_call_id,
+          name: p.name,
+          query: p.query || p.detail,
+          risk: p.risk,
         },
         phaseLabel: "Awaiting approval…",
       });
@@ -165,48 +201,35 @@ export function reduce(prev, envelope) {
     case "approval_resolved":
       return set({
         approvalRequest: null,
-        phaseLabel: ev.response === "deny" ? "Denied" : "Approved",
+        phaseLabel: p.response === "deny" ? "Denied" : "Approved",
       });
 
     case "MemoryUpdated":
     case "memory_updated":
-      return set({ lastAnnounce: ev.count ? `Memory updated · ${ev.count}` : "Memory updated" });
+      return set({
+        lastAnnounce: p.count ? `Memory updated · ${p.count}` : "Memory updated",
+      });
 
     case "RunCompleted":
     case "run_completed":
-      return set({
-        streaming: false,
-        runStatus: "completed",
-        phaseLabel: null,
-        stopping: false,
-      });
+      return set({ streaming: false, runStatus: "completed", phaseLabel: null, stopping: false });
 
     case "RunFailed":
     case "run_failed":
       return set({
         streaming: false,
         runStatus: "failed",
-        phaseLabel: ev.error || "Failed",
+        phaseLabel: (p.stop && p.stop.detail) || p.error || "Failed",
         stopping: false,
       });
 
     case "RunCancelled":
     case "run_cancelled":
-      return set({
-        streaming: false,
-        runStatus: "cancelled",
-        phaseLabel: null,
-        stopping: false,
-      });
+      return set({ streaming: false, runStatus: "cancelled", phaseLabel: null, stopping: false });
 
     case "RunInterrupted":
     case "run_interrupted":
-      return set({
-        streaming: false,
-        runStatus: "interrupted",
-        phaseLabel: null,
-        stopping: false,
-      });
+      return set({ streaming: false, runStatus: "interrupted", phaseLabel: null, stopping: false });
 
     case "RunBudgetLimited":
     case "run_budget_limited":
@@ -219,9 +242,7 @@ export function reduce(prev, envelope) {
 
     case "Error":
     case "error":
-      return set({
-        lastAnnounce: ev.detail || ev.error || "An error occurred",
-      });
+      return set({ lastAnnounce: p.detail || p.error || "An error occurred" });
 
     case "StopRequested":
     case "stop_requested":

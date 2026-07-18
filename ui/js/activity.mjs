@@ -58,11 +58,15 @@ export function createState() {
  * @returns {string[]} changed tool_call_ids
  */
 export function reduce(state, envelope) {
-  const ev = envelope.event || {};
+  // Accept the Rust envelope ({ kind, payload:{…} }) and legacy flat shapes by
+  // flattening the payload and normalizing the discriminant (Task 2.1).
+  const raw = envelope.event || {};
+  const type = raw.type || raw.kind;
+  const ev = raw.payload ? { ...raw.payload, type } : raw;
   const changed = [];
   const key = (id) => id;
 
-  switch (ev.type) {
+  switch (type) {
     case "tool_started":
     case "ToolStarted": {
       const id = ev.tool_call_id || key(envelope.run_id + "_" + Date.now());

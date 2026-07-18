@@ -34,7 +34,11 @@ pub const FMT_CHECK: &str = "\"-\";;\"-\"";
 /// Currency (dollar) format. Identical to [`FMT_NUM`] for non-USD reporting
 /// currencies (writer.py only prefixes `$` for USD).
 pub fn fmt_dollar(currency: &str) -> &'static str {
-    if currency == "USD" { "$#,##0_);($#,##0);\"-\";@" } else { FMT_NUM }
+    if currency == "USD" {
+        "$#,##0_);($#,##0);\"-\";@"
+    } else {
+        FMT_NUM
+    }
 }
 
 // ── Column layout (0-based), mirrors writer.py ──────────────────────────────
@@ -106,7 +110,10 @@ pub struct Sheet {
 
 impl Sheet {
     pub fn new(name: impl Into<String>) -> Self {
-        Sheet { name: name.into(), cells: BTreeMap::new() }
+        Sheet {
+            name: name.into(),
+            cells: BTreeMap::new(),
+        }
     }
 
     /// Merge content into a cell (later writes overlay earlier ones field-by-field).
@@ -135,52 +142,100 @@ impl Sheet {
     }
 
     pub fn text(&mut self, row: u32, col: u32, s: impl Into<String>) {
-        self.merge(row, col, Cell { value: Some(Value::Text(s.into())), ..Default::default() });
+        self.merge(
+            row,
+            col,
+            Cell {
+                value: Some(Value::Text(s.into())),
+                ..Default::default()
+            },
+        );
     }
 
     pub fn number(&mut self, row: u32, col: u32, n: f64) {
-        self.merge(row, col, Cell { value: Some(Value::Number(n)), ..Default::default() });
+        self.merge(
+            row,
+            col,
+            Cell {
+                value: Some(Value::Number(n)),
+                ..Default::default()
+            },
+        );
     }
 
     /// Store a formula. `f` may be given with or without a leading `=`; it is
     /// normalized to include it (matching the snapshot).
     pub fn formula(&mut self, row: u32, col: u32, f: impl AsRef<str>) {
         let f = f.as_ref();
-        let f = if f.starts_with('=') { f.to_string() } else { format!("={f}") };
-        self.merge(row, col, Cell { formula: Some(f), ..Default::default() });
+        let f = if f.starts_with('=') {
+            f.to_string()
+        } else {
+            format!("={f}")
+        };
+        self.merge(
+            row,
+            col,
+            Cell {
+                formula: Some(f),
+                ..Default::default()
+            },
+        );
     }
 
     /// Store a formula with a cached numeric result (LibreOffice-friendly).
     pub fn formula_cached(&mut self, row: u32, col: u32, f: impl AsRef<str>, cache: f64) {
         let f = f.as_ref();
-        let f = if f.starts_with('=') { f.to_string() } else { format!("={f}") };
-        self.merge(row, col, Cell {
-            formula: Some(f),
-            cached: Some(cache),
-            ..Default::default()
-        });
+        let f = if f.starts_with('=') {
+            f.to_string()
+        } else {
+            format!("={f}")
+        };
+        self.merge(
+            row,
+            col,
+            Cell {
+                formula: Some(f),
+                cached: Some(cache),
+                ..Default::default()
+            },
+        );
     }
 
     pub fn fill(&mut self, row: u32, col: u32, argb: &str) {
-        self.merge(row, col, Cell { fill: Some(argb.to_string()), ..Default::default() });
+        self.merge(
+            row,
+            col,
+            Cell {
+                fill: Some(argb.to_string()),
+                ..Default::default()
+            },
+        );
     }
 
     /// Section-header cell: tan-filled text at [`LABEL`].
     pub fn section(&mut self, row: u32, text: impl Into<String>) {
-        self.merge(row, LABEL, Cell {
-            value: Some(Value::Text(text.into())),
-            fill: Some(TAN.to_string()),
-            ..Default::default()
-        });
+        self.merge(
+            row,
+            LABEL,
+            Cell {
+                value: Some(Value::Text(text.into())),
+                fill: Some(TAN.to_string()),
+                ..Default::default()
+            },
+        );
     }
 
     /// Title-bar cell: blue-filled text at [`LABEL`].
     pub fn title(&mut self, row: u32, text: impl Into<String>) {
-        self.merge(row, LABEL, Cell {
-            value: Some(Value::Text(text.into())),
-            fill: Some(BLUE.to_string()),
-            ..Default::default()
-        });
+        self.merge(
+            row,
+            LABEL,
+            Cell {
+                value: Some(Value::Text(text.into())),
+                fill: Some(BLUE.to_string()),
+                ..Default::default()
+            },
+        );
     }
 
     /// Force a number format onto every numeric/formula cell in `row` from
@@ -188,7 +243,10 @@ impl Sheet {
     /// where a row shares one format).
     pub fn stamp_row(&mut self, row: u32, fmt: &'static str) {
         for ((r, c), cell) in self.cells.iter_mut() {
-            if *r == row && *c >= DATA0 && (matches!(cell.value, Some(Value::Number(_))) || cell.formula.is_some()) {
+            if *r == row
+                && *c >= DATA0
+                && (matches!(cell.value, Some(Value::Number(_))) || cell.formula.is_some())
+            {
                 cell.num_fmt = Some(fmt);
             }
         }
@@ -198,7 +256,8 @@ impl Sheet {
     /// (the default for monetary statement cells).
     pub fn stamp_numeric_default(&mut self, fmt: &'static str) {
         for ((_, c), cell) in self.cells.iter_mut() {
-            if *c >= DATA0 && cell.num_fmt.is_none()
+            if *c >= DATA0
+                && cell.num_fmt.is_none()
                 && (matches!(cell.value, Some(Value::Number(_))) || cell.formula.is_some())
             {
                 cell.num_fmt = Some(fmt);
@@ -216,23 +275,31 @@ impl Sheet {
     /// column headers) that content inference can't recover.
     pub fn stamp_bold_row(&mut self, row: u32) {
         for ((r, _), cell) in self.cells.iter_mut() {
-            if *r == row { cell.bold = true; }
+            if *r == row {
+                cell.bold = true;
+            }
         }
     }
     pub fn stamp_italic_row(&mut self, row: u32) {
         for ((r, _), cell) in self.cells.iter_mut() {
-            if *r == row { cell.italic = true; }
+            if *r == row {
+                cell.italic = true;
+            }
         }
     }
     pub fn stamp_top_border_row(&mut self, row: u32) {
         for ((r, _), cell) in self.cells.iter_mut() {
-            if *r == row { cell.top_border = true; }
+            if *r == row {
+                cell.top_border = true;
+            }
         }
     }
     /// Font color override on a whole row (e.g. gray drivers/memos).
     pub fn stamp_font_row(&mut self, row: u32, hex: &'static str) {
         for ((r, _), cell) in self.cells.iter_mut() {
-            if *r == row { cell.font_hex = Some(hex); }
+            if *r == row {
+                cell.font_hex = Some(hex);
+            }
         }
     }
 }

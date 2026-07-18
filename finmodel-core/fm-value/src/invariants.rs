@@ -45,7 +45,10 @@ pub fn check_dcf_invariants(dcf: &DCFInput, wacc: f64) -> Vec<String> {
 
     // 7. WACC should not be unusually high (>50%)
     if wacc > 0.50 {
-        issues.push(format!("WACC ({:.4}) is unusually high; check inputs", wacc));
+        issues.push(format!(
+            "WACC ({:.4}) is unusually high; check inputs",
+            wacc
+        ));
     }
 
     // 8. Projected periods must be greater than zero
@@ -121,9 +124,11 @@ mod tests {
             projected_periods: 1,
         };
         let issues = check_all(&dcf, 0.05, 15.0, 1.5);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("Discount rate") && s.contains("terminal growth")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Discount rate") && s.contains("terminal growth"))
+        );
     }
 
     #[test]
@@ -142,7 +147,11 @@ mod tests {
             projected_periods: 5,
         };
         let issues = check_all(&dcf, 0.12, 15.0, 2.0);
-        assert!(issues.iter().any(|s| s.contains("Terminal growth") && s.contains("GDP")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Terminal growth") && s.contains("GDP"))
+        );
     }
 
     #[test]
@@ -156,9 +165,11 @@ mod tests {
     fn test_pb_must_be_positive() {
         let dcf = make_clean_dcf();
         let issues = check_all(&dcf, 0.10, 15.0, -1.0);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("Price-to-book ratio must be positive")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Price-to-book ratio must be positive"))
+        );
     }
 
     #[test]
@@ -170,9 +181,11 @@ mod tests {
             projected_periods: 5,
         };
         let issues = check_all(&dcf, 0.10, 15.0, 2.0);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("Free cash flow") && s.contains("empty")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Free cash flow") && s.contains("empty"))
+        );
     }
 
     #[test]
@@ -191,9 +204,11 @@ mod tests {
             projected_periods: 1,
         };
         let issues = check_all(&dcf, 0.10, 15.0, 2.0);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("Terminal growth") && s.contains("negative")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Terminal growth") && s.contains("negative"))
+        );
     }
 
     #[test]
@@ -212,9 +227,11 @@ mod tests {
             projected_periods: 0,
         };
         let issues = check_all(&dcf, 0.10, 15.0, 2.0);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("Projected periods must be greater than zero")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("Projected periods must be greater than zero"))
+        );
     }
 
     #[test]
@@ -226,8 +243,10 @@ mod tests {
             projected_periods: 5,
         };
         let issues = check_all(&dcf, 0.10, 15.0, 2.0);
-        assert!(issues
-            .iter()
-            .any(|s| s.contains("FCF projections length") && s.contains("less than")));
+        assert!(
+            issues
+                .iter()
+                .any(|s| s.contains("FCF projections length") && s.contains("less than"))
+        );
     }
 }

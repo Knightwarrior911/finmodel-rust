@@ -226,40 +226,115 @@ pub fn placeholder_result(_ticker: &str) -> ExtractionResult {
         years_found: years.clone(),
         income_statement: {
             let mut m = HashMap::new();
-            m.insert("revenue".to_string(), vec![Some(1000.0), Some(1100.0), Some(1200.0)]);
-            m.insert("cogs".to_string(), vec![Some(600.0), Some(660.0), Some(720.0)]);
-            m.insert("gross_profit".to_string(), vec![Some(400.0), Some(440.0), Some(480.0)]);
-            m.insert("sga".to_string(), vec![Some(150.0), Some(160.0), Some(170.0)]);
+            m.insert(
+                "revenue".to_string(),
+                vec![Some(1000.0), Some(1100.0), Some(1200.0)],
+            );
+            m.insert(
+                "cogs".to_string(),
+                vec![Some(600.0), Some(660.0), Some(720.0)],
+            );
+            m.insert(
+                "gross_profit".to_string(),
+                vec![Some(400.0), Some(440.0), Some(480.0)],
+            );
+            m.insert(
+                "sga".to_string(),
+                vec![Some(150.0), Some(160.0), Some(170.0)],
+            );
             m.insert("rd".to_string(), vec![Some(50.0), Some(55.0), Some(60.0)]);
-            m.insert("ebit".to_string(), vec![Some(200.0), Some(225.0), Some(250.0)]);
-            m.insert("interest_expense".to_string(), vec![Some(20.0), Some(22.0), Some(24.0)]);
-            m.insert("income_tax".to_string(), vec![Some(45.0), Some(51.0), Some(57.0)]);
-            m.insert("net_income".to_string(), vec![Some(135.0), Some(152.0), Some(169.0)]);
-            m.insert("shares_diluted".to_string(), vec![Some(50.0), Some(52.0), Some(54.0)]);
+            m.insert(
+                "ebit".to_string(),
+                vec![Some(200.0), Some(225.0), Some(250.0)],
+            );
+            m.insert(
+                "interest_expense".to_string(),
+                vec![Some(20.0), Some(22.0), Some(24.0)],
+            );
+            m.insert(
+                "income_tax".to_string(),
+                vec![Some(45.0), Some(51.0), Some(57.0)],
+            );
+            m.insert(
+                "net_income".to_string(),
+                vec![Some(135.0), Some(152.0), Some(169.0)],
+            );
+            m.insert(
+                "shares_diluted".to_string(),
+                vec![Some(50.0), Some(52.0), Some(54.0)],
+            );
             m
         },
         balance_sheet: {
             let mut m = HashMap::new();
-            m.insert("cash".to_string(), vec![Some(100.0), Some(120.0), Some(150.0)]);
-            m.insert("accounts_receivable".to_string(), vec![Some(80.0), Some(90.0), Some(100.0)]);
-            m.insert("inventory".to_string(), vec![Some(70.0), Some(75.0), Some(80.0)]);
-            m.insert("total_current_assets".to_string(), vec![Some(300.0), Some(340.0), Some(380.0)]);
-            m.insert("ppe_net".to_string(), vec![Some(400.0), Some(420.0), Some(450.0)]);
-            m.insert("total_assets".to_string(), vec![Some(800.0), Some(860.0), Some(940.0)]);
-            m.insert("accounts_payable".to_string(), vec![Some(60.0), Some(65.0), Some(70.0)]);
-            m.insert("long_term_debt".to_string(), vec![Some(200.0), Some(180.0), Some(160.0)]);
-            m.insert("total_liabilities".to_string(), vec![Some(400.0), Some(410.0), Some(420.0)]);
-            m.insert("total_equity".to_string(), vec![Some(400.0), Some(450.0), Some(520.0)]);
+            m.insert(
+                "cash".to_string(),
+                vec![Some(100.0), Some(120.0), Some(150.0)],
+            );
+            m.insert(
+                "accounts_receivable".to_string(),
+                vec![Some(80.0), Some(90.0), Some(100.0)],
+            );
+            m.insert(
+                "inventory".to_string(),
+                vec![Some(70.0), Some(75.0), Some(80.0)],
+            );
+            m.insert(
+                "total_current_assets".to_string(),
+                vec![Some(300.0), Some(340.0), Some(380.0)],
+            );
+            m.insert(
+                "ppe_net".to_string(),
+                vec![Some(400.0), Some(420.0), Some(450.0)],
+            );
+            m.insert(
+                "total_assets".to_string(),
+                vec![Some(800.0), Some(860.0), Some(940.0)],
+            );
+            m.insert(
+                "accounts_payable".to_string(),
+                vec![Some(60.0), Some(65.0), Some(70.0)],
+            );
+            m.insert(
+                "long_term_debt".to_string(),
+                vec![Some(200.0), Some(180.0), Some(160.0)],
+            );
+            m.insert(
+                "total_liabilities".to_string(),
+                vec![Some(400.0), Some(410.0), Some(420.0)],
+            );
+            m.insert(
+                "total_equity".to_string(),
+                vec![Some(400.0), Some(450.0), Some(520.0)],
+            );
             m
         },
         cash_flow_statement: {
             let mut m = HashMap::new();
-            m.insert("cfo".to_string(), vec![Some(180.0), Some(200.0), Some(220.0)]);
-            m.insert("capex".to_string(), vec![Some(50.0), Some(55.0), Some(60.0)]);
-            m.insert("cfi".to_string(), vec![Some(-80.0), Some(-90.0), Some(-100.0)]);
-            m.insert("dividends_paid".to_string(), vec![Some(30.0), Some(32.0), Some(35.0)]);
-            m.insert("cff".to_string(), vec![Some(-70.0), Some(-78.0), Some(-80.0)]);
-            m.insert("net_change_cash".to_string(), vec![Some(30.0), Some(32.0), Some(40.0)]);
+            m.insert(
+                "cfo".to_string(),
+                vec![Some(180.0), Some(200.0), Some(220.0)],
+            );
+            m.insert(
+                "capex".to_string(),
+                vec![Some(50.0), Some(55.0), Some(60.0)],
+            );
+            m.insert(
+                "cfi".to_string(),
+                vec![Some(-80.0), Some(-90.0), Some(-100.0)],
+            );
+            m.insert(
+                "dividends_paid".to_string(),
+                vec![Some(30.0), Some(32.0), Some(35.0)],
+            );
+            m.insert(
+                "cff".to_string(),
+                vec![Some(-70.0), Some(-78.0), Some(-80.0)],
+            );
+            m.insert(
+                "net_change_cash".to_string(),
+                vec![Some(30.0), Some(32.0), Some(40.0)],
+            );
             m
         },
         notes: {
@@ -580,7 +655,10 @@ pub fn load_cache(ticker: &str) -> Option<ExtractionResult> {
 }
 
 /// Save an extraction result to the cache.
-pub fn save_extraction_cache(ticker: &str, result: &ExtractionResult) -> Result<PathBuf, ExtractError> {
+pub fn save_extraction_cache(
+    ticker: &str,
+    result: &ExtractionResult,
+) -> Result<PathBuf, ExtractError> {
     let p = cache_path(ticker);
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).map_err(|e| ExtractError::Other(format!("mkdir: {e}")))?;
@@ -618,7 +696,14 @@ pub fn extract_financials_from_pdf(
     //   Python: years = [p[:4] for p in periods]
     //   "Extract data for these years (oldest first): {years}\nReturn arrays of length {len} for every key.\n\nAnnual report text:\n{chunk}"
     let years_clean: Vec<&str> = periods.iter().map(|p| &p[..p.len().min(4)]).collect();
-    let years_repr = format!("[{}]", years_clean.iter().map(|y| format!("'{y}'")).collect::<Vec<_>>().join(", "));
+    let years_repr = format!(
+        "[{}]",
+        years_clean
+            .iter()
+            .map(|y| format!("'{y}'"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     let user_prompt = format!(
         "Extract data for these years (oldest first): {years_repr}\n\
          Return arrays of length {} for every key.\n\n\
@@ -673,7 +758,9 @@ fn extract_pdf_pages(pdf_path: &str) -> Result<Vec<String>, ExtractError> {
     }));
     match result {
         Ok(Ok(pages)) => Ok(pages),
-        Ok(Err(e)) => Err(ExtractError::Other(format!("PDF text extraction failed: {e}"))),
+        Ok(Err(e)) => Err(ExtractError::Other(format!(
+            "PDF text extraction failed: {e}"
+        ))),
         Err(_) => Err(ExtractError::Other(format!(
             "PDF text extraction panicked on {pdf_path} (malformed or unsupported PDF)"
         ))),
@@ -690,32 +777,45 @@ pub fn extract_pdf_text(pdf_path: &str) -> Result<String, ExtractError> {
 
 /// Convert a JSON value (from LLM response) into an ExtractionResult.
 fn extraction_result_from_json(val: &serde_json::Value) -> Result<ExtractionResult, ExtractError> {
-    let currency = val.get("currency")
+    let currency = val
+        .get("currency")
         .and_then(|v| v.as_str())
         .unwrap_or("USD")
         .to_string();
 
-    let years_found = val.get("years_found")
+    let years_found = val
+        .get("years_found")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let income_statement = json_obj_to_statement_data(val.get("income_statement"));
     let balance_sheet = json_obj_to_statement_data(val.get("balance_sheet"));
     let cash_flow_statement = json_obj_to_statement_data(val.get("cash_flow_statement"));
 
-    let notes = val.get("notes")
+    let notes = val
+        .get("notes")
         .and_then(|v| v.as_object())
-        .map(|obj| {
-            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        })
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
 
-    let confidence = val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.9);
+    let confidence = val
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.9);
 
-    let discrepancies = val.get("discrepancies")
+    let discrepancies = val
+        .get("discrepancies")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     Ok(ExtractionResult {
@@ -736,7 +836,8 @@ fn json_obj_to_statement_data(obj: Option<&serde_json::Value>) -> StatementData 
     if let Some(o) = obj.and_then(|v| v.as_object()) {
         for (key, val) in o {
             if let Some(arr) = val.as_array() {
-                let vec: Vec<Option<f64>> = arr.iter()
+                let vec: Vec<Option<f64>> = arr
+                    .iter()
                     .map(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
                     .collect();
                 sd.insert(key.clone(), vec);
@@ -754,8 +855,7 @@ mod tests {
     fn test_placeholder_round_trip() {
         let result = placeholder_result("TEST");
         let json = serde_json::to_string(&result).expect("serialize");
-        let deserialized: ExtractionResult =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: ExtractionResult = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(deserialized.currency, "USD");
         assert_eq!(deserialized.years_found.len(), 3);

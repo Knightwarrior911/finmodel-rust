@@ -30,9 +30,14 @@ fn temp_deck(tag: &str) -> String {
 }
 
 fn assert_members_canonical(pkg: &Package, want: &Value, key: &str) {
-    let members = want.get(key).and_then(|v| v.as_object()).expect("members map");
+    let members = want
+        .get(key)
+        .and_then(|v| v.as_object())
+        .expect("members map");
     for (name, wtext) in members {
-        let got = pkg.get(name).unwrap_or_else(|| panic!("missing member {name}"));
+        let got = pkg
+            .get(name)
+            .unwrap_or_else(|| panic!("missing member {name}"));
         let (gc, wc) = (canon(got), canon(wtext.as_str().unwrap().as_bytes()));
         assert_eq!(gc, wc, "member {name} differs from oracle");
     }
@@ -45,7 +50,11 @@ fn assert_log(deck: &str, want: &Value) {
     assert_eq!(got.get("op"), want_log.get("op"), "log op mismatch");
     // Compare params minus output_path (Rust never logs it; oracle strips it).
     let strip = |v: &Value| -> Value {
-        let mut m = v.get("params").and_then(|p| p.as_object()).cloned().unwrap_or_default();
+        let mut m = v
+            .get("params")
+            .and_then(|p| p.as_object())
+            .cloned()
+            .unwrap_or_default();
         m.remove("output_path");
         Value::Object(m)
     };
@@ -90,7 +99,9 @@ fn run_structure(tag: &str, op: impl Fn(&str) -> Result<String, String>) {
 
 #[test]
 fn duplicate_slide_matches_oracle() {
-    run_structure("duplicate", |d| fm_pptx::edit::duplicate_slide(d, 1, None, None));
+    run_structure("duplicate", |d| {
+        fm_pptx::edit::duplicate_slide(d, 1, None, None)
+    });
 }
 
 #[test]
@@ -100,15 +111,22 @@ fn delete_slide_matches_oracle() {
 
 #[test]
 fn reorder_slides_matches_oracle() {
-    run_structure("reorder", |d| fm_pptx::edit::reorder_slides(d, &[2, 0, 1], None));
+    run_structure("reorder", |d| {
+        fm_pptx::edit::reorder_slides(d, &[2, 0, 1], None)
+    });
 }
 
 #[test]
 fn recolor_theme_matches_oracle() {
     let deck = temp_deck("recolor");
     let want = common::load_json(&format!("{}/PPTX_edit_recolor.json", common::snap_dir()));
-    fm_pptx::edit::recolor_theme(&deck, &[("accent1", "#255BE3"), ("accent2", "#0F1632")], None, None)
-        .expect("recolor");
+    fm_pptx::edit::recolor_theme(
+        &deck,
+        &[("accent1", "#255BE3"), ("accent2", "#0F1632")],
+        None,
+        None,
+    )
+    .expect("recolor");
     let pkg = Package::read(&deck).expect("read output");
     assert_members_canonical(&pkg, &want, "theme");
     assert_log(&deck, &want);
@@ -124,11 +142,22 @@ fn replace_text_changes_run_text() {
     let js = fm_pptx::inspect::inspect_pptx(&deck).expect("inspect");
     let slides = js.get("slides").and_then(|v| v.as_array()).unwrap();
     // Slide index 1 holds "Q1 revenue grew strongly".
-    let text = slides[1]["elements"][0]["text"]["text"].as_str().unwrap_or("");
-    assert!(text.contains("Q2 revenue"), "expected Q2 revenue, got {text:?}");
-    assert!(!text.contains("Q1 revenue"), "Q1 should be replaced, got {text:?}");
+    let text = slides[1]["elements"][0]["text"]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Q2 revenue"),
+        "expected Q2 revenue, got {text:?}"
+    );
+    assert!(
+        !text.contains("Q1 revenue"),
+        "Q1 should be replaced, got {text:?}"
+    );
     let hist = fm_pptx::edit::get_edit_history(&deck, 1, None);
-    assert_eq!(hist.last().unwrap().get("op").unwrap(), "replace_text_in_deck");
+    assert_eq!(
+        hist.last().unwrap().get("op").unwrap(),
+        "replace_text_in_deck"
+    );
     let _ = std::fs::remove_file(&deck);
     let _ = std::fs::remove_file(format!("{deck}.edit_log.jsonl"));
 }

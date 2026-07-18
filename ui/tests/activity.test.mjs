@@ -238,3 +238,13 @@ test("reduce handles lowercase event types (OMP style)", async () => {
   assert.equal(state.byId.get("t1").status, "running");
   assert.equal(state.byId.get("t1").name, "build_model");
 });
+
+test("reduces the Rust envelope shape (kind + payload)", async () => {
+  const { act, state } = await boot();
+  // Rust emits { event: { kind, payload } } — activity must flatten it.
+  act.reduce(state, { event: { kind: "tool_started", payload: { tool_call_id: "t1", name: "get_quote" } }, run_id: "r1" });
+  assert.ok(state.byId.has("t1"), "tool_started reduced from kind+payload");
+  assert.equal(state.byId.get("t1").status, "running");
+  act.reduce(state, { event: { kind: "tool_succeeded", payload: { tool_call_id: "t1" } }, run_id: "r1" });
+  assert.equal(state.byId.get("t1").status, "success");
+});

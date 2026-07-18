@@ -51,6 +51,8 @@ impl std::error::Error for StartError {}
 struct Entry {
     run_id: String,
     token: CancellationToken,
+    /// Resumable pause signal, distinct from `token` (terminal cancel).
+    interrupt: CancellationToken,
 }
 
 type Map = Arc<Mutex<HashMap<String, Entry>>>;
@@ -110,11 +112,13 @@ impl ActorRegistry {
             return Err(StartError::TooManyActive);
         }
         let token = CancellationToken::new();
+        let interrupt = CancellationToken::new();
         map.insert(
             conversation_id.to_string(),
             Entry {
                 run_id: run_id.to_string(),
                 token: token.clone(),
+                interrupt: interrupt.clone(),
             },
         );
         Ok(RunHandle {
@@ -122,6 +126,7 @@ impl ActorRegistry {
             conversation_id: conversation_id.to_string(),
             run_id: run_id.to_string(),
             token,
+            interrupt,
             global: self.global.clone(),
             per_run: Arc::new(Semaphore::new(PER_RUN_SLOTS)),
         })
@@ -134,6 +139,21 @@ impl ActorRegistry {
         match map.get(conversation_id) {
             Some(e) if e.run_id == run_id => {
                 e.token.cancel();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Idempotently pause (resumably interrupt) a specific conversation's run.
+    /// Fires the interrupt token, distinct from the terminal cancel token, so the
+    /// run ends `RunInterrupted` (resumable) rather than `RunCancelled`. Returns
+    /// true if a matching active run was found and signalled.
+    pub fn pause(&self, conversation_id: &str, run_id: &str) -> bool {
+        let map = self.map.lock();
+        match map.get(conversation_id) {
+            Some(e) if e.run_id == run_id => {
+                e.interrupt.cancel();
                 true
             }
             _ => false,
@@ -175,6 +195,7 @@ pub struct RunHandle {
     conversation_id: String,
     run_id: String,
     token: CancellationToken,
+    interrupt: CancellationToken,
     global: Arc<Semaphore>,
     per_run: Arc<Semaphore>,
 }
@@ -192,6 +213,11 @@ impl RunHandle {
         self.token.is_cancelled()
     }
 
+    /// The resumable interrupt (pause) token, distinct from cancellation.
+    pub fn interrupt_token(&self) -> CancellationToken {
+        self.interrupt.clone()
+    }
+
     /// Per-run execution slots currently available.
     pub fn per_run_available(&self) -> usize {
         self.per_run.available_permits()
@@ -201,8 +227,18 @@ impl RunHandle {
     /// only immediately before executing an operation, never while waiting on a
     /// child/approval/timer/DB — a waiting parent must hold no slot.
     pub async fn acquire_slot(&self) -> SlotPermit {
-        let global = self.global.clone().acquire_owned().await.expect("global sem");
-        let per_run = self.per_run.clone().acquire_owned().await.expect("per-run sem");
+        let global = self
+            .global
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("global sem");
+        let per_run = self
+            .per_run
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("per-run sem");
         SlotPermit {
             _global: global,
             _per_run: per_run,
@@ -246,7 +282,10 @@ mod tests {
     fn one_run_per_conversation() {
         let reg = ActorRegistry::new();
         let _h = reg.start_run("c1", "r1").unwrap();
-        assert!(matches!(reg.start_run("c1", "r2"), Err(StartError::ConversationBusy)));
+        assert!(matches!(
+            reg.start_run("c1", "r2"),
+            Err(StartError::ConversationBusy)
+        ));
     }
 
     #[test]
@@ -256,7 +295,10 @@ mod tests {
         let _b = reg.start_run("c2", "r2").unwrap();
         let _c = reg.start_run("c3", "r3").unwrap();
         assert_eq!(reg.active_count(), 3);
-        assert!(matches!(reg.start_run("c4", "r4"), Err(StartError::TooManyActive)));
+        assert!(matches!(
+            reg.start_run("c4", "r4"),
+            Err(StartError::TooManyActive)
+        ));
     }
 
     #[test]

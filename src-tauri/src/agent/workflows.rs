@@ -42,7 +42,9 @@ pub struct WorkflowPlan {
 pub enum WorkflowError {
     WorkflowNotFound(String),
     /// A required tool is not registered.
-    MissingTool { tool: String },
+    MissingTool {
+        tool: String,
+    },
     /// Input validation failed (missing arg, etc.)
     InputValidation(String),
 }
@@ -73,7 +75,9 @@ pub fn plan_workflow(
     for tool in spec.required_tools {
         registry
             .get(tool)
-            .ok_or_else(|| WorkflowError::MissingTool { tool: tool.to_string() })?;
+            .ok_or_else(|| WorkflowError::MissingTool {
+                tool: tool.to_string(),
+            })?;
     }
 
     // Validate user-supplied input against the spec's required fields.
@@ -137,7 +141,12 @@ mod tests {
 
     #[test]
     fn plan_earnings_review() {
-        let plan = plan_workflow("earnings_review", &serde_json::json!({"ticker":"AAPL"}), &reg()).unwrap();
+        let plan = plan_workflow(
+            "earnings_review",
+            &serde_json::json!({"ticker":"AAPL"}),
+            &reg(),
+        )
+        .unwrap();
         assert_eq!(plan.spec_id, "earnings_review");
         assert_eq!(plan.label, "Earnings review");
         assert!(plan.needs_verification);
@@ -148,7 +157,12 @@ mod tests {
 
     #[test]
     fn plan_trading_comps() {
-        let plan = plan_workflow("trading_comps", &serde_json::json!({"tickers":["NVDA","AMD"]}), &reg()).unwrap();
+        let plan = plan_workflow(
+            "trading_comps",
+            &serde_json::json!({"tickers":["NVDA","AMD"]}),
+            &reg(),
+        )
+        .unwrap();
         assert_eq!(plan.spec_id, "trading_comps");
         assert_eq!(plan.approval_policy, ApprovalPolicy::NewVersionAuto);
         assert_eq!(plan.max_children, 12);
@@ -156,7 +170,8 @@ mod tests {
 
     #[test]
     fn plan_dcf_model() {
-        let plan = plan_workflow("dcf_model", &serde_json::json!({"ticker":"MSFT"}), &reg()).unwrap();
+        let plan =
+            plan_workflow("dcf_model", &serde_json::json!({"ticker":"MSFT"}), &reg()).unwrap();
         assert_eq!(plan.max_children, 4);
         assert!(plan.steps.iter().any(|s| s.tool_name == "build_model"));
     }
@@ -187,7 +202,12 @@ mod tests {
 
     #[test]
     fn plan_sets_budget_from_spec_policy() {
-        let plan = plan_workflow("earnings_review", &serde_json::json!({"ticker":"AAPL"}), &reg()).unwrap();
+        let plan = plan_workflow(
+            "earnings_review",
+            &serde_json::json!({"ticker":"AAPL"}),
+            &reg(),
+        )
+        .unwrap();
         assert_eq!(plan.budget.policy, Policy::WORKFLOW);
     }
 
@@ -200,7 +220,12 @@ mod tests {
 
     #[test]
     fn plan_pitch_prep() {
-        let plan = plan_workflow("pitch_prep", &serde_json::json!({"deal":"Acme Corp"}), &reg()).unwrap();
+        let plan = plan_workflow(
+            "pitch_prep",
+            &serde_json::json!({"deal":"Acme Corp"}),
+            &reg(),
+        )
+        .unwrap();
         assert_eq!(plan.spec_id, "pitch_prep");
         assert_eq!(plan.approval_policy, ApprovalPolicy::NewVersionAuto);
         assert!(plan.steps.iter().any(|s| s.tool_name == "research"));
@@ -208,14 +233,20 @@ mod tests {
 
     #[test]
     fn plan_ma_screen() {
-        let plan = plan_workflow("ma_screen", &serde_json::json!({"theme":"AI chips"}), &reg()).unwrap();
+        let plan = plan_workflow(
+            "ma_screen",
+            &serde_json::json!({"theme":"AI chips"}),
+            &reg(),
+        )
+        .unwrap();
         assert_eq!(plan.approval_policy, ApprovalPolicy::None);
         assert_eq!(plan.max_children, 12);
     }
 
     #[test]
     fn steps_include_allowed_tools() {
-        let plan = plan_workflow("dcf_model", &serde_json::json!({"ticker":"GOOGL"}), &reg()).unwrap();
+        let plan =
+            plan_workflow("dcf_model", &serde_json::json!({"ticker":"GOOGL"}), &reg()).unwrap();
         let names: Vec<&str> = plan.steps.iter().map(|s| s.tool_name.as_str()).collect();
         assert!(names.contains(&"build_model"));
         assert!(names.contains(&"read_filing"));
@@ -223,8 +254,13 @@ mod tests {
 
     #[test]
     fn dcf_plan_marks_build_model_create_risk() {
-        let plan = plan_workflow("dcf_model", &serde_json::json!({"ticker":"MSFT"}), &reg()).unwrap();
-        let build = plan.steps.iter().find(|s| s.tool_name == "build_model").unwrap();
+        let plan =
+            plan_workflow("dcf_model", &serde_json::json!({"ticker":"MSFT"}), &reg()).unwrap();
+        let build = plan
+            .steps
+            .iter()
+            .find(|s| s.tool_name == "build_model")
+            .unwrap();
         assert_eq!(build.risk, Risk::LocalCreate);
         // New immutable workbook versions auto-run under NewVersionAuto.
         assert_eq!(plan.approval_policy, ApprovalPolicy::NewVersionAuto);
@@ -244,7 +280,11 @@ mod tests {
             assert!(names.contains(&req), "missing {req}");
         }
         assert!(plan.needs_verification);
-        assert!(fm_agent::workflows::workflow("earnings_review").unwrap().golden);
+        assert!(
+            fm_agent::workflows::workflow("earnings_review")
+                .unwrap()
+                .golden
+        );
     }
 
     #[test]

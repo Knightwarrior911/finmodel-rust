@@ -4,9 +4,9 @@
 //! Uses fm-fetch for CIK lookup and companyfacts retrieval, then
 //! parses with the xbrl module.
 
-use fm_fetch::edgar::{cik_from_ticker, fetch_companyfacts_raw};
-use crate::extract::{ExtractionResult, ExtractError};
+use crate::extract::{ExtractError, ExtractionResult};
 use crate::xbrl;
+use fm_fetch::edgar::{cik_from_ticker, fetch_companyfacts_raw};
 
 /// Fetch structured financial data from SEC EDGAR XBRL for the given ticker.
 ///
@@ -98,7 +98,10 @@ pub fn fetch_xbrl_bundle(
 /// so a foreign filer with a few incidental USD facts still resolves correctly.
 fn detect_currency(facts: &serde_json::Value) -> Option<String> {
     for tax in ["us-gaap", "ifrs-full"] {
-        let obj = match facts.pointer(&format!("/facts/{tax}")).and_then(|v| v.as_object()) {
+        let obj = match facts
+            .pointer(&format!("/facts/{tax}"))
+            .and_then(|v| v.as_object())
+        {
             Some(o) if !o.is_empty() => o,
             _ => continue,
         };
@@ -251,7 +254,12 @@ fn discover_and_extract_interim(
         return None;
     }
     let y_str = year.map(|y| y.to_string()).unwrap_or_default();
-    Some(crate::report::extract_financials(&text, company_name, &y_str, &url))
+    Some(crate::report::extract_financials(
+        &text,
+        company_name,
+        &y_str,
+        &url,
+    ))
 }
 
 /// Overlay fresher interim balance-sheet values onto the latest column of an
@@ -271,10 +279,7 @@ fn overlay_interim_bs_into_result(
     ];
     for (key, val) in mapping {
         if let Some(v) = val {
-            let col = result
-                .balance_sheet
-                .entry(key.to_string())
-                .or_default();
+            let col = result.balance_sheet.entry(key.to_string()).or_default();
             match col.last_mut() {
                 Some(last) => *last = Some(v),
                 None => col.push(Some(v)),
@@ -304,7 +309,10 @@ mod tests {
         // Non-US / bogus ticker must return Err — never fabricate placeholder data
         // that could masquerade as a real extraction.
         let result = fetch_xbrl("NONUSXYZ");
-        assert!(result.is_err(), "non-US ticker should return Err, not placeholder");
+        assert!(
+            result.is_err(),
+            "non-US ticker should return Err, not placeholder"
+        );
     }
 
     #[test]
@@ -379,13 +387,19 @@ mod tests {
         overlay_interim_bs_into_result(&mut result, &interim);
 
         // Latest (last) column overwritten; prior column untouched.
-        assert_eq!(result.balance_sheet.get("cash"), Some(&vec![Some(10.0), Some(15.0)]));
+        assert_eq!(
+            result.balance_sheet.get("cash"),
+            Some(&vec![Some(10.0), Some(15.0)])
+        );
         assert_eq!(
             result.balance_sheet.get("total_assets"),
             Some(&vec![Some(100.0), Some(130.0)])
         );
         // New key seeded as a single-column vec.
-        assert_eq!(result.balance_sheet.get("goodwill"), Some(&vec![Some(70.0)]));
+        assert_eq!(
+            result.balance_sheet.get("goodwill"),
+            Some(&vec![Some(70.0)])
+        );
     }
 
     #[test]

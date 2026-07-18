@@ -79,7 +79,11 @@ export function reduce(state, action) {
       const next = clone(state);
       const w = next.list.find((x) => x.id === (action.id || next.activeId));
       if (!w) return state;
-      if (!["standard", "confidential", "restricted"].includes(action.confidentiality)) {
+      if (
+        !["standard", "confidential", "restricted"].includes(
+          action.confidentiality,
+        )
+      ) {
         return state;
       }
       w.confidentiality = action.confidentiality;
@@ -140,7 +144,9 @@ export function render(els, state, hooks = {}) {
   if (tempBtn) {
     tempBtn.setAttribute("aria-pressed", state.temporary ? "true" : "false");
     tempBtn.classList.toggle("is-active", state.temporary);
-    tempBtn.textContent = state.temporary ? "Temporary · on" : "Temporary";
+    tempBtn.textContent = state.temporary
+      ? "Temporary chat · on"
+      : "Temporary chat";
     tempBtn.onclick = () => hooks.onToggleTemporary?.();
   }
 }

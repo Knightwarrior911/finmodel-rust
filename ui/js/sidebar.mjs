@@ -1,6 +1,13 @@
 // sidebar.mjs — conversation history, new chat, rename/delete, collapse, theme.
 
-import { $, call, escapeHtml, relTime, toggleTheme, currentTheme } from "./core.mjs";
+import {
+  $,
+  call,
+  escapeHtml,
+  relTime,
+  toggleTheme,
+  currentTheme,
+} from "./core.mjs";
 import { getCurrentId } from "./chat.mjs";
 
 let onSelect = () => {};
@@ -19,7 +26,10 @@ const collapsedFolders = new Set(
   })(),
 );
 function persistCollapsed() {
-  localStorage.setItem("foldersCollapsed", JSON.stringify([...collapsedFolders]));
+  localStorage.setItem(
+    "foldersCollapsed",
+    JSON.stringify([...collapsedFolders]),
+  );
 }
 
 const SUN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
@@ -37,7 +47,10 @@ function updateThemeIcon() {
   if (!btn) return;
   const dark = currentTheme() === "dark";
   btn.innerHTML = dark ? SUN : MOON;
-  btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+  btn.setAttribute(
+    "aria-label",
+    dark ? "Switch to light theme" : "Switch to dark theme",
+  );
 }
 
 /// Announce a sidebar failure with a keyboard-reachable Retry / Dismiss. Keeps
@@ -96,8 +109,12 @@ export function getProjects() {
 
 // Client-side substring filter over conversation titles.
 function applyFilter() {
-  const q = (($("convFilter") && $("convFilter").value) || "").trim().toLowerCase();
-  const items = q ? allItems.filter((c) => (c.title || "").toLowerCase().includes(q)) : allItems;
+  const q = (($("convFilter") && $("convFilter").value) || "")
+    .trim()
+    .toLowerCase();
+  const items = q
+    ? allItems.filter((c) => (c.title || "").toLowerCase().includes(q))
+    : allItems;
   renderRows(items);
 }
 
@@ -201,8 +218,13 @@ function beginRename(row) {
     }
   };
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); commit(true); }
-    else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      commit(false);
+    }
   });
   input.addEventListener("blur", () => commit(true));
 }
@@ -211,7 +233,8 @@ function applyCollapsed(collapsed) {
   document.body.classList.toggle("sidebar-collapsed", collapsed);
   const toggle = $("sidebarToggle");
   const sidebar = $("sidebar");
-  if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (toggle)
+    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
   // Collapsed descendants are inert (not focusable/announced); the floating
   // expand button lives outside #sidebar so it stays reachable.
   if (sidebar) {
@@ -283,7 +306,9 @@ export function initSidebar(opts = {}) {
     if (projOpen) {
       e.stopPropagation();
       const pid = projOpen.dataset.project;
-      onProjectOpen(projects.find((x) => x.id === pid) || { id: pid, name: "" });
+      onProjectOpen(
+        projects.find((x) => x.id === pid) || { id: pid, name: "" },
+      );
       return;
     }
     const moveBtn = e.target.closest(".conv-move");
@@ -291,14 +316,32 @@ export function initSidebar(opts = {}) {
       e.stopPropagation();
       const actions = moveBtn.closest(".conv-actions");
       const cid = moveBtn.dataset.id;
-      const opts2 = ['<option value="">— No project —</option>']
-        .concat(
-          projects.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`),
-        )
+      if (projects.length === 0) {
+        // No folders exist yet — a picker would be a dead-end. Guide instead.
+        actions.innerHTML =
+          '<span style="font-size:12px;color:var(--faint);white-space:nowrap">No projects yet</span>';
+        setTimeout(() => refresh(), 1400);
+        return;
+      }
+      // Preselect the conversation's CURRENT project so the menu reflects reality
+      // (a chat in a folder shows that folder, not a misleading "No project").
+      const cur = (allItems.find((c) => c.id === cid) || {}).project_id || "";
+      const opt = (v, label) =>
+        `<option value="${escapeHtml(v)}"${v === cur ? " selected" : ""}>${escapeHtml(label)}</option>`;
+      const opts2 = [opt("", "— No project —")]
+        .concat(projects.map((p) => opt(p.id, p.name)))
         .join("");
       actions.innerHTML = `<select class="conv-move-sel" data-id="${escapeHtml(cid)}" aria-label="Move to project">${opts2}</select>`;
       const sel = actions.querySelector("select");
-      if (sel) sel.focus();
+      if (sel) {
+        sel.focus();
+        // Clicking away without picking restores the action buttons (no stuck menu).
+        sel.addEventListener("blur", () => {
+          setTimeout(() => {
+            if (document.body.contains(sel)) refresh();
+          }, 120);
+        });
+      }
       return;
     }
     const renameBtn = e.target.closest(".conv-rename");

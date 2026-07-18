@@ -132,7 +132,10 @@ impl ExtractedFinancials {
             ("lease_interest", self.lease_interest),
             ("short_term_rent", self.short_term_rent),
             ("lease_liabilities_current", self.lease_liabilities_current),
-            ("lease_liabilities_noncurrent", self.lease_liabilities_noncurrent),
+            (
+                "lease_liabilities_noncurrent",
+                self.lease_liabilities_noncurrent,
+            ),
             ("rou_assets", self.rou_assets),
             ("depreciation_total", self.depreciation_total),
             ("amortisation_total", self.amortisation_total),
@@ -145,7 +148,10 @@ impl ExtractedFinancials {
             ("nol_dta", self.nol_dta),
             ("pension_pbo", self.pension_pbo),
             ("pension_plan_assets", self.pension_plan_assets),
-            ("operating_lease_liabilities", self.operating_lease_liabilities),
+            (
+                "operating_lease_liabilities",
+                self.operating_lease_liabilities,
+            ),
             ("finance_lease_liabilities", self.finance_lease_liabilities),
             ("current_borrowings", self.current_borrowings),
             ("noncurrent_borrowings", self.noncurrent_borrowings),
@@ -216,7 +222,11 @@ impl ExtractedFinancials {
         put(&mut bs, "cash", self.cash);
         put(&mut bs, "goodwill", self.goodwill);
         put(&mut bs, "long_term_debt", self.total_debt);
-        put(&mut bs, "short_term_investments", self.short_term_investments);
+        put(
+            &mut bs,
+            "short_term_investments",
+            self.short_term_investments,
+        );
 
         let years_found = if self.year.is_empty() {
             Vec::new()

@@ -106,7 +106,6 @@ pub struct DCFOutput {
     pub warnings: Vec<String>,
 }
 
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PublicCompPeer {
     pub ticker: String,

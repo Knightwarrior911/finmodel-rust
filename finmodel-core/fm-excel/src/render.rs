@@ -22,8 +22,8 @@ use rust_xlsxwriter::{
     Workbook as XlsxWorkbook,
 };
 
-use crate::model::{Cell, Value, Workbook, DATA0, LABEL};
 use crate::Result;
+use crate::model::{Cell, DATA0, LABEL, Value, Workbook};
 
 // Font colors (writer.py `_Fmt`).
 const INK: u32 = 0x0F_1632; // same-tab formula / labels
@@ -105,12 +105,16 @@ fn style_for(cell: &Cell, col: u32) -> Style {
     let is_number = matches!(cell.value, Some(Value::Number(_)));
     let is_text = matches!(cell.value, Some(Value::Text(_)));
     let is_formula = cell.formula.is_some();
-    let cross_tab = cell.formula.as_deref().map(|f| f.contains('!')).unwrap_or(false);
+    let cross_tab = cell
+        .formula
+        .as_deref()
+        .map(|f| f.contains('!'))
+        .unwrap_or(false);
 
     // Fill-driven emphasis first (titles, totals, section headers).
     let (mut font_color, mut bold, filled) = match cell.fill.as_deref() {
-        Some(SAND_ARGB) => (INK, true, true),          // section header
-        Some(_) => (WHITE, true, true),                // navy title / total / red fail
+        Some(SAND_ARGB) => (INK, true, true), // section header
+        Some(_) => (WHITE, true, true),       // navy title / total / red fail
         None => {
             if is_number {
                 (INPUT_BLUE, false, false) // hardcoded input
@@ -199,7 +203,10 @@ pub fn render(wb: &Workbook, path: &str) -> Result<()> {
         // ── Cells ─────────────────────────────────────────────────────────
         for ((row, col), cell) in &sheet.cells {
             let style = style_for(cell, *col);
-            let f = fmts.entry(style.clone()).or_insert_with(|| build_format(&style)).clone();
+            let f = fmts
+                .entry(style.clone())
+                .or_insert_with(|| build_format(&style))
+                .clone();
 
             let formula_obj = |formula: &str, cached: Option<f64>| -> Formula {
                 let mut fo = Formula::new(formula);

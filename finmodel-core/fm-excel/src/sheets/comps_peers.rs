@@ -1,7 +1,7 @@
 //! Comps Peers tab — port of `writer.py::_write_comps_peers`.
 
 use crate::input::WorkbookInput;
-use crate::model::{Sheet, FMT_MULT, FMT_NUM, FMT_PCT, LABEL};
+use crate::model::{FMT_MULT, FMT_NUM, FMT_PCT, LABEL, Sheet};
 use fm_value::PublicCompsOutput;
 
 pub fn build(input: &WorkbookInput) -> Sheet {

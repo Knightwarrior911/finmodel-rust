@@ -1,7 +1,15 @@
 // settings.mjs — settings modal: API key, model, EDGAR contact, output dir,
 // Roam MCP command, and theme selection.
 
-import { $, call, TAURI, escapeHtml, setTheme, themeChoice, activateDialog } from "./core.mjs";
+import {
+  $,
+  call,
+  TAURI,
+  escapeHtml,
+  setTheme,
+  themeChoice,
+  activateDialog,
+} from "./core.mjs";
 
 let onSaved = () => {};
 let deactivateDialog = null;
@@ -9,25 +17,47 @@ let deactivateDialog = null;
 // OpenAI-compatible providers (users bring their own key). Base URLs verified
 // against OMP's provider catalog. "custom" lets a user paste any endpoint.
 const PROVIDERS = [
-  { id: "openrouter", name: "OpenRouter", base: "https://openrouter.ai/api/v1" },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    base: "https://openrouter.ai/api/v1",
+  },
   { id: "openai", name: "OpenAI", base: "https://api.openai.com/v1" },
   { id: "xai", name: "xAI (Grok)", base: "https://api.x.ai/v1" },
-  { id: "anthropic", name: "Anthropic (Claude)", base: "https://api.anthropic.com/v1" },
-  { id: "gemini", name: "Google Gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai" },
+  {
+    id: "anthropic",
+    name: "Anthropic (Claude)",
+    base: "https://api.anthropic.com/v1",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    base: "https://generativelanguage.googleapis.com/v1beta/openai",
+  },
   { id: "deepseek", name: "DeepSeek", base: "https://api.deepseek.com/v1" },
   { id: "groq", name: "Groq", base: "https://api.groq.com/openai/v1" },
   { id: "mistral", name: "Mistral", base: "https://api.mistral.ai/v1" },
   { id: "together", name: "Together", base: "https://api.together.xyz/v1" },
-  { id: "fireworks", name: "Fireworks", base: "https://api.fireworks.ai/inference/v1" },
+  {
+    id: "fireworks",
+    name: "Fireworks",
+    base: "https://api.fireworks.ai/inference/v1",
+  },
   { id: "cerebras", name: "Cerebras", base: "https://api.cerebras.ai/v1" },
-  { id: "moonshot", name: "Moonshot (Kimi)", base: "https://api.moonshot.ai/v1" },
+  {
+    id: "moonshot",
+    name: "Moonshot (Kimi)",
+    base: "https://api.moonshot.ai/v1",
+  },
   { id: "custom", name: "Custom (OpenAI-compatible)", base: "" },
 ];
 
 function populateProviders() {
   const sel = $("providerSelect");
   if (!sel || sel.options.length) return;
-  sel.innerHTML = PROVIDERS.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  sel.innerHTML = PROVIDERS.map(
+    (p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`,
+  ).join("");
 }
 
 function setProviderFromBase(base) {
@@ -49,6 +79,35 @@ function clearStatus() {
   if (el) el.hidden = true;
 }
 
+// ── Model-role profiles (Task 1.5) ───────────────────────────────────────────
+// The worker runs delegated child tasks; the verifier is an optional extra check.
+// A profile is only sent when both provider base + model are present; blank roles
+// clear back to orchestrator-only. `credential_ref` names an OS-credential-store
+// account (the secret itself is never in the frontend).
+
+function readRoleProfile(prefix) {
+  const base = ($(`${prefix}ProviderBase`).value || "").trim();
+  const model = ($(`${prefix}Model`).value || "").trim();
+  const cred = ($(`${prefix}CredentialRef`).value || "").trim();
+  if (!base || !model) return null;
+  return { provider_base: base, model, credential_ref: cred };
+}
+
+function fillRoleProfile(prefix, p) {
+  $(`${prefix}ProviderBase`).value = p ? p.provider_base || "" : "";
+  $(`${prefix}Model`).value = p ? p.model || "" : "";
+  $(`${prefix}CredentialRef`).value = p ? p.credential_ref || "" : "";
+}
+
+/// Assemble the `model_profiles` payload from the current role inputs.
+export function readModelProfiles() {
+  return {
+    worker: readRoleProfile("worker"),
+    verifier: readRoleProfile("verifier"),
+    fallbacks: [],
+  };
+}
+
 export async function openSettings() {
   clearStatus();
   try {
@@ -57,14 +116,19 @@ export async function openSettings() {
       ? "Your key is saved. Leave blank to keep it."
       : "No key yet — you're in demo mode with sample companies.";
     const sel = $("modelSelect");
-    if (s.model) sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
+    if (s.model)
+      sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
     populateProviders();
     setProviderFromBase(s.base_url);
     $("edgarContact").value = s.edgar_contact || "";
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
-    if ($("appVersion") && s.version) $("appVersion").textContent = `v${s.version}`;
+    if ($("appVersion") && s.version)
+      $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
+    const mp = s.model_profiles || {};
+    fillRoleProfile("worker", mp.worker);
+    fillRoleProfile("verifier", mp.verifier);
     loadMemoryList();
     loadSkillsList();
   } catch (_) {
@@ -83,7 +147,8 @@ function renderCaps(cap) {
   const el = $("modelCaps");
   if (!el) return;
   if (!cap || !cap.model_id) {
-    el.textContent = "Capabilities untested — app routing + plain JSON until you run Test model.";
+    el.textContent =
+      "Capabilities untested — app routing + plain JSON until you run Test model.";
     return;
   }
   const tools = cap.native_tools ? "tools ✓" : "tools ✗";
@@ -111,9 +176,61 @@ async function loadMemoryList() {
   for (const m of mems) {
     const row = document.createElement("div");
     row.className = "memory-row";
+    row.dataset.content = m.content;
     const txt = document.createElement("span");
     txt.className = "memory-row-text";
     txt.textContent = m.content;
+    if (m.pinned) {
+      const badge = document.createElement("span");
+      badge.className = "memory-pin-badge";
+      badge.textContent = " 📌";
+      badge.setAttribute("aria-label", "pinned");
+      txt.appendChild(badge);
+    }
+    // Pin/unpin: protect a good memory from automatic forgetting (Task 7.2).
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "btn-ghost";
+    pin.textContent = m.pinned ? "Unpin" : "Pin";
+    pin.dataset.pin = String(m.id);
+    pin.addEventListener("click", async () => {
+      try {
+        await call("memory_pin", { id: m.id, pinned: !m.pinned });
+        loadMemoryList();
+      } catch {
+        /* leave row; user can retry */
+      }
+    });
+    // Edit: inline-correct a memory's text (Task 7.2). Swaps the row for an
+    // input + Save; reloads on success.
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "btn-ghost";
+    edit.textContent = "Edit";
+    edit.dataset.edit = String(m.id);
+    edit.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "memory-edit-input";
+      input.value = m.content;
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "btn-ghost";
+      save.textContent = "Save";
+      save.dataset.editSave = String(m.id);
+      save.addEventListener("click", async () => {
+        const v = input.value.trim();
+        if (!v) return;
+        try {
+          await call("memory_edit", { id: m.id, value: v });
+          loadMemoryList();
+        } catch {
+          /* leave editor open; user can retry */
+        }
+      });
+      row.replaceChildren(input, save);
+      input.focus();
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.className = "btn-ghost";
@@ -123,13 +240,16 @@ async function loadMemoryList() {
         await call("memory_delete", { id: m.id });
         row.remove();
         if (!el.querySelector(".memory-row")) {
-          el.innerHTML = '<span class="field-hint">No saved memories yet.</span>';
+          el.innerHTML =
+            '<span class="field-hint">No saved memories yet.</span>';
         }
       } catch {
         /* leave row; user can retry */
       }
     });
     row.appendChild(txt);
+    row.appendChild(edit);
+    row.appendChild(pin);
     row.appendChild(del);
     el.appendChild(row);
   }
@@ -151,7 +271,29 @@ async function loadSkillsList() {
       row.className = "memory-row";
       const txt = document.createElement("span");
       txt.className = "memory-row-text";
-      txt.innerHTML = `<b>${escapeHtml(s.name)}</b> — ${escapeHtml(s.description)}`;
+      const stateLabel =
+        s.state && s.state !== "active"
+          ? ` <span class="skill-state">(${escapeHtml(s.state)})</span>`
+          : "";
+      txt.innerHTML = `<b>${escapeHtml(s.name)}</b>${stateLabel} — ${escapeHtml(s.description)}`;
+      row.appendChild(txt);
+      // Restore a stale/archived skill back into default context (Task 7.2/7.3).
+      if (s.state === "stale" || s.state === "archived") {
+        const restore = document.createElement("button");
+        restore.type = "button";
+        restore.className = "btn-ghost";
+        restore.textContent = "Restore";
+        restore.dataset.restore = s.name;
+        restore.addEventListener("click", async () => {
+          try {
+            await call("skill_restore", { name: s.name });
+            loadSkillsList();
+          } catch (_) {
+            /* ignore */
+          }
+        });
+        row.appendChild(restore);
+      }
       const del = document.createElement("button");
       del.type = "button";
       del.className = "btn-ghost";
@@ -164,7 +306,6 @@ async function loadSkillsList() {
           /* ignore */
         }
       });
-      row.appendChild(txt);
       row.appendChild(del);
       el.appendChild(row);
     }
@@ -200,6 +341,14 @@ export function initSettings(opts = {}) {
 
   $("settingsBtn").addEventListener("click", openSettings);
   document.addEventListener("open-settings", openSettings);
+  // Filter saved memories client-side by content substring (Task 7.2).
+  $("memoryFilter")?.addEventListener("input", (e) => {
+    const q = (e.target.value || "").trim().toLowerCase();
+    for (const row of document.querySelectorAll("#memoryList .memory-row")) {
+      const c = (row.dataset.content || "").toLowerCase();
+      row.hidden = !!q && !c.includes(q);
+    }
+  });
   $("settingsClose").addEventListener("click", closeSettings);
   $("skillSaveBtn")?.addEventListener("click", async () => {
     const content = $("newSkillContent").value;
@@ -255,6 +404,7 @@ export function initSettings(opts = {}) {
         out_dir: $("outDir").value,
         mcp_command: cmd.split(/\s+/)[0] || "",
         mcp_args: cmd.split(/\s+/).slice(1),
+        model_profiles: readModelProfiles(),
       });
       $("apiKey").value = "";
       // Auto-detect what the model can do so the home screen is accurate
@@ -279,7 +429,8 @@ export function initSettings(opts = {}) {
     try {
       await call("clear_api_key");
       $("apiKey").value = "";
-      $("keyStatus").textContent = "No key yet — you're in demo mode with sample companies.";
+      $("keyStatus").textContent =
+        "No key yet — you're in demo mode with sample companies.";
       setStatus("Key removed — back to demo mode.", "info");
       onSaved();
     } catch (e) {
@@ -308,7 +459,10 @@ export function initSettings(opts = {}) {
     el.textContent = "Testing…";
     try {
       const parts = cmd.split(/\s+/);
-      const res = await call("test_mcp", { command: parts[0], args: parts.slice(1) });
+      const res = await call("test_mcp", {
+        command: parts[0],
+        args: parts.slice(1),
+      });
       el.textContent = `Connected — ${res.tool_count} tools available.`;
     } catch (e) {
       el.textContent = `Connection failed: ${e.message || e}`;
@@ -320,7 +474,11 @@ export function initSettings(opts = {}) {
     btn.disabled = true;
     btn.textContent = "Loading…";
     try {
-      await call("save_settings", { api_key: $("apiKey").value, model: "", base_url: $("baseUrl").value });
+      await call("save_settings", {
+        api_key: $("apiKey").value,
+        model: "",
+        base_url: $("baseUrl").value,
+      });
       $("apiKey").value = "";
       const models = await call("list_models");
       const sel = $("modelSelect");

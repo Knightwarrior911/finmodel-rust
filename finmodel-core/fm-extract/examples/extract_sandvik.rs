@@ -5,12 +5,16 @@
 //! sector detection -> financial section finder -> (LLM if key present).
 
 fn main() {
-    let pdf_path = "C:/Users/vinit/Documents/financial_model/tieout/filings/SAND.ST/annual_report.pdf";
+    let pdf_path =
+        "C:/Users/vinit/Documents/financial_model/tieout/filings/SAND.ST/annual_report.pdf";
 
     // Native PDF page extraction (pure Rust)
     let pages = match pdf_extract::extract_text_by_pages(pdf_path) {
         Ok(p) => p,
-        Err(e) => { eprintln!("PDF extract failed: {e}"); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("PDF extract failed: {e}");
+            std::process::exit(1);
+        }
     };
     println!("native pages: {}", pages.len());
 
@@ -37,12 +41,19 @@ fn main() {
     match fm_extract::extract_financials_from_pdf(pdf_path, &periods, "SAND.ST", None) {
         Ok(result) => {
             println!("=== EXTRACTION SUCCEEDED ===");
-            println!("currency: {}  years: {:?}", result.currency, result.years_found);
+            println!(
+                "currency: {}  years: {:?}",
+                result.currency, result.years_found
+            );
             if let Some(rev) = result.income_statement.get("revenue") {
                 println!("revenue: {rev:?}");
             }
             let json = serde_json::to_string_pretty(&result).unwrap();
-            std::fs::write("C:/Users/vinit/Documents/financial_model/SAND_ST_rust_extraction.json", &json).unwrap();
+            std::fs::write(
+                "C:/Users/vinit/Documents/financial_model/SAND_ST_rust_extraction.json",
+                &json,
+            )
+            .unwrap();
             println!("saved SAND_ST_rust_extraction.json");
         }
         Err(e) => {

@@ -9,9 +9,9 @@
 //! hard-coded `a:srgbClr` values). Every top-level op appends a JSONL entry to
 //! `<deck>.edit_log.jsonl`.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use crate::xmldom::{Attr, Element, A, CT, PR, R};
+use crate::xmldom::{A, Attr, CT, Element, PR, R};
 
 pub const THEME_SLOTS: [&str; 12] = [
     "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
@@ -52,7 +52,11 @@ fn log_edit(target: &str, op: &str, params: Value) {
     let line = format!("{}\n", entry);
     let path = log_path_for(target);
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }
@@ -120,8 +124,10 @@ fn slide_part_names(pkg: &Package) -> Vec<String> {
 }
 
 fn next_slide_index(pkg: &Package) -> i64 {
-    let used: std::collections::HashSet<i64> =
-        slide_part_names(pkg).iter().filter_map(|n| slide_num(n)).collect();
+    let used: std::collections::HashSet<i64> = slide_part_names(pkg)
+        .iter()
+        .filter_map(|n| slide_num(n))
+        .collect();
     let mut i = 1;
     while used.contains(&i) {
         i += 1;
@@ -143,8 +149,10 @@ fn rewrite_presentation_rels(
             keep.push(rel.clone());
         }
     }
-    let mut used: std::collections::HashSet<String> =
-        keep.iter().filter_map(|r| r.attr("Id").map(|s| s.to_string())).collect();
+    let mut used: std::collections::HashSet<String> = keep
+        .iter()
+        .filter_map(|r| r.attr("Id").map(|s| s.to_string()))
+        .collect();
     let mut next_id = || -> String {
         let mut n = 1;
         loop {
@@ -175,9 +183,21 @@ fn rewrite_presentation_rels(
             ns: Some(PR.to_string()),
             local: "Relationship".to_string(),
             attrs: vec![
-                Attr { ns: None, local: "Id".into(), value: rid },
-                Attr { ns: None, local: "Type".into(), value: SLIDE_REL_TYPE.into() },
-                Attr { ns: None, local: "Target".into(), value: target.clone() },
+                Attr {
+                    ns: None,
+                    local: "Id".into(),
+                    value: rid,
+                },
+                Attr {
+                    ns: None,
+                    local: "Type".into(),
+                    value: SLIDE_REL_TYPE.into(),
+                },
+                Attr {
+                    ns: None,
+                    local: "Target".into(),
+                    value: target.clone(),
+                },
             ],
             children: Vec::new(),
             text: String::new(),
@@ -202,8 +222,16 @@ fn rewrite_presentation_xml(pres_xml: &[u8], ordered_rids: &[String]) -> Result<
             ns: Some(p_ns.to_string()),
             local: "sldId".to_string(),
             attrs: vec![
-                Attr { ns: None, local: "id".into(), value: (base + i).to_string() },
-                Attr { ns: Some(R.to_string()), local: "id".into(), value: rid.clone() },
+                Attr {
+                    ns: None,
+                    local: "id".into(),
+                    value: (base + i).to_string(),
+                },
+                Attr {
+                    ns: Some(R.to_string()),
+                    local: "id".into(),
+                    value: rid.clone(),
+                },
             ],
             children: Vec::new(),
             text: String::new(),
@@ -230,8 +258,16 @@ fn rewrite_content_types(ct_xml: &[u8], slide_part_names: &[String]) -> Result<V
             ns: Some(CT.to_string()),
             local: "Override".to_string(),
             attrs: vec![
-                Attr { ns: None, local: "PartName".into(), value: format!("/{name}") },
-                Attr { ns: None, local: "ContentType".into(), value: SLIDE_CONTENT_TYPE.into() },
+                Attr {
+                    ns: None,
+                    local: "PartName".into(),
+                    value: format!("/{name}"),
+                },
+                Attr {
+                    ns: None,
+                    local: "ContentType".into(),
+                    value: SLIDE_CONTENT_TYPE.into(),
+                },
             ],
             children: Vec::new(),
             text: String::new(),
@@ -248,8 +284,10 @@ fn slide_rels_name(part: &str) -> String {
 /// `_renumber_and_reorder`.
 fn renumber_and_reorder(pkg: &Package, desired_order: &[i64]) -> Result<Package, String> {
     let original_parts = slide_part_names(pkg);
-    let by_idx: std::collections::HashMap<i64, String> =
-        original_parts.iter().filter_map(|n| slide_num(n).map(|k| (k, n.clone()))).collect();
+    let by_idx: std::collections::HashMap<i64, String> = original_parts
+        .iter()
+        .filter_map(|n| slide_num(n).map(|k| (k, n.clone())))
+        .collect();
 
     let mut out = pkg.clone();
     // Drop all old slide xml + rels.
@@ -279,8 +317,10 @@ fn renumber_and_reorder(pkg: &Package, desired_order: &[i64]) -> Result<Package,
         }
     }
 
-    let (rels_xml, target_to_rid) =
-        rewrite_presentation_rels(pkg.get(PRES_RELS).ok_or("missing presentation rels")?, &new_rel_targets)?;
+    let (rels_xml, target_to_rid) = rewrite_presentation_rels(
+        pkg.get(PRES_RELS).ok_or("missing presentation rels")?,
+        &new_rel_targets,
+    )?;
     out.set(PRES_RELS, rels_xml);
 
     let ordered_rids: Vec<String> = new_rel_targets
@@ -293,10 +333,19 @@ fn renumber_and_reorder(pkg: &Package, desired_order: &[i64]) -> Result<Package,
                 .unwrap_or_default()
         })
         .collect();
-    out.set(PRES_XML, rewrite_presentation_xml(pkg.get(PRES_XML).ok_or("missing presentation.xml")?, &ordered_rids)?);
+    out.set(
+        PRES_XML,
+        rewrite_presentation_xml(
+            pkg.get(PRES_XML).ok_or("missing presentation.xml")?,
+            &ordered_rids,
+        )?,
+    );
     out.set(
         CONTENT_TYPES,
-        rewrite_content_types(pkg.get(CONTENT_TYPES).ok_or("missing content types")?, &new_part_names)?,
+        rewrite_content_types(
+            pkg.get(CONTENT_TYPES).ok_or("missing content types")?,
+            &new_part_names,
+        )?,
     );
     Ok(out)
 }
@@ -319,7 +368,10 @@ pub fn duplicate_slide(
     let parts = slide_part_names(&pkg);
     let n = parts.len();
     if slide_index >= n {
-        return Err(format!("slide_index {slide_index} out of range (0..{})", n.saturating_sub(1)));
+        return Err(format!(
+            "slide_index {slide_index} out of range (0..{})",
+            n.saturating_sub(1)
+        ));
     }
     let original_order: Vec<i64> = (1..=n as i64).collect();
     let src_original_idx = original_order[slide_index];
@@ -355,18 +407,29 @@ pub fn duplicate_slide(
 
     let out = renumber_and_reorder(&pkg, &order)?;
     out.write(&out_path)?;
-    log_edit(&out_path, "duplicate_slide", json!({"slide_index": slide_index, "position": position}));
+    log_edit(
+        &out_path,
+        "duplicate_slide",
+        json!({"slide_index": slide_index, "position": position}),
+    );
     Ok(out_path)
 }
 
 /// Delete the slide at `slide_index` (0-based).
-pub fn delete_slide(deck_path: &str, slide_index: usize, output_path: Option<&str>) -> Result<String, String> {
+pub fn delete_slide(
+    deck_path: &str,
+    slide_index: usize,
+    output_path: Option<&str>,
+) -> Result<String, String> {
     let out_path = resolve_output(deck_path, output_path);
     let pkg = Package::read(deck_path)?;
     let parts = slide_part_names(&pkg);
     let n = parts.len();
     if slide_index >= n {
-        return Err(format!("slide_index {slide_index} out of range (0..{})", n.saturating_sub(1)));
+        return Err(format!(
+            "slide_index {slide_index} out of range (0..{})",
+            n.saturating_sub(1)
+        ));
     }
     let keep: Vec<i64> = parts
         .iter()
@@ -376,12 +439,20 @@ pub fn delete_slide(deck_path: &str, slide_index: usize, output_path: Option<&st
         .collect();
     let out = renumber_and_reorder(&pkg, &keep)?;
     out.write(&out_path)?;
-    log_edit(&out_path, "delete_slide", json!({"slide_index": slide_index}));
+    log_edit(
+        &out_path,
+        "delete_slide",
+        json!({"slide_index": slide_index}),
+    );
     Ok(out_path)
 }
 
 /// Reorder slides. `new_order` is a permutation of `0..slide_count`.
-pub fn reorder_slides(deck_path: &str, new_order: &[usize], output_path: Option<&str>) -> Result<String, String> {
+pub fn reorder_slides(
+    deck_path: &str,
+    new_order: &[usize],
+    output_path: Option<&str>,
+) -> Result<String, String> {
     let out_path = resolve_output(deck_path, output_path);
     let pkg = Package::read(deck_path)?;
     let parts = slide_part_names(&pkg);
@@ -389,7 +460,10 @@ pub fn reorder_slides(deck_path: &str, new_order: &[usize], output_path: Option<
     let mut sorted = new_order.to_vec();
     sorted.sort_unstable();
     if sorted != (0..n).collect::<Vec<_>>() {
-        return Err(format!("new_order must be a permutation of 0..{}; got {new_order:?}", n - 1));
+        return Err(format!(
+            "new_order must be a permutation of 0..{}; got {new_order:?}",
+            n - 1
+        ));
     }
     let by_idx: Vec<i64> = parts.iter().filter_map(|p| slide_num(p)).collect();
     let desired: Vec<i64> = new_order.iter().map(|&i| by_idx[i]).collect();
@@ -420,16 +494,26 @@ fn recolor_clr_scheme(theme_xml: &[u8], palette: &[(&str, &str)]) -> Result<Vec<
     };
     for (slot, new_hex) in palette {
         if !THEME_SLOTS.contains(slot) {
-            return Err(format!("Unknown theme slot {slot:?}. Valid slots: {THEME_SLOTS:?}"));
+            return Err(format!(
+                "Unknown theme slot {slot:?}. Valid slots: {THEME_SLOTS:?}"
+            ));
         }
         let hex = normalise_hex(new_hex)?;
-        if let Some(slot_el) = scheme.children.iter_mut().find(|c| c.local == *slot && c.ns.as_deref() == Some(A)) {
+        if let Some(slot_el) = scheme
+            .children
+            .iter_mut()
+            .find(|c| c.local == *slot && c.ns.as_deref() == Some(A))
+        {
             slot_el.children.clear();
             slot_el.text.clear();
             slot_el.children.push(Element {
                 ns: Some(A.to_string()),
                 local: "srgbClr".to_string(),
-                attrs: vec![Attr { ns: None, local: "val".into(), value: hex }],
+                attrs: vec![Attr {
+                    ns: None,
+                    local: "val".into(),
+                    value: hex,
+                }],
                 children: Vec::new(),
                 text: String::new(),
             });
@@ -440,8 +524,13 @@ fn recolor_clr_scheme(theme_xml: &[u8], palette: &[(&str, &str)]) -> Result<Vec<
 
 /// Return a mutable reference to the `a:clrScheme` under themeElements.
 fn find_clr_scheme(root: &mut Element) -> Option<&mut Element> {
-    let te = root.children.iter_mut().find(|c| c.local == "themeElements" && c.ns.as_deref() == Some(A))?;
-    te.children.iter_mut().find(|c| c.local == "clrScheme" && c.ns.as_deref() == Some(A))
+    let te = root
+        .children
+        .iter_mut()
+        .find(|c| c.local == "themeElements" && c.ns.as_deref() == Some(A))?;
+    te.children
+        .iter_mut()
+        .find(|c| c.local == "clrScheme" && c.ns.as_deref() == Some(A))
 }
 
 /// `_replace_srgb_in_xml`: swap `a:srgbClr@val` values (case-insensitive).
@@ -457,7 +546,11 @@ fn replace_srgb_in_xml(xml_bytes: &[u8], swaps: &[(&str, &str)]) -> Result<Vec<u
 
 fn recolor_srgb_rec(el: &mut Element, norm: &[(String, String)]) {
     if el.local == "srgbClr" && el.ns.as_deref() == Some(A) {
-        if let Some(a) = el.attrs.iter_mut().find(|a| a.ns.is_none() && a.local == "val") {
+        if let Some(a) = el
+            .attrs
+            .iter_mut()
+            .find(|a| a.ns.is_none() && a.local == "val")
+        {
             let up = a.value.to_uppercase();
             if let Some((_, n)) = norm.iter().find(|(o, _)| *o == up) {
                 a.value = n.clone();
@@ -510,16 +603,25 @@ pub fn recolor_theme(
         }
     }
     pkg.write(&out_path)?;
-    let palette_json: Map<String, Value> =
-        palette.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+    let palette_json: Map<String, Value> = palette
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect();
     let arh = match also_replace_hardcoded {
         None => Value::Null,
         Some(swaps) => {
-            let m: Map<String, Value> = swaps.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+            let m: Map<String, Value> = swaps
+                .iter()
+                .map(|(k, v)| (k.to_string(), json!(v)))
+                .collect();
             Value::Object(m)
         }
     };
-    log_edit(&out_path, "recolor_theme", json!({ "palette": palette_json, "also_replace_hardcoded": arh }));
+    log_edit(
+        &out_path,
+        "recolor_theme",
+        json!({ "palette": palette_json, "also_replace_hardcoded": arh }),
+    );
     Ok(out_path)
 }
 
@@ -543,9 +645,15 @@ pub fn replace_text_in_deck(
         pkg.set(part, root.to_xml_bytes());
     }
     pkg.write(&out_path)?;
-    let repl_json: Map<String, Value> =
-        replacements.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
-    log_edit(&out_path, "replace_text_in_deck", json!({ "replacements": repl_json }));
+    let repl_json: Map<String, Value> = replacements
+        .iter()
+        .map(|(k, v)| (k.to_string(), json!(v)))
+        .collect();
+    log_edit(
+        &out_path,
+        "replace_text_in_deck",
+        json!({ "replacements": repl_json }),
+    );
     Ok(out_path)
 }
 
@@ -590,17 +698,29 @@ fn hex6(c: &str) -> String {
 /// 0-based slide index -> part name (sorted by N).
 fn nth_slide_part(pkg: &Package, slide_index: usize) -> Result<String, String> {
     let parts = slide_part_names(pkg);
-    parts.get(slide_index).cloned().ok_or_else(|| format!("slide index {slide_index} out of range"))
+    parts
+        .get(slide_index)
+        .cloned()
+        .ok_or_else(|| format!("slide index {slide_index} out of range"))
 }
 
 /// Find a shape element in an spTree by cNvPr id or name.
-fn find_shape_mut<'a>(tree: &'a mut Element, id: Option<i64>, name: Option<&str>) -> Option<&'a mut Element> {
+fn find_shape_mut<'a>(
+    tree: &'a mut Element,
+    id: Option<i64>,
+    name: Option<&str>,
+) -> Option<&'a mut Element> {
     for c in &mut tree.children {
-        if !matches!(c.local.as_str(), "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp") {
+        if !matches!(
+            c.local.as_str(),
+            "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp"
+        ) {
             continue;
         }
         let cnv = c.children.first().and_then(|nv| nv.child(P, "cNvPr"));
-        let cid = cnv.and_then(|e| e.attr("id")).and_then(|s| s.parse::<i64>().ok());
+        let cid = cnv
+            .and_then(|e| e.attr("id"))
+            .and_then(|s| s.parse::<i64>().ok());
         let cname = cnv.and_then(|e| e.attr("name"));
         let hit = (id.is_some() && cid == id) || (name.is_some() && cname == name);
         if hit {
@@ -623,10 +743,18 @@ fn sptree_mut(root: &mut Element) -> Option<&mut Element> {
 fn ensure_xfrm(shape: &mut Element) -> &mut Element {
     // graphicFrame -> p:xfrm; else spPr/a:xfrm.
     if shape.local == "graphicFrame" {
-        if !shape.children.iter().any(|c| c.local == "xfrm" && c.ns.as_deref() == Some(P)) {
+        if !shape
+            .children
+            .iter()
+            .any(|c| c.local == "xfrm" && c.ns.as_deref() == Some(P))
+        {
             shape.children.insert(0, new_xfrm(Some(P)));
         }
-        return shape.children.iter_mut().find(|c| c.local == "xfrm" && c.ns.as_deref() == Some(P)).unwrap();
+        return shape
+            .children
+            .iter_mut()
+            .find(|c| c.local == "xfrm" && c.ns.as_deref() == Some(P))
+            .unwrap();
     }
     let sp_pr = shape
         .children
@@ -634,10 +762,18 @@ fn ensure_xfrm(shape: &mut Element) -> &mut Element {
         .position(|c| c.local == "spPr")
         .expect("shape has spPr");
     let sp_pr = &mut shape.children[sp_pr];
-    if !sp_pr.children.iter().any(|c| c.local == "xfrm" && c.ns.as_deref() == Some(A)) {
+    if !sp_pr
+        .children
+        .iter()
+        .any(|c| c.local == "xfrm" && c.ns.as_deref() == Some(A))
+    {
         sp_pr.children.insert(0, new_xfrm(Some(A)));
     }
-    sp_pr.children.iter_mut().find(|c| c.local == "xfrm" && c.ns.as_deref() == Some(A)).unwrap()
+    sp_pr
+        .children
+        .iter_mut()
+        .find(|c| c.local == "xfrm" && c.ns.as_deref() == Some(A))
+        .unwrap()
 }
 
 fn new_xfrm(ns: Option<&str>) -> Element {
@@ -646,22 +782,69 @@ fn new_xfrm(ns: Option<&str>) -> Element {
         local: "xfrm".into(),
         attrs: Vec::new(),
         children: vec![
-            Element { ns: Some(A.into()), local: "off".into(), attrs: vec![Attr { ns: None, local: "x".into(), value: "0".into() }, Attr { ns: None, local: "y".into(), value: "0".into() }], children: Vec::new(), text: String::new() },
-            Element { ns: Some(A.into()), local: "ext".into(), attrs: vec![Attr { ns: None, local: "cx".into(), value: "0".into() }, Attr { ns: None, local: "cy".into(), value: "0".into() }], children: Vec::new(), text: String::new() },
+            Element {
+                ns: Some(A.into()),
+                local: "off".into(),
+                attrs: vec![
+                    Attr {
+                        ns: None,
+                        local: "x".into(),
+                        value: "0".into(),
+                    },
+                    Attr {
+                        ns: None,
+                        local: "y".into(),
+                        value: "0".into(),
+                    },
+                ],
+                children: Vec::new(),
+                text: String::new(),
+            },
+            Element {
+                ns: Some(A.into()),
+                local: "ext".into(),
+                attrs: vec![
+                    Attr {
+                        ns: None,
+                        local: "cx".into(),
+                        value: "0".into(),
+                    },
+                    Attr {
+                        ns: None,
+                        local: "cy".into(),
+                        value: "0".into(),
+                    },
+                ],
+                children: Vec::new(),
+                text: String::new(),
+            },
         ],
         text: String::new(),
     }
 }
 
 fn set_attr(el: &mut Element, local: &str, value: String) {
-    if let Some(a) = el.attrs.iter_mut().find(|a| a.ns.is_none() && a.local == local) {
+    if let Some(a) = el
+        .attrs
+        .iter_mut()
+        .find(|a| a.ns.is_none() && a.local == local)
+    {
         a.value = value;
     } else {
-        el.attrs.push(Attr { ns: None, local: local.into(), value });
+        el.attrs.push(Attr {
+            ns: None,
+            local: local.into(),
+            value,
+        });
     }
 }
 
-fn edit_slide<F>(deck_path: &str, slide_index: usize, output_path: Option<&str>, f: F) -> Result<String, String>
+fn edit_slide<F>(
+    deck_path: &str,
+    slide_index: usize,
+    output_path: Option<&str>,
+    f: F,
+) -> Result<String, String>
 where
     F: FnOnce(&mut Element) -> Result<(), String>,
 {
@@ -697,9 +880,19 @@ pub fn move_shape(
     let out = edit_slide(deck_path, slide_index, output_path, |tree| {
         let shape = find_shape_mut(tree, shape_id, shape_name).ok_or("shape not found")?;
         let xfrm = ensure_xfrm(shape);
-        let off = xfrm.children.iter_mut().find(|c| c.local == "off").ok_or("no off")?;
-        let cur_x = off.attr("x").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
-        let cur_y = off.attr("y").and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+        let off = xfrm
+            .children
+            .iter_mut()
+            .find(|c| c.local == "off")
+            .ok_or("no off")?;
+        let cur_x = off
+            .attr("x")
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+        let cur_y = off
+            .attr("y")
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
         if let Some(l) = left {
             set_attr(off, "x", emu(l).to_string());
         } else if let Some(d) = dx {
@@ -712,7 +905,11 @@ pub fn move_shape(
         }
         Ok(())
     })?;
-    log_edit(&out, "move_shape", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "left": left, "top": top, "dx": dx, "dy": dy}));
+    log_edit(
+        &out,
+        "move_shape",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "left": left, "top": top, "dx": dx, "dy": dy}),
+    );
     Ok(out)
 }
 
@@ -732,7 +929,11 @@ pub fn resize_shape(
     let out = edit_slide(deck_path, slide_index, output_path, |tree| {
         let shape = find_shape_mut(tree, shape_id, shape_name).ok_or("shape not found")?;
         let xfrm = ensure_xfrm(shape);
-        let ext = xfrm.children.iter_mut().find(|c| c.local == "ext").ok_or("no ext")?;
+        let ext = xfrm
+            .children
+            .iter_mut()
+            .find(|c| c.local == "ext")
+            .ok_or("no ext")?;
         if let Some(w) = width {
             set_attr(ext, "cx", emu(w).to_string());
         }
@@ -741,7 +942,11 @@ pub fn resize_shape(
         }
         Ok(())
     })?;
-    log_edit(&out, "resize_shape", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "width": width, "height": height}));
+    log_edit(
+        &out,
+        "resize_shape",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "width": width, "height": height}),
+    );
     Ok(out)
 }
 
@@ -765,24 +970,54 @@ pub fn set_shape_fill(
     let out = edit_slide(deck_path, slide_index, output_path, |tree| {
         let shape = find_shape_mut(tree, shape_id, shape_name).ok_or("shape not found")?;
         let sp_pr = sp_pr_mut(shape).ok_or("no spPr")?;
-        sp_pr.children.retain(|c| !matches!(c.local.as_str(), "noFill" | "solidFill" | "gradFill" | "blipFill" | "pattFill" | "grpFill"));
+        sp_pr.children.retain(|c| {
+            !matches!(
+                c.local.as_str(),
+                "noFill" | "solidFill" | "gradFill" | "blipFill" | "pattFill" | "grpFill"
+            )
+        });
         // Insert after prstGeom (or at end).
-        let pos = sp_pr.children.iter().position(|c| c.local == "prstGeom").map(|i| i + 1).unwrap_or(sp_pr.children.len());
+        let pos = sp_pr
+            .children
+            .iter()
+            .position(|c| c.local == "prstGeom")
+            .map(|i| i + 1)
+            .unwrap_or(sp_pr.children.len());
         let fill = if no_fill {
-            Element { ns: Some(A.into()), local: "noFill".into(), attrs: Vec::new(), children: Vec::new(), text: String::new() }
+            Element {
+                ns: Some(A.into()),
+                local: "noFill".into(),
+                attrs: Vec::new(),
+                children: Vec::new(),
+                text: String::new(),
+            }
         } else {
             Element {
                 ns: Some(A.into()),
                 local: "solidFill".into(),
                 attrs: Vec::new(),
-                children: vec![Element { ns: Some(A.into()), local: "srgbClr".into(), attrs: vec![Attr { ns: None, local: "val".into(), value: hex6(color.unwrap()) }], children: Vec::new(), text: String::new() }],
+                children: vec![Element {
+                    ns: Some(A.into()),
+                    local: "srgbClr".into(),
+                    attrs: vec![Attr {
+                        ns: None,
+                        local: "val".into(),
+                        value: hex6(color.unwrap()),
+                    }],
+                    children: Vec::new(),
+                    text: String::new(),
+                }],
                 text: String::new(),
             }
         };
         sp_pr.children.insert(pos, fill);
         Ok(())
     })?;
-    log_edit(&out, "set_shape_fill", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "color": color, "no_fill": no_fill}));
+    log_edit(
+        &out,
+        "set_shape_fill",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "color": color, "no_fill": no_fill}),
+    );
     Ok(out)
 }
 
@@ -797,20 +1032,30 @@ pub fn delete_shape(
     let out = edit_slide(deck_path, slide_index, output_path, |tree| {
         let before = tree.children.len();
         tree.children.retain(|c| {
-            if !matches!(c.local.as_str(), "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp") {
+            if !matches!(
+                c.local.as_str(),
+                "sp" | "pic" | "graphicFrame" | "grpSp" | "cxnSp"
+            ) {
                 return true;
             }
             let cnv = c.children.first().and_then(|nv| nv.child(P, "cNvPr"));
-            let cid = cnv.and_then(|e| e.attr("id")).and_then(|s| s.parse::<i64>().ok());
+            let cid = cnv
+                .and_then(|e| e.attr("id"))
+                .and_then(|s| s.parse::<i64>().ok());
             let cname = cnv.and_then(|e| e.attr("name"));
-            !((shape_id.is_some() && cid == shape_id) || (shape_name.is_some() && cname == shape_name))
+            !((shape_id.is_some() && cid == shape_id)
+                || (shape_name.is_some() && cname == shape_name))
         });
         if tree.children.len() == before {
             return Err("shape not found".into());
         }
         Ok(())
     })?;
-    log_edit(&out, "delete_shape", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name}));
+    log_edit(
+        &out,
+        "delete_shape",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name}),
+    );
     Ok(out)
 }
 
@@ -831,24 +1076,42 @@ pub fn add_textbox(
         let next_id = 1 + tree
             .children
             .iter()
-            .filter_map(|c| c.children.first().and_then(|nv| nv.child(P, "cNvPr")).and_then(|e| e.attr("id")).and_then(|s| s.parse::<i64>().ok()))
+            .filter_map(|c| {
+                c.children
+                    .first()
+                    .and_then(|nv| nv.child(P, "cNvPr"))
+                    .and_then(|e| e.attr("id"))
+                    .and_then(|s| s.parse::<i64>().ok())
+            })
             .max()
             .unwrap_or(1);
-        let nm = name.map(|s| s.to_string()).unwrap_or_else(|| format!("TextBox {}", next_id - 1));
-        let esc = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let nm = name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("TextBox {}", next_id - 1));
+        let esc = text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
         let xml = format!(
             "<p:sp xmlns:a=\"{A}\" xmlns:p=\"{P}\"><p:nvSpPr><p:cNvPr id=\"{next_id}\" name=\"{nm}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>\
 <p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm>\
 <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
 <p:txBody><a:bodyPr wrap=\"square\"><a:spAutoFit/></a:bodyPr><a:lstStyle/>\
 <a:p><a:r><a:rPr lang=\"en-US\"/><a:t>{esc}</a:t></a:r></a:p></p:txBody></p:sp>",
-            emu(left), emu(top), emu(width), emu(height),
+            emu(left),
+            emu(top),
+            emu(width),
+            emu(height),
         );
         let sp = Element::parse(xml.as_bytes())?;
         tree.children.push(sp);
         Ok(())
     })?;
-    log_edit(&out, "add_textbox", json!({"slide_index": slide_index, "left": left, "top": top, "width": width, "height": height, "text": text, "name": name}));
+    log_edit(
+        &out,
+        "add_textbox",
+        json!({"slide_index": slide_index, "left": left, "top": top, "width": width, "height": height, "text": text, "name": name}),
+    );
     Ok(out)
 }
 
@@ -865,7 +1128,10 @@ fn reorder_children(parent: &mut Element, local: &str, new_order: &[usize]) -> R
     let mut sorted = new_order.to_vec();
     sorted.sort_unstable();
     if sorted != (0..idxs.len()).collect::<Vec<_>>() {
-        return Err(format!("new_order must be a permutation of 0..{}", idxs.len().saturating_sub(1)));
+        return Err(format!(
+            "new_order must be a permutation of 0..{}",
+            idxs.len().saturating_sub(1)
+        ));
     }
     let originals: Vec<Element> = idxs.iter().map(|&i| parent.children[i].clone()).collect();
     for (slot, &orig) in idxs.iter().zip(new_order.iter()) {
@@ -879,8 +1145,14 @@ fn find_tbl_mut(shape: &mut Element) -> Option<&mut Element> {
     let _ = gd; // presence check
     // graphic/graphicData/tbl
     let graphic = shape.children.iter_mut().find(|c| c.local == "graphic")?;
-    let gdata = graphic.children.iter_mut().find(|c| c.local == "graphicData")?;
-    gdata.children.iter_mut().find(|c| c.local == "tbl" && c.ns.as_deref() == Some(A))
+    let gdata = graphic
+        .children
+        .iter_mut()
+        .find(|c| c.local == "graphicData")?;
+    gdata
+        .children
+        .iter_mut()
+        .find(|c| c.local == "tbl" && c.ns.as_deref() == Some(A))
 }
 
 /// Swap two table columns (0-based) — reorders `a:gridCol` + each row's `a:tc`.
@@ -896,7 +1168,10 @@ pub fn swap_table_columns(
     let out = edit_slide(deck_path, slide_index, output_path, |tree| {
         let shape = find_shape_mut(tree, shape_id, shape_name).ok_or("shape not found")?;
         let tbl = find_tbl_mut(shape).ok_or("shape is not a table")?;
-        let n_cols = tbl.child(A, "tblGrid").map(|g| g.children_named(A, "gridCol").count()).unwrap_or(0);
+        let n_cols = tbl
+            .child(A, "tblGrid")
+            .map(|g| g.children_named(A, "gridCol").count())
+            .unwrap_or(0);
         if col_a >= n_cols || col_b >= n_cols {
             return Err("column index out of range".into());
         }
@@ -905,12 +1180,20 @@ pub fn swap_table_columns(
         if let Some(grid) = tbl.children.iter_mut().find(|c| c.local == "tblGrid") {
             reorder_children(grid, "gridCol", &order)?;
         }
-        for tr in tbl.children.iter_mut().filter(|c| c.local == "tr" && c.ns.as_deref() == Some(A)) {
+        for tr in tbl
+            .children
+            .iter_mut()
+            .filter(|c| c.local == "tr" && c.ns.as_deref() == Some(A))
+        {
             reorder_children(tr, "tc", &order)?;
         }
         Ok(())
     })?;
-    log_edit(&out, "swap_table_columns", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "col_a": col_a, "col_b": col_b}));
+    log_edit(
+        &out,
+        "swap_table_columns",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "col_a": col_a, "col_b": col_b}),
+    );
     Ok(out)
 }
 
@@ -936,6 +1219,10 @@ pub fn swap_table_rows(
         reorder_children(tbl, "tr", &order)?;
         Ok(())
     })?;
-    log_edit(&out, "swap_table_rows", json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "row_a": row_a, "row_b": row_b}));
+    log_edit(
+        &out,
+        "swap_table_rows",
+        json!({"slide_index": slide_index, "shape_id": shape_id, "shape_name": shape_name, "row_a": row_a, "row_b": row_b}),
+    );
     Ok(out)
 }

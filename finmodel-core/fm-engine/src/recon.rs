@@ -5,11 +5,7 @@
 /// Check that Assets ≈ Liabilities + Equity for every period.
 ///
 /// Returns a list of discrepancy descriptions (empty when all periods balance).
-pub fn check_balance_sheet(
-    assets: &[f64],
-    liabilities: &[f64],
-    equity: &[f64],
-) -> Vec<String> {
+pub fn check_balance_sheet(assets: &[f64], liabilities: &[f64], equity: &[f64]) -> Vec<String> {
     let max_len = assets.len().max(liabilities.len()).max(equity.len());
     let mut issues = Vec::new();
 

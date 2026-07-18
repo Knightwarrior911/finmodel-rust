@@ -47,6 +47,33 @@ pub fn delete_api_key() -> Result<(), String> {
     }
 }
 
+/// Per-role credential access: profiles reference an OS-store account name
+/// (`credential_ref`) rather than embedding a key. Model routing (Task 1.5)
+/// resolves each profile's key independently so roles never share a secret.
+fn entry_for(account: &str) -> Result<Entry, String> {
+    Entry::new(SERVICE, account).map_err(|e| format!("credential store unavailable: {e}"))
+}
+
+/// Read a role/profile key by its credential-ref account. `None` if missing/empty.
+pub fn get_api_key_for(account: &str) -> Option<String> {
+    let entry = entry_for(account).ok()?;
+    match entry.get_password() {
+        Ok(p) if !p.trim().is_empty() => Some(p),
+        _ => None,
+    }
+}
+
+/// Write a role/profile key by its credential-ref account. Empty is rejected.
+pub fn set_api_key_for(account: &str, key: &str) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("API key is empty".into());
+    }
+    entry_for(account)?
+        .set_password(key)
+        .map_err(|e| format!("failed to store API key: {e}"))
+}
+
 /// One-way migration: if `legacy_plaintext` is non-empty, store it in the OS
 /// keyring. Returns `true` when a migration write succeeded (caller must then
 /// rewrite settings without the plaintext). On keyring failure, leaves the

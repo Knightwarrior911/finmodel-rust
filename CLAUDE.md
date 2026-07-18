@@ -1,5 +1,54 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.0 (releasing, 2026-07-18) — the agentic runtime is now the LIVE path
+**Working tree at `v0.9.0`** (`src-tauri/Cargo.toml` + `tauri.conf.json` in lockstep);
+last shipped tag was `v0.8.6`. Gates green: **app-lib 294 · UI 130 · fm-agent/fm-value
+workspace · research-eval 13** (`scripts/gates.ps1`). Debug port reverted (0 refs).
+
+This cycle promoted the reducer-driven `fm-agent` runtime + `src-tauri/src/agent/`
+driver/actor from built-but-dormant to the app's **live** path. Full per-task detail:
+`docs/NEXT-SESSION.md` (top block) and the plan `local://agentic-financial-analyst-plan.md`.
+(The v0.8.6 note below says "agentic-analyst goal COMPLETE" — that refers to the initial
+user-feature goal; the deeper 27-task agentic PLAN is the current, still-in-progress work.)
+
+### Shipped this cycle (see CHANGELOG v0.9.0 for user-facing copy)
+- **Single `agent_event` channel (Task 2.1).** All live rendering — text deltas, tool
+  status/thinking, result cards, plan, phase, approvals, memory, terminal — flows on one
+  durable/ephemeral `agent_event` stream. Legacy `chat_delta`/`chat_tool` listeners removed.
+  Cards ride a durable `ResultPartAdded`; deltas ride ephemeral `assistant_text_delta`;
+  thinking steps ride `ToolStarted/Succeeded/Failed` keyed by `tool_call_id`. Verified live s1–s7.
+  (Reload-via-snapshot+gap-close is NOT built: reload uses `load_conversation` rebuild —
+  correct for completed chats, no in-flight-run resume across reload.)
+- **Pause / Resume controls (Task 2.2 — controls slice).** Composer Pause button →
+  `agent_pause` (→ `RunInterrupted`, resumable; distinct from Stop's terminal `RunCancelled`);
+  an interrupted terminal offers **Resume** → `agent_resume` (relaunch from last complete
+  boundary via `resumeRun`). Backend already built+tested (`registry.pause`, `actor::resume_run`
+  → `launch_run`; `control_interrupt_yields_interrupted_resumable`). UI test in `ui/tests/chat.test.mjs`.
+- **Move-to-project fix.** Picker preselects the chat's current project; shows a "No projects
+  yet" hint instead of a dead-end menu; blur restores the row. `ui/tests/sidebar.test.mjs`.
+
+### NOT done — next session (precisely scoped in `docs/NEXT-SESSION.md` → "Genuinely remaining")
+- **2.2 mission shell (bulk):** tabbed **Evidence dock** (Model/Valuation/Sources/Artifacts/
+  Reader), new `ui/js/workbench.mjs` (owns `body.dock-open`, focus return, keyboard map
+  ⌘1–5 / ⌘J / arrow nav), migrate EV/IFRS/tie-out controllers out of `#analystModal` into the
+  dock's Model tab, delete the modal. Large rewrite of a working UI — its own session.
+- **2.4 visual finish:** dock-open responsive generalization + the 12 named acceptance-view captures.
+- **9.3 full desktop matrix:** 7 golden missions × viewport × theme × a11y × crash/resume via CDP
+  (`tools/ui_smoke/s1..s7` cover the core flows today).
+- **Backend cores tested but not wired live:** 5.2/5.3 child fan-out, 6.2 progressive disclosure + MCP,
+  8.2/8.3 scheduler tick + commitment extraction. **External:** 7.1 auto-memory (labelled dataset),
+  9.4 signed installer (minisign key).
+
+### Build & verify (Claude Code CLI)
+- All gates: `pwsh -File scripts/gates.ps1` (app-lib + fm-agent/fm-value workspace + ui + research-eval).
+- Backend only: `cd src-tauri && cargo test --lib`. UI only: `cd ui && node --test` (jsdom, no browser).
+- Run app: `cd src-tauri && cargo tauri dev`. Live CDP smokes: `tools/ui_smoke/s1..s7` (need the
+  `--remote-debugging-port=9222` window arg in `tauri.conf.json` temporarily; revert before release).
+- Release ritual: `docs/RELEASE_CHECKLIST.md` (version lockstep, signed NSIS build, publish to the
+  public `finmodel-releases` repo).
+
+---
+
 ## HANDOVER — v0.8.6 skills system, LIVE (current, 2026-07-18)
 **Branch `master`, tagged `v0.8.6` (pushed).** Live — endpoint VERIFIED serving
 `0.8.6`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user features (all shipped).

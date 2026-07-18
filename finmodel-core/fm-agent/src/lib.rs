@@ -16,12 +16,13 @@
 pub mod budget;
 pub mod ids;
 pub mod machine;
-pub mod workflows;
 pub mod types;
+pub mod workflows;
 
 pub use budget::{Budget, Policy};
 pub use machine::{Action, AgentMachine, Input, ToolCall};
 pub use types::{
     AgentPhase, ApprovalResponse, ArtifactRef, BudgetKind, Claim, Confidentiality, Durability,
-    EventKind, PartKind, Risk, SourceRef, StopReason, ToolResultEnvelope, Trust,
+    EventKind, PartKind, Plan, PlanStep, PlanStepStatus, Risk, SourceRef, StopReason,
+    ToolResultEnvelope, Trust,
 };

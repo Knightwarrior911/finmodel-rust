@@ -5,7 +5,7 @@
 //! the schedules below and the IS/CF/Assumptions tabs.
 
 use crate::input::{Statement, WorkbookInput};
-use crate::model::{cell_ref, Sheet, BLUE, FMT_NUM, FMT_PCT, LABEL};
+use crate::model::{BLUE, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref};
 use crate::sheets::{col, formula_maybe_cached, period_headers, tab_header};
 
 // ── BS main-section rows (0-based; Excel row = index + 1) ────────────────────
@@ -144,7 +144,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "cash", CASH, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, CASH, c, format!("=CF!{}", cell_ref(CF_ENDING_CASH, c)), g(bs, "cash", j));
+        formula_maybe_cached(
+            &mut s,
+            CASH,
+            c,
+            format!("=CF!{}", cell_ref(CF_ENDING_CASH, c)),
+            g(bs, "cash", j),
+        );
     }
 
     // AR / Inventory: hist number; proj link to WC schedule.
@@ -152,13 +158,25 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "accounts_receivable", AR, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, AR, c, format!("={}", cell_ref(WC_AR, c)), g(bs, "accounts_receivable", j));
+        formula_maybe_cached(
+            &mut s,
+            AR,
+            c,
+            format!("={}", cell_ref(WC_AR, c)),
+            g(bs, "accounts_receivable", j),
+        );
     }
     s.text(INVENTORY, LABEL, "  Inventory");
     hist_nums(&mut s, bs, "inventory", INVENTORY, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, INVENTORY, c, format!("={}", cell_ref(WC_INV, c)), g(bs, "inventory", j));
+        formula_maybe_cached(
+            &mut s,
+            INVENTORY,
+            c,
+            format!("={}", cell_ref(WC_INV, c)),
+            g(bs, "inventory", j),
+        );
     }
 
     // Total Current Assets.
@@ -184,7 +202,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "ppe_net", PPE_NET, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, PPE_NET, c, format!("={}", cell_ref(PPE_END, c)), g(bs, "ppe_net", j));
+        formula_maybe_cached(
+            &mut s,
+            PPE_NET,
+            c,
+            format!("={}", cell_ref(PPE_END, c)),
+            g(bs, "ppe_net", j),
+        );
     }
 
     // Goodwill / Intangibles: no formulas; proj = model value or hold flat.
@@ -210,7 +234,11 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     }
     for j in n_h..n {
         let c = col(j);
-        s.formula(TOTAL_ASSETS, c, format!("=ROUND({},2)", cell_ref(TOTAL_LE, c)));
+        s.formula(
+            TOTAL_ASSETS,
+            c,
+            format!("=ROUND({},2)", cell_ref(TOTAL_LE, c)),
+        );
     }
     for j in 0..n {
         s.fill(TOTAL_ASSETS, col(j), BLUE);
@@ -224,7 +252,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "accounts_payable", AP, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, AP, c, format!("={}", cell_ref(WC_AP, c)), g(bs, "accounts_payable", j));
+        formula_maybe_cached(
+            &mut s,
+            AP,
+            c,
+            format!("={}", cell_ref(WC_AP, c)),
+            g(bs, "accounts_payable", j),
+        );
     }
 
     // Total Current Liabilities.
@@ -232,7 +266,11 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "total_current_liabilities", TCL, n_h);
     for j in n_h..n {
         let c = col(j);
-        s.formula(TCL, c, format!("=ROUND({}+{:.2},2)", cell_ref(AP, c), other_cl));
+        s.formula(
+            TCL,
+            c,
+            format!("=ROUND({}+{:.2},2)", cell_ref(AP, c), other_cl),
+        );
     }
 
     // Deferred Revenue (current): hist number; proj held flat.
@@ -248,7 +286,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "long_term_debt", LTD, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, LTD, c, format!("={}", cell_ref(DEBT_END, c)), g(bs, "long_term_debt", j));
+        formula_maybe_cached(
+            &mut s,
+            LTD,
+            c,
+            format!("={}", cell_ref(DEBT_END, c)),
+            g(bs, "long_term_debt", j),
+        );
     }
 
     // Deferred Revenue (non-current): hist number; proj held flat.
@@ -293,7 +337,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     hist_nums(&mut s, bs, "retained_earnings", RET_EARN, n_h);
     for j in n_h..n {
         let c = col(j);
-        formula_maybe_cached(&mut s, RET_EARN, c, format!("={}", cell_ref(RE_END, c)), g(bs, "retained_earnings", j));
+        formula_maybe_cached(
+            &mut s,
+            RET_EARN,
+            c,
+            format!("={}", cell_ref(RE_END, c)),
+            g(bs, "retained_earnings", j),
+        );
     }
 
     // Total Equity: hist number; proj rollforward (prev + NI − Divs − Buybacks).
@@ -338,7 +388,11 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         s.formula(
             BS_CHECK,
             c,
-            format!("=ROUND({}-{},2)", cell_ref(TOTAL_ASSETS, c), cell_ref(TOTAL_LE, c)),
+            format!(
+                "=ROUND({}-{},2)",
+                cell_ref(TOTAL_ASSETS, c),
+                cell_ref(TOTAL_LE, c)
+            ),
         );
     }
 
@@ -390,7 +444,9 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.stamp_row(DEBT_RATE, FMT_PCT);
 
     // Visual finish (render-only): mirrors writer.py `_Fmt` families.
-    for row in [TCA, TCL, TOTAL_LIAB, TOTAL_EQ, TOTAL_LE, PPE_END, DEBT_END, RE_END] {
+    for row in [
+        TCA, TCL, TOTAL_LIAB, TOTAL_EQ, TOTAL_LE, PPE_END, DEBT_END, RE_END,
+    ] {
         s.stamp_bold_row(row);
         s.stamp_top_border_row(row);
     }
@@ -533,9 +589,21 @@ fn build_schedules(
     for j in n_h..n {
         let c = col(j);
         let pj = (j - n_h) as u32;
-        s.formula(WC_AR_DAYS, c, format!("=Assumptions!{}", cell_ref(ASMP_DSO, ASMP_DATA0 + pj)));
-        s.formula(WC_INV_DAYS, c, format!("=Assumptions!{}", cell_ref(ASMP_DIO, ASMP_DATA0 + pj)));
-        s.formula(WC_AP_DAYS, c, format!("=Assumptions!{}", cell_ref(ASMP_DPO, ASMP_DATA0 + pj)));
+        s.formula(
+            WC_AR_DAYS,
+            c,
+            format!("=Assumptions!{}", cell_ref(ASMP_DSO, ASMP_DATA0 + pj)),
+        );
+        s.formula(
+            WC_INV_DAYS,
+            c,
+            format!("=Assumptions!{}", cell_ref(ASMP_DIO, ASMP_DATA0 + pj)),
+        );
+        s.formula(
+            WC_AP_DAYS,
+            c,
+            format!("=Assumptions!{}", cell_ref(ASMP_DPO, ASMP_DATA0 + pj)),
+        );
         s.formula(
             WC_AR,
             c,
@@ -564,7 +632,11 @@ fn build_schedules(
             ),
         );
         let (prev_ar, prev_inv, prev_ap) = if j == n_h {
-            (cell_ref(AR, col(last)), cell_ref(INVENTORY, col(last)), cell_ref(AP, col(last)))
+            (
+                cell_ref(AR, col(last)),
+                cell_ref(INVENTORY, col(last)),
+                cell_ref(AP, col(last)),
+            )
         } else {
             (
                 cell_ref(WC_AR, col(j - 1)),

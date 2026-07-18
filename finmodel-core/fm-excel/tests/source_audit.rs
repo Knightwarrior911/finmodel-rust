@@ -4,7 +4,7 @@
 //! the snapshots can never reach.
 
 use fm_excel::input::SourceAuditRow;
-use fm_excel::model::{Value, LABEL};
+use fm_excel::model::{LABEL, Value};
 use fm_excel::sheets::sources;
 use fm_excel::snapshot::{load_snapshot, workbook_input_from_snapshot};
 
@@ -40,9 +40,11 @@ fn empty_audit_keeps_five_column_header_and_snapshot_layout() {
         text_at(&s, 10, LABEL).as_deref(),
         Some("VERIFICATION REPORT")
     );
-    assert!(text_at(&s, 11, LABEL)
-        .map(|t| t.starts_with("Status:"))
-        .unwrap_or(false));
+    assert!(
+        text_at(&s, 11, LABEL)
+            .map(|t| t.starts_with("Status:"))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -100,7 +102,9 @@ fn populated_audit_renders_rows_metadata_and_verification_column() {
         text_at(&s, 12, LABEL).as_deref(),
         Some("VERIFICATION REPORT")
     );
-    assert!(text_at(&s, 13, LABEL)
-        .map(|t| t.starts_with("Status:"))
-        .unwrap_or(false));
+    assert!(
+        text_at(&s, 13, LABEL)
+            .map(|t| t.starts_with("Status:"))
+            .unwrap_or(false)
+    );
 }

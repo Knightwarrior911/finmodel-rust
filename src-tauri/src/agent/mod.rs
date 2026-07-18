@@ -12,18 +12,23 @@
 //! - [`registry`] — active-run authority and bounded concurrency.
 
 pub mod actor;
+pub mod approvals;
+pub mod child;
+pub mod commitments;
 pub mod context;
-pub mod events;
-pub mod registry;
-pub mod security;
-pub mod scheduler;
-pub mod tools;
-pub mod fallback;
-pub mod workflows;
-pub mod subagents;
-pub mod memory;
-pub mod provider;
-pub mod executors;
 pub mod driver;
+pub mod events;
+pub mod executors;
+pub mod fallback;
 pub mod grounding;
+pub mod memory;
+pub mod model_router;
+pub mod provider;
+pub mod registry;
+pub mod scheduler;
+pub mod security;
 pub mod skills;
+pub mod subagents;
+pub mod tools;
+pub mod verification;
+pub mod workflows;

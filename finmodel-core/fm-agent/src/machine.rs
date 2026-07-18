@@ -18,7 +18,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::budget::{Budget, Policy};
-use crate::types::{AgentPhase, ApprovalResponse, BudgetKind, EventKind, Risk, StopReason, ToolCallId};
+use crate::types::{
+    AgentPhase, ApprovalResponse, BudgetKind, EventKind, Risk, StopReason, ToolCallId,
+};
 
 /// A model-requested tool call after the driver has pre-classified it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,8 +69,11 @@ pub enum Input {
     MemoryDone,
     /// A research/artifact-class tool was accepted; escalate the run policy.
     WorkflowAccepted { policy: Policy },
-    /// The user or a parent cancelled the run.
+    /// The user or a parent cancelled the run. Terminal and NOT resumable.
     Cancel,
+    /// The user or a parent paused the run. Terminal for THIS run but resumable
+    /// via a new linked run (`RunInterrupted`), distinct from `Cancel`.
+    Interrupt,
     /// Clock update from the driver (ms since run start). May trip the deadline.
     Tick { elapsed_ms: u64 },
 }
@@ -168,6 +173,16 @@ impl AgentMachine {
                     true,
                 );
             }
+            Input::Interrupt => {
+                // Resumable: terminal for this run, distinct from Cancel; a new
+                // linked run resumes from the last safe checkpoint.
+                return self.terminate(
+                    AgentPhase::Interrupted,
+                    EventKind::RunInterrupted,
+                    StopReason::Interrupted,
+                    true,
+                );
+            }
             Input::Tick { elapsed_ms } => {
                 self.budget.set_elapsed(*elapsed_ms);
                 // A parked approval does not consume the run deadline.
@@ -214,7 +229,14 @@ impl AgentMachine {
             (AgentPhase::Planning, Input::PlanReady) => self.enter_executing(),
 
             // ---- Executing ----
-            (AgentPhase::Executing, Input::ModelResponded { calls, final_answer, tokens }) => {
+            (
+                AgentPhase::Executing,
+                Input::ModelResponded {
+                    calls,
+                    final_answer,
+                    tokens,
+                },
+            ) => {
                 self.budget.charge_round(tokens);
                 if let Some(kind) = self.budget.exhausted() {
                     return self.budget_stop(kind);
@@ -300,18 +322,21 @@ impl AgentMachine {
                 } else {
                     StopReason::EndTurn
                 };
-                self.terminate(AgentPhase::Completed, EventKind::RunCompleted, stop, partial)
+                self.terminate(
+                    AgentPhase::Completed,
+                    EventKind::RunCompleted,
+                    stop,
+                    partial,
+                )
             }
 
             // Any other pairing is a driver/reducer contract violation.
-            (phase, other) => {
-                self.terminate(
-                    AgentPhase::Failed,
-                    EventKind::RunFailed,
-                    StopReason::Error(format!("unexpected input {other:?} in phase {phase:?}")),
-                    false,
-                )
-            }
+            (phase, other) => self.terminate(
+                AgentPhase::Failed,
+                EventKind::RunFailed,
+                StopReason::Error(format!("unexpected input {other:?} in phase {phase:?}")),
+                false,
+            ),
         }
     }
 
@@ -341,8 +366,9 @@ impl AgentMachine {
             }
         }
         let valid: Vec<ToolCall> = calls.into_iter().filter(|c| c.args_valid).collect();
-        let (needs_approval, auto): (Vec<ToolCall>, Vec<ToolCall>) =
-            valid.into_iter().partition(|c| c.needs_approval || !c.risk.auto_runs());
+        let (needs_approval, auto): (Vec<ToolCall>, Vec<ToolCall>) = valid
+            .into_iter()
+            .partition(|c| c.needs_approval || !c.risk.auto_runs());
 
         self.approval_queue = needs_approval;
         self.ready_batch = auto.iter().map(|c| c.tool_call_id.clone()).collect();
@@ -379,7 +405,11 @@ impl AgentMachine {
         partial: bool,
     ) -> Action {
         self.phase = phase;
-        Action::Emit { event, stop, partial }
+        Action::Emit {
+            event,
+            stop,
+            partial,
+        }
     }
 }
 
@@ -675,6 +705,52 @@ mod tests {
         assert_eq!(m.phase(), AgentPhase::Cancelled);
         // Absorbing.
         assert_eq!(m.next(Input::MemoryDone), Action::Wait);
+    }
+
+    #[test]
+    fn interrupt_is_terminal_resumable_and_distinct_from_cancel() {
+        let mut m = AgentMachine::new(Policy::INTERACTIVE);
+        m.next(Input::Prepared {
+            uses_tools: true,
+            plan_needed: false,
+            needs_verification: false,
+        });
+        let a = m.next(Input::Interrupt);
+        // Interrupt terminates THIS run as RunInterrupted (resumable), NOT
+        // RunCancelled: the terminal event/phase/reason are all distinct.
+        assert_eq!(
+            a,
+            Action::Emit {
+                event: EventKind::RunInterrupted,
+                stop: StopReason::Interrupted,
+                partial: true
+            }
+        );
+        assert_eq!(m.phase(), AgentPhase::Interrupted);
+        assert!(m.phase().is_terminal());
+        // Absorbing after terminal.
+        assert_eq!(m.next(Input::MemoryDone), Action::Wait);
+    }
+
+    #[test]
+    fn interrupt_and_cancel_produce_different_terminals() {
+        let mut c = AgentMachine::new(Policy::INTERACTIVE);
+        c.next(Input::Prepared {
+            uses_tools: true,
+            plan_needed: false,
+            needs_verification: false,
+        });
+        let cancel = c.next(Input::Cancel);
+        let mut i = AgentMachine::new(Policy::INTERACTIVE);
+        i.next(Input::Prepared {
+            uses_tools: true,
+            plan_needed: false,
+            needs_verification: false,
+        });
+        let interrupt = i.next(Input::Interrupt);
+        assert_ne!(cancel, interrupt);
+        assert_eq!(c.phase(), AgentPhase::Cancelled);
+        assert_eq!(i.phase(), AgentPhase::Interrupted);
     }
 
     #[test]

@@ -101,9 +101,7 @@ pub fn validate_url_for_egress(url: &str) -> Result<Vec<std::net::SocketAddr>, E
         _ => return Err(EgressError::NotHttp),
     };
     // authority is up to the first '/', '?' or '#'
-    let authority_end = rest
-        .find(['/', '?', '#'])
-        .unwrap_or(rest.len());
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     if authority.contains('@') {
         return Err(EgressError::HasCredentials);
@@ -194,7 +192,11 @@ pub fn contain_output_filename(root: &Path, filename: &str) -> Result<PathBuf, P
     if filename == ".." || filename == "." {
         return Err(PathError::ParentTraversal);
     }
-    let stem = filename.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let stem = filename
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
     if WINDOWS_RESERVED.contains(&stem.as_str()) {
         return Err(PathError::ReservedName);
     }
@@ -316,7 +318,10 @@ fn looks_secret(tok: &str) -> bool {
         return true;
     }
     // Long opaque token: >=32 chars of hex/base64-ish.
-    if t.len() >= 32 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/') {
+    if t.len() >= 32
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/')
+    {
         // require a mix (not a plain English word) — has a digit.
         return t.chars().any(|c| c.is_ascii_digit());
     }
@@ -331,8 +336,17 @@ mod tests {
     #[test]
     fn private_and_reserved_ipv4_rejected() {
         for ip in [
-            "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.1.1", "0.0.0.0",
-            "100.64.0.1", "192.0.0.1", "240.0.0.1", "255.255.255.255", "224.0.0.1",
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.1",
+            "172.16.0.1",
+            "169.254.1.1",
+            "0.0.0.0",
+            "100.64.0.1",
+            "192.0.0.1",
+            "240.0.0.1",
+            "255.255.255.255",
+            "224.0.0.1",
         ] {
             let a: Ipv4Addr = ip.parse().unwrap();
             assert!(!is_public_ip(IpAddr::V4(a)), "{ip} must be non-public");
@@ -360,8 +374,14 @@ mod tests {
 
     #[test]
     fn egress_rejects_non_http_and_credentials() {
-        assert_eq!(validate_url_for_egress("ftp://example.com/x"), Err(EgressError::NotHttp));
-        assert_eq!(validate_url_for_egress("file:///etc/passwd"), Err(EgressError::NotHttp));
+        assert_eq!(
+            validate_url_for_egress("ftp://example.com/x"),
+            Err(EgressError::NotHttp)
+        );
+        assert_eq!(
+            validate_url_for_egress("file:///etc/passwd"),
+            Err(EgressError::NotHttp)
+        );
         assert_eq!(
             validate_url_for_egress("http://user:pass@example.com/"),
             Err(EgressError::HasCredentials)
@@ -395,12 +415,30 @@ mod tests {
     fn output_filename_containment() {
         let root = Path::new("C:/out");
         assert!(contain_output_filename(root, "model.xlsx").is_ok());
-        assert_eq!(contain_output_filename(root, "a/b.xlsx"), Err(PathError::HasSeparator));
-        assert_eq!(contain_output_filename(root, "a\\b.xlsx"), Err(PathError::HasSeparator));
-        assert_eq!(contain_output_filename(root, "C:evil.xlsx"), Err(PathError::HasDrivePrefix));
-        assert_eq!(contain_output_filename(root, ".."), Err(PathError::ParentTraversal));
-        assert_eq!(contain_output_filename(root, "CON.txt"), Err(PathError::ReservedName));
-        assert_eq!(contain_output_filename(root, "nul"), Err(PathError::ReservedName));
+        assert_eq!(
+            contain_output_filename(root, "a/b.xlsx"),
+            Err(PathError::HasSeparator)
+        );
+        assert_eq!(
+            contain_output_filename(root, "a\\b.xlsx"),
+            Err(PathError::HasSeparator)
+        );
+        assert_eq!(
+            contain_output_filename(root, "C:evil.xlsx"),
+            Err(PathError::HasDrivePrefix)
+        );
+        assert_eq!(
+            contain_output_filename(root, ".."),
+            Err(PathError::ParentTraversal)
+        );
+        assert_eq!(
+            contain_output_filename(root, "CON.txt"),
+            Err(PathError::ReservedName)
+        );
+        assert_eq!(
+            contain_output_filename(root, "nul"),
+            Err(PathError::ReservedName)
+        );
         assert_eq!(contain_output_filename(root, ""), Err(PathError::Empty));
     }
 
@@ -432,9 +470,18 @@ mod tests {
             allowed_fields: &fields,
         };
         assert_eq!(g.vet("nvda", "revenue"), QueryVerdict::Allowed);
-        assert!(matches!(g.vet("tsla", "revenue"), QueryVerdict::RequiresApproval(_)));
-        assert!(matches!(g.vet("nvda", "secret_field"), QueryVerdict::RequiresApproval(_)));
-        assert!(matches!(g.vet_literal("anything"), QueryVerdict::RequiresApproval(_)));
+        assert!(matches!(
+            g.vet("tsla", "revenue"),
+            QueryVerdict::RequiresApproval(_)
+        ));
+        assert!(matches!(
+            g.vet("nvda", "secret_field"),
+            QueryVerdict::RequiresApproval(_)
+        ));
+        assert!(matches!(
+            g.vet_literal("anything"),
+            QueryVerdict::RequiresApproval(_)
+        ));
     }
 
     #[test]

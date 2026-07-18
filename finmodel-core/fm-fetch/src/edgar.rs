@@ -623,12 +623,19 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
         // Headings are line-anchored (regex needs ^item N).
         let items = split_filing_items(&text);
         let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
-        assert_eq!(ids, vec!["1", "7", "8"], "items from div/span headings, got: {ids:?}");
+        assert_eq!(
+            ids,
+            vec!["1", "7", "8"],
+            "items from div/span headings, got: {ids:?}"
+        );
         // Item 8's financial table survives (was dropped by the article extractor).
         let item8 = &items.iter().find(|(id, _)| id == "8").unwrap().1;
         assert!(item8.contains("97,690"), "table revenue kept, got: {item8}");
         // <script> content never leaks into the body text.
-        assert!(!text.contains("should be ignored"), "script text must be skipped");
+        assert!(
+            !text.contains("should be ignored"),
+            "script text must be skipped"
+        );
     }
 
     #[test]
@@ -640,9 +647,19 @@ Revenue grew during the fiscal year, driven by strong product demand across all 
         let text = fetch_filing_doc(&f.url).expect("fetch filing doc");
         let items = split_filing_items(&text);
         let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
-        eprintln!("TSLA {} items: {ids:?} (text {} chars)", f.filing_date, text.len());
-        assert!(ids.contains(&"7"), "Item 7 (MD&A) must be found, got: {ids:?}");
-        assert!(ids.contains(&"8"), "Item 8 (financials) must be found, got: {ids:?}");
+        eprintln!(
+            "TSLA {} items: {ids:?} (text {} chars)",
+            f.filing_date,
+            text.len()
+        );
+        assert!(
+            ids.contains(&"7"),
+            "Item 7 (MD&A) must be found, got: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"8"),
+            "Item 8 (financials) must be found, got: {ids:?}"
+        );
         let item7 = &items.iter().find(|(id, _)| id == "7").unwrap().1;
         assert!(item7.len() > 500, "Item 7 body should be substantial");
     }

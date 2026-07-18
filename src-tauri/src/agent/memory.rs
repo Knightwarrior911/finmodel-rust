@@ -10,8 +10,8 @@
 
 use std::collections::HashSet;
 
-use fm_agent::types::Claim;
 use crate::store::memory::{MemoryRepository, MemoryScope, NewMemory};
+use fm_agent::types::Claim;
 
 // ── Extraction input ──────────────────────────────────────────────────
 
@@ -73,12 +73,17 @@ impl Default for PrecisionGate {
     fn default() -> Self {
         Self {
             skip_prefixes: &[
-                "http://", "https://", "C:\\", "/home", "/Users",
-                "api_key", "sk-", "Bearer ",
+                "http://", "https://", "C:\\", "/home", "/Users", "api_key", "sk-", "Bearer ",
             ],
             secret_patterns: &[
-                "sk-", "pk-", "api_key", "api-key", "secret",
-                "token", "password", "credential",
+                "sk-",
+                "pk-",
+                "api_key",
+                "api-key",
+                "secret",
+                "token",
+                "password",
+                "credential",
             ],
         }
     }
@@ -143,7 +148,12 @@ impl<'a> MemoryCapture<'a> {
     }
 
     /// Run extraction on a completed turn. Returns the number of memories saved.
-    pub fn extract(&mut self, turn: &TurnOutput, ws_id: Option<&str>, conv_id: Option<&str>) -> usize {
+    pub fn extract(
+        &mut self,
+        turn: &TurnOutput,
+        ws_id: Option<&str>,
+        conv_id: Option<&str>,
+    ) -> usize {
         let mut saved = 0;
         let mut inserted_keys: HashSet<(String, Option<String>)> = HashSet::new();
 
@@ -154,11 +164,18 @@ impl<'a> MemoryCapture<'a> {
             }
             let content = format!(
                 "{} {} = {} {} (period: {}, source: {})",
-                claim.entity, claim.claim_key, claim.normalized_value,
+                claim.entity,
+                claim.claim_key,
+                claim.normalized_value,
                 claim.currency.as_deref().unwrap_or(claim.unit.as_str()),
-                claim.period, claim.source_id,
+                claim.period,
+                claim.source_id,
             );
-            let key = format!("claim:{}:{}", claim.entity.to_lowercase(), claim.claim_key.to_lowercase());
+            let key = format!(
+                "claim:{}:{}",
+                claim.entity.to_lowercase(),
+                claim.claim_key.to_lowercase()
+            );
             let scope_key = (key.clone(), ws_id.map(|s| s.to_string()));
 
             // Dedup: skip if we already inserted this exact key+scope.
@@ -276,10 +293,7 @@ fn normalize_user_statement(s: &str) -> String {
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
         .collect();
-    let words: Vec<&str> = cleaned
-        .split_whitespace()
-        .filter(|w| w.len() > 2)
-        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().filter(|w| w.len() > 2).collect();
     let take = words.len().min(5);
     format!("user:{}", words[..take].join(":").to_lowercase())
 }
@@ -290,35 +304,116 @@ fn normalize_user_statement(s: &str) -> String {
 /// would collide with finance vocabulary (e.g. "prefer" vs "preferred stock").
 const DURABLE_CUES: &[&str] = &[
     // preferences
-    "i prefer", "we prefer", "prefers", "prefer to", "would prefer",
-    "my preference", "preference is", "i'd rather", "i would rather",
-    "rather use", "i like to", "i like using",
+    "i prefer",
+    "we prefer",
+    "prefers",
+    "prefer to",
+    "would prefer",
+    "my preference",
+    "preference is",
+    "i'd rather",
+    "i would rather",
+    "rather use",
+    "i like to",
+    "i like using",
     // standing instructions / conventions
-    "by default", "default to", "as a rule", "from now on", "going forward",
-    "in future", "henceforth", "always use", "always show", "always present",
-    "always include", "always exclude", "always round", "always report",
-    "always assume", "always format", "always express", "never use",
-    "never show", "never include", "i use ", "we use ", "i always ",
-    "we always ", "our convention", "house style", "our policy",
-    "our standard", "for all my", "in all my", "every time", "keep in mind",
-    "remember that", "note that i", "i want everything", "i want all",
+    "by default",
+    "default to",
+    "as a rule",
+    "from now on",
+    "going forward",
+    "in future",
+    "henceforth",
+    "always use",
+    "always show",
+    "always present",
+    "always include",
+    "always exclude",
+    "always round",
+    "always report",
+    "always assume",
+    "always format",
+    "always express",
+    "never use",
+    "never show",
+    "never include",
+    "i use ",
+    "we use ",
+    "i always ",
+    "we always ",
+    "our convention",
+    "house style",
+    "our policy",
+    "our standard",
+    "for all my",
+    "in all my",
+    "every time",
+    "keep in mind",
+    "remember that",
+    "note that i",
+    "i want everything",
+    "i want all",
     // coverage / deal / entity context
-    "i focus on", "i cover ", "we cover ", "my coverage", "my sector",
-    "base currency", "fiscal year end", "our fiscal year", "our fy",
-    "we define", "we're advising", "we are advising", "we represent",
-    "our client", "our target is", "the mandate", "our engagement",
+    "i focus on",
+    "i cover ",
+    "we cover ",
+    "my coverage",
+    "my sector",
+    "base currency",
+    "fiscal year end",
+    "our fiscal year",
+    "our fy",
+    "we define",
+    "we're advising",
+    "we are advising",
+    "we represent",
+    "our client",
+    "our target is",
+    "the mandate",
+    "our engagement",
     // explicit corrections
-    "actually,", "correction:", "i meant", "to be clear,",
+    "actually,",
+    "correction:",
+    "i meant",
+    "to be clear,",
 ];
 
 /// Interrogative openers: a statement starting this way is a question/request,
 /// never a durable preference (even without a trailing '?').
 const QUESTION_OPENERS: &[&str] = &[
-    "what ", "what's", "whats ", "how ", "why ", "when ", "where ", "who ",
-    "which ", "do you", "can you", "could you", "would you", "should i",
-    "is there", "are there", "give me", "show me", "build ", "compare ",
-    "list ", "find ", "fetch ", "pull ", "get ", "run ", "calculate ",
-    "analyze ", "analyse ", "download ", "open ", "read ", "summarize ",
+    "what ",
+    "what's",
+    "whats ",
+    "how ",
+    "why ",
+    "when ",
+    "where ",
+    "who ",
+    "which ",
+    "do you",
+    "can you",
+    "could you",
+    "would you",
+    "should i",
+    "is there",
+    "are there",
+    "give me",
+    "show me",
+    "build ",
+    "compare ",
+    "list ",
+    "find ",
+    "fetch ",
+    "pull ",
+    "get ",
+    "run ",
+    "calculate ",
+    "analyze ",
+    "analyse ",
+    "download ",
+    "open ",
+    "read ",
+    "summarize ",
 ];
 
 /// Decide whether a user statement encodes a DURABLE preference, standing
@@ -347,8 +442,15 @@ pub(crate) fn is_durable_preference(stmt: &str) -> bool {
         if lower.starts_with(q) {
             // Allow only when an unambiguous standing marker is present.
             const STRONG: &[&str] = &[
-                "always", "never", "by default", "default to", "from now on",
-                "going forward", "every time", "for all my", "in all my",
+                "always",
+                "never",
+                "by default",
+                "default to",
+                "from now on",
+                "going forward",
+                "every time",
+                "for all my",
+                "in all my",
             ];
             return STRONG.iter().any(|s| lower.contains(s));
         }
@@ -370,12 +472,7 @@ impl<'a> MemoryRecall<'a> {
 
     /// Query for relevant memories given entity/topic hints and scope.
     /// Returns formatted context lines and the count of memories found.
-    pub fn recall(
-        &self,
-        query: &str,
-        scope: &MemoryScope,
-        limit: usize,
-    ) -> (Vec<String>, usize) {
+    pub fn recall(&self, query: &str, scope: &MemoryScope, limit: usize) -> (Vec<String>, usize) {
         let results = match self.repo.search(query, scope) {
             Ok(r) => r,
             Err(_) => return (vec![], 0),
@@ -446,7 +543,9 @@ mod tests {
     fn precision_gate_accepts_normal_text() {
         let gate = PrecisionGate::default();
         assert!(gate.check("User prefers P/E over EV/EBITDA").is_ok());
-        assert!(gate.check("Revenue growth is the key driver for FY2025").is_ok());
+        assert!(gate
+            .check("Revenue growth is the key driver for FY2025")
+            .is_ok());
     }
 
     #[test]
@@ -484,7 +583,15 @@ mod tests {
         let saved = cap.extract(&turn, Some("ws1"), Some("conv1"));
         assert_eq!(saved, 1);
 
-        let results = r.search("NVDA", &MemoryScope { workspace_id: Some("ws1".into()), ..Default::default() }).unwrap();
+        let results = r
+            .search(
+                "NVDA",
+                &MemoryScope {
+                    workspace_id: Some("ws1".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.kind, "numeric_claim");
     }
@@ -523,7 +630,15 @@ mod tests {
         let saved = cap.extract(&turn, Some("ws1"), None);
         assert_eq!(saved, 1);
 
-        let results = r.search("prefers", &MemoryScope { workspace_id: Some("ws1".into()), ..Default::default() }).unwrap();
+        let results = r
+            .search(
+                "prefers",
+                &MemoryScope {
+                    workspace_id: Some("ws1".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.kind, "preference");
     }
@@ -534,9 +649,9 @@ mod tests {
         let now = "2026-07-17T12:00:00Z";
         let turn = TurnOutput {
             user_statements: vec![
-                "sk-abc123def456".into(), // looks like API key
+                "sk-abc123def456".into(),        // looks like API key
                 "https://malicious.site".into(), // URL
-                "OK".into(), // too short
+                "OK".into(),                     // too short
             ],
             verified_claims: vec![],
             turn_source: "turn-45".into(),
@@ -610,7 +725,10 @@ mod tests {
         let recall = MemoryRecall::new(&r);
         let (lines, count) = recall.recall(
             "prefers",
-            &MemoryScope { workspace_id: Some("ws1".into()), ..Default::default() },
+            &MemoryScope {
+                workspace_id: Some("ws1".into()),
+                ..Default::default()
+            },
             5,
         );
         assert_eq!(count, 1);
@@ -659,7 +777,15 @@ mod tests {
         cap.extract(&turn, Some("ws1"), None);
 
         // Same memory should NOT appear in a different workspace.
-        let results = r.search("prefers", &MemoryScope { workspace_id: Some("ws2".into()), ..Default::default() }).unwrap();
+        let results = r
+            .search(
+                "prefers",
+                &MemoryScope {
+                    workspace_id: Some("ws2".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(results.len(), 0);
     }
 
@@ -708,13 +834,19 @@ mod tests {
         ("By default, use a 10% discount rate in DCFs", true),
         ("Our base currency is EUR", true),
         ("I'd rather see unlevered free cash flow", true),
-        ("Always exclude stock-based compensation from adjusted EBITDA", true),
+        (
+            "Always exclude stock-based compensation from adjusted EBITDA",
+            true,
+        ),
         ("Default to the last twelve months for all comps", true),
         ("I like to see bear, base, and bull cases", true),
         ("Never use sell-side consensus for the terminal value", true),
         ("Our client is a mid-market private equity fund", true),
         ("Going forward, round share prices to two decimals", true),
-        ("I prefer the perpetuity-growth method for terminal value", true),
+        (
+            "I prefer the perpetuity-growth method for terminal value",
+            true,
+        ),
         ("We always tax-effect EBIT at the marginal rate", true),
         ("My preference is a 2% terminal growth rate", true),
         ("Actually, use the fiscal year ending in June", true),
@@ -723,7 +855,10 @@ mod tests {
         ("We define net debt to include operating leases", true),
         ("Our house style is no decimals on dollar figures", true),
         ("I focus on large-cap US banks", true),
-        ("The mandate is a sell-side for NVDA's data-center unit", true),
+        (
+            "The mandate is a sell-side for NVDA's data-center unit",
+            true,
+        ),
         ("For all my models, use a mid-year convention", true),
         ("In all my comps, cap the peer set at eight names", true),
         ("We represent the buyer in this deal", true),
@@ -735,7 +870,10 @@ mod tests {
         ("I use a five-year explicit forecast horizon", true),
         ("I cover industrials and materials", true),
         ("We cover the entire EU banking sector", true),
-        ("Henceforth, label all figures with their fiscal period", true),
+        (
+            "Henceforth, label all figures with their fiscal period",
+            true,
+        ),
         ("I would rather use median than mean for comps", true),
         ("Our convention is fiscal quarters, not calendar", true),
         ("I prefer diluted EPS over basic", true),
@@ -799,7 +937,10 @@ mod tests {
         ("Which method do you prefer for TV?", false),
         ("Do you always tax-effect EBIT?", false),
         ("Is EUR our base currency?", false),
-        ("Explain the difference between levered and unlevered beta", false),
+        (
+            "Explain the difference between levered and unlevered beta",
+            false,
+        ),
         ("Walk me through the DCF", false),
         ("Draft an IC memo", false),
         ("Export to Excel", false),
@@ -828,7 +969,10 @@ mod tests {
         ("I prefer gross profit over gross margin in tables", true),
         ("We always reconcile GAAP to adjusted metrics", true),
         ("My preference is USD thousands for small caps", true),
-        ("Actually, our target is the consumer unit, not enterprise", true),
+        (
+            "Actually, our target is the consumer unit, not enterprise",
+            true,
+        ),
         ("I meant unlevered, not levered, free cash flow", true),
         ("We define free cash flow after lease payments", true),
         ("I focus on mid-cap software", true),
@@ -836,7 +980,10 @@ mod tests {
         ("For all my comps, use forward multiples", true),
         ("In all my models, keep a two-decimal share count", true),
         ("We represent the seller here", true),
-        ("We prefer the exit-multiple method for terminal value", true),
+        (
+            "We prefer the exit-multiple method for terminal value",
+            true,
+        ),
         ("Our policy is to footnote every non-GAAP adjustment", true),
         ("Strip out FX gains before computing margins", true),
         ("Keep the peer set to direct competitors only", true),
@@ -907,7 +1054,13 @@ mod tests {
         // model-based classifier evaluated on representative production turns,
         // not rules. This asserts a regression floor + records the measurement;
         // it is deliberately NOT a claim that the gate passes.
-        assert!(precision >= 0.80, "held-out precision regressed below floor: {precision:.3}");
-        assert!(recall >= 0.78, "held-out recall regressed below floor: {recall:.3}");
+        assert!(
+            precision >= 0.80,
+            "held-out precision regressed below floor: {precision:.3}"
+        );
+        assert!(
+            recall >= 0.78,
+            "held-out recall regressed below floor: {recall:.3}"
+        );
     }
 }

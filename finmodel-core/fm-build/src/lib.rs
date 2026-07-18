@@ -434,8 +434,8 @@ pub fn build_workbook_input_with(
     opts: &BuildOptions,
 ) -> (WorkbookInput, Vec<String>) {
     use fm_excel::is_structure::{
-        apply_filing_labels, build_is_structure, build_standard_is_detailed, CogsDetail, OpexItem,
-        Segment,
+        CogsDetail, OpexItem, Segment, apply_filing_labels, build_is_structure,
+        build_standard_is_detailed,
     };
 
     let hist: Vec<String> = extraction
@@ -1104,9 +1104,11 @@ mod tests {
             vec!["a".into(), "b".into()],
             "USD",
         );
-        assert!(validate_extraction(&bad)
-            .iter()
-            .any(|r| r.contains("non-finite")));
+        assert!(
+            validate_extraction(&bad)
+                .iter()
+                .any(|r| r.contains("non-finite"))
+        );
 
         // Inconsistent vector length vs periods.
         let mut is2 = StatementData::new();
@@ -1117,9 +1119,11 @@ mod tests {
             vec!["a".into(), "b".into()],
             "USD",
         );
-        assert!(validate_extraction(&bad2)
-            .iter()
-            .any(|r| r.contains("inconsistent")));
+        assert!(
+            validate_extraction(&bad2)
+                .iter()
+                .any(|r| r.contains("inconsistent"))
+        );
 
         // Empty periods + invalid currency.
         let bad3 = extraction_with(
@@ -1395,11 +1399,12 @@ mod tests {
         // Standard sector carries no such disclaimer.
         let std = opts_np3();
         let (si, _) = build_workbook_input_with(&ex, &projected, "TEST", &std);
-        assert!(si
-            .verification
-            .notes
-            .iter()
-            .all(|n| !n.contains("not yet sector-specific")));
+        assert!(
+            si.verification
+                .notes
+                .iter()
+                .all(|n| !n.contains("not yet sector-specific"))
+        );
     }
 
     #[test]

@@ -118,9 +118,7 @@ impl SubagentPool {
         let ids: Vec<SubagentId> = self
             .children
             .iter()
-            .filter(|(_, c)| {
-                matches!(c.status, SubagentStatus::Queued | SubagentStatus::Running)
-            })
+            .filter(|(_, c)| matches!(c.status, SubagentStatus::Queued | SubagentStatus::Running))
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -193,7 +191,10 @@ mod tests {
         assert_eq!(p.active_count(), 1);
         assert!(p.children.get(&h.id).unwrap().started_at.is_some());
         p.succeed(h.id, "done".into());
-        assert_eq!(p.children.get(&h.id).unwrap().status, SubagentStatus::Succeeded);
+        assert_eq!(
+            p.children.get(&h.id).unwrap().status,
+            SubagentStatus::Succeeded
+        );
         assert_eq!(p.active_count(), 0);
     }
 
@@ -215,7 +216,10 @@ mod tests {
         let h = p.spawn("test".into()).unwrap();
         p.start(h.id);
         p.cancel(h.id);
-        assert_eq!(p.children.get(&h.id).unwrap().status, SubagentStatus::Cancelled);
+        assert_eq!(
+            p.children.get(&h.id).unwrap().status,
+            SubagentStatus::Cancelled
+        );
     }
 
     #[test]
@@ -267,11 +271,15 @@ mod tests {
     /// unfinished work.
     #[test]
     fn comps_peer_pool_one_failure_then_cancel_rest() {
-        let peers = ["NVDA", "AMD", "AVGO", "INTC", "QCOM", "MU", "TSM", "ASML", "AMAT", "LRCX"];
+        let peers = [
+            "NVDA", "AMD", "AVGO", "INTC", "QCOM", "MU", "TSM", "ASML", "AMAT", "LRCX",
+        ];
         let mut p = SubagentPool::new("comps".into(), 12, Budget::new(Policy::WORKFLOW));
         let mut ids = Vec::new();
         for peer in peers {
-            let h = p.spawn(format!("peer {peer}")).expect("capacity for 10 peers");
+            let h = p
+                .spawn(format!("peer {peer}"))
+                .expect("capacity for 10 peers");
             ids.push(h.id);
             p.start(h.id);
         }

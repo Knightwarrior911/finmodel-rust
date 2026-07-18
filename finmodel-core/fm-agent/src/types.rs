@@ -219,7 +219,10 @@ impl EventKind {
     /// Durable events persist to `run_events` with a monotonic sequence and are
     /// authoritative for replay; ephemeral events never determine terminal state.
     pub fn is_durable(self) -> bool {
-        !matches!(self, EventKind::AssistantTextDelta | EventKind::ToolProgress)
+        !matches!(
+            self,
+            EventKind::AssistantTextDelta | EventKind::ToolProgress
+        )
     }
 
     /// Whether this is one of the five terminal run events.
@@ -304,6 +307,13 @@ pub struct ToolResultEnvelope {
     pub sources: Vec<SourceRef>,
     pub artifacts: Vec<ArtifactRef>,
     pub warnings: Vec<String>,
+    /// Material numeric/qualitative claims extracted from this result, fed to the
+    /// verifier. The structured result — not model prose — is the claim source.
+    pub claims: Vec<Claim>,
+    /// Optional human progress note ("Peers 3/5…").
+    pub progress: Option<String>,
+    /// Hint that the run may terminate after this result (no further tools needed).
+    pub terminate: bool,
     /// Trust label for any external text in `data`/`display`.
     pub trust: Trust,
 }
@@ -318,8 +328,84 @@ impl ToolResultEnvelope {
             sources: Vec::new(),
             artifacts: Vec::new(),
             warnings: Vec::new(),
+            claims: Vec::new(),
+            progress: None,
+            terminate: false,
             trust: Trust::Trusted,
         }
+    }
+}
+
+/// Status of a single plan step, mapped from tool/child/verification progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStepStatus {
+    Pending,
+    Running,
+    Done,
+    Blocked,
+    Skipped,
+}
+
+/// A single step in the user-visible plan. `id` is stable across revisions so
+/// the UI can diff steps rather than re-render, per decision "plan semantics".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanStep {
+    pub id: String,
+    pub label: String,
+    pub status: PlanStepStatus,
+}
+
+/// The one versioned, user-visible plan for a run. Emitted whole on every
+/// revision as the `PlanUpdated` payload; never empty when planning is enabled
+/// (no hidden planner, no empty `PlanUpdated`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Plan {
+    pub objective: String,
+    pub assumptions: Vec<String>,
+    pub steps: Vec<PlanStep>,
+    /// Monotonic revision, bumped on each visible steering revision.
+    pub version: u32,
+}
+
+impl Plan {
+    /// A plan is empty when it has neither an objective nor any step; the
+    /// reducer/driver contract forbids emitting an empty `PlanUpdated`.
+    pub fn is_empty(&self) -> bool {
+        self.objective.trim().is_empty() && self.steps.is_empty()
+    }
+
+    /// Set a step's status by id; returns true iff a step matched. The mapping
+    /// from tool/child/verification transitions to plan-step status is a pure
+    /// transformation over the persisted plan (Task 3.2) — progress is never
+    /// inferred from elapsed time.
+    pub fn set_step_status(&mut self, id: &str, status: PlanStepStatus) -> bool {
+        if let Some(s) = self.steps.iter_mut().find(|s| s.id == id) {
+            s.status = status;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Mark the given step ids `Done` and bump the plan version (a visible
+    /// revision emitted whole as the next `PlanUpdated`).
+    pub fn complete_steps(&mut self, done_ids: &[&str]) {
+        for id in done_ids {
+            self.set_step_status(id, PlanStepStatus::Done);
+        }
+        self.version += 1;
+    }
+
+    /// Promote the first still-`Pending` step to `Running` (the active step) and
+    /// return its id. Completed/active work is preserved.
+    pub fn advance_active(&mut self) -> Option<String> {
+        let idx = self
+            .steps
+            .iter()
+            .position(|s| s.status == PlanStepStatus::Pending)?;
+        self.steps[idx].status = PlanStepStatus::Running;
+        Some(self.steps[idx].id.clone())
     }
 }
 
@@ -391,5 +477,36 @@ mod tests {
         let back: ToolResultEnvelope = serde_json::from_str(&s).unwrap();
         assert_eq!(env, back);
         assert_eq!(back.trust, Trust::Trusted);
+    }
+
+    #[test]
+    fn plan_step_status_mapping() {
+        let mut plan = Plan {
+            objective: "o".into(),
+            assumptions: vec![],
+            steps: vec![
+                PlanStep {
+                    id: "s1".into(),
+                    label: "a".into(),
+                    status: PlanStepStatus::Pending,
+                },
+                PlanStep {
+                    id: "s2".into(),
+                    label: "b".into(),
+                    status: PlanStepStatus::Pending,
+                },
+            ],
+            version: 1,
+        };
+        // Advance activates the first pending step.
+        assert_eq!(plan.advance_active(), Some("s1".to_string()));
+        assert_eq!(plan.steps[0].status, PlanStepStatus::Running);
+        // Completing bumps the version and preserves other work.
+        plan.complete_steps(&["s1"]);
+        assert_eq!(plan.steps[0].status, PlanStepStatus::Done);
+        assert_eq!(plan.version, 2);
+        // Next advance activates s2; unknown id is a no-op.
+        assert_eq!(plan.advance_active(), Some("s2".to_string()));
+        assert!(!plan.set_step_status("nope", PlanStepStatus::Done));
     }
 }

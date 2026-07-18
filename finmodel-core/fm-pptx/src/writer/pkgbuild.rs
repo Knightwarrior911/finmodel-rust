@@ -53,7 +53,11 @@ pub fn build_package(slide_w_in: f64, slide_h_in: f64, slides: &[Vec<String>]) -
     // ppt/presentation.xml
     let mut sld_ids = String::new();
     for i in 0..n {
-        sld_ids.push_str(&format!("<p:sldId id=\"{}\" r:id=\"rId{}\"/>", 256 + i, i + 2));
+        sld_ids.push_str(&format!(
+            "<p:sldId id=\"{}\" r:id=\"rId{}\"/>",
+            256 + i,
+            i + 2
+        ));
     }
     let pres = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
@@ -87,7 +91,10 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
     pkg.set("ppt/theme/theme1.xml", THEME1.to_string().into_bytes());
 
     // master + rels
-    pkg.set("ppt/slideMasters/slideMaster1.xml", master_xml().into_bytes());
+    pkg.set(
+        "ppt/slideMasters/slideMaster1.xml",
+        master_xml().into_bytes(),
+    );
     pkg.set(
         "ppt/slideMasters/_rels/slideMaster1.xml.rels",
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
@@ -100,7 +107,10 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
     );
 
     // layout + rels
-    pkg.set("ppt/slideLayouts/slideLayout1.xml", layout_xml().into_bytes());
+    pkg.set(
+        "ppt/slideLayouts/slideLayout1.xml",
+        layout_xml().into_bytes(),
+    );
     pkg.set(
         "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\

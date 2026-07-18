@@ -112,7 +112,9 @@ fn hex6(c: &str) -> String {
 }
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Python `value_format.format(v)` for the format strings the deck uses.
@@ -223,12 +225,24 @@ impl PptxDeckWriter {
     // ── primitives ────────────────────────────────────────────────────────────
 
     /// `_add_rect` / `_add_rounded_rect` — a rounded rectangle (adj 0.04).
-    fn add_rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str, line: Option<&str>, no_line: bool) {
+    fn add_rect(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        fill: &str,
+        line: Option<&str>,
+        no_line: bool,
+    ) {
         let id = self.take_id();
         let ln = if no_line {
             "<a:ln><a:noFill/></a:ln>".to_string()
         } else if let Some(c) = line {
-            format!("<a:ln><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></a:ln>", hex6(c))
+            format!(
+                "<a:ln><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></a:ln>",
+                hex6(c)
+            )
         } else {
             "<a:ln><a:noFill/></a:ln>".to_string()
         };
@@ -240,7 +254,11 @@ impl PptxDeckWriter {
 {STYLE_AUTOSHAPE}\
 <p:txBody><a:bodyPr rtlCol=\"0\" anchor=\"ctr\"/><a:lstStyle/><a:p><a:pPr algn=\"ctr\"/></a:p></p:txBody></p:sp>",
             id - 1,
-            emu(x), emu(y), emu(w), emu(h), hex6(fill),
+            emu(x),
+            emu(y),
+            emu(w),
+            emu(h),
+            hex6(fill),
         );
         self.cur().push(sp);
     }
@@ -255,7 +273,12 @@ impl PptxDeckWriter {
 <a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>\
 {STYLE_AUTOSHAPE}\
 <p:txBody><a:bodyPr rtlCol=\"0\" anchor=\"ctr\"/><a:lstStyle/><a:p><a:pPr algn=\"ctr\"/></a:p></p:txBody></p:sp>",
-            id - 1, emu(x), emu(y), emu(w), emu(h), hex6(fill),
+            id - 1,
+            emu(x),
+            emu(y),
+            emu(w),
+            emu(h),
+            hex6(fill),
         );
         self.cur().push(sp);
     }
@@ -279,7 +302,9 @@ impl PptxDeckWriter {
     ) {
         let id = self.take_id();
         let color = hex6(color.unwrap_or(&self.brand_dark));
-        let font = font.map(|s| s.to_string()).unwrap_or_else(|| self.font_body.clone());
+        let font = font
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.font_body.clone());
         let b = if bold { 1 } else { 0 };
         let i = if italic { 1 } else { 0 };
         let mut paras = String::new();
@@ -292,14 +317,20 @@ impl PptxDeckWriter {
                 esc(line),
             ));
         }
-        let anchor_attr = anchor.map(|a| format!(" anchor=\"{a}\"")).unwrap_or_default();
+        let anchor_attr = anchor
+            .map(|a| format!(" anchor=\"{a}\""))
+            .unwrap_or_default();
         let sp = format!(
             "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"TextBox {}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>\
 <p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm>\
 <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
 <p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" rIns=\"0\" tIns=\"0\" bIns=\"0\"{anchor_attr}><a:spAutoFit/></a:bodyPr>\
 <a:lstStyle/>{paras}</p:txBody></p:sp>",
-            id - 1, emu(x), emu(y), emu(w), emu(h),
+            id - 1,
+            emu(x),
+            emu(y),
+            emu(w),
+            emu(h),
         );
         self.cur().push(sp);
     }
@@ -326,7 +357,8 @@ impl PptxDeckWriter {
 <a:prstGeom prst=\"line\"><a:avLst/></a:prstGeom>\
 <a:ln w=\"{w}\"><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></a:ln></p:spPr>\
 {STYLE_CONNECTOR}</p:cxnSp>",
-            id - 1, hex6(color),
+            id - 1,
+            hex6(color),
         );
         self.cur().push(sp);
     }
@@ -338,7 +370,9 @@ impl PptxDeckWriter {
             return Err("action title required (engineering R1)".into());
         }
         if t.split_whitespace().count() < 3 {
-            return Err(format!("action title '{t}' too short - use 6-14 words conveying the takeaway"));
+            return Err(format!(
+                "action title '{t}' too short - use 6-14 words conveying the takeaway"
+            ));
         }
         Ok(normalize_heading(t))
     }
@@ -352,18 +386,61 @@ impl PptxDeckWriter {
         if wc > 8 {
             size = (self.headline_size - ((wc - 8) / 2)).max(16);
         }
-        let (bp, fh, bold) = (self.brand_primary.clone(), self.font_headline.clone(), self.headline_bold);
-        self.add_text(0.3, 0.18, headline_w, 0.45, action_title, size, bold, false, Some(&bp), "l", Some(&fh), None);
+        let (bp, fh, bold) = (
+            self.brand_primary.clone(),
+            self.font_headline.clone(),
+            self.headline_bold,
+        );
+        self.add_text(
+            0.3,
+            0.18,
+            headline_w,
+            0.45,
+            action_title,
+            size,
+            bold,
+            false,
+            Some(&bp),
+            "l",
+            Some(&fh),
+            None,
+        );
         let sw = self.slide_w_in;
         self.add_line(0.3, 0.72, sw - 0.3, 0.72, MID_GRAY, 0.5);
     }
 
     fn add_footer(&mut self) {
         let (sw, sh, page) = (self.slide_w_in, self.slide_h_in, self.page);
-        self.add_text(sw - 1.0, sh - 0.3, 0.6, 0.25, &page.to_string(), PT_PAGE, false, false, Some(FOOTNOTE_GRAY), "r", None, None);
+        self.add_text(
+            sw - 1.0,
+            sh - 0.3,
+            0.6,
+            0.25,
+            &page.to_string(),
+            PT_PAGE,
+            false,
+            false,
+            Some(FOOTNOTE_GRAY),
+            "r",
+            None,
+            None,
+        );
         if !self.confidentiality.is_empty() {
             let conf = self.confidentiality.clone();
-            self.add_text(MARGIN_IN, sh - 0.3, 3.0, 0.25, &conf, PT_PAGE, true, false, Some(FOOTNOTE_GRAY), "l", None, None);
+            self.add_text(
+                MARGIN_IN,
+                sh - 0.3,
+                3.0,
+                0.25,
+                &conf,
+                PT_PAGE,
+                true,
+                false,
+                Some(FOOTNOTE_GRAY),
+                "l",
+                None,
+                None,
+            );
         }
     }
 
@@ -380,7 +457,20 @@ impl PptxDeckWriter {
         }
         let text = parts.join("   ");
         let sw = self.slide_w_in;
-        self.add_text(0.3, y, sw - 0.6, 0.25, &text, PT_FOOTNOTE, false, true, Some(FOOTNOTE_GRAY), "l", None, None);
+        self.add_text(
+            0.3,
+            y,
+            sw - 0.6,
+            0.25,
+            &text,
+            PT_FOOTNOTE,
+            false,
+            true,
+            Some(FOOTNOTE_GRAY),
+            "l",
+            None,
+            None,
+        );
     }
 
     // ── public archetypes ───────────────────────────────────────────────────────
@@ -394,16 +484,68 @@ impl PptxDeckWriter {
         let bp = self.brand_primary.clone();
         let fh = self.font_headline.clone();
         let bold = self.headline_bold;
-        self.add_text(MARGIN_IN + 0.3, sh * 0.32, sw - MARGIN_IN - 0.8, 2.4, title, 44, bold, false, Some(&bp), "l", Some(&fh), None);
+        self.add_text(
+            MARGIN_IN + 0.3,
+            sh * 0.32,
+            sw - MARGIN_IN - 0.8,
+            2.4,
+            title,
+            44,
+            bold,
+            false,
+            Some(&bp),
+            "l",
+            Some(&fh),
+            None,
+        );
         if !subtitle.is_empty() {
             let bd = self.brand_dark.clone();
-            self.add_text(MARGIN_IN + 0.3, sh * 0.55, sw - MARGIN_IN - 0.8, 0.6, subtitle, 22, false, false, Some(&bd), "l", Some(&fh), None);
+            self.add_text(
+                MARGIN_IN + 0.3,
+                sh * 0.55,
+                sw - MARGIN_IN - 0.8,
+                0.6,
+                subtitle,
+                22,
+                false,
+                false,
+                Some(&bd),
+                "l",
+                Some(&fh),
+                None,
+            );
         }
         let date_str = self.deck_date.clone();
-        self.add_text(MARGIN_IN + 0.3, sh - 1.1, sw - MARGIN_IN - 0.8, 0.4, &date_str, 14, false, false, Some(FOOTNOTE_GRAY), "l", None, None);
+        self.add_text(
+            MARGIN_IN + 0.3,
+            sh - 1.1,
+            sw - MARGIN_IN - 0.8,
+            0.4,
+            &date_str,
+            14,
+            false,
+            false,
+            Some(FOOTNOTE_GRAY),
+            "l",
+            None,
+            None,
+        );
         if !self.confidentiality.is_empty() {
             let conf = self.confidentiality.clone();
-            self.add_text(sw - 2.5, sh - 0.5, 2.0, 0.3, &conf, PT_FOOTNOTE, true, false, Some(FOOTNOTE_GRAY), "r", None, None);
+            self.add_text(
+                sw - 2.5,
+                sh - 0.5,
+                2.0,
+                0.3,
+                &conf,
+                PT_FOOTNOTE,
+                true,
+                false,
+                Some(FOOTNOTE_GRAY),
+                "r",
+                None,
+                None,
+            );
         }
         self.page = 0;
     }
@@ -418,23 +560,61 @@ impl PptxDeckWriter {
         let (sw, sh) = (self.slide_w_in, self.slide_h_in);
         self.add_rect(0.0, 0.0, 0.25, sh, &self.brand_primary.clone(), None, true);
         let (bp, fh) = (self.brand_primary.clone(), self.font_headline.clone());
-        self.add_text(MARGIN_IN, sh * 0.30, sw - 2.0 * MARGIN_IN, 1.6, section_num, 80, true, false, Some(&bp), "l", Some(&fh), None);
+        self.add_text(
+            MARGIN_IN,
+            sh * 0.30,
+            sw - 2.0 * MARGIN_IN,
+            1.6,
+            section_num,
+            80,
+            true,
+            false,
+            Some(&bp),
+            "l",
+            Some(&fh),
+            None,
+        );
         self.add_line(MARGIN_IN, sh * 0.50, MARGIN_IN + 1.2, sh * 0.50, &bp, 2.5);
         let bd = self.brand_dark.clone();
-        self.add_text(MARGIN_IN, sh * 0.54, sw - 2.0 * MARGIN_IN, 1.0, title, 36, true, false, Some(&bd), "l", Some(&fh), None);
+        self.add_text(
+            MARGIN_IN,
+            sh * 0.54,
+            sw - 2.0 * MARGIN_IN,
+            1.0,
+            title,
+            36,
+            true,
+            false,
+            Some(&bd),
+            "l",
+            Some(&fh),
+            None,
+        );
         self.page += 1;
         self.add_footer();
     }
 
     /// `add_scorecard`.
-    pub fn add_scorecard(&mut self, action_title: &str, tiles: &[ScorecardTile], source: &str, notes: &str) -> Result<(), String> {
+    pub fn add_scorecard(
+        &mut self,
+        action_title: &str,
+        tiles: &[ScorecardTile],
+        source: &str,
+        notes: &str,
+    ) -> Result<(), String> {
         let at = self.validate_action_title(action_title)?;
         let n = tiles.len();
         if !(1..=9).contains(&n) {
             return Err(format!("scorecard requires 1-9 tiles, got {n}"));
         }
         self.content_slide_with_title(&at);
-        let (cols, rows) = if n <= 3 { (n, 1) } else if n <= 6 { (3, 2) } else { (3, 3) };
+        let (cols, rows) = if n <= 3 {
+            (n, 1)
+        } else if n <= 6 {
+            (3, 2)
+        } else {
+            (3, 3)
+        };
         let avail_w = self.slide_w_in - 2.0 * MARGIN_IN;
         let avail_h = 4.8;
         let gap = 0.2;
@@ -459,19 +639,62 @@ impl PptxDeckWriter {
     fn draw_tile(&mut self, left: f64, top: f64, w: f64, h: f64, tile: &ScorecardTile) {
         self.add_rect(left, top, w, h, LIGHT_GRAY, Some(BORDER_GRAY), false);
         let bd = self.brand_dark.clone();
-        self.add_text(left + 0.15, top + 0.1, w - 0.3, 0.4, &tile.metric, 11, false, false, Some(&bd), "l", None, None);
+        self.add_text(
+            left + 0.15,
+            top + 0.1,
+            w - 0.3,
+            0.4,
+            &tile.metric,
+            11,
+            false,
+            false,
+            Some(&bd),
+            "l",
+            None,
+            None,
+        );
         let bp = self.brand_primary.clone();
-        self.add_text(left + 0.15, top + 0.5, w - 0.3, h - 1.0, &tile.value, 24, true, false, Some(&bp), "l", None, None);
+        self.add_text(
+            left + 0.15,
+            top + 0.5,
+            w - 0.3,
+            h - 1.0,
+            &tile.value,
+            24,
+            true,
+            false,
+            Some(&bp),
+            "l",
+            None,
+            None,
+        );
         if tile.rating > 0 {
             let dot_y = top + h - 0.45;
             let r = tile.rating.clamp(0, 5);
             for i in 0..5 {
-                let fill = if i < r { self.brand_primary.clone() } else { MID_GRAY.to_string() };
+                let fill = if i < r {
+                    self.brand_primary.clone()
+                } else {
+                    MID_GRAY.to_string()
+                };
                 self.add_oval(left + 0.15 + i as f64 * 0.22, dot_y, 0.15, 0.15, &fill);
             }
         }
         if !tile.sub.is_empty() {
-            self.add_text(left + 0.15, top + h - 0.25, w - 0.3, 0.2, &tile.sub, 8, false, true, Some(FOOTNOTE_GRAY), "l", None, None);
+            self.add_text(
+                left + 0.15,
+                top + h - 0.25,
+                w - 0.3,
+                0.2,
+                &tile.sub,
+                8,
+                false,
+                true,
+                Some(FOOTNOTE_GRAY),
+                "l",
+                None,
+                None,
+            );
         }
     }
 
@@ -579,7 +802,14 @@ impl PptxDeckWriter {
         };
 
         let baseline_y = y_to_in(y_min);
-        self.add_line(plot_left, baseline_y, plot_right, baseline_y, BORDER_GRAY, 0.75);
+        self.add_line(
+            plot_left,
+            baseline_y,
+            plot_right,
+            baseline_y,
+            BORDER_GRAY,
+            0.75,
+        );
 
         let gap = 0.15;
         let bar_w = (plot_w - gap * (n as f64 - 1.0)) / n as f64;
@@ -619,21 +849,81 @@ impl PptxDeckWriter {
             let label_y = top_y - 0.28;
             let vlabel = py_value_format(value_format, seg.value);
             let fb = self.font_body.clone();
-            self.add_text(x - 0.1, label_y, bar_w + 0.2, 0.22, &vlabel, 9, true, false, Some(&color), "ctr", Some(&fb), None);
+            self.add_text(
+                x - 0.1,
+                label_y,
+                bar_w + 0.2,
+                0.22,
+                &vlabel,
+                9,
+                true,
+                false,
+                Some(&color),
+                "ctr",
+                Some(&fb),
+                None,
+            );
 
             let bd = self.brand_dark.clone();
-            self.add_text(x - 0.1, plot_bot + 0.1, bar_w + 0.2, 0.4, &seg.label, 9, false, false, Some(&bd), "ctr", Some(&fb), None);
+            self.add_text(
+                x - 0.1,
+                plot_bot + 0.1,
+                bar_w + 0.2,
+                0.4,
+                &seg.label,
+                9,
+                false,
+                false,
+                Some(&bd),
+                "ctr",
+                Some(&fb),
+                None,
+            );
 
-            prev_top_y = Some(if kind != "minus" { y_to_in(*hi) } else { y_to_in(*lo) });
+            prev_top_y = Some(if kind != "minus" {
+                y_to_in(*hi)
+            } else {
+                y_to_in(*lo)
+            });
             prev_x_right = Some(x + bar_w);
         }
 
         let fb = self.font_body.clone();
         if !y_label.is_empty() {
-            let label = if do_break { format!("{y_label} (axis truncated)") } else { y_label.to_string() };
-            self.add_text(0.3, body_top + 0.05, 2.5, 0.22, &label, 9, false, true, Some(FOOTNOTE_GRAY), "l", Some(&fb), None);
+            let label = if do_break {
+                format!("{y_label} (axis truncated)")
+            } else {
+                y_label.to_string()
+            };
+            self.add_text(
+                0.3,
+                body_top + 0.05,
+                2.5,
+                0.22,
+                &label,
+                9,
+                false,
+                true,
+                Some(FOOTNOTE_GRAY),
+                "l",
+                Some(&fb),
+                None,
+            );
         } else if do_break {
-            self.add_text(0.3, body_top + 0.05, 2.5, 0.22, "(axis truncated)", 9, false, true, Some(FOOTNOTE_GRAY), "l", Some(&fb), None);
+            self.add_text(
+                0.3,
+                body_top + 0.05,
+                2.5,
+                0.22,
+                "(axis truncated)",
+                9,
+                false,
+                true,
+                Some(FOOTNOTE_GRAY),
+                "l",
+                Some(&fb),
+                None,
+            );
         }
 
         self.add_source_line(source, notes);
@@ -645,7 +935,15 @@ impl PptxDeckWriter {
     /// `_draw_break_marker`.
     fn draw_break_marker(&mut self, bar_x: f64, bar_w: f64, band_top: f64) {
         let band_h = 0.18;
-        self.add_rect(bar_x - 0.02, band_top, bar_w + 0.04, band_h, WHITE, None, true);
+        self.add_rect(
+            bar_x - 0.02,
+            band_top,
+            bar_w + 0.04,
+            band_h,
+            WHITE,
+            None,
+            true,
+        );
         let zig_y_top = band_top + 0.02;
         let zig_y_bot = band_top + band_h - 0.02;
         let steps = 6;
@@ -682,7 +980,8 @@ impl PptxDeckWriter {
             return Err(format!("bar chart requires 1-12 bars, got {n}"));
         }
         self.content_slide_with_title(&at);
-        let mut pairs: Vec<(String, f64)> = labels.iter().cloned().zip(values.iter().cloned()).collect();
+        let mut pairs: Vec<(String, f64)> =
+            labels.iter().cloned().zip(values.iter().cloned()).collect();
         pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let body_top = 0.95;
@@ -701,15 +1000,62 @@ impl PptxDeckWriter {
             let y = body_top + i as f64 * (bar_h + gap);
             let bd = self.brand_dark.clone();
             let fb = self.font_body.clone();
-            self.add_text(0.3, y + bar_h * 0.1, label_w - 0.1, bar_h * 0.9, lbl, 11, false, false, Some(&bd), "r", Some(&fb), None);
-            let bw = if max_val != 0.0 { chart_w * (val / max_val) } else { 0.0 };
-            let color = if lbl == target_label { self.brand_primary.clone() } else { self.brand_dark.clone() };
+            self.add_text(
+                0.3,
+                y + bar_h * 0.1,
+                label_w - 0.1,
+                bar_h * 0.9,
+                lbl,
+                11,
+                false,
+                false,
+                Some(&bd),
+                "r",
+                Some(&fb),
+                None,
+            );
+            let bw = if max_val != 0.0 {
+                chart_w * (val / max_val)
+            } else {
+                0.0
+            };
+            let color = if lbl == target_label {
+                self.brand_primary.clone()
+            } else {
+                self.brand_dark.clone()
+            };
             self.add_rect(chart_left, y, (0.05f64).max(bw), bar_h, &color, None, true);
             let vlabel = py_value_format(value_format, *val);
-            self.add_text(chart_left + bw + 0.05, y + bar_h * 0.1, value_w, bar_h * 0.9, &vlabel, 11, false, false, Some(&bd), "l", Some(&fb), None);
+            self.add_text(
+                chart_left + bw + 0.05,
+                y + bar_h * 0.1,
+                value_w,
+                bar_h * 0.9,
+                &vlabel,
+                11,
+                false,
+                false,
+                Some(&bd),
+                "l",
+                Some(&fb),
+                None,
+            );
         }
         if !x_label.is_empty() {
-            self.add_text(chart_left, body_bottom + 0.05, chart_w, 0.25, x_label, 9, false, true, Some(FOOTNOTE_GRAY), "ctr", None, None);
+            self.add_text(
+                chart_left,
+                body_bottom + 0.05,
+                chart_w,
+                0.25,
+                x_label,
+                9,
+                false,
+                true,
+                Some(FOOTNOTE_GRAY),
+                "ctr",
+                None,
+                None,
+            );
         }
         self.add_source_line(source, notes);
         self.page += 1;
@@ -718,7 +1064,11 @@ impl PptxDeckWriter {
     }
 
     /// `add_table_of_contents`.
-    pub fn add_table_of_contents(&mut self, action_title: &str, entries: &[(String, Option<i64>, i64)]) -> Result<(), String> {
+    pub fn add_table_of_contents(
+        &mut self,
+        action_title: &str,
+        entries: &[(String, Option<i64>, i64)],
+    ) -> Result<(), String> {
         let at = self.validate_action_title(action_title)?;
         if entries.is_empty() {
             return Err("table_of_contents requires entries".into());
@@ -738,19 +1088,76 @@ impl PptxDeckWriter {
                 counters[k as usize] = 0;
             }
             let (num, indent, size, bold, color) = if lvl == 1 {
-                (format!("{}.", counters[0]), 0.0, 14, true, self.brand_primary.clone())
+                (
+                    format!("{}.", counters[0]),
+                    0.0,
+                    14,
+                    true,
+                    self.brand_primary.clone(),
+                )
             } else if lvl == 2 {
-                (format!("{}.", (b'A' + (counters[1] - 1) as u8) as char), 0.4, 12, true, self.brand_dark.clone())
+                (
+                    format!("{}.", (b'A' + (counters[1] - 1) as u8) as char),
+                    0.4,
+                    12,
+                    true,
+                    self.brand_dark.clone(),
+                )
             } else {
-                (format!("{}.", roman[(counters[2] - 1).min(9) as usize]), 0.8, 11, false, self.brand_dark.clone())
+                (
+                    format!("{}.", roman[(counters[2] - 1).min(9) as usize]),
+                    0.8,
+                    11,
+                    false,
+                    self.brand_dark.clone(),
+                )
             };
             let y = body_top + i as f64 * line_h;
             let fh = self.font_headline.clone();
-            self.add_text(0.3 + indent, y, 0.5, line_h, &num, size, bold, false, Some(&color), "l", Some(&fh), None);
+            self.add_text(
+                0.3 + indent,
+                y,
+                0.5,
+                line_h,
+                &num,
+                size,
+                bold,
+                false,
+                Some(&color),
+                "l",
+                Some(&fh),
+                None,
+            );
             let fb = self.font_body.clone();
-            self.add_text(0.3 + indent + 0.5, y, body_w - indent - 1.5, line_h, text, size, bold, false, Some(&color), "l", Some(&fb), None);
+            self.add_text(
+                0.3 + indent + 0.5,
+                y,
+                body_w - indent - 1.5,
+                line_h,
+                text,
+                size,
+                bold,
+                false,
+                Some(&color),
+                "l",
+                Some(&fb),
+                None,
+            );
             if let Some(p) = page {
-                self.add_text(self.slide_w_in - 0.9, y, 0.6, line_h, &p.to_string(), size, bold, false, Some(&color), "r", Some(&fb), None);
+                self.add_text(
+                    self.slide_w_in - 0.9,
+                    y,
+                    0.6,
+                    line_h,
+                    &p.to_string(),
+                    size,
+                    bold,
+                    false,
+                    Some(&color),
+                    "r",
+                    Some(&fb),
+                    None,
+                );
             }
         }
         Ok(())
@@ -771,7 +1178,10 @@ impl PptxDeckWriter {
             return Err("table requires at least one column".into());
         }
         if headers.len() > 8 {
-            return Err(format!("table supports up to 8 columns, got {}", headers.len()));
+            return Err(format!(
+                "table supports up to 8 columns, got {}",
+                headers.len()
+            ));
         }
         if rows.len() > 14 {
             return Err(format!("table supports up to 14 rows, got {}", rows.len()));
@@ -788,7 +1198,20 @@ impl PptxDeckWriter {
         self.add_rect(table_left, top0, table_w, row_h, &dark, None, true);
         for (c, h) in headers.iter().enumerate() {
             let x = table_left + c as f64 * col_w;
-            self.add_text(x + 0.08, top0, col_w - 0.16, row_h, h, 11, true, false, Some(WHITE), "l", None, Some("ctr"));
+            self.add_text(
+                x + 0.08,
+                top0,
+                col_w - 0.16,
+                row_h,
+                h,
+                11,
+                true,
+                false,
+                Some(WHITE),
+                "l",
+                None,
+                Some("ctr"),
+            );
         }
         // Body rows.
         for (r, row) in rows.iter().enumerate() {
@@ -798,7 +1221,20 @@ impl PptxDeckWriter {
             for (c, cell) in row.iter().take(ncols).enumerate() {
                 let x = table_left + c as f64 * col_w;
                 let bd = self.brand_dark.clone();
-                self.add_text(x + 0.08, y, col_w - 0.16, row_h, cell, 10, false, false, Some(&bd), "l", None, Some("ctr"));
+                self.add_text(
+                    x + 0.08,
+                    y,
+                    col_w - 0.16,
+                    row_h,
+                    cell,
+                    10,
+                    false,
+                    false,
+                    Some(&bd),
+                    "l",
+                    None,
+                    Some("ctr"),
+                );
             }
             self.add_line(table_left, y, table_left + table_w, y, BORDER_GRAY, 0.5);
         }
@@ -878,12 +1314,28 @@ impl EvBridgeInput {
 
 /// `ResearchPPTXWriter.write_ev_bridge_deck` — cover + waterfall + scorecard.
 pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxDeckWriter, String> {
-    let company = if ev.company.is_empty() { "Company" } else { &ev.company };
-    let period = if ev.period.is_empty() { "LTM" } else { &ev.period };
-    let currency = if ev.currency.is_empty() { "USD" } else { &ev.currency };
+    let company = if ev.company.is_empty() {
+        "Company"
+    } else {
+        &ev.company
+    };
+    let period = if ev.period.is_empty() {
+        "LTM"
+    } else {
+        &ev.period
+    };
+    let currency = if ev.currency.is_empty() {
+        "USD"
+    } else {
+        &ev.currency
+    };
     let mc = ev.computed_market_cap();
 
-    let mut segments: Vec<WaterfallSeg> = vec![WaterfallSeg { label: "Market Cap".into(), value: mc, kind: "start".into() }];
+    let mut segments: Vec<WaterfallSeg> = vec![WaterfallSeg {
+        label: "Market Cap".into(),
+        value: mc,
+        kind: "start".into(),
+    }];
     for (value, label) in [
         (ev.total_debt, "Total Debt"),
         (ev.operating_leases, "Operating Leases"),
@@ -894,7 +1346,11 @@ pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxD
     ] {
         if let Some(v) = value {
             if v > 0.0 {
-                segments.push(WaterfallSeg { label: label.into(), value: v, kind: "plus".into() });
+                segments.push(WaterfallSeg {
+                    label: label.into(),
+                    value: v,
+                    kind: "plus".into(),
+                });
             }
         }
     }
@@ -905,7 +1361,11 @@ pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxD
     ] {
         if let Some(v) = value {
             if v > 0.0 {
-                segments.push(WaterfallSeg { label: label.into(), value: -v, kind: "minus".into() });
+                segments.push(WaterfallSeg {
+                    label: label.into(),
+                    value: -v,
+                    kind: "minus".into(),
+                });
             }
         }
     }
@@ -914,17 +1374,30 @@ pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxD
         running += s.value;
     }
     let ev_val = running;
-    segments.push(WaterfallSeg { label: "Enterprise Value".into(), value: ev_val, kind: "total".into() });
+    segments.push(WaterfallSeg {
+        label: "Enterprise Value".into(),
+        value: ev_val,
+        kind: "total".into(),
+    });
     let use_segments = segments.len() >= 3;
 
     let mut tiles: Vec<ScorecardTile> = Vec::new();
     if mc != 0.0 {
-        tiles.push(ScorecardTile { metric: "Market Cap".into(), value: fmt_v(Some(mc), currency), ..Default::default() });
+        tiles.push(ScorecardTile {
+            metric: "Market Cap".into(),
+            value: fmt_v(Some(mc), currency),
+            ..Default::default()
+        });
     }
     if ev_val != 0.0 {
-        tiles.push(ScorecardTile { metric: "Enterprise Value".into(), value: fmt_v(Some(ev_val), currency), ..Default::default() });
+        tiles.push(ScorecardTile {
+            metric: "Enterprise Value".into(),
+            value: fmt_v(Some(ev_val), currency),
+            ..Default::default()
+        });
     }
-    let net_debt = ev.total_debt.unwrap_or(0.0) + ev.operating_leases.unwrap_or(0.0) - ev.cash.unwrap_or(0.0);
+    let net_debt =
+        ev.total_debt.unwrap_or(0.0) + ev.operating_leases.unwrap_or(0.0) - ev.cash.unwrap_or(0.0);
     tiles.push(ScorecardTile {
         metric: "Net Debt".into(),
         value: fmt_v(Some(net_debt), currency),
@@ -953,9 +1426,16 @@ pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxD
     }
 
     let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
-    deck.add_cover(&format!("{company} — Enterprise Value Bridge"), &format!("{period} | {currency}"));
+    deck.add_cover(
+        &format!("{company} — Enterprise Value Bridge"),
+        &format!("{period} | {currency}"),
+    );
     if use_segments {
-        let scale = if mc.abs().max(ev_val.abs()) < 1e9 { "millions" } else { "billions" };
+        let scale = if mc.abs().max(ev_val.abs()) < 1e9 {
+            "millions"
+        } else {
+            "billions"
+        };
         deck.add_waterfall(
             &format!(
                 "{company} EV bridge: {} market cap → {} enterprise value",
@@ -971,7 +1451,12 @@ pub fn write_ev_bridge_deck(ev: &EvBridgeInput, deck_date: &str) -> Result<PptxD
         )?;
     }
     if !tiles.is_empty() {
-        deck.add_scorecard(&format!("{company} key valuation metrics ({period})"), &tiles, "Bloomberg, SEC EDGAR", "")?;
+        deck.add_scorecard(
+            &format!("{company} key valuation metrics ({period})"),
+            &tiles,
+            "Bloomberg, SEC EDGAR",
+            "",
+        )?;
     }
     Ok(deck)
 }
@@ -995,7 +1480,11 @@ pub fn write_ifrs_bridge_deck(
     revenue: f64,
     deck_date: &str,
 ) -> Result<PptxDeckWriter, String> {
-    let standard = if inp.accounting_standard.is_empty() { "IFRS" } else { &inp.accounting_standard };
+    let standard = if inp.accounting_standard.is_empty() {
+        "IFRS"
+    } else {
+        &inp.accounting_standard
+    };
     let is_ifrs_to_gaap = standard == "IFRS";
     let reported = inp.reported_ebitda;
     let adjusted = inp.adjusted_ebitda.unwrap_or(reported);
@@ -1003,33 +1492,70 @@ pub fn write_ifrs_bridge_deck(
     let lease_int = inp.lease_interest;
     let short_r = inp.short_term_rent;
 
-    let mut segments = vec![WaterfallSeg { label: "Reported EBITDA".into(), value: reported, kind: "start".into() }];
+    let mut segments = vec![WaterfallSeg {
+        label: "Reported EBITDA".into(),
+        value: reported,
+        kind: "start".into(),
+    }];
     if is_ifrs_to_gaap {
         if rou > 0.0 {
-            segments.push(WaterfallSeg { label: "Less: ROU Depreciation".into(), value: -rou, kind: "minus".into() });
+            segments.push(WaterfallSeg {
+                label: "Less: ROU Depreciation".into(),
+                value: -rou,
+                kind: "minus".into(),
+            });
         }
         if lease_int > 0.0 {
-            segments.push(WaterfallSeg { label: "Less: Lease Interest".into(), value: -lease_int, kind: "minus".into() });
+            segments.push(WaterfallSeg {
+                label: "Less: Lease Interest".into(),
+                value: -lease_int,
+                kind: "minus".into(),
+            });
         }
         if short_r > 0.0 {
-            segments.push(WaterfallSeg { label: "Less: Short-term Rent".into(), value: -short_r, kind: "minus".into() });
+            segments.push(WaterfallSeg {
+                label: "Less: Short-term Rent".into(),
+                value: -short_r,
+                kind: "minus".into(),
+            });
         }
     } else {
         if rou > 0.0 {
-            segments.push(WaterfallSeg { label: "Add: ROU Depreciation".into(), value: rou, kind: "plus".into() });
+            segments.push(WaterfallSeg {
+                label: "Add: ROU Depreciation".into(),
+                value: rou,
+                kind: "plus".into(),
+            });
         }
         if lease_int > 0.0 {
-            segments.push(WaterfallSeg { label: "Add: Lease Interest".into(), value: lease_int, kind: "plus".into() });
+            segments.push(WaterfallSeg {
+                label: "Add: Lease Interest".into(),
+                value: lease_int,
+                kind: "plus".into(),
+            });
         }
         if short_r > 0.0 {
-            segments.push(WaterfallSeg { label: "Less: Cash Rent".into(), value: -short_r, kind: "minus".into() });
+            segments.push(WaterfallSeg {
+                label: "Less: Cash Rent".into(),
+                value: -short_r,
+                kind: "minus".into(),
+            });
         }
     }
-    segments.push(WaterfallSeg { label: "Adj. EBITDA".into(), value: adjusted, kind: "total".into() });
+    segments.push(WaterfallSeg {
+        label: "Adj. EBITDA".into(),
+        value: adjusted,
+        kind: "total".into(),
+    });
 
     let mut tiles: Vec<ScorecardTile> = Vec::new();
     if reported != 0.0 {
-        tiles.push(ScorecardTile { metric: "Reported EBITDA".into(), value: format!("{}M", fmt_grouped(reported / 1e6, 0, false)), sub: period.into(), ..Default::default() });
+        tiles.push(ScorecardTile {
+            metric: "Reported EBITDA".into(),
+            value: format!("{}M", fmt_grouped(reported / 1e6, 0, false)),
+            sub: period.into(),
+            ..Default::default()
+        });
     }
     if adjusted != 0.0 && adjusted != reported {
         let delta = adjusted - reported;
@@ -1049,14 +1575,27 @@ pub fn write_ifrs_bridge_deck(
         });
     }
     if rou != 0.0 {
-        tiles.push(ScorecardTile { metric: "ROU Depreciation".into(), value: format!("{}M", fmt_grouped(rou / 1e6, 0, false)), sub: "Annual report lease note".into(), ..Default::default() });
+        tiles.push(ScorecardTile {
+            metric: "ROU Depreciation".into(),
+            value: format!("{}M", fmt_grouped(rou / 1e6, 0, false)),
+            sub: "Annual report lease note".into(),
+            ..Default::default()
+        });
     }
     if lease_int != 0.0 {
-        tiles.push(ScorecardTile { metric: "Lease Interest".into(), value: format!("{}M", fmt_grouped(lease_int / 1e6, 0, false)), sub: "Annual report lease note".into(), ..Default::default() });
+        tiles.push(ScorecardTile {
+            metric: "Lease Interest".into(),
+            value: format!("{}M", fmt_grouped(lease_int / 1e6, 0, false)),
+            sub: "Annual report lease note".into(),
+            ..Default::default()
+        });
     }
 
     let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
-    deck.add_cover(&format!("{company} — IFRS 16 Lease Adjustment"), &format!("{period} | {standard} Bridge"));
+    deck.add_cover(
+        &format!("{company} — IFRS 16 Lease Adjustment"),
+        &format!("{period} | {standard} Bridge"),
+    );
     if segments.len() >= 3 {
         deck.add_waterfall(
             &format!(
@@ -1073,7 +1612,12 @@ pub fn write_ifrs_bridge_deck(
         )?;
     }
     if !tiles.is_empty() {
-        deck.add_scorecard(&format!("{company} IFRS 16 adjustment summary ({period})"), &tiles, "Annual report, company filings", "")?;
+        deck.add_scorecard(
+            &format!("{company} IFRS 16 adjustment summary ({period})"),
+            &tiles,
+            "Annual report, company filings",
+            "",
+        )?;
     }
     Ok(deck)
 }
@@ -1111,8 +1655,16 @@ fn parse_leading_number(s: &str) -> Option<f64> {
 /// One-click model summary deck: cover, valuation scorecard, revenue + EBITDA
 /// trajectory charts, and an optional trading-comps table.
 pub fn write_model_deck(inp: &ModelDeckInput, deck_date: &str) -> Result<PptxDeckWriter, String> {
-    let company = if inp.company.is_empty() { inp.ticker.as_str() } else { inp.company.as_str() };
-    let currency = if inp.currency.is_empty() { "USD" } else { inp.currency.as_str() };
+    let company = if inp.company.is_empty() {
+        inp.ticker.as_str()
+    } else {
+        inp.company.as_str()
+    };
+    let currency = if inp.currency.is_empty() {
+        "USD"
+    } else {
+        inp.currency.as_str()
+    };
     let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
     deck.add_cover(
         &format!("{} — Financial model summary", inp.ticker),
@@ -1120,18 +1672,48 @@ pub fn write_model_deck(inp: &ModelDeckInput, deck_date: &str) -> Result<PptxDec
     );
 
     let tiles = vec![
-        ScorecardTile { metric: "Implied price".into(), value: fmt_v(Some(inp.implied_price), currency), ..Default::default() },
-        ScorecardTile { metric: "Current price".into(), value: fmt_v(Some(inp.current_price), currency), ..Default::default() },
-        ScorecardTile { metric: "Upside / downside".into(), value: format!("{:+.1}%", inp.upside_pct), ..Default::default() },
-        ScorecardTile { metric: "WACC".into(), value: format!("{:.1}%", inp.wacc * 100.0), ..Default::default() },
-        ScorecardTile { metric: "Enterprise value".into(), value: fmt_v(Some(inp.ev), currency), ..Default::default() },
-        ScorecardTile { metric: "TV method".into(), value: inp.tv_method.clone(), ..Default::default() },
+        ScorecardTile {
+            metric: "Implied price".into(),
+            value: fmt_v(Some(inp.implied_price), currency),
+            ..Default::default()
+        },
+        ScorecardTile {
+            metric: "Current price".into(),
+            value: fmt_v(Some(inp.current_price), currency),
+            ..Default::default()
+        },
+        ScorecardTile {
+            metric: "Upside / downside".into(),
+            value: format!("{:+.1}%", inp.upside_pct),
+            ..Default::default()
+        },
+        ScorecardTile {
+            metric: "WACC".into(),
+            value: format!("{:.1}%", inp.wacc * 100.0),
+            ..Default::default()
+        },
+        ScorecardTile {
+            metric: "Enterprise value".into(),
+            value: fmt_v(Some(inp.ev), currency),
+            ..Default::default()
+        },
+        ScorecardTile {
+            metric: "TV method".into(),
+            value: inp.tv_method.clone(),
+            ..Default::default()
+        },
     ];
-    deck.add_scorecard(&format!("{company} valuation snapshot at a glance"), &tiles, "finmodel — SEC EDGAR, Yahoo Finance", "")?;
+    deck.add_scorecard(
+        &format!("{company} valuation snapshot at a glance"),
+        &tiles,
+        "finmodel — SEC EDGAR, Yahoo Finance",
+        "",
+    )?;
 
     // Highlight the forecast boundary (first projected period) on both charts.
     let boundary = inp.periods.get(inp.hist_n).cloned().unwrap_or_default();
-    if !inp.periods.is_empty() && inp.periods.len() == inp.revenue.len() && inp.periods.len() <= 12 {
+    if !inp.periods.is_empty() && inp.periods.len() == inp.revenue.len() && inp.periods.len() <= 12
+    {
         deck.add_bar_chart(
             &format!("{company} revenue trajectory across the forecast"),
             &inp.periods,
@@ -1178,12 +1760,30 @@ pub fn write_benchmark_deck(
     let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
     deck.add_cover(title, "Peer benchmarking");
     if !headers.is_empty() && !rows.is_empty() {
-        deck.add_table(&format!("{title}: side-by-side peer comparison"), headers, rows, "finmodel — SEC EDGAR, Yahoo Finance")?;
+        deck.add_table(
+            &format!("{title}: side-by-side peer comparison"),
+            headers,
+            rows,
+            "finmodel — SEC EDGAR, Yahoo Finance",
+        )?;
     }
     // Optional EBITDA-margin dispersion chart (col 0 assumed to be the label).
-    if let Some(col) = headers.iter().position(|h| h.to_lowercase().contains("ebitda margin")) {
-        let labels: Vec<String> = rows.iter().map(|r| r.first().cloned().unwrap_or_default()).collect();
-        let values: Vec<f64> = rows.iter().map(|r| r.get(col).and_then(|s| parse_leading_number(s)).unwrap_or(0.0)).collect();
+    if let Some(col) = headers
+        .iter()
+        .position(|h| h.to_lowercase().contains("ebitda margin"))
+    {
+        let labels: Vec<String> = rows
+            .iter()
+            .map(|r| r.first().cloned().unwrap_or_default())
+            .collect();
+        let values: Vec<f64> = rows
+            .iter()
+            .map(|r| {
+                r.get(col)
+                    .and_then(|s| parse_leading_number(s))
+                    .unwrap_or(0.0)
+            })
+            .collect();
         if !labels.is_empty() && labels.len() == values.len() && labels.len() <= 12 {
             // Best-effort: a malformed chart must not sink the whole deck.
             let _ = deck.add_bar_chart(

@@ -4,7 +4,7 @@
 //! When valuation is present: + DCF, WACC, Sensitivities before Sources.
 
 use crate::input::WorkbookInput;
-use crate::model::{Sheet, Workbook, DATA0};
+use crate::model::{DATA0, Sheet, Workbook};
 
 pub mod assumptions;
 pub mod bs;
@@ -24,7 +24,6 @@ pub(crate) fn col(j: usize) -> u32 {
     DATA0 + j as u32
 }
 
-
 /// Write a formula, attaching a cached numeric result when available so
 /// LibreOffice/Excel show a value before recalculation.
 pub(crate) fn formula_maybe_cached(
@@ -39,7 +38,6 @@ pub(crate) fn formula_maybe_cached(
         None => s.formula(row, col, formula),
     }
 }
-
 
 /// Build every sheet. Valuation tabs (DCF/WACC/Sensitivities) are emitted only
 /// when `input.dcf` / `input.wacc` are present — keeps the committed 6-sheet
@@ -106,8 +104,18 @@ pub(crate) fn period_headers(s: &mut Sheet, row: u32, periods: &[String]) {
 
 fn month_num(fye: &str) -> u32 {
     match fye {
-        "Jan" => 1, "Feb" => 2, "Mar" => 3, "Apr" => 4, "May" => 5, "Jun" => 6,
-        "Jul" => 7, "Aug" => 8, "Sep" => 9, "Oct" => 10, "Nov" => 11, _ => 12,
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        _ => 12,
     }
 }
 
@@ -119,7 +127,13 @@ fn last_day_of_month(y: i64, m: u32) -> i64 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        _ => if is_leap(y) { 29 } else { 28 },
+        _ => {
+            if is_leap(y) {
+                29
+            } else {
+                28
+            }
+        }
     }
 }
 
@@ -155,11 +169,19 @@ fn latest_reported_fy_year(fye: &str, today: (i64, u32, u32)) -> i64 {
     let this_fye_ord = days_from_civil(ty, month as i64, this_fye_day);
 
     if this_fye_ord < today_ord {
-        if this_fye_ord + FILING_LAG_DAYS <= today_ord { ty } else { ty - 1 }
+        if this_fye_ord + FILING_LAG_DAYS <= today_ord {
+            ty
+        } else {
+            ty - 1
+        }
     } else {
         let prev_day = last_day_of_month(ty - 1, month);
         let prev_ord = days_from_civil(ty - 1, month as i64, prev_day);
-        if prev_ord + FILING_LAG_DAYS <= today_ord { ty - 1 } else { ty - 2 }
+        if prev_ord + FILING_LAG_DAYS <= today_ord {
+            ty - 1
+        } else {
+            ty - 2
+        }
     }
 }
 
@@ -168,5 +190,7 @@ fn latest_reported_fy_year(fye: &str, today: (i64, u32, u32)) -> i64 {
 pub(crate) fn assumptions_proj_periods(fye: &str, as_of: &str, n_proj: usize) -> Vec<String> {
     let today = parse_iso(as_of).unwrap_or((1970, 1, 1));
     let latest = latest_reported_fy_year(fye, today);
-    (0..n_proj).map(|i| format!("{}E", latest + 1 + i as i64)).collect()
+    (0..n_proj)
+        .map(|i| format!("{}E", latest + 1 + i as i64))
+        .collect()
 }

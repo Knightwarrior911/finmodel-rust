@@ -29,7 +29,11 @@ pub trait MemoryRepository {
     fn get_by_public_id(&self, public_id: &str) -> Result<Option<Memory>, MemoryError>;
 
     /// Full-text search across memories matching scope.
-    fn search(&self, query: &str, scope: &MemoryScope) -> Result<Vec<MemorySearchResult>, MemoryError>;
+    fn search(
+        &self,
+        query: &str,
+        scope: &MemoryScope,
+    ) -> Result<Vec<MemorySearchResult>, MemoryError>;
 
     /// Supersede a memory: close its `valid_to` and link to `superseded_by`.
     fn supersede(&mut self, id: i64, superseded_by: i64, now: &str) -> Result<(), MemoryError>;
@@ -131,10 +135,18 @@ impl MemoryRepository for InMemoryMemoryRepository {
     }
 
     fn get_by_public_id(&self, public_id: &str) -> Result<Option<Memory>, MemoryError> {
-        Ok(self.memories.values().find(|m| m.public_id == public_id).cloned())
+        Ok(self
+            .memories
+            .values()
+            .find(|m| m.public_id == public_id)
+            .cloned())
     }
 
-    fn search(&self, query: &str, scope: &MemoryScope) -> Result<Vec<MemorySearchResult>, MemoryError> {
+    fn search(
+        &self,
+        query: &str,
+        scope: &MemoryScope,
+    ) -> Result<Vec<MemorySearchResult>, MemoryError> {
         let q = query.to_lowercase();
         let mut results: Vec<MemorySearchResult> = self
             .memories
@@ -154,7 +166,11 @@ impl MemoryRepository for InMemoryMemoryRepository {
                     }
                 }
                 // FTS-style token match (simple contains).
-                let text = format!("{} {}", m.content.to_lowercase(), m.normalized_key.to_lowercase());
+                let text = format!(
+                    "{} {}",
+                    m.content.to_lowercase(),
+                    m.normalized_key.to_lowercase()
+                );
                 q.split_whitespace().all(|token| text.contains(token))
             })
             .map(|m| MemorySearchResult {
@@ -162,12 +178,19 @@ impl MemoryRepository for InMemoryMemoryRepository {
                 rank: m.importance,
             })
             .collect();
-        results.sort_by(|a, b| b.rank.partial_cmp(&a.rank).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.rank
+                .partial_cmp(&a.rank)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(results)
     }
 
     fn supersede(&mut self, id: i64, superseded_by: i64, now: &str) -> Result<(), MemoryError> {
-        let m = self.memories.get_mut(&id).ok_or(MemoryError::NotFound(id))?;
+        let m = self
+            .memories
+            .get_mut(&id)
+            .ok_or(MemoryError::NotFound(id))?;
         m.valid_to = Some(now.to_string());
         m.superseded_by = Some(superseded_by);
         m.updated_at = now.to_string();
@@ -293,7 +316,11 @@ impl MemoryRepository for SqliteMemoryRepository<'_> {
         }
     }
 
-    fn search(&self, query: &str, scope: &MemoryScope) -> Result<Vec<MemorySearchResult>, MemoryError> {
+    fn search(
+        &self,
+        query: &str,
+        scope: &MemoryScope,
+    ) -> Result<Vec<MemorySearchResult>, MemoryError> {
         let mut conditions = vec!["memory_fts MATCH ?1".to_string()];
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
         let mut param_idx = 2;
@@ -326,8 +353,13 @@ impl MemoryRepository for SqliteMemoryRepository<'_> {
             conditions.join(" AND ")
         );
 
-        let mut stmt = self.db.conn.prepare(&sql).map_err(|e| MemoryError::Backend(e.to_string()))?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self
+            .db
+            .conn
+            .prepare(&sql)
+            .map_err(|e| MemoryError::Backend(e.to_string()))?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt
             .query_map(param_refs.as_slice(), |r| {
@@ -457,7 +489,13 @@ mod tests {
         .unwrap();
 
         let results = repo
-            .search("dark", &MemoryScope { global_only: true, ..Default::default() })
+            .search(
+                "dark",
+                &MemoryScope {
+                    global_only: true,
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.public_id, "g1");
@@ -484,7 +522,13 @@ mod tests {
         .unwrap();
 
         let results = repo
-            .search("Deal", &MemoryScope { workspace_id: Some("ws1".into()), ..Default::default() })
+            .search(
+                "Deal",
+                &MemoryScope {
+                    workspace_id: Some("ws1".into()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.public_id, "w1");
@@ -494,13 +538,14 @@ mod tests {
     fn in_memory_supersede() {
         let mut repo = InMemoryMemoryRepository::new();
         let id1 = repo.insert(sample_memory()).unwrap();
-        let id2 = repo.insert(NewMemory {
-            public_id: "mem2".into(),
-            content: "User prefers EV/EBITDA".into(),
-            normalized_key: "preference:valuation:multiple".into(),
-            ..sample_memory()
-        })
-        .unwrap();
+        let id2 = repo
+            .insert(NewMemory {
+                public_id: "mem2".into(),
+                content: "User prefers EV/EBITDA".into(),
+                normalized_key: "preference:valuation:multiple".into(),
+                ..sample_memory()
+            })
+            .unwrap();
 
         repo.supersede(id1, id2, "2026-07-17T13:00:00Z").unwrap();
         let m1 = repo.get(id1).unwrap().unwrap();
@@ -538,8 +583,16 @@ mod tests {
         let td = TempDir::new().unwrap();
         let db = Db::open_in_memory(&td.path().join("blobs")).unwrap();
         let ws_id = "ws1".to_string();
-        db.create_workspace(&ws_id, "Test", "personal", "standard", "", true, "2026-07-17T12:00:00Z")
-            .unwrap();
+        db.create_workspace(
+            &ws_id,
+            "Test",
+            "personal",
+            "standard",
+            "",
+            true,
+            "2026-07-17T12:00:00Z",
+        )
+        .unwrap();
         (db, ws_id, td)
     }
 
@@ -591,13 +644,14 @@ mod tests {
         let (db, ws, _td) = sqlite_setup();
         let mut repo = SqliteMemoryRepository::new(&db);
         let id1 = repo.insert(sqlite_mem(&ws)).unwrap();
-        let id2 = repo.insert(NewMemory {
-            public_id: "mem2".into(),
-            content: "Updated preference".into(),
-            normalized_key: "pref:val:ev".into(),
-            ..sqlite_mem(&ws)
-        })
-        .unwrap();
+        let id2 = repo
+            .insert(NewMemory {
+                public_id: "mem2".into(),
+                content: "Updated preference".into(),
+                normalized_key: "pref:val:ev".into(),
+                ..sqlite_mem(&ws)
+            })
+            .unwrap();
         repo.supersede(id1, id2, "2026-07-17T14:00:00Z").unwrap();
         let m1 = repo.get(id1).unwrap().unwrap();
         assert_eq!(m1.valid_to, Some("2026-07-17T14:00:00Z".into()));
@@ -626,7 +680,13 @@ mod tests {
         })
         .unwrap();
         let results = repo
-            .search("PE", &MemoryScope { workspace_id: Some(ws.clone()), ..Default::default() })
+            .search(
+                "PE",
+                &MemoryScope {
+                    workspace_id: Some(ws.clone()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.public_id, "mem1");
@@ -639,11 +699,13 @@ mod tests {
         let id = repo.insert(sqlite_mem(&ws)).unwrap();
         // Bypass FK for soft telemetry (run/conversation are test scaffolding).
         db.conn.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
-        db.conn.execute(
-            "INSERT INTO agent_runs (id, conversation_id, status, phase, started_at)
+        db.conn
+            .execute(
+                "INSERT INTO agent_runs (id, conversation_id, status, phase, started_at)
              VALUES ('run1', 'conv_fk_bypass', 'completed', 'completed', '2026-07-17T12:00:00Z')",
-            [],
-        ).unwrap();
+                [],
+            )
+            .unwrap();
         db.conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         repo.record_use("run1", id, 0.85).unwrap();
     }

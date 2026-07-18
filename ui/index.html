@@ -1,322 +1,916 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>finmodel</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div id="app">
-    <!-- ── Sidebar ─────────────────────────────────────────────── -->
-    <nav id="sidebar" aria-label="Conversations">
-      <div class="sidebar-brand">
-        <span class="brand">
-          <span class="brand-mark" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5 12.5V8.5M9 12.5V5.5M13 12.5V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>finmodel</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ── Sidebar ─────────────────────────────────────────────── -->
+      <nav id="sidebar" aria-label="Conversations">
+        <div class="sidebar-brand">
+          <span class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <rect
+                  x="1.5"
+                  y="1.5"
+                  width="15"
+                  height="15"
+                  rx="3.5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M5 12.5V8.5M9 12.5V5.5M13 12.5V9.5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="brand-name">finmodel</span>
           </span>
-          <span class="brand-name">finmodel</span>
-        </span>
-        <button type="button" id="sidebarToggle" class="icon-btn" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
-        </button>
-      </div>
-
-      <div class="workspace-chrome">
-        <label class="workspace-label" for="workspaceSelect">Workspace</label>
-        <select id="workspaceSelect" class="workspace-select" aria-label="Active workspace"></select>
-        <button type="button" id="temporaryChatBtn" class="temp-chat-btn" aria-pressed="false">Temporary</button>
-      </div>
-
-      <button type="button" id="newChatBtn" class="btn-primary new-chat">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        New chat
-      </button>
-      <button type="button" id="newProjectBtn" class="btn-ghost new-project">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/></svg>
-        New project
-      </button>
-
-      <input id="convFilter" class="conv-filter" type="search" placeholder="Filter conversations" aria-label="Filter conversations" hidden />
-      <div id="convList" class="conv-list"></div>
-      <div id="sidebarAlert" class="sidebar-alert" role="alert" aria-live="assertive" hidden></div>
-
-      <div class="sidebar-foot">
-        <button type="button" id="themeToggle" class="icon-btn" aria-label="Toggle theme"></button>
-        <button type="button" id="settingsBtn" class="icon-btn" aria-label="Settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-        <button type="button" id="footUpdateBtn" class="foot-update" data-state="idle">
-          <span id="footUpdateText">Check for updates</span>
-        </button>
-      </div>
-    </nav>
-
-    <!-- ── Chat main ───────────────────────────────────────────── -->
-    <main id="chatMain">
-      <div id="updateBanner" class="update-banner" hidden>
-        <span id="updateBannerText"></span>
-        <span class="update-banner-actions">
-          <button type="button" id="updateInstallBtn" class="btn-primary">Install</button>
-          <button type="button" id="updateDismiss" class="btn-ghost">Later</button>
-        </span>
-      </div>
-
-      <div id="workspaceBanner" class="workspace-banner" role="status" hidden></div>
-      <div id="taskTray" class="task-tray" role="list" aria-label="Active tasks" hidden></div>
-      <div id="memoryNotice" class="memory-notice" role="status" hidden></div>
-
-      <div id="chatScroll" class="chat-scroll">
-        <section id="chatEmpty" class="chat-empty">
-          <h1 class="greeting">What are we analyzing today?</h1>
-          <p id="capabilityNote" class="capability-note" role="status"></p>
-          <div id="exampleChips" class="example-chips">
-            <button type="button" class="example-chip">Build NVDA with peers AMD, INTC, AVGO</button>
-            <button type="button" class="example-chip">Read the risk factors in TSLA's latest 10-K</button>
-            <button type="button" class="example-chip">Benchmark AAPL, MSFT, GOOGL — deck included</button>
-            <button type="button" class="example-chip">Build the downside case for AMZN</button>
-          </div>
-        </section>
-      </div>
-
-      <!-- Live regions (Phase 4.2/4.4): one polite atomic progress node updated
-           only on phase/status transition; one assertive error/action region. -->
-      <div id="chatProgress" class="chat-progress" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-      <div id="chatAlert" class="chat-alert" role="alert" aria-live="assertive" hidden></div>
-
-      <div id="composer" class="composer">
-        <div class="composer-box">
-          <textarea id="chatInput" rows="1" placeholder="Ask finmodel to build, benchmark, research, or read…" aria-label="Message"></textarea>
-          <div class="composer-btns">
-            <button type="button" id="chatStop" class="icon-btn" aria-label="Stop" hidden>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-            </button>
-            <button type="button" id="chatSend" class="btn-primary send-btn" aria-label="Send">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            </button>
-          </div>
-        </div>
-        <button type="button" id="modelPill" class="model-pill" title="Change model in Settings">
-          <span id="modelPillText">model</span>
-        </button>
-      </div>
-    </main>
-
-    <!-- ── Reader panel ────────────────────────────────────────── -->
-    <aside id="readerPanel" class="reader-panel" role="dialog" aria-modal="false" aria-labelledby="readerTitle" hidden>
-      <header class="reader-head">
-        <div class="reader-titles">
-          <span id="readerTitle" class="reader-title"></span>
-          <a id="readerUrl" href="#" class="reader-url num"></a>
-        </div>
-        <div class="reader-head-actions">
-          <button type="button" id="readerCopy" class="btn-ghost">Copy link</button>
-          <button type="button" id="readerOpen" class="btn-ghost">Open in browser ↗</button>
-          <button type="button" id="readerClose" class="icon-btn" aria-label="Close reader">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          <button
+            type="button"
+            id="sidebarToggle"
+            class="icon-btn"
+            aria-label="Collapse sidebar"
+            aria-expanded="true"
+            aria-controls="sidebar"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
           </button>
         </div>
-      </header>
-      <input id="readerFind" class="reader-find" type="search" placeholder="Find on page…" hidden />
-      <div id="readerBody" class="reader-body"></div>
-    </aside>
-  </div>
 
-  <!-- floating expand button (visible only when the sidebar is collapsed) -->
-  <button type="button" id="sidebarExpand" class="sidebar-expand" aria-label="Expand sidebar">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-  </button>
-
-  <!-- ── Settings modal ─────────────────────────────────────────── -->
-  <div id="settingsModal" class="modal" hidden>
-    <div class="modal-backdrop" data-close="1"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-      <div class="modal-head">
-        <h2 id="settingsTitle">Settings</h2>
-        <button type="button" id="settingsClose" class="icon-btn" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-      <div id="settingsStatus" class="status" hidden></div>
-      <div class="modal-body">
-        <label class="field">
-          <span class="field-label">Provider</span>
-          <span class="field-row">
-            <select id="providerSelect"></select>
-            <input id="baseUrl" type="text" placeholder="https://api.example.com/v1" />
-          </span>
-          <span class="field-hint">Any OpenAI-compatible API — use your own key (OpenAI, xAI/Grok, DeepSeek, Groq, Mistral, Together, …).</span>
-        </label>
-        <label class="field">
-          <span class="field-label">API key</span>
-          <input id="apiKey" type="password" autocomplete="off" placeholder="your provider API key" />
-          <span id="keyStatus" class="field-hint"></span>
-        </label>
-        <label class="field">
-          <span class="field-label">Model</span>
-          <span class="field-row">
-            <select id="modelSelect"></select>
-            <button type="button" id="refreshModels" class="btn-ghost">Refresh</button>
-            <button type="button" id="testModel" class="btn-ghost">Test model</button>
-          </span>
-          <span id="modelCaps" class="field-hint"></span>
-        </label>
-        <label class="field">
-          <span class="field-label">Theme</span>
-          <select id="themeSelect">
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">EDGAR contact email</span>
-          <input id="edgarContact" type="email" placeholder="you@example.com" />
-        </label>
-        <label class="field">
-          <span class="field-label">Output folder</span>
-          <span class="field-row">
-            <input id="outDir" type="text" placeholder="Documents/finmodel" />
-            <button type="button" id="chooseOutDir" class="btn-ghost">Choose…</button>
-          </span>
-        </label>
-        <label class="field">
-          <span class="field-label">Roam MCP command (optional)</span>
-          <span class="field-row">
-            <input id="mcpCommand" type="text" placeholder="roam mcp serve" />
-            <button type="button" id="testMcp" class="btn-ghost">Test browser</button>
-          </span>
-          <span id="mcpStatus" class="field-hint"></span>
-        </label>
-        <label class="field">
-          <span class="field-label">Saved memories</span>
-          <div id="memoryList" class="memory-list"></div>
-          <span class="field-hint">Facts the analyst remembers (say "remember: …" in chat to add). Delete any it got wrong.</span>
-        </label>
-        <label class="field">
-          <span class="field-label">Skills</span>
-          <div id="skillsList" class="memory-list"></div>
-          <details class="skill-add">
-            <summary>New skill</summary>
-            <textarea id="newSkillContent" rows="7" placeholder="---&#10;name: earnings-snapshot&#10;description: When the user wants a company's latest annual earnings summary.&#10;---&#10;1. Call get_financials for the ticker (latest fiscal year).&#10;2. Report revenue, net income, and margin in a short table."></textarea>
-            <button type="button" id="skillSaveBtn" class="btn-ghost">Save skill</button>
-            <span id="skillStatus" class="field-hint"></span>
-          </details>
-          <span class="field-hint">Reusable playbooks the analyst follows (SKILL.md: name + description + steps). The agent can also propose one from a solved task.</span>
-        </label>
-        <p class="field-hint shortcut-legend">Shortcuts: Ctrl/⌘+N new chat · Ctrl/⌘+K filter conversations · Esc stops a streaming reply</p>
-      </div>
-      <div class="modal-foot">
-        <span id="appVersion" class="app-version num"></span>
-        <span class="modal-foot-btns">
-          <button type="button" id="removeKey" class="btn-ghost">Remove key</button>
-          <button type="button" id="saveSettings" class="btn-primary">Save</button>
-        </span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Project settings modal ─────────────────────────────────── -->
-  <div id="projectModal" class="modal" hidden>
-    <div class="modal-backdrop" data-close="1"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="projectTitle">
-      <div class="modal-head">
-        <h2 id="projectTitle">Project settings &amp; grounding</h2>
-        <button type="button" id="projectClose" class="icon-btn" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-      <div id="projectStatus" class="status" hidden></div>
-      <div class="modal-body">
-        <label class="field">
-          <span class="field-label">Project name</span>
-          <input id="projectName" type="text" placeholder="e.g. Tesla Valuation 2026" />
-        </label>
-        <label class="field">
-          <span class="field-label">System instructions (grounding)</span>
-          <textarea id="projectInstructions" rows="6" placeholder="Persistent rules for every chat in this project — e.g. 'Always benchmark against AMD/INTC', 'Data source: 2025 10-K', 'Format tables in Markdown'."></textarea>
-          <span class="field-hint">Applied to every chat in this folder, right after your global rules.</span>
-        </label>
-        <p class="field-hint">Attached baseline files (PDF/CSV) — coming soon.</p>
-      </div>
-      <div class="modal-foot">
-        <button type="button" id="projectDelete" class="btn-ghost danger">Delete project</button>
-        <span class="modal-foot-btns">
-          <button type="button" id="projectSave" class="btn-primary">Save</button>
-        </span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Analyst tools modal (Phase 6.5) ────────────────────────── -->
-  <div id="analystModal" class="modal" hidden>
-    <div class="modal-backdrop" data-close="1"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="analystTitle">
-      <div class="modal-head">
-        <h2 id="analystTitle">Analyst tools</h2>
-        <button type="button" id="analystClose" class="icon-btn" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="analyst-tabs" role="tablist" aria-label="Analyst tools">
-          <button type="button" class="analyst-tab" role="tab" aria-selected="true" data-tab="ev">EV bridge</button>
-          <button type="button" class="analyst-tab" role="tab" aria-selected="false" data-tab="ifrs">IFRS bridge</button>
-          <button type="button" class="analyst-tab" role="tab" aria-selected="false" data-tab="tieout">Tie-out</button>
+        <div class="workspace-chrome">
+          <button
+            type="button"
+            id="temporaryChatBtn"
+            class="temp-chat-btn"
+            aria-pressed="false"
+            title="Start a temporary chat that isn't saved to history"
+          >
+            Temporary chat
+          </button>
         </div>
 
-        <form id="evForm" class="analyst-panel" data-panel="ev">
-          <p class="field-hint">Enterprise-value bridge (BIWS checklist). Enter market cap or price × shares; only entered items are applied.</p>
-          <div class="analyst-grid">
-            <label class="field"><span class="field-label">Market cap ($M)</span><input name="market_cap" type="number" step="any" min="0" /></label>
-            <label class="field"><span class="field-label">Share price</span><input name="share_price" type="number" step="any" min="0" /></label>
-            <label class="field"><span class="field-label">Shares (M)</span><input name="shares_outstanding" type="number" step="any" min="0" /></label>
-            <label class="field"><span class="field-label">Total debt ($M)</span><input name="total_debt" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Finance leases ($M)</span><input name="finance_leases" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Operating leases ($M)</span><input name="operating_leases" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Underfunded pension ($M)</span><input name="underfunded_pension" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Minority interest ($M)</span><input name="minority_interest" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Preferred stock ($M)</span><input name="preferred_stock" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">Cash ($M)</span><input name="cash" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">ST investments ($M)</span><input name="short_term_investments" type="number" step="any" /></label>
-            <label class="field"><span class="field-label">NOL DTA ($M)</span><input name="nol_dta" type="number" step="any" /></label>
+        <button type="button" id="newChatBtn" class="btn-primary new-chat">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New chat
+        </button>
+        <button type="button" id="newProjectBtn" class="btn-ghost new-project">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+            />
+            <path d="M12 11v6M9 14h6" />
+          </svg>
+          New project
+        </button>
+
+        <input
+          id="convFilter"
+          class="conv-filter"
+          type="search"
+          placeholder="Filter conversations"
+          aria-label="Filter conversations"
+          hidden
+        />
+        <div id="convList" class="conv-list"></div>
+        <div
+          id="sidebarAlert"
+          class="sidebar-alert"
+          role="alert"
+          aria-live="assertive"
+          hidden
+        ></div>
+
+        <div class="sidebar-foot">
+          <button
+            type="button"
+            id="themeToggle"
+            class="icon-btn"
+            aria-label="Toggle theme"
+          ></button>
+          <button
+            type="button"
+            id="settingsBtn"
+            class="icon-btn"
+            aria-label="Settings"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="footUpdateBtn"
+            class="foot-update"
+            data-state="idle"
+          >
+            <span id="footUpdateText">Check for updates</span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- ── Chat main ───────────────────────────────────────────── -->
+      <main id="chatMain">
+        <div id="updateBanner" class="update-banner" hidden>
+          <span id="updateBannerText"></span>
+          <span class="update-banner-actions">
+            <button type="button" id="updateInstallBtn" class="btn-primary">
+              Install
+            </button>
+            <button type="button" id="updateDismiss" class="btn-ghost">
+              Later
+            </button>
+          </span>
+        </div>
+
+        <div
+          id="workspaceBanner"
+          class="workspace-banner"
+          role="status"
+          hidden
+        ></div>
+        <div
+          id="taskTray"
+          class="task-tray"
+          role="list"
+          aria-label="Active tasks"
+          hidden
+        ></div>
+        <div id="memoryNotice" class="memory-notice" role="status" hidden></div>
+
+        <div
+          id="missionHeader"
+          class="mission-header"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
+          <span class="mission-workflow"></span>
+          <span class="mission-phase"></span>
+          <span class="mission-plan"></span>
+          <span class="mission-verify"></span>
+        </div>
+
+        <div id="chatScroll" class="chat-scroll">
+          <section id="chatEmpty" class="chat-empty">
+            <h1 class="greeting">What are we analyzing today?</h1>
+            <p id="capabilityNote" class="capability-note" role="status"></p>
+            <div id="exampleChips" class="example-chips">
+              <button type="button" class="example-chip">
+                Build NVDA with peers AMD, INTC, AVGO
+              </button>
+              <button type="button" class="example-chip">
+                Read the risk factors in TSLA's latest 10-K
+              </button>
+              <button type="button" class="example-chip">
+                Benchmark AAPL, MSFT, GOOGL — deck included
+              </button>
+              <button type="button" class="example-chip">
+                Build the downside case for AMZN
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <!-- Live regions (Phase 4.2/4.4): one polite atomic progress node updated
+           only on phase/status transition; one assertive error/action region. -->
+        <div
+          id="chatProgress"
+          class="chat-progress"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          hidden
+        ></div>
+        <div
+          id="chatAlert"
+          class="chat-alert"
+          role="alert"
+          aria-live="assertive"
+          hidden
+        ></div>
+
+        <div id="composer" class="composer">
+          <div class="composer-box">
+            <textarea
+              id="chatInput"
+              rows="1"
+              placeholder="Ask finmodel to build, benchmark, research, or read…"
+              aria-label="Message"
+            ></textarea>
+            <div class="composer-btns">
+              <button
+                type="button"
+                id="chatPause"
+                class="icon-btn"
+                aria-label="Pause"
+                title="Pause (resumable)"
+                hidden
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="chatStop"
+                class="icon-btn"
+                aria-label="Stop"
+                hidden
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="chatSend"
+                class="btn-primary send-btn"
+                aria-label="Send"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <button type="submit" class="btn-primary">Build EV bridge</button>
-        </form>
+          <button
+            type="button"
+            id="modelPill"
+            class="model-pill"
+            title="Change model in Settings"
+          >
+            <span id="modelPillText">model</span>
+          </button>
+        </div>
+      </main>
 
-        <form id="ifrsForm" class="analyst-panel" data-panel="ifrs" hidden>
-          <p class="field-hint">IFRS-16 ↔ US-GAAP lease bridge. All reported metrics and lease-note figures are required.</p>
-          <div class="analyst-grid">
-            <label class="field"><span class="field-label">Accounting standard</span><select name="accounting_standard"><option value="US GAAP">US GAAP</option><option value="IFRS">IFRS</option></select></label>
-            <label class="field"><span class="field-label">Revenue ($M)</span><input name="revenue" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">ROU depreciation ($M)</span><input name="rou_depreciation" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Lease interest ($M)</span><input name="lease_interest" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Short-term rent ($M)</span><input name="short_term_rent" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Reported EBIT ($M)</span><input name="reported_ebit" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Reported EBITDA ($M)</span><input name="reported_ebitda" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Reported EBITA ($M)</span><input name="reported_ebita" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Standard depreciation ($M)</span><input name="standard_depreciation" type="number" step="any" required /></label>
-            <label class="field"><span class="field-label">Standard amortization ($M)</span><input name="standard_amortization" type="number" step="any" required /></label>
+      <!-- ── Reader panel ────────────────────────────────────────── -->
+      <aside
+        id="readerPanel"
+        class="reader-panel"
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="readerTitle"
+        hidden
+      >
+        <header class="reader-head">
+          <div class="reader-titles">
+            <span id="readerTitle" class="reader-title"></span>
+            <a id="readerUrl" href="#" class="reader-url num"></a>
           </div>
-          <button type="submit" class="btn-primary">Build IFRS bridge</button>
-        </form>
+          <div class="reader-head-actions">
+            <button type="button" id="readerCopy" class="btn-ghost">
+              Copy link
+            </button>
+            <button type="button" id="readerOpen" class="btn-ghost">
+              Open in browser ↗
+            </button>
+            <button
+              type="button"
+              id="readerClose"
+              class="icon-btn"
+              aria-label="Close reader"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              >
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <input
+          id="readerFind"
+          class="reader-find"
+          type="search"
+          placeholder="Find on page…"
+          hidden
+        />
+        <div id="readerBody" class="reader-body"></div>
+      </aside>
+    </div>
 
-        <form id="tieoutForm" class="analyst-panel" data-panel="tieout" hidden>
-          <p class="field-hint">Tie-out: score a model JSON against an immutable ground-truth JSON.</p>
-          <label class="field"><span class="field-label">Ground-truth JSON</span><textarea name="ground_truth_json" rows="5" placeholder='{ … }'></textarea></label>
-          <label class="field"><span class="field-label">Model JSON</span><textarea name="model_json" rows="5" placeholder='{ … }'></textarea></label>
-          <button type="submit" class="btn-primary">Run tie-out</button>
-        </form>
+    <!-- floating expand button (visible only when the sidebar is collapsed) -->
+    <button
+      type="button"
+      id="sidebarExpand"
+      class="sidebar-expand"
+      aria-label="Expand sidebar"
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+    </button>
 
-        <div id="analystStatus" class="status" role="status" aria-live="polite" hidden></div>
-        <div id="analystResult" class="analyst-result" aria-live="polite"></div>
+    <!-- ── Settings modal ─────────────────────────────────────────── -->
+    <div id="settingsModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close="1"></div>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsTitle"
+      >
+        <div class="modal-head">
+          <h2 id="settingsTitle">Settings</h2>
+          <button
+            type="button"
+            id="settingsClose"
+            class="icon-btn"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div id="settingsStatus" class="status" hidden></div>
+        <div class="modal-body">
+          <label class="field">
+            <span class="field-label">Provider</span>
+            <span class="field-row">
+              <select id="providerSelect"></select>
+              <input
+                id="baseUrl"
+                type="text"
+                placeholder="https://api.example.com/v1"
+              />
+            </span>
+            <span class="field-hint"
+              >Any OpenAI-compatible API — use your own key (OpenAI, xAI/Grok,
+              DeepSeek, Groq, Mistral, Together, …).</span
+            >
+          </label>
+          <label class="field">
+            <span class="field-label">API key</span>
+            <input
+              id="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="your provider API key"
+            />
+            <span id="keyStatus" class="field-hint"></span>
+          </label>
+          <label class="field">
+            <span class="field-label">Model</span>
+            <span class="field-row">
+              <select id="modelSelect"></select>
+              <button type="button" id="refreshModels" class="btn-ghost">
+                Refresh
+              </button>
+              <button type="button" id="testModel" class="btn-ghost">
+                Test model
+              </button>
+            </span>
+            <span id="modelCaps" class="field-hint"></span>
+          </label>
+          <label class="field">
+            <span class="field-label">Theme</span>
+            <select id="themeSelect">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">EDGAR contact email</span>
+            <input
+              id="edgarContact"
+              type="email"
+              placeholder="you@example.com"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Output folder</span>
+            <span class="field-row">
+              <input id="outDir" type="text" placeholder="Documents/finmodel" />
+              <button type="button" id="chooseOutDir" class="btn-ghost">
+                Choose…
+              </button>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field-label">Roam MCP command (optional)</span>
+            <span class="field-row">
+              <input id="mcpCommand" type="text" placeholder="roam mcp serve" />
+              <button type="button" id="testMcp" class="btn-ghost">
+                Test browser
+              </button>
+            </span>
+            <span id="mcpStatus" class="field-hint"></span>
+          </label>
+          <label class="field">
+            <span class="field-label">Model roles (advanced)</span>
+            <details class="skill-add">
+              <summary>Worker &amp; verifier profiles</summary>
+              <span class="field-hint"
+                >Optional. Leave blank to use your main model for every role.
+                The worker runs delegated child tasks; the verifier is an
+                optional extra check (it never replaces deterministic
+                verification).</span
+              >
+              <div class="role-profile" data-role="worker">
+                <span class="field-sublabel">Worker</span>
+                <input
+                  id="workerProviderBase"
+                  type="text"
+                  placeholder="https://api.deepseek.com/v1"
+                  aria-label="Worker provider base URL"
+                />
+                <input
+                  id="workerModel"
+                  type="text"
+                  placeholder="deepseek-chat"
+                  aria-label="Worker model"
+                />
+                <input
+                  id="workerCredentialRef"
+                  type="text"
+                  placeholder="credential account name"
+                  aria-label="Worker credential account"
+                />
+              </div>
+              <div class="role-profile" data-role="verifier">
+                <span class="field-sublabel">Verifier</span>
+                <input
+                  id="verifierProviderBase"
+                  type="text"
+                  placeholder="https://api.openai.com/v1"
+                  aria-label="Verifier provider base URL"
+                />
+                <input
+                  id="verifierModel"
+                  type="text"
+                  placeholder="gpt-4o-mini"
+                  aria-label="Verifier model"
+                />
+                <input
+                  id="verifierCredentialRef"
+                  type="text"
+                  placeholder="credential account name"
+                  aria-label="Verifier credential account"
+                />
+              </div>
+            </details>
+          </label>
+          <label class="field">
+            <span class="field-label">Saved memories</span>
+            <input
+              id="memoryFilter"
+              type="text"
+              class="memory-filter"
+              placeholder="Filter memories…"
+              aria-label="Filter memories"
+            />
+            <div id="memoryList" class="memory-list"></div>
+            <span class="field-hint"
+              >Facts the analyst remembers (say "remember: …" in chat to add).
+              Delete any it got wrong.</span
+            >
+          </label>
+          <label class="field">
+            <span class="field-label">Skills</span>
+            <div id="skillsList" class="memory-list"></div>
+            <details class="skill-add">
+              <summary>New skill</summary>
+              <textarea
+                id="newSkillContent"
+                rows="7"
+                placeholder="---&#10;name: earnings-snapshot&#10;description: When the user wants a company's latest annual earnings summary.&#10;---&#10;1. Call get_financials for the ticker (latest fiscal year).&#10;2. Report revenue, net income, and margin in a short table."
+              ></textarea>
+              <button type="button" id="skillSaveBtn" class="btn-ghost">
+                Save skill
+              </button>
+              <span id="skillStatus" class="field-hint"></span>
+            </details>
+            <span class="field-hint"
+              >Reusable playbooks the analyst follows (SKILL.md: name +
+              description + steps). The agent can also propose one from a solved
+              task.</span
+            >
+          </label>
+          <p class="field-hint shortcut-legend">
+            Shortcuts: Ctrl/⌘+N new chat · Ctrl/⌘+K filter conversations · Esc
+            stops a streaming reply
+          </p>
+        </div>
+        <div class="modal-foot">
+          <span id="appVersion" class="app-version num"></span>
+          <span class="modal-foot-btns">
+            <button type="button" id="removeKey" class="btn-ghost">
+              Remove key
+            </button>
+            <button type="button" id="saveSettings" class="btn-primary">
+              Save
+            </button>
+          </span>
+        </div>
       </div>
     </div>
-  </div>
 
-  <script type="module" src="js/main.mjs"></script>
-</body>
+    <!-- ── Project settings modal ─────────────────────────────────── -->
+    <div id="projectModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close="1"></div>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="projectTitle"
+      >
+        <div class="modal-head">
+          <h2 id="projectTitle">Project settings &amp; grounding</h2>
+          <button
+            type="button"
+            id="projectClose"
+            class="icon-btn"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div id="projectStatus" class="status" hidden></div>
+        <div class="modal-body">
+          <label class="field">
+            <span class="field-label">Project name</span>
+            <input
+              id="projectName"
+              type="text"
+              placeholder="e.g. Tesla Valuation 2026"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">System instructions (grounding)</span>
+            <textarea
+              id="projectInstructions"
+              rows="6"
+              placeholder="Persistent rules for every chat in this project — e.g. 'Always benchmark against AMD/INTC', 'Data source: 2025 10-K', 'Format tables in Markdown'."
+            ></textarea>
+            <span class="field-hint"
+              >Applied to every chat in this folder, right after your global
+              rules.</span
+            >
+          </label>
+          <p class="field-hint">
+            Attached baseline files (PDF/CSV) — coming soon.
+          </p>
+        </div>
+        <div class="modal-foot">
+          <button type="button" id="projectDelete" class="btn-ghost danger">
+            Delete project
+          </button>
+          <span class="modal-foot-btns">
+            <button type="button" id="projectSave" class="btn-primary">
+              Save
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Analyst tools modal (Phase 6.5) ────────────────────────── -->
+    <div id="analystModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close="1"></div>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="analystTitle"
+      >
+        <div class="modal-head">
+          <h2 id="analystTitle">Analyst tools</h2>
+          <button
+            type="button"
+            id="analystClose"
+            class="icon-btn"
+            aria-label="Close"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="analyst-tabs" role="tablist" aria-label="Analyst tools">
+            <button
+              type="button"
+              class="analyst-tab"
+              role="tab"
+              aria-selected="true"
+              data-tab="ev"
+            >
+              EV bridge
+            </button>
+            <button
+              type="button"
+              class="analyst-tab"
+              role="tab"
+              aria-selected="false"
+              data-tab="ifrs"
+            >
+              IFRS bridge
+            </button>
+            <button
+              type="button"
+              class="analyst-tab"
+              role="tab"
+              aria-selected="false"
+              data-tab="tieout"
+            >
+              Tie-out
+            </button>
+          </div>
+
+          <form id="evForm" class="analyst-panel" data-panel="ev">
+            <p class="field-hint">
+              Enterprise-value bridge (BIWS checklist). Enter market cap or
+              price × shares; only entered items are applied.
+            </p>
+            <div class="analyst-grid">
+              <label class="field"
+                ><span class="field-label">Market cap ($M)</span
+                ><input name="market_cap" type="number" step="any" min="0"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Share price</span
+                ><input name="share_price" type="number" step="any" min="0"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Shares (M)</span
+                ><input
+                  name="shares_outstanding"
+                  type="number"
+                  step="any"
+                  min="0"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Total debt ($M)</span
+                ><input name="total_debt" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Finance leases ($M)</span
+                ><input name="finance_leases" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Operating leases ($M)</span
+                ><input name="operating_leases" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Underfunded pension ($M)</span
+                ><input name="underfunded_pension" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Minority interest ($M)</span
+                ><input name="minority_interest" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Preferred stock ($M)</span
+                ><input name="preferred_stock" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">Cash ($M)</span
+                ><input name="cash" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">ST investments ($M)</span
+                ><input name="short_term_investments" type="number" step="any"
+              /></label>
+              <label class="field"
+                ><span class="field-label">NOL DTA ($M)</span
+                ><input name="nol_dta" type="number" step="any"
+              /></label>
+            </div>
+            <button type="submit" class="btn-primary">Build EV bridge</button>
+          </form>
+
+          <form id="ifrsForm" class="analyst-panel" data-panel="ifrs" hidden>
+            <p class="field-hint">
+              IFRS-16 ↔ US-GAAP lease bridge. All reported metrics and
+              lease-note figures are required.
+            </p>
+            <div class="analyst-grid">
+              <label class="field"
+                ><span class="field-label">Accounting standard</span
+                ><select name="accounting_standard">
+                  <option value="US GAAP">US GAAP</option>
+                  <option value="IFRS">IFRS</option>
+                </select></label
+              >
+              <label class="field"
+                ><span class="field-label">Revenue ($M)</span
+                ><input name="revenue" type="number" step="any" required
+              /></label>
+              <label class="field"
+                ><span class="field-label">ROU depreciation ($M)</span
+                ><input
+                  name="rou_depreciation"
+                  type="number"
+                  step="any"
+                  required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Lease interest ($M)</span
+                ><input name="lease_interest" type="number" step="any" required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Short-term rent ($M)</span
+                ><input
+                  name="short_term_rent"
+                  type="number"
+                  step="any"
+                  required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Reported EBIT ($M)</span
+                ><input name="reported_ebit" type="number" step="any" required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Reported EBITDA ($M)</span
+                ><input
+                  name="reported_ebitda"
+                  type="number"
+                  step="any"
+                  required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Reported EBITA ($M)</span
+                ><input name="reported_ebita" type="number" step="any" required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Standard depreciation ($M)</span
+                ><input
+                  name="standard_depreciation"
+                  type="number"
+                  step="any"
+                  required
+              /></label>
+              <label class="field"
+                ><span class="field-label">Standard amortization ($M)</span
+                ><input
+                  name="standard_amortization"
+                  type="number"
+                  step="any"
+                  required
+              /></label>
+            </div>
+            <button type="submit" class="btn-primary">Build IFRS bridge</button>
+          </form>
+
+          <form
+            id="tieoutForm"
+            class="analyst-panel"
+            data-panel="tieout"
+            hidden
+          >
+            <p class="field-hint">
+              Tie-out: score a model JSON against an immutable ground-truth
+              JSON.
+            </p>
+            <label class="field"
+              ><span class="field-label">Ground-truth JSON</span
+              ><textarea
+                name="ground_truth_json"
+                rows="5"
+                placeholder="{ … }"
+              ></textarea>
+            </label>
+            <label class="field"
+              ><span class="field-label">Model JSON</span
+              ><textarea
+                name="model_json"
+                rows="5"
+                placeholder="{ … }"
+              ></textarea>
+            </label>
+            <button type="submit" class="btn-primary">Run tie-out</button>
+          </form>
+
+          <div
+            id="analystStatus"
+            class="status"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+          <div
+            id="analystResult"
+            class="analyst-result"
+            aria-live="polite"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="js/main.mjs"></script>
+  </body>
 </html>

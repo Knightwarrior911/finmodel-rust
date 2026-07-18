@@ -2,7 +2,7 @@
 //! hardcoded scenarios + shared valuation inputs. Layout mirrors `ASSUMP_R`.
 
 use crate::input::{ScenarioInputs, WorkbookInput};
-use crate::model::{cell_ref, Sheet, FMT_NUM, FMT_PCT, DATA0, LABEL};
+use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref};
 use crate::sheets::{assumptions_proj_periods, col};
 
 /// Per-driver number format, aligned with `DRIVERS` / writer.py ASSUMP_DRIVERS.
@@ -82,7 +82,11 @@ fn per_period(scn: &ScenarioInputs, i: usize) -> &Vec<f64> {
 
 /// Scalar value for driver 12/13.
 fn scalar(scn: &ScenarioInputs, i: usize) -> f64 {
-    if i == 12 { scn.terminal_growth_rate } else { scn.exit_ebitda_multiple }
+    if i == 12 {
+        scn.terminal_growth_rate
+    } else {
+        scn.exit_ebitda_multiple
+    }
 }
 
 fn periods_row(s: &mut Sheet, row: u32, proj: &[String]) {
@@ -137,7 +141,12 @@ fn scenario_inputs(s: &mut Sheet, drv0: u32, scn: &ScenarioInputs, n_proj: usize
             s.number(r, DATA0, scalar(scn, i));
         }
         s.stamp_row(r, DRIVER_FMT[i]);
-        style_driver_row(s, r, DRIVER_FMT[i] == FMT_PCT, if *is_pp { n_proj } else { 1 });
+        style_driver_row(
+            s,
+            r,
+            DRIVER_FMT[i] == FMT_PCT,
+            if *is_pp { n_proj } else { 1 },
+        );
     }
 }
 
@@ -153,21 +162,36 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.text(SUBTITLE, LABEL, "Operating & Valuation Drivers");
     s.cell_mut(SUBTITLE, LABEL).font_hex = Some(crate::sheets::NAVY);
     s.cell_mut(SUBTITLE, LABEL).bold = true;
-    s.text(UNITS, LABEL, "(per-period values in proj year columns; scalars in first column)");
+    s.text(
+        UNITS,
+        LABEL,
+        "(per-period values in proj year columns; scalars in first column)",
+    );
     s.cell_mut(UNITS, LABEL).font_hex = Some(crate::sheets::GRAY);
     s.cell_mut(UNITS, LABEL).italic = true;
 
     // Toggle + active-case display.
-    s.text(TOGGLE, LABEL, "Case Toggle  (1 = Base  |  2 = Upside  |  3 = Downside)");
+    s.text(
+        TOGGLE,
+        LABEL,
+        "Case Toggle  (1 = Base  |  2 = Upside  |  3 = Downside)",
+    );
     s.cell_mut(TOGGLE, LABEL).bold = true;
     s.number(TOGGLE, DATA0, a.active_case as f64);
     s.stamp_row(TOGGLE, FMT_NUM);
     s.text(ACTIVE, LABEL, "Active Case");
     s.cell_mut(ACTIVE, LABEL).bold = true;
-    s.formula(ACTIVE, DATA0, "=CHOOSE($D$9,\"Base\",\"Upside\",\"Downside\")");
+    s.formula(
+        ACTIVE,
+        DATA0,
+        "=CHOOSE($D$9,\"Base\",\"Upside\",\"Downside\")",
+    );
 
     // Active block — CHOOSE formulas pulling from the three scenario blocks.
-    s.section(ACTIVE_HDR, "ACTIVE CASE  (CHOOSE formulas — pulls from active scenario below)");
+    s.section(
+        ACTIVE_HDR,
+        "ACTIVE CASE  (CHOOSE formulas — pulls from active scenario below)",
+    );
     periods_row(&mut s, ACTIVE_PERIODS, &proj);
     for (i, (_, is_pp)) in DRIVERS.iter().enumerate() {
         let ar = ACTIVE_DRV0 + i as u32;

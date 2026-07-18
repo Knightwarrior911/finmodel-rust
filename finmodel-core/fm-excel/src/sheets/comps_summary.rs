@@ -1,7 +1,7 @@
 //! Comps Summary tab — port of `writer.py::_write_comps_summary`.
 
 use crate::input::WorkbookInput;
-use crate::model::{Sheet, BLUE, FMT_MULT, FMT_NUM, DATA0, LABEL};
+use crate::model::{BLUE, DATA0, FMT_MULT, FMT_NUM, LABEL, Sheet};
 use fm_value::PublicCompsOutput;
 
 const STAT_KEYS: [&str; 7] = [
@@ -28,7 +28,11 @@ pub fn build_from(pc: &PublicCompsOutput) -> Sheet {
         2,
         format!("{} — Public Comps  (Summary Stats)", pc.target_company_name),
     );
-    s.text(4, LABEL, "Peer-Set Trading Multiples + Implied Target Valuation");
+    s.text(
+        4,
+        LABEL,
+        "Peer-Set Trading Multiples + Implied Target Valuation",
+    );
     s.text(
         5,
         LABEL,

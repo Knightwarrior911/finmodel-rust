@@ -119,7 +119,10 @@ impl StreamAccumulator {
 
     /// Complete tool calls: those with both a name and an id.
     pub fn complete_calls(&self) -> Vec<&AccToolCall> {
-        self.calls.iter().filter(|c| !c.name.is_empty() && !c.id.is_empty()).collect()
+        self.calls
+            .iter()
+            .filter(|c| !c.name.is_empty() && !c.id.is_empty())
+            .collect()
     }
 
     /// Whether the stop reason permits continuing to run tool calls.
@@ -139,6 +142,117 @@ pub fn accumulate(payloads: &[&str]) -> StreamAccumulator {
         acc.apply(p);
     }
     acc
+}
+
+/// Normalized provider error categories. The adapter maps any provider's
+/// redacted error string into one of these so loop policy (retry/failover in
+/// Task 6.1) never depends on a provider-specific wire spelling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderError {
+    Auth,
+    Billing,
+    RateLimit,
+    Capacity,
+    Transport,
+    Timeout,
+    ContextOverflow,
+    ContentFilter,
+    ToolIncompatible,
+    Unknown,
+}
+
+impl ProviderError {
+    /// Transient categories worth an idempotent retry with backoff.
+    pub fn is_retryable(self) -> bool {
+        matches!(
+            self,
+            ProviderError::RateLimit
+                | ProviderError::Capacity
+                | ProviderError::Transport
+                | ProviderError::Timeout
+        )
+    }
+
+    /// Categories that justify rotating to an explicit fallback model/provider.
+    pub fn is_failover(self) -> bool {
+        matches!(
+            self,
+            ProviderError::Auth
+                | ProviderError::Billing
+                | ProviderError::RateLimit
+                | ProviderError::Capacity
+                | ProviderError::ToolIncompatible
+        )
+    }
+}
+
+/// Classify a redacted provider error string into a normalized category. Uses
+/// case-insensitive substring matching so it survives provider wording drift.
+pub fn classify_provider_error(msg: &str) -> ProviderError {
+    let m = msg.to_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| m.contains(n));
+    if has(&[
+        "tools_unsupported",
+        "tool use is not",
+        "does not support tool",
+        "no endpoints found that support tool",
+    ]) {
+        ProviderError::ToolIncompatible
+    } else if has(&[
+        "context",
+        "maximum context",
+        "context_length",
+        "too many tokens",
+        "reduce the length",
+    ]) {
+        ProviderError::ContextOverflow
+    } else if has(&["content_filter", "moderation", "flagged", "safety"]) {
+        ProviderError::ContentFilter
+    } else if has(&[
+        "401",
+        "unauthor",
+        "invalid api key",
+        "no auth",
+        "missing api key",
+    ]) {
+        ProviderError::Auth
+    } else if has(&[
+        "402",
+        "quota",
+        "billing",
+        "insufficient",
+        "credit",
+        "payment required",
+    ]) {
+        ProviderError::Billing
+    } else if has(&["429", "rate limit", "rate-limit", "too many requests"]) {
+        ProviderError::RateLimit
+    } else if has(&["timeout", "timed out", "deadline"]) {
+        ProviderError::Timeout
+    } else if has(&[
+        "500",
+        "502",
+        "503",
+        "504",
+        "overloaded",
+        "capacity",
+        "unavailable",
+        "server error",
+    ]) {
+        ProviderError::Capacity
+    } else if has(&[
+        "network",
+        "connection",
+        "connreset",
+        "connection reset",
+        "dns",
+        "transport",
+    ]) {
+        ProviderError::Transport
+    } else {
+        ProviderError::Unknown
+    }
 }
 
 /// The selection-time capability probe result for a model.
@@ -214,7 +328,10 @@ mod tests {
         assert_eq!(acc.meta.finish_reason.as_deref(), Some("length"));
         assert_eq!(acc.meta.native_finish_reason.as_deref(), Some("max_tokens"));
         assert_eq!(acc.meta.model.as_deref(), Some("anthropic/claude-sonnet-4"));
-        assert_eq!(acc.meta.usage.as_ref().unwrap()["total_tokens"], serde_json::json!(15));
+        assert_eq!(
+            acc.meta.usage.as_ref().unwrap()["total_tokens"],
+            serde_json::json!(15)
+        );
         assert_eq!(acc.meta.parse_errors, 1);
     }
 
@@ -231,9 +348,18 @@ mod tests {
 
     #[test]
     fn probe_requires_both_observations() {
-        assert!(decide_stream_tool_calls(Some(ToolStreamProbe { obs_first: true, obs_second: true })));
-        assert!(!decide_stream_tool_calls(Some(ToolStreamProbe { obs_first: true, obs_second: false })));
-        assert!(!decide_stream_tool_calls(Some(ToolStreamProbe { obs_first: false, obs_second: false })));
+        assert!(decide_stream_tool_calls(Some(ToolStreamProbe {
+            obs_first: true,
+            obs_second: true
+        })));
+        assert!(!decide_stream_tool_calls(Some(ToolStreamProbe {
+            obs_first: true,
+            obs_second: false
+        })));
+        assert!(!decide_stream_tool_calls(Some(ToolStreamProbe {
+            obs_first: false,
+            obs_second: false
+        })));
         // Unknown capability stays serial.
         assert!(!decide_stream_tool_calls(None));
     }
@@ -246,5 +372,82 @@ mod tests {
             "[DONE]",
         ]);
         assert_eq!(acc.complete_calls().len(), 0);
+    }
+
+    #[test]
+    fn openrouter_and_deepseek_yield_identical_normalized_transcript() {
+        // Same logical stream from two OpenAI-compatible providers: the wire
+        // differs only in cosmetic model/provider tags and chunk splitting; the
+        // normalized transcript (content + complete tool calls) must be identical.
+        let openrouter = accumulate(&[
+            r#"{"model":"deepseek/deepseek-chat","provider":"DeepSeek","choices":[{"delta":{"content":"NVDA rev "}}]}"#,
+            r#"{"model":"deepseek/deepseek-chat","provider":"DeepSeek","choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"get_financials","arguments":"{\"ticker\":\"NV"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"DA\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+            "[DONE]",
+        ]);
+        let deepseek_direct = accumulate(&[
+            r#"{"model":"deepseek-chat","choices":[{"delta":{"content":"NVDA "}}]}"#,
+            r#"{"model":"deepseek-chat","choices":[{"delta":{"content":"rev "}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"get_financials"}}]}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"ticker\":\"NVDA\"}"}}]}}]}"#,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+            "[DONE]",
+        ]);
+        assert_eq!(openrouter.content, deepseek_direct.content);
+        assert_eq!(
+            openrouter.complete_calls(),
+            deepseek_direct.complete_calls()
+        );
+        assert_eq!(
+            openrouter.meta.finish_reason,
+            deepseek_direct.meta.finish_reason
+        );
+    }
+
+    #[test]
+    fn provider_errors_classify_into_normalized_categories() {
+        assert_eq!(
+            classify_provider_error("tools_unsupported"),
+            ProviderError::ToolIncompatible
+        );
+        assert_eq!(
+            classify_provider_error("HTTP 401 Unauthorized"),
+            ProviderError::Auth
+        );
+        assert_eq!(
+            classify_provider_error("429 Too Many Requests"),
+            ProviderError::RateLimit
+        );
+        assert_eq!(
+            classify_provider_error("insufficient quota / billing"),
+            ProviderError::Billing
+        );
+        assert_eq!(
+            classify_provider_error("maximum context length exceeded"),
+            ProviderError::ContextOverflow
+        );
+        assert_eq!(
+            classify_provider_error("503 service unavailable, overloaded"),
+            ProviderError::Capacity
+        );
+        assert_eq!(
+            classify_provider_error("connection reset by peer"),
+            ProviderError::Transport
+        );
+        assert_eq!(
+            classify_provider_error("request timed out"),
+            ProviderError::Timeout
+        );
+        assert_eq!(
+            classify_provider_error("content_filter triggered"),
+            ProviderError::ContentFilter
+        );
+        assert_eq!(
+            classify_provider_error("weird glorp"),
+            ProviderError::Unknown
+        );
+        assert!(ProviderError::RateLimit.is_retryable());
+        assert!(ProviderError::Auth.is_failover() && !ProviderError::Auth.is_retryable());
     }
 }

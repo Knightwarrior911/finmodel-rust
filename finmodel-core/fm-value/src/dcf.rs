@@ -98,7 +98,11 @@ pub fn compute_dcf(
     tv_method: i32,
 ) -> DCFOutput {
     let n_hist = periods.iter().filter(|p| p.ends_with('A')).count();
-    let proj_periods: Vec<String> = periods.iter().filter(|p| p.ends_with('E')).cloned().collect();
+    let proj_periods: Vec<String> = periods
+        .iter()
+        .filter(|p| p.ends_with('E'))
+        .cloned()
+        .collect();
     let n_proj = proj_periods.len();
     let n_all = periods.len();
     let mid_year = assumptions.mid_year_convention;
@@ -227,7 +231,9 @@ pub fn compute_dcf(
         0.0
     };
 
-    let wacc_range: Vec<f64> = (0..5).map(|i| round4(wacc - 0.01 + i as f64 * 0.005)).collect();
+    let wacc_range: Vec<f64> = (0..5)
+        .map(|i| round4(wacc - 0.01 + i as f64 * 0.005))
+        .collect();
     let ebitda_mult_range: Vec<f64> = [-4.0, -2.0, 0.0, 2.0, 4.0]
         .iter()
         .map(|d| exit_mult + d)

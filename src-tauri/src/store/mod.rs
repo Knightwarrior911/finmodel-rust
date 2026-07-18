@@ -16,9 +16,9 @@
 //! - every artifact/blob write goes to a same-directory temp file, is fsynced,
 //!   then atomically renamed before the row commits.
 
+pub mod memory;
 pub mod migrations;
 pub mod models;
-pub mod memory;
 
 use std::path::{Path, PathBuf};
 
@@ -343,7 +343,9 @@ impl Db {
     pub fn conversation_title(&self, id: &str) -> StoreResult<Option<String>> {
         let t: Option<String> = self
             .conn
-            .query_row("SELECT title FROM conversations WHERE id=?1", [id], |r| r.get(0))
+            .query_row("SELECT title FROM conversations WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
             .optional()?;
         Ok(t)
     }
@@ -409,7 +411,13 @@ impl Db {
 
     // ---- Projects (conversation folders) ----
 
-    pub fn create_project(&self, id: &str, workspace_id: &str, name: &str, now: &str) -> StoreResult<()> {
+    pub fn create_project(
+        &self,
+        id: &str,
+        workspace_id: &str,
+        name: &str,
+        now: &str,
+    ) -> StoreResult<()> {
         self.conn.execute(
             "INSERT INTO projects (id, workspace_id, name, created_at) VALUES (?1,?2,?3,?4)",
             params![id, workspace_id, name, now],
@@ -436,9 +444,12 @@ impl Db {
 
     /// Delete a project; its conversations become loose (`project_id = NULL`).
     pub fn delete_project(&self, id: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE conversations SET project_id=NULL WHERE project_id=?1",
+            [id],
+        )?;
         self.conn
-            .execute("UPDATE conversations SET project_id=NULL WHERE project_id=?1", [id])?;
-        self.conn.execute("DELETE FROM projects WHERE id=?1", [id])?;
+            .execute("DELETE FROM projects WHERE id=?1", [id])?;
         Ok(())
     }
 
@@ -467,6 +478,18 @@ impl Db {
             )
             .optional()?;
         Ok(p.flatten())
+    }
+    /// The workspace a conversation belongs to, if the conversation exists.
+    pub fn conversation_workspace(&self, conversation_id: &str) -> StoreResult<Option<String>> {
+        let w: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT workspace_id FROM conversations WHERE id=?1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(w)
     }
 
     fn row_to_message(r: &rusqlite::Row) -> rusqlite::Result<Message> {
@@ -650,7 +673,10 @@ impl Db {
     }
 
     /// The most recent run for a conversation (by insertion/start order), if any.
-    pub fn latest_run_for_conversation(&self, conversation_id: &str) -> StoreResult<Option<AgentRun>> {
+    pub fn latest_run_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> StoreResult<Option<AgentRun>> {
         let id: Option<String> = self
             .conn
             .query_row(
@@ -722,18 +748,52 @@ impl Db {
 
     /// Resolve a pending interaction; first answer wins. Returns true iff this
     /// call performed the transition (was still pending).
-    pub fn resolve_pending(
-        &self,
-        id: &str,
-        response_json: &str,
-        now: &str,
-    ) -> StoreResult<bool> {
+    pub fn resolve_pending(&self, id: &str, response_json: &str, now: &str) -> StoreResult<bool> {
         let n = self.conn.execute(
             "UPDATE pending_interactions SET status='resolved', response_json=?1, resolved_at=?2
              WHERE id=?3 AND status='pending'",
             params![response_json, now, id],
         )?;
         Ok(n == 1)
+    }
+
+    /// Still-pending interactions for a run — replayed on restart so a parked
+    /// approval survives an app restart (Task 4.3).
+    pub fn unresolved_pending(&self, run_id: &str) -> StoreResult<Vec<(String, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, request_json FROM pending_interactions WHERE run_id=?1 AND status='pending' ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// Fail closed: mark pending interactions created at/before `cutoff` as
+    /// `expired` so a walked-away user's approval never wedges the run or later
+    /// silently executes (Task 4.3). Returns the number expired.
+    pub fn expire_pending(&self, cutoff: &str, now: &str) -> StoreResult<usize> {
+        let n = self.conn.execute(
+            "UPDATE pending_interactions SET status='expired', resolved_at=?1 WHERE status='pending' AND created_at<=?2",
+            params![now, cutoff],
+        )?;
+        Ok(n)
+    }
+
+    /// Like [`Db::expire_pending`], but returns the distinct run ids affected so a
+    /// caller can DENY their parked approval oneshots promptly (Task 4.3), instead
+    /// of leaving the run to wait out the driver's safety timeout.
+    pub fn expire_pending_runs(&self, cutoff: &str, now: &str) -> StoreResult<Vec<String>> {
+        let run_ids: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT run_id FROM pending_interactions WHERE status='pending' AND created_at<=?1",
+            )?;
+            let rows = stmt.query_map(params![cutoff], |r| r.get::<_, String>(0))?;
+            rows.filter_map(|x| x.ok()).collect()
+        };
+        self.conn.execute(
+            "UPDATE pending_interactions SET status='expired', resolved_at=?1 WHERE status='pending' AND created_at<=?2",
+            params![now, cutoff],
+        )?;
+        Ok(run_ids)
     }
 
     // ---- Sources & citations ----
@@ -752,11 +812,448 @@ impl Db {
         content_hash: Option<&str>,
     ) -> StoreResult<()> {
         self.conn.execute(
-            "INSERT INTO sources (id, workspace_id, kind, canonical_uri, title, publisher, published_at, accessed_at, content_hash)
+            "INSERT OR IGNORE INTO sources (id, workspace_id, kind, canonical_uri, title, publisher, published_at, accessed_at, content_hash)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![id, workspace_id, kind, canonical_uri, title, publisher, published_at, accessed_at, content_hash],
         )?;
         Ok(())
+    }
+
+    /// Link a message part to a source with claim provenance (Task 4.1). Keyed by
+    /// `(message_part_id, ordinal)` with `INSERT OR REPLACE`, so re-rendering a
+    /// part re-links idempotently.
+    pub fn insert_citation(
+        &self,
+        message_part_id: &str,
+        ordinal: i64,
+        source_id: &str,
+        claim: &fm_agent::types::Claim,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO citations (message_part_id, ordinal, source_id, claim_key, entity, normalized_value, unit, currency, scale, period, locator, quote_hash)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            params![
+                message_part_id,
+                ordinal,
+                source_id,
+                claim.claim_key,
+                claim.entity,
+                claim.normalized_value,
+                claim.unit,
+                claim.currency,
+                claim.scale,
+                claim.period,
+                claim.locator,
+                claim.quote_hash
+            ],
+        )?;
+        Ok(())
+    }
+
+    // ---- Delegations (durable child runs, Task 5.1) ----
+
+    /// Persist a child delegation BEFORE the child executes (status `queued`,
+    /// delivery `pending`), so a crash mid-dispatch is recoverable.
+    pub fn insert_delegation(
+        &self,
+        id: &str,
+        parent_run_id: &str,
+        parent_tool_call_id: Option<&str>,
+        task_json: &str,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO delegations (id, parent_run_id, parent_tool_call_id, status, task_json, dispatched_at, delivery_state)
+             VALUES (?1,?2,?3,'queued',?4,?5,'pending')",
+            params![id, parent_run_id, parent_tool_call_id, task_json, now],
+        )?;
+        Ok(())
+    }
+
+    /// Link the child run once it is registered, and mark the delegation running.
+    pub fn set_delegation_child(&self, id: &str, child_run_id: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE delegations SET child_run_id=?1, status='running' WHERE id=?2",
+            params![child_run_id, id],
+        )?;
+        Ok(())
+    }
+
+    /// Finalize a delegation with its terminal status + result/error.
+    pub fn finish_delegation(
+        &self,
+        id: &str,
+        status: &str,
+        result_json: Option<&str>,
+        error_code: Option<&str>,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE delegations SET status=?1, result_json=?2, error_code=?3, finished_at=?4 WHERE id=?5",
+            params![status, result_json, error_code, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Count delegations for a parent run in a given status (recovery/inspection).
+    pub fn delegations_in_status(&self, parent_run_id: &str, status: &str) -> StoreResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT count(*) FROM delegations WHERE parent_run_id=?1 AND status=?2",
+            params![parent_run_id, status],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// On restart, mark still-`running` delegations as `outcome_unknown` — a dead
+    /// owner's child is never assumed succeeded or failed (Task 5.1). Returns the
+    /// number recovered.
+    pub fn recover_dead_delegations(&self, now: &str) -> StoreResult<usize> {
+        let n = self.conn.execute(
+            "UPDATE delegations SET status='outcome_unknown', finished_at=?1 WHERE status IN ('queued','running')",
+            params![now],
+        )?;
+        Ok(n)
+    }
+
+    // ---- Child result delivery (at-least-once, Task 5.3) ----
+    //
+    // A terminal delegation carries `delivery_state='pending'` until its result is
+    // appended to the parent exactly once. Delivery is a `delivery_state` CAS keyed
+    // by an owner `claim_id`: `pending→claimed` is at-most-once (two consumers
+    // racing one row never both win); `claimed→delivered` acks after the parent
+    // append; `claimed→pending` releases on a failed append. Only the owning
+    // `claim_id` can ack or release, and `claimed_at` timestamps the claim so a
+    // crash between claim and ack is recovered by `reclaim_stale_deliveries`
+    // (time-based, so a live owner's fresh claim is never stolen). A killed owner
+    // thus loses no result and never double-synthesizes (the parent append is
+    // idempotent under the `delivered` guard + tool_call_id dedup).
+
+    /// Terminal statuses whose single result must reach the parent.
+    const DELIVERABLE: &'static str =
+        "status IN ('succeeded','warning','failed','outcome_unknown')";
+
+    /// Claim a terminal, undelivered delegation for delivery. `claim_id` records
+    /// the owner and `now` stamps `claimed_at`. Returns true iff won.
+    pub fn claim_delegation_delivery(
+        &self,
+        id: &str,
+        claim_id: &str,
+        now: &str,
+    ) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            &format!(
+                "UPDATE delegations SET delivery_state='claimed', claim_id=?1, claimed_at=?2
+                 WHERE id=?3 AND delivery_state='pending' AND {}",
+                Self::DELIVERABLE
+            ),
+            params![claim_id, now, id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Acknowledge delivery after the result was appended to the parent. Only the
+    /// owning `claim_id` can ack.
+    pub fn ack_delegation_delivery(&self, id: &str, claim_id: &str) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE delegations SET delivery_state='delivered'
+             WHERE id=?1 AND delivery_state='claimed' AND claim_id=?2",
+            params![id, claim_id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Release a claim on a failed append (claimed→pending) so delivery retries.
+    /// Only the owning `claim_id` can release; the claim fields are cleared.
+    pub fn release_delegation_claim(&self, id: &str, claim_id: &str) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE delegations SET delivery_state='pending', claim_id=NULL, claimed_at=NULL
+             WHERE id=?1 AND delivery_state='claimed' AND claim_id=?2",
+            params![id, claim_id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Terminal, still-undelivered delegations for a parent (id, result_json).
+    pub fn undelivered_completed_delegations(
+        &self,
+        parent_run_id: &str,
+    ) -> StoreResult<Vec<(String, Option<String>)>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, result_json FROM delegations
+             WHERE parent_run_id=?1 AND delivery_state='pending' AND {}",
+            Self::DELIVERABLE
+        ))?;
+        let rows = stmt.query_map(params![parent_run_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// Reclaim claims stamped at or before `cutoff` (owner died mid-delivery) back
+    /// to `pending` so the result is redelivered. Returns the number reclaimed.
+    pub fn reclaim_stale_deliveries(&self, cutoff: &str) -> StoreResult<usize> {
+        let n = self.conn.execute(
+            "UPDATE delegations SET delivery_state='pending', claim_id=NULL, claimed_at=NULL
+             WHERE delivery_state='claimed' AND claimed_at<=?1",
+            params![cutoff],
+        )?;
+        Ok(n)
+    }
+    // ---- Commitments + schedules (proactive follow-through, Task 8.1) ----
+
+    /// Persist a follow-up commitment (default status `pending`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_commitment(
+        &self,
+        id: &str,
+        run_id: Option<&str>,
+        message_id: Option<&str>,
+        workspace_id: &str,
+        text: &str,
+        due_semantics: Option<&str>,
+        confidence: f64,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO commitments (id, run_id, message_id, workspace_id, text, status, due_semantics, confidence, created_at)
+             VALUES (?1,?2,?3,?4,?5,'pending',?6,?7,?8)",
+            params![id, run_id, message_id, workspace_id, text, due_semantics, confidence, now],
+        )?;
+        Ok(())
+    }
+
+    /// Count commitments in a status (restart preserves pending ones).
+    pub fn commitments_in_status(&self, status: &str) -> StoreResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT count(*) FROM commitments WHERE status=?1",
+            params![status],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Persist an approved schedule (status `pending`, unclaimed).
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_schedule(
+        &self,
+        id: &str,
+        commitment_id: Option<&str>,
+        conversation_id: Option<&str>,
+        timezone: &str,
+        recurrence: Option<&str>,
+        next_due: &str,
+        scope_json: &str,
+        budget_json: Option<&str>,
+        approval_id: Option<&str>,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO schedules (id, commitment_id, conversation_id, timezone, recurrence, next_due, scope_json, budget_json, approval_id, status, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'pending',?10)",
+            params![id, commitment_id, conversation_id, timezone, recurrence, next_due, scope_json, budget_json, approval_id, now],
+        )?;
+        Ok(())
+    }
+
+    /// Transactionally claim ONE due schedule for `owner`. The guarded
+    /// `WHERE claim_owner IS NULL` makes the claim atomic, so two workers racing
+    /// the same due row never both win (Task 8.1). Returns the claimed id.
+    pub fn claim_due_schedule(&self, now: &str, owner: &str) -> StoreResult<Option<String>> {
+        loop {
+            let candidate: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT id FROM schedules WHERE status='pending' AND claim_owner IS NULL AND next_due <= ?1 ORDER BY next_due LIMIT 1",
+                    params![now],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(id) = candidate else {
+                return Ok(None);
+            };
+            let won = self.conn.execute(
+                "UPDATE schedules SET claim_owner=?1, claimed_at=?2, status='claimed' WHERE id=?3 AND claim_owner IS NULL",
+                params![owner, now, id],
+            )?;
+            if won == 1 {
+                return Ok(Some(id));
+            }
+            // Contended: another worker claimed it first; try the next due row.
+        }
+    }
+
+    /// Finalize a claimed schedule as `done` with `last_outcome`, clearing the
+    /// claim (Task 8.3). One-shot follow-through: a recurring schedule is instead
+    /// re-armed by the caller before this.
+    pub fn finish_schedule(&self, id: &str, last_outcome: &str, _now: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE schedules SET status='done', last_outcome=?1, claim_owner=NULL, claimed_at=NULL WHERE id=?2",
+            params![last_outcome, id],
+        )?;
+        Ok(())
+    }
+
+    /// Record a failed schedule attempt (Task 8.3). Increments `attempts`; if it
+    /// reaches `max_attempts` the schedule is terminal (`failed`), otherwise it
+    /// returns to `pending` with a backed-off `retry_next_due` and a cleared claim
+    /// so a later sweep retries it. Returns `(attempts, terminal)`.
+    pub fn fail_schedule_attempt(
+        &self,
+        id: &str,
+        max_attempts: i64,
+        retry_next_due: &str,
+    ) -> StoreResult<(i64, bool)> {
+        let attempts: i64 = self.conn.query_row(
+            "SELECT attempts FROM schedules WHERE id=?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        let attempts = attempts + 1;
+        let terminal = attempts >= max_attempts;
+        if terminal {
+            self.conn.execute(
+                "UPDATE schedules SET status='failed', attempts=?1, last_outcome='failed', claim_owner=NULL, claimed_at=NULL WHERE id=?2",
+                params![attempts, id],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE schedules SET status='pending', attempts=?1, last_outcome='retry', claim_owner=NULL, claimed_at=NULL, next_due=?2 WHERE id=?3",
+                params![attempts, retry_next_due, id],
+            )?;
+        }
+        Ok((attempts, terminal))
+    }
+
+    /// A schedule's `(status, attempts, last_outcome)` for inspection/tests.
+    pub fn schedule_state(&self, id: &str) -> StoreResult<Option<(String, i64, Option<String>)>> {
+        self.conn
+            .query_row(
+                "SELECT status, attempts, last_outcome FROM schedules WHERE id=?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    // ---- Skill lifecycle (deterministic aging + supersession, Task 7.3) ----
+
+    /// Register a skill (or bump its `source_version`) as `active` on save. A new
+    /// or edited SKILL.md revives a stale skill and records the source version.
+    pub fn upsert_skill(&self, name: &str, source_version: i64, now: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO skill_lifecycle (name, state, source_version, created_at, updated_at)
+             VALUES (?1,'active',?2,?3,?3)
+             ON CONFLICT(name) DO UPDATE SET
+               state='active',
+               source_version=max(source_version, excluded.source_version),
+               updated_at=excluded.updated_at",
+            params![name, source_version, now],
+        )?;
+        Ok(())
+    }
+
+    /// Record a use: increment `use_count`, stamp `last_used`, and revive a
+    /// `stale` skill to `active` (an archived skill needs an explicit restore).
+    pub fn record_skill_use(&self, name: &str, now: &str) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE skill_lifecycle
+             SET use_count=use_count+1, last_used=?2, updated_at=?2,
+                 state=CASE WHEN state='stale' THEN 'active' ELSE state END
+             WHERE name=?1",
+            params![name, now],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Deterministic aging (Task 7.3): first archive already-`stale` skills unused
+    /// since `archive_cutoff`, then mark `active` skills unused since
+    /// `stale_cutoff` as `stale`. Disuse is measured from `last_used`, falling
+    /// back to `created_at` for never-used skills. At most one transition per
+    /// skill per sweep. Returns `(staled, archived)`.
+    pub fn age_skills(
+        &self,
+        stale_cutoff: &str,
+        archive_cutoff: &str,
+        now: &str,
+    ) -> StoreResult<(usize, usize)> {
+        let archived = self.conn.execute(
+            "UPDATE skill_lifecycle SET state='archived', updated_at=?2
+             WHERE state='stale' AND COALESCE(last_used, created_at) <= ?1",
+            params![archive_cutoff, now],
+        )?;
+        let staled = self.conn.execute(
+            "UPDATE skill_lifecycle SET state='stale', updated_at=?2
+             WHERE state='active' AND COALESCE(last_used, created_at) <= ?1",
+            params![stale_cutoff, now],
+        )?;
+        Ok((staled, archived))
+    }
+
+    /// Restore a stale/archived skill to `active` (inspectable → usable again).
+    pub fn restore_skill(&self, name: &str, now: &str) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE skill_lifecycle SET state='active', updated_at=?2 WHERE name=?1",
+            params![name, now],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Supersede `old` with `new`: archive the old skill and register the new one
+    /// as active, retaining lineage (`supersedes`) and a bumped source version.
+    pub fn supersede_skill(
+        &self,
+        old: &str,
+        new: &str,
+        source_version: i64,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE skill_lifecycle SET state='archived', updated_at=?2 WHERE name=?1",
+            params![old, now],
+        )?;
+        self.conn.execute(
+            "INSERT INTO skill_lifecycle (name, state, source_version, supersedes, created_at, updated_at)
+             VALUES (?1,'active',?2,?3,?4,?4)
+             ON CONFLICT(name) DO UPDATE SET
+               state='active', source_version=?2, supersedes=?3, updated_at=?4",
+            params![new, source_version, old, now],
+        )?;
+        Ok(())
+    }
+
+    /// Names of `active` skills only — the set eligible for default context
+    /// injection (stale/archived are excluded but remain inspectable).
+    pub fn active_skill_names(&self) -> StoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM skill_lifecycle WHERE state='active' ORDER BY name")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// Names of skills excluded from default context (state `stale` or
+    /// `archived`). A hand-dropped skill file with no lifecycle row is NOT here,
+    /// so it stays visible — only aged-out skills are hidden (Task 7.3).
+    pub fn inactive_skill_names(&self) -> StoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM skill_lifecycle WHERE state IN ('stale','archived')")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// A skill's `(state, use_count, source_version, supersedes)` for
+    /// inspection/restore UIs and tests.
+    pub fn skill_lifecycle_state(
+        &self,
+        name: &str,
+    ) -> StoreResult<Option<(String, i64, i64, Option<String>)>> {
+        self.conn
+            .query_row(
+                "SELECT state, use_count, source_version, supersedes FROM skill_lifecycle WHERE name=?1",
+                params![name],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .map_err(Into::into)
     }
 
     // ---- Blobs, refs, GC (content-addressed, atomic publish) ----
@@ -803,6 +1300,33 @@ impl Db {
             byte_len: bytes.len() as i64,
             created_at: now.to_string(),
         })
+    }
+
+    /// Spill an oversized tool result to the blob store, returning a bounded,
+    /// char-boundary-safe preview plus the opaque blob id for range reads
+    /// (Task 3.4). Results within `preview_budget` bytes are returned inline with
+    /// no blob, so only genuinely large results incur a blob write; the full
+    /// result is always recoverable by the returned id.
+    pub fn spill_result(
+        &self,
+        run_id: &str,
+        tool_call_id: &str,
+        result: &str,
+        preview_budget: usize,
+        now: &str,
+    ) -> StoreResult<(String, Option<String>)> {
+        if result.len() <= preview_budget {
+            return Ok((result.to_string(), None));
+        }
+        let rel = format!("results/{run_id}/{tool_call_id}.txt");
+        let blob = self.publish_blob(&rel, result.as_bytes(), now)?;
+        // Trim to a char boundary at or below the budget so the preview is valid
+        // UTF-8 and never exceeds the budget (plus the ellipsis marker).
+        let mut end = preview_budget.min(result.len());
+        while end > 0 && !result.is_char_boundary(end) {
+            end -= 1;
+        }
+        Ok((format!("{}…", &result[..end]), Some(blob.id)))
     }
 
     /// Add a reference to a blob from an owner (artifact/attachment).
@@ -996,6 +1520,48 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Pin or unpin a memory (Task 7.2). A pinned memory is protected from
+    /// automatic forgetting. Returns true iff a row matched.
+    pub fn set_memory_pinned(&self, id: i64, pinned: bool) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE memories SET pinned=?1 WHERE id=?2",
+            params![i64::from(pinned), id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// Whether a memory is pinned (for inspection/tests).
+    pub fn is_memory_pinned(&self, id: i64) -> StoreResult<bool> {
+        let p: i64 = self.conn.query_row(
+            "SELECT pinned FROM memories WHERE id=?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        Ok(p != 0)
+    }
+
+    /// Edit a memory's content (Task 7.2 — user correction). Bumps `updated_at`.
+    /// Returns true iff a row matched.
+    pub fn update_memory_value(&self, id: i64, value: &str, now: &str) -> StoreResult<bool> {
+        let n = self.conn.execute(
+            "UPDATE memories SET content=?1, updated_at=?2 WHERE id=?3",
+            params![value, now, id],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// A memory's current content (for inspection/tests).
+    pub fn memory_content(&self, id: i64) -> StoreResult<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT content FROM memories WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     // ---- Startup recovery & integrity ----
 
     /// Mark `running` runs as `interrupted` and give dangling (`queued`/
@@ -1033,9 +1599,9 @@ impl Db {
 
     /// `PRAGMA integrity_check`.
     pub fn integrity_check(&self) -> StoreResult<()> {
-        let res: String =
-            self.conn
-                .query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        let res: String = self
+            .conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
         if res == "ok" {
             Ok(())
         } else {
@@ -1096,6 +1662,16 @@ pub fn now_iso() -> String {
     iso_utc(secs)
 }
 
+/// ISO-8601 UTC timestamp `secs` seconds before now — for expiry cutoffs
+/// (e.g. the approval-expiry sweep, Task 4.3).
+pub fn iso_seconds_ago(secs: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    iso_utc(now - secs)
+}
+
 fn iso_utc(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
@@ -1131,8 +1707,13 @@ pub fn init(config_dir: &Path) -> StoreResult<(StoreHandle, MigrationReport, Str
         rand::Rng::fill(&mut rand::thread_rng(), &mut bytes);
         fm_agent::ids::format_uuid_v4(bytes)
     };
-    let report =
-        migrations::import_json_conversations(db.conn_mut(), &json_dir, &workspace_id, &now, &mut gen)?;
+    let report = migrations::import_json_conversations(
+        db.conn_mut(),
+        &json_dir,
+        &workspace_id,
+        &now,
+        &mut gen,
+    )?;
     let handle = StoreHandle::spawn(db);
     Ok((handle, report, workspace_id))
 }

@@ -6,7 +6,7 @@
 //! FULL (adjusted EBITDA + EBITA + margins, IFRS→US GAAP) and SIMPLE (computed
 //! EBITDA, no EBITA, no margins, US GAAP→IFRS).
 
-use fm_excel::bridge::{build_ifrs_bridge_sheet, IfrsBridgeInput};
+use fm_excel::bridge::{IfrsBridgeInput, build_ifrs_bridge_sheet};
 use fm_excel::model::Workbook;
 use fm_excel::snapshot::{compare_workbook, load_snapshot};
 
@@ -18,7 +18,11 @@ fn excluded() -> Vec<String> {
 }
 
 fn snap(name: &str) -> String {
-    format!("{}/../../tieout/excel_snapshots/{}_snapshot.json", env!("CARGO_MANIFEST_DIR"), name)
+    format!(
+        "{}/../../tieout/excel_snapshots/{}_snapshot.json",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
 }
 
 fn gate(inp: &IfrsBridgeInput, oracle: &str) {
@@ -28,7 +32,11 @@ fn gate(inp: &IfrsBridgeInput, oracle: &str) {
     let diffs = compare_workbook(&wb, &s);
     if !diffs.is_empty() {
         let shown: Vec<String> = diffs.iter().take(40).map(|d| d.to_string()).collect();
-        panic!("{} cell diff(s) vs {oracle}:\n{}", diffs.len(), shown.join("\n"));
+        panic!(
+            "{} cell diff(s) vs {oracle}:\n{}",
+            diffs.len(),
+            shown.join("\n")
+        );
     }
 }
 

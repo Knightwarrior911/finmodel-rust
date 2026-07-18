@@ -8,12 +8,15 @@ use fm_excel::snapshot::{compare_workbook, load_snapshot, workbook_input_from_sn
 
 const COMPANIES: [&str; 5] = ["SAND_ST", "ASML_AS", "NOVO-B_CO", "NESN_SW", "ATCO-B_ST"];
 
-
 /// Sheets whose builders are complete and must diff to zero.
 const GATED_SHEETS: [&str; 6] = ["Cover", "Assumptions", "IS", "BS", "CF", "Sources"];
 
 fn snapshot_path(name: &str) -> String {
-    format!("{}/../../tieout/excel_snapshots/{}_snapshot.json", env!("CARGO_MANIFEST_DIR"), name)
+    format!(
+        "{}/../../tieout/excel_snapshots/{}_snapshot.json",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    )
 }
 
 /// Diff every company; return sheet -> total diff count and print detail.
@@ -27,7 +30,10 @@ fn run() -> BTreeMap<String, usize> {
 
         let mut by_sheet: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for d in &diffs {
-            by_sheet.entry(d.sheet.clone()).or_default().push(d.to_string());
+            by_sheet
+                .entry(d.sheet.clone())
+                .or_default()
+                .push(d.to_string());
             *totals.entry(d.sheet.clone()).or_default() += 1;
         }
         for (sheet, msgs) in &by_sheet {
@@ -53,5 +59,8 @@ fn gated_sheets_zero_diff() {
             (n > 0).then(|| format!("{s}={n}"))
         })
         .collect();
-    assert!(failures.is_empty(), "non-zero diffs on gated sheets: {failures:?}");
+    assert!(
+        failures.is_empty(),
+        "non-zero diffs on gated sheets: {failures:?}"
+    );
 }
