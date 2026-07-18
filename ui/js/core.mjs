@@ -12,7 +12,12 @@ export async function call(name, payload = {}) {
   const t = bridge();
   if (!t || !t.core || !t.core.invoke) throw new Error("Not running inside the app window.");
   const res = await t.core.invoke(name, payload);
-  return typeof res === "string" ? JSON.parse(res) : res;
+  if (typeof res !== "string") return res;
+  try {
+    return JSON.parse(res);
+  } catch (_) {
+    return res; // command returned a plain (non-JSON) string
+  }
 }
 
 export const $ = (id) => document.getElementById(id);

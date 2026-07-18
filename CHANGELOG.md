@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.6 — Skills (drop-in playbooks + self-evolution)
+
+A decentralized skills system, in the SKILL.md format (agentskills.io-compatible):
+
+- **Drop-in skills.** A skill is a Markdown file (`<config>/skills/<name>.md`) with
+  YAML frontmatter (`name` + `description`) and a body of steps. Manage them in
+  Settings → Skills (add / view / delete), or drop files in by hand.
+- **Discovery + progressive disclosure.** The catalog (names + descriptions) is
+  injected into the system prompt; when a request matches, the agent calls the new
+  `use_skill` tool to load that skill's full steps and follow them — so a growing
+  library never bloats the prompt. Verified live: a saved skill fired on a matching
+  question and its steps were followed.
+- **Self-evolution.** After a multi-step turn, a "Save as skill" action asks the
+  model to abstract what it just did into a reusable, generalized SKILL.md draft
+  (specifics like tickers/years turned into instructions); you review and save it.
+  Runs through your configured provider. Verified live: produced a valid, generalized
+  draft from a two-company comparison.
+
+208+ backend (223 lib) + 116 UI green.
+
 ## v0.8.5 — Design polish
 
 A craft pass on the interface (no feature changes), guided by a product-register

@@ -3,6 +3,7 @@
 import { $, call, on, escapeHtml, renderMarkdown, stripControlTokens, copyToClipboard, flashBtn } from "./core.mjs";
 import { renderCard } from "./cards.mjs";
 import { closeReader } from "./reader.mjs";
+import { openSettingsWithSkillDraft } from "./settings.mjs";
 
 let currentId = null;
 let streaming = false;
@@ -336,6 +337,7 @@ function handleTool(payload) {
   if (payload.status === "start") {
     setProgress(phaseLabel(name, payload.detail));
     const step = addThinkStep(name, payload.detail);
+    (activeTurn.toolSeq || (activeTurn.toolSeq = [])).push(name);
     const list = activeTurn.pending.get(name) || [];
     list.push(step);
     activeTurn.pending.set(name, list);
@@ -365,6 +367,34 @@ function handleTool(payload) {
   if (payload.card) appendCard(payload.card);
 }
 
+// After a multi-tool turn, offer to abstract it into a reusable skill
+// (self-evolution): the model generalizes the transcript into a SKILL.md draft.
+function addSkillAction(node, question, answer, tools) {
+  if (node.querySelector(".msg-skill")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "msg-skill icon-btn";
+  btn.textContent = "Save as skill";
+  btn.title = "Abstract this into a reusable skill";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "Drafting…";
+    const transcript =
+      `User asked: ${question}\n\nTools used, in order: ${tools.join(", ")}.\n\nFinal answer:\n${answer}`;
+    try {
+      const draft = await call("skill_suggest", { transcript });
+      openSettingsWithSkillDraft(typeof draft === "string" ? draft : "");
+    } catch (_) {
+      /* ignore draft failure */
+    } finally {
+      btn.textContent = prev;
+      btn.disabled = false;
+    }
+  });
+  node.appendChild(btn);
+}
+
 // Finalize the live assistant bubble: render its accumulated text as markdown.
 function finalizeLive() {
   if (deltaRaf) {
@@ -380,6 +410,8 @@ function finalizeLive() {
     } else {
       prose.innerHTML = renderMarkdown(clean);
       addCopyAction(activeTurn.assistantNode, clean);
+      const tools = (activeTurn.toolSeq || []).filter((t) => t !== "use_skill");
+      if (tools.length >= 2) addSkillAction(activeTurn.assistantNode, lastQuestion, clean, tools);
     }
   }
   if (activeTurn && activeTurn.thinkingNode) {
@@ -693,7 +725,7 @@ async function send(text) {
   $("chatInput").value = "";
   autoGrow();
   setStreaming(true);
-  activeTurn = { assistantNode: null, pending: new Map() };
+  activeTurn = { assistantNode: null, pending: new Map(), toolSeq: [] };
   activeRunId = newRunId();
   // Allocate conversation id before the long-running invoke so Stop can target
   // the registry key immediately (backend accepts client-supplied ids).

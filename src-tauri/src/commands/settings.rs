@@ -570,6 +570,37 @@ fn post_probe_json(api_key: &str, chat_url: &str, body: &serde_json::Value) -> R
     Err(format!("OpenRouter probe failed ({category}, HTTP {code})"))
 }
 
+/// One-shot non-streaming completion through the CONFIGURED provider (honors
+/// `Settings.base_url`, not a hardcoded endpoint). Returns the assistant message
+/// content. Used by self-evolution (skill drafting).
+pub(crate) fn complete_once(
+    api_key: &str,
+    model: &str,
+    chat_url: &str,
+    system: &str,
+    user: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+        "stream": false
+    });
+    match post_probe_json(api_key, chat_url, &body)? {
+        ProbeOutcome::Unsupported => Err("provider rejected the request".into()),
+        ProbeOutcome::Body(v) => v
+            .pointer("/choices/0/message/content")
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "no content in provider response".into()),
+    }
+}
+
 /// Minimal UTC ISO-8601 stamp without pulling chrono into the app crate.
 fn chrono_like_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};

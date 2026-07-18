@@ -196,6 +196,17 @@
           <div id="memoryList" class="memory-list"></div>
           <span class="field-hint">Facts the analyst remembers (say "remember: …" in chat to add). Delete any it got wrong.</span>
         </label>
+        <label class="field">
+          <span class="field-label">Skills</span>
+          <div id="skillsList" class="memory-list"></div>
+          <details class="skill-add">
+            <summary>New skill</summary>
+            <textarea id="newSkillContent" rows="7" placeholder="---&#10;name: earnings-snapshot&#10;description: When the user wants a company's latest annual earnings summary.&#10;---&#10;1. Call get_financials for the ticker (latest fiscal year).&#10;2. Report revenue, net income, and margin in a short table."></textarea>
+            <button type="button" id="skillSaveBtn" class="btn-ghost">Save skill</button>
+            <span id="skillStatus" class="field-hint"></span>
+          </details>
+          <span class="field-hint">Reusable playbooks the analyst follows (SKILL.md: name + description + steps). The agent can also propose one from a solved task.</span>
+        </label>
         <p class="field-hint shortcut-legend">Shortcuts: Ctrl/⌘+N new chat · Ctrl/⌘+K filter conversations · Esc stops a streaming reply</p>
       </div>
       <div class="modal-foot">

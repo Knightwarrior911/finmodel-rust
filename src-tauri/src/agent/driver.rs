@@ -397,7 +397,9 @@ impl LiveDriver {
         let project = project_id
             .as_deref()
             .and_then(|pid| crate::agent::grounding::read_project(&dir, pid));
-        if global.is_none() && project.is_none() {
+        let catalog =
+            crate::agent::skills::catalog_block(&crate::agent::skills::list_skills(&dir));
+        if global.is_none() && project.is_none() && catalog.is_none() {
             return;
         }
         let Some(first) = self.messages.get_mut(0) else {
@@ -411,8 +413,12 @@ impl LiveDriver {
             .and_then(|c| c.as_str())
             .unwrap_or("")
             .to_string();
-        let chained =
+        let mut chained =
             crate::agent::grounding::chain(&base, global.as_deref(), project.as_deref());
+        if let Some(cat) = catalog {
+            chained.push_str("\n\n");
+            chained.push_str(&cat);
+        }
         first["content"] = serde_json::json!(chained);
     }
 

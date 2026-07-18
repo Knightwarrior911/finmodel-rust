@@ -1387,3 +1387,20 @@ body {
 .think-step.running .think-icon { color: var(--accent); }
 .think-step.success .think-icon { color: var(--ok, #16a34a); }
 .think-step.failed .think-icon { color: var(--err); }
+
+/* ── Skills (self-evolution action + editor) ────────────────────── */
+.msg-skill {
+  position: absolute; top: 0; right: 68px;
+  font-size: 12px; padding: 2px 8px; width: auto; height: auto;
+  opacity: 0; transition: opacity 140ms var(--ease);
+}
+.msg-assistant:hover .msg-skill, .msg-skill:focus-visible { opacity: 1; }
+.skill-add { margin-top: 6px; }
+.skill-add summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.skill-add textarea {
+  width: 100%; margin-top: 6px; min-height: 130px; padding: 8px;
+  font-family: var(--font-num); font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+  background: var(--canvas); color: var(--ink); resize: vertical;
+}
+.skill-add .btn-ghost { margin-top: 6px; }

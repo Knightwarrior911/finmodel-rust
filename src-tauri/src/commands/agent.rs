@@ -486,3 +486,79 @@ pub async fn conversation_set_project(
         .map_err(|e| AppError::Engine(e.to_string()))?;
     Ok(())
 }
+
+// ── Skills (SKILL.md library) ─────────────────────────────────────────────
+
+/// List skills as JSON `[{name, description}]`.
+#[tauri::command(rename_all = "snake_case")]
+pub fn skills_list(app: tauri::AppHandle) -> AppResult<String> {
+    let dir = config_dir(&app)?;
+    let items: Vec<serde_json::Value> = crate::agent::skills::list_skills(&dir)
+        .into_iter()
+        .map(|s| serde_json::json!({ "name": s.name, "description": s.description }))
+        .collect();
+    serde_json::to_string(&items).map_err(|e| AppError::Engine(e.to_string()))
+}
+
+/// Read a skill's full SKILL.md content (for editing). Empty if absent.
+#[tauri::command(rename_all = "snake_case")]
+pub fn skills_get(app: tauri::AppHandle, name: String) -> AppResult<String> {
+    if !crate::agent::skills::is_valid_name(&name) {
+        return Err(AppError::Config("invalid skill name".into()));
+    }
+    let dir = config_dir(&app)?;
+    let path = dir.join("skills").join(format!("{}.md", name.trim()));
+    Ok(std::fs::read_to_string(path).unwrap_or_default())
+}
+
+/// Save a skill (`content` = full SKILL.md; frontmatter `name` must equal `name`).
+#[tauri::command(rename_all = "snake_case")]
+pub fn skills_save(app: tauri::AppHandle, name: String, content: String) -> AppResult<()> {
+    let dir = config_dir(&app)?;
+    crate::agent::skills::save_skill(&dir, &name, &content).map_err(AppError::Config)?;
+    Ok(())
+}
+
+/// Delete a skill by name.
+#[tauri::command(rename_all = "snake_case")]
+pub fn skills_delete(app: tauri::AppHandle, name: String) -> AppResult<()> {
+    let dir = config_dir(&app)?;
+    crate::agent::skills::delete_skill(&dir, &name).map_err(AppError::Config)?;
+    Ok(())
+}
+
+/// Self-evolution: ask the model to abstract a solved task (its `transcript`)
+/// into a reusable SKILL.md draft. Returns the draft for the user to review and
+/// save; the model generalizes the steps (not a static template).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn skill_suggest(app: tauri::AppHandle, transcript: String) -> AppResult<String> {
+    let transcript = transcript.trim().to_string();
+    if transcript.is_empty() {
+        return Err(AppError::Config("nothing to abstract into a skill".into()));
+    }
+    let settings = crate::commands::settings::read_settings(&app);
+    let api_key = settings.openrouter_api_key.trim().to_string();
+    if api_key.is_empty() {
+        return Err(AppError::Config(
+            "add an API key in Settings to generate a skill".into(),
+        ));
+    }
+    let model = settings.model.trim().to_string();
+    // Honor the configured provider (Settings.base_url), not a hardcoded endpoint.
+    let chat_url = crate::commands::settings::chat_completions_url(&settings);
+    const SYS: &str = "You turn a solved financial-analyst task into a reusable SKILL.md playbook. Output ONLY the SKILL.md, nothing else. Exact format: a line with `---`, then `name:` (kebab-case, <=40 chars), then `description:` (one line describing WHEN to use this), then a line with `---`, then generalized numbered steps. Generalize away specifics (tickers, years, company names) into instructions that name the app's tools where relevant (get_financials, benchmark_peers, research, read_filing, build_model, get_quote). Keep it under 15 lines.";
+    let draft = tokio::task::spawn_blocking(move || {
+        crate::commands::settings::complete_once(&api_key, &model, &chat_url, SYS, &transcript, 700)
+    })
+    .await
+    .map_err(|e| AppError::Engine(e.to_string()))?
+    .map_err(AppError::Engine)?;
+    let d = draft.trim();
+    let d = d
+        .strip_prefix("```markdown")
+        .or_else(|| d.strip_prefix("```md"))
+        .or_else(|| d.strip_prefix("```"))
+        .unwrap_or(d);
+    let d = d.strip_suffix("```").unwrap_or(d);
+    Ok(d.trim().to_string())
+}

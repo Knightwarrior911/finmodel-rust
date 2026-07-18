@@ -711,6 +711,7 @@ pub(crate) enum ToolName {
     AnalyzePdf,
     Research,
     GetFinancials,
+    UseSkill,
 }
 
 impl ToolName {
@@ -728,6 +729,7 @@ impl ToolName {
             "read_filing" => ToolName::ReadFiling,
             "analyze_pdf" => ToolName::AnalyzePdf,
             "research" => ToolName::Research,
+            "use_skill" => ToolName::UseSkill,
             _ => return None,
         })
     }
@@ -887,6 +889,15 @@ pub(crate) fn agent_tool_schemas() -> Vec<Value> {
             "required": ["url"]
         }),
     ));
+    v.push(f(
+        "use_skill",
+        "Load a named skill's full step-by-step instructions from the user's skill library (see the Skills catalog in the system prompt), then follow them. Call this when the request matches a listed skill.",
+        json!({
+            "type": "object",
+            "properties": { "name": { "type": "string", "description": "The skill name from the catalog." } },
+            "required": ["name"]
+        }),
+    ));
     v
 }
 
@@ -924,7 +935,25 @@ pub(crate) fn run_tool(
         ToolName::ReadFiling => tool_read_filing(app, args),
         ToolName::AnalyzePdf => tool_analyze_pdf(app, args, conversation_id),
         ToolName::Research => tool_research(app, args, user_msg),
+        ToolName::UseSkill => tool_use_skill(app, args),
     }
+}
+
+/// Load a named skill's full instructions from the user's skill library so the
+/// model can follow them (progressive disclosure — the catalog only carries
+/// names + descriptions). The body is returned as the tool summary; there is no
+/// result card (display is null) since the payload is instructions, not data.
+fn tool_use_skill(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
+    use tauri::Manager;
+    let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if name.is_empty() {
+        return Err("use_skill requires a `name`".into());
+    }
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let skill = crate::agent::skills::get_skill(&dir, name)
+        .ok_or_else(|| format!("skill `{name}` not found"))?;
+    let summary = format!("Skill `{}` — {}\n\n{}", skill.name, skill.description, skill.body);
+    Ok((summary, Value::Null))
 }
 
 /// Production [`ToolBackend`] that dispatches into the existing chat tool cores.

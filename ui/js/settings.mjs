@@ -66,6 +66,7 @@ export async function openSettings() {
     if ($("appVersion") && s.version) $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
     loadMemoryList();
+    loadSkillsList();
   } catch (_) {
     /* offline / first launch */
   }
@@ -134,6 +135,56 @@ async function loadMemoryList() {
   }
 }
 
+async function loadSkillsList() {
+  const el = $("skillsList");
+  if (!el) return;
+  el.innerHTML = '<span class="field-hint">Loading…</span>';
+  try {
+    const skills = await call("skills_list");
+    if (!skills.length) {
+      el.innerHTML = '<span class="field-hint">No skills yet.</span>';
+      return;
+    }
+    el.innerHTML = "";
+    for (const s of skills) {
+      const row = document.createElement("div");
+      row.className = "memory-row";
+      const txt = document.createElement("span");
+      txt.className = "memory-row-text";
+      txt.innerHTML = `<b>${escapeHtml(s.name)}</b> — ${escapeHtml(s.description)}`;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn-ghost";
+      del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        try {
+          await call("skills_delete", { name: s.name });
+          loadSkillsList();
+        } catch (_) {
+          /* ignore */
+        }
+      });
+      row.appendChild(txt);
+      row.appendChild(del);
+      el.appendChild(row);
+    }
+  } catch (_) {
+    el.innerHTML = '<span class="field-hint">Could not load skills.</span>';
+  }
+}
+
+/// Open Settings with the New-skill editor pre-filled (self-evolution draft).
+export function openSettingsWithSkillDraft(draft) {
+  openSettings();
+  const ta = $("newSkillContent");
+  if (ta) {
+    ta.value = draft || "";
+    const d = ta.closest("details");
+    if (d) d.open = true;
+    ta.focus();
+  }
+}
+
 function closeSettings() {
   clearStatus();
   $("settingsModal").hidden = true;
@@ -150,6 +201,24 @@ export function initSettings(opts = {}) {
   $("settingsBtn").addEventListener("click", openSettings);
   document.addEventListener("open-settings", openSettings);
   $("settingsClose").addEventListener("click", closeSettings);
+  $("skillSaveBtn")?.addEventListener("click", async () => {
+    const content = $("newSkillContent").value;
+    const m = content.match(/^\s*name:\s*(.+)$/m);
+    const name = m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+    const st = $("skillStatus");
+    if (!name) {
+      if (st) st.textContent = "Add a `name:` line to the frontmatter.";
+      return;
+    }
+    try {
+      await call("skills_save", { name, content });
+      $("newSkillContent").value = "";
+      if (st) st.textContent = "Saved.";
+      loadSkillsList();
+    } catch (e) {
+      if (st) st.textContent = (e && e.message) || "Save failed.";
+    }
+  });
   modal.addEventListener("click", (e) => {
     if (e.target && e.target.dataset && e.target.dataset.close) closeSettings();
   });

@@ -102,6 +102,10 @@ fn validate_peers(args: &Value) -> Result<(), String> {
     }
 }
 
+fn validate_skill_name(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "name")
+}
+
 /// The tool registry.
 pub struct ToolRegistry {
     specs: HashMap<&'static str, ToolSpec>,
@@ -134,6 +138,18 @@ impl ToolRegistry {
                 idempotent: true,
                 trust: TrustPolicy::Untrusted,
                 validate: validate_ticker,
+            },
+            ToolSpec {
+                name: "use_skill",
+                label: "Use skill",
+                description: "Load a named skill's full instructions from the user's skill library, then follow them.",
+                risk: Risk::ReadOnly,
+                capabilities: &["skills"],
+                required_args: &["name"],
+                interruptible: true,
+                idempotent: true,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_skill_name,
             },
             ToolSpec {
                 name: "get_news",
@@ -323,11 +339,11 @@ mod tests {
         for name in [
             "get_quote", "get_news", "list_filings", "read_filing", "web_search", "read_page",
             "analyze_pdf", "research", "research_deal", "benchmark_peers", "build_model",
-            "get_financials",
+            "get_financials", "use_skill",
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 12);
+        assert_eq!(r.names().len(), 13);
     }
 
     #[test]
@@ -405,7 +421,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 12);
+        assert_eq!(cat.lines().count(), 13);
         assert!(cat.contains("build_model"));
     }
 
