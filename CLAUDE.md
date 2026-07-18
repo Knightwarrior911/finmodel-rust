@@ -1,8 +1,28 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.8.2 subagent task tray + v0.8.1 fan-out + v0.8.0 agentic, LIVE (current, 2026-07-17)
-**Branch `master`, tagged `v0.8.2` (pushed).** Live — endpoint VERIFIED serving
-`0.8.2`, installer 200. Executing `docs/AGENTIC_ANALYST_GOAL.md` (goal mode).
+## HANDOVER — v0.8.3 grounding layers + thinking-process trace, LIVE (current, 2026-07-17)
+**Branch `master`, tagged `v0.8.3` (pushed).** Live — endpoint VERIFIED serving
+`0.8.3`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user-requested features.
+
+### v0.8.3 — grounding layers + real-time thinking trace (post-goal user requests)
+- **Two-layer grounding** (`agent/grounding.rs`): `read_global` (`<config_dir>/config.json`,
+  `instructions` string|array) + `read_project` (`<config_dir>/workspaces/<ws>/finmodel.md`,
+  fallback `claude.md`) → `chain(base → global → project)`. Wired via `LiveDriver::apply_grounding`
+  (called after `prepare` sets `self.messages`; rewrites `messages[0]` system content). Commands
+  `grounding_{get,set}_{global,project}` in `commands/agent.rs`. Workspace ids validated
+  (`is_valid_workspace_id`, `[A-Za-z0-9_-]`) against path traversal. VERIFIED live: a global rule
+  made the model prefix its reply exactly. 8 grounding unit tests.
+- **Thinking Process panel** (`chat.mjs`): per-turn collapsible trace — each tool `start` adds a
+  step (icon + `phaseLabel` + "In progress"), `done`/`error` flips to ✓ Success / ✗ Failed; result
+  cards render below; fan-out is a note step; auto-collapses on finalize (CSS in `style.css`).
+  Replaced the old inline `toolStatusNode` rows. VERIFIED live.
+- **Memory eval** (`agent/memory.rs`): `is_durable_preference` classifier + 181-turn labelled
+  dev/held-out set (`auto_capture_eval`). Keyword-rules measured **P=0.87 / R=0.84 on held-out —
+  BELOW the 98/90 gate**, so auto-capture stays OFF (needs a model classifier on real data). The
+  classifier feeds `MemoryCapture` only; `LiveDriver` production path unchanged.
+- **Still NOT built** (requested this session): SKILL.md skills system + self-evolution; Project
+  Folders UI (project_id sidebar grouping + dashboard + per-project settings modal). The
+  project-grounding backend above already covers the "project-wide context / shared brain" ask.
 
 ### v0.7.2 — any OpenAI-compatible provider + full income statement
 - `Settings.base_url` (default OpenRouter). `chat_completions_url`/`provider_base`/
@@ -34,13 +54,11 @@
   (unattended) capture STILL OFF — gated on the ≥200-turn labelled precision dataset
   (plan decision 4); a data task, not a code task.
 
-### Goal status (`docs/AGENTIC_ANALYST_GOAL.md`)
-**M1–M4 done + verified live.** M5 memory drawer done + verified; the ONLY remaining deliverable
-is **M5 automatic (unattended) memory capture**, BLOCKED per the goal's own condition ("once the
-precision gate is met") — needs a ≥200-turn labelled dataset to measure ≥98% precision (plan
-decision 4), a data task I can't fabricate. Goal ACTIVE for that one item; provide the dataset or
-accept manual-save-only to close it. Gates: 208 lib + 116 UI + 47 fm-fetch green. Signing/publish
-recipe unchanged (see v0.6.0 below).
+### Goal status (`docs/AGENTIC_ANALYST_GOAL.md`) — COMPLETE
+Goal COMPLETED: all 8 DoD points + M1–M4 verified live; M5 memory drawer done + verified. M5
+automatic capture was later MEASURED in v0.8.3 (`auto_capture_eval`): keyword-rules P=0.87/R=0.84,
+below the 98/90 gate → stays off (needs a model classifier on representative data). Gates: 217 lib
+ + 116 UI + 47 fm-fetch green. Signing/publish recipe unchanged (see v0.6.0 below).
 
 ## HANDOVER — v0.7.1 get_financials, LIVE RELEASE (superseded by v0.8.0)
 **Branch `master`, tagged `v0.7.1` (pushed).** Live release — endpoint VERIFIED
