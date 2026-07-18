@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.4 — Project folders
+
+Group related chats into projects, each with its own shared context:
+
+- **Project folders in the sidebar.** A **New project** button next to New chat;
+  conversations nest under collapsible folders (loose chats stay ungrouped). Move
+  any chat into a project from its 📁 action.
+- **Project settings & grounding.** The ⚙ on a folder opens a modal to name the
+  project and set **system instructions** that apply to *every* chat in it —
+  e.g. "Benchmark Tesla against Ford," "Report revenue in USD billions." Stored
+  as an editable `projects/<id>/finmodel.md`, chained after your global rules.
+- **Project dashboard.** Opening a folder shows a center view: the project name,
+  its chats, and **+ New chat in project** (which starts a chat already grounded
+  in that project's rules from its first message).
+
+Backed by a `project_id` column on conversations + a `projects` table (schema v2,
+auto-migrated). Verified live: a project's grounding was applied inside its chats
+and absent in loose ones. 217 lib + 47 fetch + 116 UI green.
+
 ## v0.8.3 — Grounding layers (personalization + project rules)
 
 Two configuration layers are now chained onto the system prompt before every
