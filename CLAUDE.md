@@ -1,8 +1,35 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.8.3 grounding layers + thinking-process trace, LIVE (current, 2026-07-17)
-**Branch `master`, tagged `v0.8.3` (pushed).** Live — endpoint VERIFIED serving
-`0.8.3`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user-requested features.
+## HANDOVER — v0.8.5 design polish + v0.8.4 project folders, LIVE (current, 2026-07-18)
+**Branch `master`, tagged `v0.8.5` (pushed).** Live — endpoint VERIFIED serving
+`0.8.5`, installer 200. Agentic-analyst goal COMPLETE; below are post-goal user-requested features.
+
+### v0.8.5 — design polish (product-register craft pass)
+- CSS + icons only (no logic change). Commanding hero type (`clamp` display, tight tracking);
+  replaced ad-hoc emoji (folders/gear/move in `sidebar.mjs`; per-tool thinking icons + fan-out in
+  `chat.mjs` `thinkIcon`; dashboard title in `projects.mjs`) with mono line-SVGs matching the set;
+  softer `--canvas` (#fdfdfc); elevated composer + refined chips; shared `--ease` tokens. Verified
+  live light+dark. Guided by frontend-design + impeccable skills. NOTE: user first asked for Three.js
+  — declined as the wrong tool for polish (WebGL doesn't fix type/spacing/hierarchy; against IB aesthetic).
+
+### v0.8.4 — project folders
+- Schema **v2** (`store/migrations.rs` `apply_v2`): `projects` table + nullable
+  `conversations.project_id` (no FK). Store CRUD + commands `projects_{list,create,rename,delete}` +
+  `conversation_set_project` (`commands/agent.rs`); `list_conversations` returns `project_id`.
+  `agent_send` gained `project_id`, assigned only when it actually CREATES the row
+  (`create_conversation(...).is_ok()`) — the client pre-allocates the id, so the param-absent check
+  is unreliable.
+- Project grounding repathed to `<config_dir>/projects/<project_id>/finmodel.md`; `grounding.rs`
+  (`read_project`/`project_file`/`is_valid_id`) + `apply_grounding` key on the conversation's
+  `project_id` (looked up from the store). VERIFIED live: `[TSLA-PROJ]` grounding applied in-project,
+  absent in loose chats.
+- UI: sidebar collapsible folders + New Project + move-select (`sidebar.mjs`); project settings modal
+  (name + grounding + delete, `projects.mjs` + `index.html`); center dashboard ("+ New chat in
+  project" → `setPendingProjectId` → grounded first turn).
+- **Caveats:** (1) project file-attachments deferred ("coming soon" in the modal); (2)
+  `project_delete` orphans `projects/<id>/finmodel.md` on disk (DB row + `project_id` cleared, file
+  left); (3) **SKILL.md skills system + self-evolution is the last unstarted user ask** — RE the
+  format from the openclaw/hermes GitHub URLs (see `docs/AGENTIC_ANALYST_GOAL.md`).
 
 ### v0.8.3 — grounding layers + real-time thinking trace (post-goal user requests)
 - **Two-layer grounding** (`agent/grounding.rs`): `read_global` (`<config_dir>/config.json`,
@@ -20,9 +47,8 @@
   dev/held-out set (`auto_capture_eval`). Keyword-rules measured **P=0.87 / R=0.84 on held-out —
   BELOW the 98/90 gate**, so auto-capture stays OFF (needs a model classifier on real data). The
   classifier feeds `MemoryCapture` only; `LiveDriver` production path unchanged.
-- **Still NOT built** (requested this session): SKILL.md skills system + self-evolution; Project
-  Folders UI (project_id sidebar grouping + dashboard + per-project settings modal). The
-  project-grounding backend above already covers the "project-wide context / shared brain" ask.
+- **Still NOT built** (last remaining user ask): SKILL.md skills system + self-evolution — RE from
+  the openclaw/hermes GitHub URLs. Project folders + grounding + thinking trace are DONE (v0.8.4/v0.8.5).
 
 ### v0.7.2 — any OpenAI-compatible provider + full income statement
 - `Settings.base_url` (default OpenRouter). `chat_completions_url`/`provider_base`/
