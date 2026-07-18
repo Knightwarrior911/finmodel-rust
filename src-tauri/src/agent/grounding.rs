@@ -29,15 +29,16 @@ pub fn read_global(config_dir: &Path) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-/// Read a project's workspace grounding from
-/// `<config_dir>/workspaces/<workspace_id>/finmodel.md` (falling back to
-/// `claude.md`). Returns `None` when the id is blank or the file is absent/empty.
-pub fn read_project(config_dir: &Path, workspace_id: &str) -> Option<String> {
-    let ws = workspace_id.trim();
-    if !is_valid_workspace_id(ws) {
+/// Read a project's grounding from `<config_dir>/projects/<project_id>/finmodel.md`
+/// (falling back to `claude.md`). Returns `None` when the id is blank/unsafe or
+/// the file is absent/empty. Layout matches the projects data model and stays
+/// hand-editable.
+pub fn read_project(config_dir: &Path, project_id: &str) -> Option<String> {
+    let id = project_id.trim();
+    if !is_valid_id(id) {
         return None;
     }
-    let dir = config_dir.join("workspaces").join(ws);
+    let dir = config_dir.join("projects").join(id);
     let text = std::fs::read_to_string(dir.join("finmodel.md"))
         .or_else(|_| std::fs::read_to_string(dir.join("claude.md")))
         .ok()?;
@@ -56,30 +57,30 @@ pub fn chain(base: &str, global: Option<&str>, project: Option<&str>) -> String 
         out.push_str(g);
     }
     if let Some(p) = project.map(str::trim).filter(|s| !s.is_empty()) {
-        out.push_str("\n\n## Project workspace grounding (this project folder)\n");
+        out.push_str("\n\n## Project grounding (this project folder)\n");
         out.push_str(p);
     }
     out
 }
 
-/// Validate a workspace id used as a path segment: non-empty and restricted to
+/// Validate an id used as a path segment: non-empty and restricted to
 /// `[A-Za-z0-9_-]`, so an IPC-supplied id can't traverse out of the config dir
 /// (e.g. `..\..\evil`). UUIDs and slugs pass; path separators and dots are out.
-pub fn is_valid_workspace_id(id: &str) -> bool {
+pub fn is_valid_id(id: &str) -> bool {
     let t = id.trim();
     !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Path a project's grounding file lives at (for the setter command). Returns
-/// `None` for a blank or unsafe workspace id.
-pub fn project_file(config_dir: &Path, workspace_id: &str) -> Option<std::path::PathBuf> {
-    if !is_valid_workspace_id(workspace_id) {
+/// `None` for a blank or unsafe project id.
+pub fn project_file(config_dir: &Path, project_id: &str) -> Option<std::path::PathBuf> {
+    if !is_valid_id(project_id) {
         return None;
     }
     Some(
         config_dir
-            .join("workspaces")
-            .join(workspace_id.trim())
+            .join("projects")
+            .join(project_id.trim())
             .join("finmodel.md"),
     )
 }
@@ -146,14 +147,14 @@ mod tests {
     #[test]
     fn project_reads_finmodel_then_claude() {
         let d = tmp();
-        let ws = d.join("workspaces").join("ws1");
-        std::fs::create_dir_all(&ws).unwrap();
-        std::fs::write(ws.join("claude.md"), "benchmark against AMD").unwrap();
+        let pdir = d.join("projects").join("p1");
+        std::fs::create_dir_all(&pdir).unwrap();
+        std::fs::write(pdir.join("claude.md"), "benchmark against AMD").unwrap();
         // claude.md fallback when finmodel.md absent
-        assert_eq!(read_project(&d, "ws1").as_deref(), Some("benchmark against AMD"));
+        assert_eq!(read_project(&d, "p1").as_deref(), Some("benchmark against AMD"));
         // finmodel.md wins when present
-        std::fs::write(ws.join("finmodel.md"), "NVDA vs AMD/INTC").unwrap();
-        assert_eq!(read_project(&d, "ws1").as_deref(), Some("NVDA vs AMD/INTC"));
+        std::fs::write(pdir.join("finmodel.md"), "NVDA vs AMD/INTC").unwrap();
+        assert_eq!(read_project(&d, "p1").as_deref(), Some("NVDA vs AMD/INTC"));
         std::fs::remove_dir_all(&d).ok();
     }
 
@@ -168,11 +169,11 @@ mod tests {
     #[test]
     fn project_rejects_path_traversal() {
         let d = tmp();
-        assert!(!is_valid_workspace_id("../../etc"));
-        assert!(!is_valid_workspace_id("..\\..\\evil"));
-        assert!(!is_valid_workspace_id("a/b"));
-        assert!(!is_valid_workspace_id("a b"));
-        assert!(is_valid_workspace_id("ws-1_A9f"));
+        assert!(!is_valid_id("../../etc"));
+        assert!(!is_valid_id("..\\..\\evil"));
+        assert!(!is_valid_id("a/b"));
+        assert!(!is_valid_id("a b"));
+        assert!(is_valid_id("ws-1_A9f"));
         assert_eq!(read_project(&d, "../../etc"), None);
         assert!(project_file(&d, "..\\evil").is_none());
         std::fs::remove_dir_all(&d).ok();
@@ -186,7 +187,7 @@ mod tests {
         let bi = out.find("BASE").unwrap();
         assert!(bi < gi && gi < pi, "order base<global<project: {out}");
         assert!(out.contains("Global personalization"));
-        assert!(out.contains("Project workspace grounding"));
+        assert!(out.contains("Project grounding"));
     }
 
     #[test]

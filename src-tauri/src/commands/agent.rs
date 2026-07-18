@@ -137,6 +137,7 @@ pub async fn agent_send(
     registry: tauri::State<'_, ActorRegistry>,
     conversation_id: Option<String>,
     workspace_id: Option<String>,
+    project_id: Option<String>,
     text: String,
 ) -> AppResult<String> {
     use crate::agent::driver::LiveDriver;
@@ -163,6 +164,11 @@ pub async fn agent_send(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| app_store.default_workspace_id.clone());
 
+    // Assign a project folder only when this call actually creates the
+    // conversation row (see `created` below), so a later send in an existing
+    // chat never silently re-folders it. The client pre-allocates the id, so we
+    // can't rely on the param being absent.
+    let project_for_insert = project_id.filter(|s| !s.trim().is_empty());
     let conv_id = conversation_id
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(new_id);
@@ -180,8 +186,17 @@ pub async fn agent_send(
     handle
         .call(move |db| -> Result<(), String> {
             let now = crate::store::now_iso();
-            // Create conversation if this is a new id (UNIQUE failure → already exists).
-            let _ = db.create_conversation(&conv_for_insert, &workspace_for_insert, &title, &now);
+            // Create the conversation; `created` is true only for a fresh row
+            // (UNIQUE failure → already exists). Assign the project folder only
+            // then, when a project was requested.
+            let created = db
+                .create_conversation(&conv_for_insert, &workspace_for_insert, &title, &now)
+                .is_ok();
+            if created {
+                if let Some(pid) = project_for_insert.as_deref() {
+                    let _ = db.set_conversation_project(&conv_for_insert, Some(pid), &now);
+                }
+            }
             // Link the user turn under the current active leaf so multi-turn
             // conversations keep their whole root->leaf branch (history).
             let parent = db.active_leaf_id(&conv_for_insert).map_err(|e| e.to_string())?;
@@ -361,30 +376,113 @@ pub fn grounding_set_global(app: tauri::AppHandle, instructions: String) -> AppR
     Ok(())
 }
 
-/// Read a project workspace's grounding (`workspaces/<id>/finmodel.md`).
+/// Read a project's grounding (`projects/<id>/finmodel.md`).
 #[tauri::command(rename_all = "snake_case")]
-pub fn grounding_get_project(app: tauri::AppHandle, workspace_id: String) -> AppResult<String> {
+pub fn grounding_get_project(app: tauri::AppHandle, project_id: String) -> AppResult<String> {
     let dir = config_dir(&app)?;
-    Ok(crate::agent::grounding::read_project(&dir, &workspace_id).unwrap_or_default())
+    Ok(crate::agent::grounding::read_project(&dir, &project_id).unwrap_or_default())
 }
 
-/// Persist a project workspace's grounding to `workspaces/<id>/finmodel.md`.
+/// Persist a project's grounding to `projects/<id>/finmodel.md`.
 #[tauri::command(rename_all = "snake_case")]
 pub fn grounding_set_project(
     app: tauri::AppHandle,
-    workspace_id: String,
+    project_id: String,
     instructions: String,
 ) -> AppResult<()> {
-    let ws = workspace_id.trim();
-    if ws.is_empty() {
-        return Err(AppError::Config("workspace_id required".into()));
+    let id = project_id.trim();
+    if id.is_empty() {
+        return Err(AppError::Config("project_id required".into()));
     }
     let dir = config_dir(&app)?;
-    let path = crate::agent::grounding::project_file(&dir, ws)
-        .ok_or_else(|| AppError::Config("invalid workspace id".into()))?;
+    let path = crate::agent::grounding::project_file(&dir, id)
+        .ok_or_else(|| AppError::Config("invalid project id".into()))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Config(e.to_string()))?;
     }
     std::fs::write(&path, instructions.trim()).map_err(|e| AppError::Config(e.to_string()))?;
+    Ok(())
+}
+
+// ── Projects (conversation folders) ───────────────────────────────────────
+
+fn active_ws(app: &tauri::AppHandle) -> AppResult<String> {
+    Ok(store(app)?.default_workspace_id.clone())
+}
+
+/// List projects (folders) in the active workspace as JSON `[{id,name}]`.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn projects_list(app: tauri::AppHandle) -> AppResult<String> {
+    let handle = store(&app)?.handle.clone();
+    let ws = active_ws(&app)?;
+    let rows = handle
+        .call(move |db| db.list_projects(&ws))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+        .collect();
+    serde_json::to_string(&items).map_err(|e| AppError::Engine(e.to_string()))
+}
+
+/// Create a project folder in the active workspace. Returns `{id,name}`.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn project_create(app: tauri::AppHandle, name: String) -> AppResult<String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Config("project name required".into()));
+    }
+    let handle = store(&app)?.handle.clone();
+    let ws = active_ws(&app)?;
+    let id = format!("proj_{:016x}{:016x}", fastrand::u64(..), fastrand::u64(..));
+    let now = crate::store::now_iso();
+    let (id2, name2) = (id.clone(), name.clone());
+    handle
+        .call(move |db| db.create_project(&id2, &ws, &name2, &now))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    Ok(serde_json::json!({ "id": id, "name": name }).to_string())
+}
+
+/// Rename a project folder.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn project_rename(app: tauri::AppHandle, id: String, name: String) -> AppResult<()> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Config("project name required".into()));
+    }
+    let handle = store(&app)?.handle.clone();
+    handle
+        .call(move |db| db.rename_project(&id, &name))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    Ok(())
+}
+
+/// Delete a project folder; its conversations become loose (unassigned).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn project_delete(app: tauri::AppHandle, id: String) -> AppResult<()> {
+    let handle = store(&app)?.handle.clone();
+    handle
+        .call(move |db| db.delete_project(&id))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
+    Ok(())
+}
+
+/// Assign a conversation to a project folder, or clear it with `project_id=null`.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn conversation_set_project(
+    app: tauri::AppHandle,
+    conversation_id: String,
+    project_id: Option<String>,
+) -> AppResult<()> {
+    let handle = store(&app)?.handle.clone();
+    let now = crate::store::now_iso();
+    handle
+        .call(move |db| db.set_conversation_project(&conversation_id, project_id.as_deref(), &now))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?;
     Ok(())
 }

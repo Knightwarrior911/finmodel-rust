@@ -378,16 +378,25 @@ impl LiveDriver {
         }
     }
 
-    /// Chain the global personalization + project workspace instruction layers
-    /// onto the base system prompt (`messages[0]`) before the model call.
-    /// See [`crate::agent::grounding`]. No-op when neither layer is present.
-    fn apply_grounding(&mut self) {
+    /// Chain the global personalization + project instruction layers onto the
+    /// base system prompt (`messages[0]`) before the model call. The project
+    /// layer is keyed by the conversation's `project_id` (its folder), looked up
+    /// from the store. See [`crate::agent::grounding`]. No-op when neither layer
+    /// is present.
+    async fn apply_grounding(&mut self) {
         use tauri::Manager;
         let Ok(dir) = self.app.path().app_config_dir() else {
             return;
         };
         let global = crate::agent::grounding::read_global(&dir);
-        let project = crate::agent::grounding::read_project(&dir, &self.ctx.workspace_id);
+        let conv = self.ctx.conversation_id.clone();
+        let project_id = self
+            .store
+            .call(move |db| db.conversation_project(&conv).ok().flatten())
+            .await;
+        let project = project_id
+            .as_deref()
+            .and_then(|pid| crate::agent::grounding::read_project(&dir, pid));
         if global.is_none() && project.is_none() {
             return;
         }
@@ -674,7 +683,7 @@ impl Driver for LiveDriver {
             }
         }
         self.messages = msgs;
-        self.apply_grounding();
+        self.apply_grounding().await;
         // Always route through Executing so request_model runs (provider or the
         // no-key FallbackDispatcher); uses_tools:false would skip it entirely.
         PreparedInfo {

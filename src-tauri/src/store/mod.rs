@@ -350,19 +350,24 @@ impl Db {
 
     /// Sidebar rows for a workspace, newest first: id, title, updated, and a
     /// short preview drawn from the latest message's text/result part.
-    pub fn list_conversations(&self, workspace_id: &str) -> StoreResult<Vec<(String, String, String, String)>> {
+    pub fn list_conversations(
+        &self,
+        workspace_id: &str,
+    ) -> StoreResult<Vec<(String, String, String, String, Option<String>)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, updated_at FROM conversations
+            "SELECT id, title, updated_at, project_id FROM conversations
              WHERE workspace_id=?1 AND archived=0
              ORDER BY updated_at DESC",
         )?;
-        let rows: Vec<(String, String, String)> = stmt
-            .query_map([workspace_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        let rows: Vec<(String, String, String, Option<String>)> = stmt
+            .query_map([workspace_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let mut out = Vec::with_capacity(rows.len());
-        for (id, title, updated) in rows {
+        for (id, title, updated, project_id) in rows {
             let preview = self.conversation_preview(&id).unwrap_or_default();
-            out.push((id, title, updated, preview));
+            out.push((id, title, updated, preview, project_id));
         }
         Ok(out)
     }
@@ -400,6 +405,68 @@ impl Db {
         self.conn
             .execute("DELETE FROM conversations WHERE id=?1", [id])?;
         Ok(())
+    }
+
+    // ---- Projects (conversation folders) ----
+
+    pub fn create_project(&self, id: &str, workspace_id: &str, name: &str, now: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO projects (id, workspace_id, name, created_at) VALUES (?1,?2,?3,?4)",
+            params![id, workspace_id, name, now],
+        )?;
+        Ok(())
+    }
+
+    /// Projects in a workspace, `(id, name)`, alphabetical.
+    pub fn list_projects(&self, workspace_id: &str) -> StoreResult<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name FROM projects WHERE workspace_id=?1 ORDER BY name COLLATE NOCASE",
+        )?;
+        let rows = stmt
+            .query_map([workspace_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
+    pub fn rename_project(&self, id: &str, name: &str) -> StoreResult<()> {
+        self.conn
+            .execute("UPDATE projects SET name=?1 WHERE id=?2", params![name, id])?;
+        Ok(())
+    }
+
+    /// Delete a project; its conversations become loose (`project_id = NULL`).
+    pub fn delete_project(&self, id: &str) -> StoreResult<()> {
+        self.conn
+            .execute("UPDATE conversations SET project_id=NULL WHERE project_id=?1", [id])?;
+        self.conn.execute("DELETE FROM projects WHERE id=?1", [id])?;
+        Ok(())
+    }
+
+    /// Assign (or clear, with `None`) a conversation's project folder.
+    pub fn set_conversation_project(
+        &self,
+        conversation_id: &str,
+        project_id: Option<&str>,
+        now: &str,
+    ) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE conversations SET project_id=?1, updated_at=?2 WHERE id=?3",
+            params![project_id, now, conversation_id],
+        )?;
+        Ok(())
+    }
+
+    /// The project a conversation belongs to, if any.
+    pub fn conversation_project(&self, conversation_id: &str) -> StoreResult<Option<String>> {
+        let p: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT project_id FROM conversations WHERE id=?1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(p.flatten())
     }
 
     fn row_to_message(r: &rusqlite::Row) -> rusqlite::Result<Message> {

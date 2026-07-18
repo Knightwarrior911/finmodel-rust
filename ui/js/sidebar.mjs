@@ -6,6 +6,21 @@ import { getCurrentId } from "./chat.mjs";
 let onSelect = () => {};
 let onNew = () => {};
 let allItems = [];
+let projects = [];
+let onProjectSettings = () => {};
+let onProjectOpen = () => {};
+const collapsedFolders = new Set(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem("foldersCollapsed") || "[]");
+    } catch (_) {
+      return [];
+    }
+  })(),
+);
+function persistCollapsed() {
+  localStorage.setItem("foldersCollapsed", JSON.stringify([...collapsedFolders]));
+}
 
 const SUN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
 const MOON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
@@ -57,13 +72,23 @@ function announce(message, onRetry) {
 
 export async function refresh() {
   try {
-    allItems = await call("list_conversations");
+    const [convs, projs] = await Promise.all([
+      call("list_conversations"),
+      call("projects_list").catch(() => []),
+    ]);
+    allItems = convs;
+    projects = projs || [];
   } catch (_) {
     allItems = [];
   }
   const filter = $("convFilter");
   if (filter) filter.hidden = allItems.length < 6;
   applyFilter();
+}
+
+/// Projects (folders) in the active workspace, for the move menu + dashboard.
+export function getProjects() {
+  return projects;
 }
 
 // Client-side substring filter over conversation titles.
@@ -73,33 +98,64 @@ function applyFilter() {
   renderRows(items);
 }
 
+function rowHtml(c, active) {
+  const isActive = c.id === active;
+  const title = escapeHtml(c.title || "New conversation");
+  return `<div class="conv-row${isActive ? " active" : ""}" data-id="${escapeHtml(c.id)}">
+    <button type="button" class="conv-open" data-id="${escapeHtml(c.id)}"${
+      isActive ? ' aria-current="true"' : ""
+    }>
+      <span class="conv-title">${title}</span>
+      <span class="conv-time num">${escapeHtml(relTime(c.updated))}</span>
+    </button>
+    <div class="conv-actions">
+      <button type="button" class="icon-btn conv-move" data-id="${escapeHtml(c.id)}" aria-label="Move to project" title="Move to project">📁</button>
+      <button type="button" class="icon-btn conv-rename" data-id="${escapeHtml(c.id)}" aria-label="Rename conversation">${PENCIL}</button>
+      <button type="button" class="icon-btn conv-delete" data-id="${escapeHtml(c.id)}" aria-label="Delete conversation">${TRASH}</button>
+    </div>
+  </div>`;
+}
+
 function renderRows(items) {
   const list = $("convList");
   const active = getCurrentId();
-  if (!items.length) {
+  if (!items.length && !projects.length) {
     list.innerHTML = `<p class="conv-empty">${allItems.length ? "No matches." : "No conversations yet."}</p>`;
     return;
   }
-  // Non-interactive row container; a real <button> selects it (no nested
-  // interactive controls). aria-current marks the open conversation (Phase 4.4).
-  list.innerHTML = items
-    .map((c) => {
-      const isActive = c.id === active;
-      const title = escapeHtml(c.title || "New conversation");
-      return `<div class="conv-row${isActive ? " active" : ""}" data-id="${escapeHtml(c.id)}">
-        <button type="button" class="conv-open" data-id="${escapeHtml(c.id)}"${
-          isActive ? ' aria-current="true"' : ""
-        }>
-          <span class="conv-title">${title}</span>
-          <span class="conv-time num">${escapeHtml(relTime(c.updated))}</span>
+  const byProject = new Map();
+  const loose = [];
+  for (const c of items) {
+    if (c.project_id) {
+      if (!byProject.has(c.project_id)) byProject.set(c.project_id, []);
+      byProject.get(c.project_id).push(c);
+    } else {
+      loose.push(c);
+    }
+  }
+  let html = "";
+  for (const p of projects) {
+    const chats = byProject.get(p.id) || [];
+    const collapsed = collapsedFolders.has(p.id);
+    html += `<div class="proj-folder${collapsed ? " collapsed" : ""}" data-project="${escapeHtml(p.id)}">
+      <div class="proj-head">
+        <button type="button" class="proj-toggle" data-project="${escapeHtml(p.id)}" aria-expanded="${
+          collapsed ? "false" : "true"
+        }" aria-label="Toggle folder"><span class="proj-caret" aria-hidden="true">▾</span></button>
+        <button type="button" class="proj-open" data-project="${escapeHtml(p.id)}">
+          <span class="proj-name">${escapeHtml(p.name)}</span>
+          <span class="proj-count num">${chats.length}</span>
         </button>
-        <div class="conv-actions">
-          <button type="button" class="icon-btn conv-rename" data-id="${escapeHtml(c.id)}" aria-label="Rename conversation">${PENCIL}</button>
-          <button type="button" class="icon-btn conv-delete" data-id="${escapeHtml(c.id)}" aria-label="Delete conversation">${TRASH}</button>
-        </div>
-      </div>`;
-    })
-    .join("");
+        <button type="button" class="icon-btn proj-gear" data-project="${escapeHtml(p.id)}" aria-label="Project settings" title="Project settings">⚙</button>
+      </div>
+      <div class="proj-chats">${
+        chats.map((c) => rowHtml(c, active)).join("") ||
+        '<p class="conv-empty proj-empty">Empty folder.</p>'
+      }</div>
+    </div>`;
+  }
+  if (loose.length) html += loose.map((c) => rowHtml(c, active)).join("");
+  list.innerHTML = html || `<p class="conv-empty">No conversations yet.</p>`;
 }
 
 export function setActive(id) {
@@ -164,11 +220,25 @@ function applyCollapsed(collapsed) {
 export function initSidebar(opts = {}) {
   onSelect = opts.onSelect || (() => {});
   onNew = opts.onNew || (() => {});
+  onProjectSettings = opts.onProjectSettings || (() => {});
+  onProjectOpen = opts.onProjectOpen || (() => {});
 
   applyCollapsed(localStorage.getItem("sidebar") === "collapsed");
   updateThemeIcon();
 
   $("newChatBtn").addEventListener("click", () => onNew());
+  const newProjBtn = $("newProjectBtn");
+  if (newProjBtn)
+    newProjBtn.addEventListener("click", async () => {
+      try {
+        const res = await call("project_create", { name: "New project" });
+        const proj = typeof res === "string" ? JSON.parse(res) : res;
+        await refresh();
+        if (proj && proj.id) onProjectSettings(proj.id);
+      } catch (_) {
+        /* ignore create failure */
+      }
+    });
 
   $("sidebarToggle").addEventListener("click", () => {
     const collapsed = !document.body.classList.contains("sidebar-collapsed");
@@ -190,6 +260,44 @@ export function initSidebar(opts = {}) {
   document.addEventListener("theme-changed", updateThemeIcon);
 
   $("convList").addEventListener("click", (e) => {
+    const projToggle = e.target.closest(".proj-toggle");
+    if (projToggle) {
+      e.stopPropagation();
+      const pid = projToggle.dataset.project;
+      if (collapsedFolders.has(pid)) collapsedFolders.delete(pid);
+      else collapsedFolders.add(pid);
+      persistCollapsed();
+      applyFilter();
+      return;
+    }
+    const projGear = e.target.closest(".proj-gear");
+    if (projGear) {
+      e.stopPropagation();
+      onProjectSettings(projGear.dataset.project);
+      return;
+    }
+    const projOpen = e.target.closest(".proj-open");
+    if (projOpen) {
+      e.stopPropagation();
+      const pid = projOpen.dataset.project;
+      onProjectOpen(projects.find((x) => x.id === pid) || { id: pid, name: "" });
+      return;
+    }
+    const moveBtn = e.target.closest(".conv-move");
+    if (moveBtn) {
+      e.stopPropagation();
+      const actions = moveBtn.closest(".conv-actions");
+      const cid = moveBtn.dataset.id;
+      const opts2 = ['<option value="">— No project —</option>']
+        .concat(
+          projects.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`),
+        )
+        .join("");
+      actions.innerHTML = `<select class="conv-move-sel" data-id="${escapeHtml(cid)}" aria-label="Move to project">${opts2}</select>`;
+      const sel = actions.querySelector("select");
+      if (sel) sel.focus();
+      return;
+    }
     const renameBtn = e.target.closest(".conv-rename");
     if (renameBtn) {
       e.stopPropagation();
@@ -233,6 +341,15 @@ export function initSidebar(opts = {}) {
     }
     const row = e.target.closest(".conv-row");
     if (row) onSelect(row.dataset.id);
+  });
+  $("convList").addEventListener("change", (e) => {
+    const sel = e.target.closest(".conv-move-sel");
+    if (!sel) return;
+    const cid = sel.dataset.id;
+    const pid = sel.value || null;
+    call("conversation_set_project", { conversation_id: cid, project_id: pid })
+      .then(() => refresh())
+      .catch(() => refresh());
   });
   // (Row selection is a native <button>; Enter/Space fire click automatically.)
   const convFilter = $("convFilter");

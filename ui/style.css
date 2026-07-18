@@ -1316,3 +1316,42 @@ body {
 .memory-row:last-child { border-bottom: none; }
 .memory-row-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .memory-row .btn-ghost { flex: 0 0 auto; font-size: 0.85em; }
+
+/* ── Project folders (sidebar) ──────────────────────────────────── */
+.new-project { width: 100%; justify-content: center; gap: 6px; margin-top: 6px; font-size: 13px; }
+.proj-folder { margin: 2px 0; }
+.proj-head { display: flex; align-items: center; gap: 2px; }
+.proj-toggle {
+  background: none; border: 0; cursor: pointer; color: var(--muted);
+  padding: 4px 2px 4px 6px; display: flex; align-items: center;
+}
+.proj-caret { display: inline-block; font-size: 10px; transition: transform 0.15s ease; }
+.proj-folder.collapsed .proj-caret { transform: rotate(-90deg); }
+.proj-open {
+  flex: 1 1 auto; display: flex; align-items: center; gap: 6px; min-width: 0;
+  background: none; border: 0; cursor: pointer; color: var(--fg, inherit);
+  font: inherit; font-size: 13px; font-weight: 600; text-align: left; padding: 4px;
+}
+.proj-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-count { color: var(--muted); font-weight: 400; font-size: 12px; }
+.proj-gear { color: var(--muted); opacity: 0; background: none; border: 0; cursor: pointer; }
+.proj-head:hover .proj-gear { opacity: 1; }
+.proj-chats { padding-left: 12px; border-left: 1px solid var(--hairline); margin-left: 10px; }
+.proj-folder.collapsed .proj-chats { display: none; }
+.proj-empty { font-size: 12px; color: var(--muted); padding: 2px 6px; }
+.conv-move-sel { max-width: 150px; font-size: 12px; }
+
+/* ── Project dashboard (center) ─────────────────────────────────── */
+.project-dashboard { max-width: 780px; margin: 32px auto; padding: 0 20px; }
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dash-title { font-size: 24px; margin: 0; }
+.dash-sub { color: var(--muted); margin: 6px 0 18px; }
+.dash-chats { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.dash-chat {
+  text-align: left; background: none; border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 10px 12px; cursor: pointer; color: var(--fg, inherit); font: inherit;
+}
+.dash-chat:hover { border-color: var(--accent, #6ea8fe); }
+.dash-empty { color: var(--muted); }
+.modal-foot-btns { margin-left: auto; }
+.btn-ghost.danger { color: #f85149; }

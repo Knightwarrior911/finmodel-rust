@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::models::{MigrationReport, Quarantined};
 
 /// Current schema version this build understands.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Per-connection PRAGMAs. Safe to call on every open.
 pub fn apply_connection_pragmas(conn: &Connection) -> rusqlite::Result<()> {
@@ -60,6 +60,7 @@ pub fn migrate(conn: &mut Connection) -> rusqlite::Result<i64> {
         let tx = conn.transaction()?;
         match v {
             0 => apply_v1(&tx)?,
+            1 => apply_v2(&tx)?,
             other => {
                 return Err(rusqlite::Error::SqliteFailure(
                     rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -320,6 +321,26 @@ CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
   INSERT INTO memory_fts(memory_fts, rowid, content, normalized_key) VALUES('delete', old.id, old.content, old.normalized_key);
   INSERT INTO memory_fts(rowid, content, normalized_key) VALUES (new.id, new.content, new.normalized_key);
 END;
+"#,
+    )
+}
+
+/// v2: project folders. A nullable `project_id` groups conversations into
+/// collapsible folders (loose chats keep `NULL`); the `projects` table holds
+/// each folder's name, scoped to a workspace. Project grounding/instructions
+/// live in the file layer (`agent::grounding`, keyed by project id), not here.
+fn apply_v2(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        r#"
+ALTER TABLE conversations ADD COLUMN project_id TEXT;
+CREATE INDEX idx_conversations_project ON conversations(project_id);
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_projects_workspace ON projects(workspace_id);
 "#,
     )
 }

@@ -2,7 +2,7 @@
 
 import { initTheme, call, on } from "./core.mjs";
 import { initReader } from "./reader.mjs";
-import { initSidebar, refresh as refreshSidebar, setActive } from "./sidebar.mjs";
+import { initSidebar, refresh as refreshSidebar, setActive, getProjects } from "./sidebar.mjs";
 import {
   initChat,
   loadConversation,
@@ -11,6 +11,7 @@ import {
   setModelPill,
   getActiveRunId,
   applyCapability,
+  setPendingProjectId,
 } from "./chat.mjs";
 import { initSettings } from "./settings.mjs";
 import { initUpdate } from "./update.mjs";
@@ -26,6 +27,7 @@ import {
   reduce as reduceMemory,
   render as renderMemory,
 } from "./memory.mjs";
+import { initProjects, openProjectSettings, renderProjectDashboard } from "./projects.mjs";
 
 async function loadModelPill() {
   try {
@@ -46,9 +48,28 @@ function boot() {
       setActive(getCurrentId());
     },
   });
+  const openProj = (id) => openProjectSettings(id, getProjects());
   initSidebar({
     onSelect: (id) => loadConversation(id),
     onNew: () => newChat(),
+    onProjectSettings: openProj,
+    onProjectOpen: async (proj) => {
+      const all = await call("list_conversations").catch(() => []);
+      renderProjectDashboard(
+        proj,
+        (all || []).filter((c) => c.project_id === proj.id),
+      );
+    },
+  });
+  initProjects({
+    onChange: () => refreshSidebar(),
+    onSettings: openProj,
+    onNewChat: (pid) => {
+      newChat();
+      setPendingProjectId(pid);
+      document.getElementById("chatInput")?.focus();
+    },
+    onOpenChat: (id) => loadConversation(id),
   });
   initSettings({ onSaved: () => loadModelPill() });
   initUpdate();

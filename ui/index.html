@@ -35,6 +35,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         New chat
       </button>
+      <button type="button" id="newProjectBtn" class="btn-ghost new-project">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/></svg>
+        New project
+      </button>
 
       <input id="convFilter" class="conv-filter" type="search" placeholder="Filter conversations" aria-label="Filter conversations" hidden />
       <div id="convList" class="conv-list"></div>
@@ -199,6 +203,38 @@
         <span class="modal-foot-btns">
           <button type="button" id="removeKey" class="btn-ghost">Remove key</button>
           <button type="button" id="saveSettings" class="btn-primary">Save</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Project settings modal ─────────────────────────────────── -->
+  <div id="projectModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close="1"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="projectTitle">
+      <div class="modal-head">
+        <h2 id="projectTitle">Project settings &amp; grounding</h2>
+        <button type="button" id="projectClose" class="icon-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="projectStatus" class="status" hidden></div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Project name</span>
+          <input id="projectName" type="text" placeholder="e.g. Tesla Valuation 2026" />
+        </label>
+        <label class="field">
+          <span class="field-label">System instructions (grounding)</span>
+          <textarea id="projectInstructions" rows="6" placeholder="Persistent rules for every chat in this project — e.g. 'Always benchmark against AMD/INTC', 'Data source: 2025 10-K', 'Format tables in Markdown'."></textarea>
+          <span class="field-hint">Applied to every chat in this folder, right after your global rules.</span>
+        </label>
+        <p class="field-hint">Attached baseline files (PDF/CSV) — coming soon.</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" id="projectDelete" class="btn-ghost danger">Delete project</button>
+        <span class="modal-foot-btns">
+          <button type="button" id="projectSave" class="btn-primary">Save</button>
         </span>
       </div>
     </div>

@@ -12,6 +12,11 @@ let activeRunId = null; // the current turn's run id (crypto.randomUUID)
 export function getActiveRunId() {
   return activeRunId;
 }
+let pendingProjectId = null;
+/// The next conversation created (on first send) is assigned to this project.
+export function setPendingProjectId(id) {
+  pendingProjectId = id || null;
+}
 
 /** RFC-4122-shaped id so backend validation accepts the same string Stop sends. */
 /** Match backend `new_conversation` shape: `{ms}-{4hex}`. */
@@ -380,6 +385,7 @@ export async function loadConversation(id) {
   try {
     const conv = await call("load_conversation", { id });
     currentId = conv.id;
+    pendingProjectId = null;
     clearMessages();
     showEmpty(false);
     // Build history off-DOM then commit once (Phase 3.5).
@@ -442,6 +448,7 @@ function showLoadFailure(id, message) {
 export function newChat() {
   if (streaming) return;
   currentId = null;
+  pendingProjectId = null;
   clearMessages();
   clearAlert();
   closeReader(); // new chat resets the reader (Phase 4.3)
@@ -640,12 +647,18 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
 }
 
 async function sendViaAgent(msg) {
+  const projectId = pendingProjectId;
   const res = await call("agent_send", {
     conversation_id: currentId || null,
     text: msg,
+    project_id: projectId,
   });
   currentId = res.conversation_id || currentId;
   activeRunId = res.run_id || activeRunId;
+  if (projectId) {
+    pendingProjectId = null;
+    onChanged(); // reflect the new chat under its folder in the sidebar
+  }
   const terminal = await waitForAgentTerminal(activeRunId);
   // Surface a minimal final answer if no deltas streamed (fail-closed / error paths).
   if (!activeTurn.assistantNode) {

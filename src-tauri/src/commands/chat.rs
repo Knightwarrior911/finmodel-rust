@@ -118,12 +118,13 @@ pub async fn list_conversations(app: tauri::AppHandle) -> AppResult<String> {
         .map_err(|e| AppError::Engine(e.to_string()))?;
     let items: Vec<Value> = rows
         .into_iter()
-        .map(|(id, title, updated, preview)| {
+        .map(|(id, title, updated, preview, project_id)| {
             json!({
                 "id": id,
                 "title": if title.is_empty() { "New conversation".to_string() } else { title },
                 "updated": updated,
                 "preview": preview,
+                "project_id": project_id,
             })
         })
         .collect();
