@@ -121,15 +121,87 @@ function addCopyAction(node, raw) {
   node.appendChild(btn);
 }
 
-function toolStatusNode(name) {
-  const div = document.createElement("div");
-  div.className = "tool-status";
-  div.innerHTML = `<span class="spinner"></span><span class="tool-status-name">${escapeHtml(
-    phaseLabel(name)
-  )}</span>`;
-  scrollEl().appendChild(div);
+function thinkIcon(name) {
+  switch (name) {
+    case "get_financials": return "📊";
+    case "build_model": return "🧮";
+    case "benchmark_peers": return "📈";
+    case "research":
+    case "research_deal":
+    case "web_search": return "🔍";
+    case "read_page": return "🌐";
+    case "read_filing":
+    case "list_filings":
+    case "analyze_pdf": return "📄";
+    case "get_quote": return "💹";
+    case "get_news": return "📰";
+    case "use_skill": return "📚";
+    default: return "⚙️";
+  }
+}
+
+// Lazily create the collapsible "Thinking process" panel for the active turn.
+function ensureThinking() {
+  if (!activeTurn) return null;
+  if (activeTurn.thinkingNode) return activeTurn.thinkingNode;
+  const panel = document.createElement("div");
+  panel.className = "thinking msg";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "thinking-toggle";
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.innerHTML =
+    `<span class="thinking-caret" aria-hidden="true">▾</span>` +
+    `<span class="thinking-title">Thinking process</span>` +
+    `<span class="thinking-count"></span>`;
+  const steps = document.createElement("div");
+  steps.className = "thinking-steps";
+  toggle.addEventListener("click", () => {
+    const collapsed = panel.classList.toggle("collapsed");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  });
+  panel.appendChild(toggle);
+  panel.appendChild(steps);
+  scrollEl().appendChild(panel);
+  activeTurn.thinkingNode = panel;
+  activeTurn.thinkingStepsEl = steps;
+  activeTurn.stepCount = 0;
   scrollToBottom();
-  return div;
+  return panel;
+}
+
+function updateThinkCount() {
+  if (!activeTurn || !activeTurn.thinkingNode) return;
+  const c = activeTurn.thinkingNode.querySelector(".thinking-count");
+  const n = activeTurn.stepCount || 0;
+  if (c) c.textContent = n ? `· ${n} step${n > 1 ? "s" : ""}` : "";
+}
+
+// Append a running tool step to the thinking panel; returns the step node.
+function addThinkStep(name, detail) {
+  ensureThinking();
+  const step = document.createElement("div");
+  step.className = "think-step running";
+  step.innerHTML =
+    `<span class="think-icon" aria-hidden="true">${thinkIcon(name)}</span>` +
+    `<span class="think-label">${escapeHtml(phaseLabel(name, detail))}</span>` +
+    `<span class="think-status"><span class="spinner"></span>In progress</span>`;
+  activeTurn.thinkingStepsEl.appendChild(step);
+  activeTurn.stepCount = (activeTurn.stepCount || 0) + 1;
+  updateThinkCount();
+  scrollToBottom();
+  return step;
+}
+
+function finishThinkStep(step, ok) {
+  if (!step) return;
+  step.classList.remove("running");
+  step.classList.add(ok ? "success" : "failed");
+  const st = step.querySelector(".think-status");
+  if (st)
+    st.innerHTML = ok
+      ? `<span class="think-tick" aria-hidden="true">✓</span>Success`
+      : `<span class="think-x" aria-hidden="true">✗</span>Failed`;
 }
 
 // ── event stream wiring (correlated by conversation_id + run_id) ──
@@ -223,53 +295,58 @@ function handleTool(payload) {
   const name = payload.name || "tool";
   if (payload.status === "fanout") {
     const n = payload.count || 2;
-    const b = document.createElement("div");
-    b.className = "tool-status fanout-banner";
-    b.innerHTML = `<span class="spinner"></span><span class="tool-status-name">Running ${n} tasks in parallel…</span>`;
-    scrollEl().appendChild(b);
+    ensureThinking();
+    const note = document.createElement("div");
+    note.className = "think-step note running";
+    note.innerHTML =
+      `<span class="think-icon" aria-hidden="true">⚡</span>` +
+      `<span class="think-label">Running ${n} tasks in parallel…</span>`;
+    activeTurn.thinkingStepsEl.appendChild(note);
+    activeTurn.fanoutNode = note;
     scrollToBottom();
-    activeTurn.fanoutNode = b;
     return;
   }
   if (payload.status === "fanout_done") {
-    if (activeTurn.fanoutNode) {
+    if (activeTurn && activeTurn.fanoutNode) {
       const n = payload.count || 2;
-      activeTurn.fanoutNode.innerHTML = `<span class="tool-status-name">⚡ ${n} tasks ran in parallel</span>`;
+      activeTurn.fanoutNode.classList.remove("running");
+      activeTurn.fanoutNode.innerHTML =
+        `<span class="think-icon" aria-hidden="true">⚡</span>` +
+        `<span class="think-label">${n} tasks ran in parallel</span>`;
       activeTurn.fanoutNode = null;
     }
     return;
   }
   if (payload.status === "start") {
     setProgress(phaseLabel(name, payload.detail));
-    const node = toolStatusNode(name);
+    const step = addThinkStep(name, payload.detail);
     const list = activeTurn.pending.get(name) || [];
-    list.push(node);
+    list.push(step);
     activeTurn.pending.set(name, list);
     return;
   }
-  // A terminal status ends the phase; clear the progress node.
+  // Terminal status: mark the step and render the result card below the panel.
   setProgress("");
-  // done | error → replace the earliest pending status for this name.
   const list = activeTurn.pending.get(name) || [];
-  const node = list.shift();
+  const step = list.shift();
   activeTurn.pending.set(name, list);
-  if (payload.status === "error" && !payload.card) {
-    const errNode = document.createElement("div");
-    errNode.className = "msg msg-card";
-    errNode.innerHTML = `<div class="card card-error"><p class="card-note err">${escapeHtml(
-      payload.detail || (name + " failed")
-    )}</p></div>`;
-    if (node) node.replaceWith(errNode);
-    else scrollEl().appendChild(errNode);
-    scrollToBottom();
+  if (payload.status === "error") {
+    finishThinkStep(step, false);
+    if (payload.card) {
+      appendCard(payload.card);
+    } else {
+      const errNode = document.createElement("div");
+      errNode.className = "msg msg-card";
+      errNode.innerHTML = `<div class="card card-error"><p class="card-note err">${escapeHtml(
+        payload.detail || (name + " failed")
+      )}</p></div>`;
+      scrollEl().appendChild(errNode);
+      scrollToBottom();
+    }
     return;
   }
-  const cardMsg = document.createElement("div");
-  cardMsg.className = "msg msg-card";
-  cardMsg.appendChild(renderCard(payload.card));
-  if (node) node.replaceWith(cardMsg);
-  else scrollEl().appendChild(cardMsg);
-  scrollToBottom();
+  finishThinkStep(step, true);
+  if (payload.card) appendCard(payload.card);
 }
 
 // Finalize the live assistant bubble: render its accumulated text as markdown.
@@ -288,6 +365,11 @@ function finalizeLive() {
       prose.innerHTML = renderMarkdown(clean);
       addCopyAction(activeTurn.assistantNode, clean);
     }
+  }
+  if (activeTurn && activeTurn.thinkingNode) {
+    activeTurn.thinkingNode.classList.add("collapsed");
+    const tgl = activeTurn.thinkingNode.querySelector(".thinking-toggle");
+    if (tgl) tgl.setAttribute("aria-expanded", "false");
   }
   activeTurn = null;
 }
