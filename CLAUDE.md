@@ -1,5 +1,49 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — Unreleased (2026-07-19) — Phase 2 mission shell: the Evidence dock
+**Working tree unreleased on top of `v0.9.0`.** Gates green (`scripts/gates.ps1`):
+**core workspace · src-tauri lib · UI 137 · research-eval 13**. Only UI files
+changed (HTML/CSS/JS + tests); no Rust touched. Debug port still reverted (0 refs).
+
+This cycle finished **Task 2.2 (mission shell)** and the **Task 2.4 dock-open
+responsive generalization**, and captured the dock/shell acceptance views live.
+
+### Shipped this cycle (see CHANGELOG "Unreleased")
+- **Evidence dock (Task 2.2, steps 5–8).** The right reader `<aside>` became a
+  tabbed `#evidenceDock` (**Model / Valuation / Sources / Artifacts / Reader**).
+  New `ui/js/workbench.mjs` is the sole authority for dock open/close/toggle,
+  `body.dock-open`, focus return to the invoker, the roving tablist, and the
+  keyboard map: **Ctrl/⌘+1–5** dock tabs, **Ctrl/⌘+J** toggle, **←/→/Home/End**
+  tab nav, **↑/↓/Home/End** plan-step nav, **Esc** closes the dock only when focus
+  is inside it and no run is active (an active run keeps Esc = Stop in `main.mjs`).
+  Preserved Ctrl/⌘+N / Ctrl/⌘+K / Ctrl/⌘+Enter. Settings shortcut legend updated.
+- **Model tools migrated + modal deleted.** EV/IFRS/tie-out forms moved verbatim
+  from `#analystModal` into the dock's Model tab; `#analystModal` removed. `analyst.mjs`
+  `openAnalyst()` now just `openDock("model")`; `reader.mjs` `openReader/closeReader`
+  delegate to the dock. `cards.mjs` triggers unchanged. Live-verified over HTTP
+  (headless Chromium): EV form filled → `ev_bridge` → rendered "Enterprise value ·
+  1,100M" (parity with the old modal); Esc returned focus to `#newChatBtn`.
+- **Live regions de-duplicated.** `#missionHeader` is no longer a live region
+  (visual pill only); `#chatProgress` (polite) stays the single tool-status region,
+  `#chatAlert` (assertive) stays approvals/errors.
+- **2.4 dock responsive.** `body.dock-open` generalizes `reader-open`: third grid
+  track ≥1025px, right overlay 861–1024px, bottom sheet 601–860px, full-screen
+  drawer ≤600px. Verified live at 1440/1000/820/620 × light/dark: **0 horizontal
+  scroll, composer always in view**; reduced-motion honored (dock transition ≈0s);
+  dock-chrome tokens all resolve per-theme (no undefined aliases).
+
+### NOT done — next session
+- **2.3 populate the dock tabs.** Valuation / Sources / Artifacts are shell empty
+  states; wiring them from `agent_event` (valuation strip, dedup source ledger with
+  `[n]`→Reader locator, artifacts newest-first) is Task 2.3.
+- **9.3 full desktop matrix (LIVE).** The dock/shell acceptance views were captured
+  headlessly over HTTP (ES modules don't load over `file://` — a static server is
+  needed: `node tools/ui_smoke/serve.mjs ui 8917`). The stream-state views
+  (planning/execution/fan-out/approval/reload/recovery) and the 6 golden-mission
+  legs still need the running Tauri app driven over CDP — build + relaunch with the
+  temporary `--remote-debugging-port=9222` window arg, run `tools/ui_smoke/s1..s7`,
+  then revert the port. Needs a configured provider key + port 9222 free (PDF Panda).
+
 ## HANDOVER — v0.9.0 (releasing, 2026-07-18) — the agentic runtime is now the LIVE path
 **Working tree at `v0.9.0`** (`src-tauri/Cargo.toml` + `tauri.conf.json` in lockstep);
 last shipped tag was `v0.8.6`. Gates green: **app-lib 294 · UI 130 · fm-agent/fm-value

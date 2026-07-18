@@ -39,3 +39,6 @@ finmodel-app/
 node_modules/
 package-lock.json
 package.json
+
+# Dev-only headless UI capture output
+tools/ui_smoke/acceptance/

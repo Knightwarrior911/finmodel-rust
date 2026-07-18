@@ -1640,13 +1640,17 @@ body.sidebar-collapsed .sidebar-expand {
   opacity: 0.85;
 }
 
-/* ── Reader panel ────────────────────────────────────────────────── */
-.reader-panel {
+/* ── Evidence dock ───────────────────────────────────────────────── */
+/* Tabbed deal binder (Model / Valuation / Sources / Artifacts / Reader).
+   Default = right slide-in overlay; the responsive block below promotes it to
+   a docked third grid track (wide), a bottom sheet (tablet), or a full-screen
+   drawer (small window). workbench.mjs owns body.dock-open + .open. */
+.evidence-dock {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(560px, 44vw);
+  width: min(560px, 90vw);
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -1656,8 +1660,67 @@ body.sidebar-collapsed .sidebar-expand {
   transform: translateX(100%);
   transition: transform 240ms cubic-bezier(0.2, 0, 0, 1);
 }
-.reader-panel.open {
+.evidence-dock.open {
   transform: translateX(0);
+}
+.dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dock-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dock-tab:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.dock-tab[aria-selected="true"] {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+.dock-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dock-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+.dock-panel:focus-visible {
+  outline: none;
+}
+/* The Reader tab keeps the reader's own head/find/body layout. */
+.dock-panel-reader {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.dock-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px 0;
 }
 .reader-head {
   display: flex;
@@ -1883,7 +1946,7 @@ mark.find-hit {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-  .reader-panel {
+  .evidence-dock {
     transition: none;
   }
 }
@@ -1938,13 +2001,13 @@ body {
   min-width: 600px;
 }
 
-/* Docked reader ≥1025px: the reader shares the row (side-by-side), never an
-   overlay. The grid gains a third track only while a reader is open. */
+/* Docked ≥1025px: the dock shares the row (side-by-side), never an overlay.
+   The grid gains a third track only while the dock is open. */
 @media (min-width: 1025px) {
-  body.reader-open #app {
+  body.dock-open #app {
     grid-template-columns: var(--sidebar-w) 1fr min(560px, 40vw);
   }
-  body.reader-open .reader-panel {
+  body.dock-open .evidence-dock {
     position: static;
     width: auto;
     transform: none;
@@ -1953,17 +2016,47 @@ body {
   }
 }
 
-/* Reader overlay 841–1024px. */
+/* Standard overlay 861–1024px: right slide-in over the chat pane. */
 @media (max-width: 1024px) {
-  .reader-panel {
+  .evidence-dock {
     width: min(560px, 90vw);
   }
 }
 
-/* Reader full-width ≤840px. */
-@media (max-width: 840px) {
-  .reader-panel {
+/* Tablet 601–860px: bottom sheet — full width, slides up from the bottom so
+   the composer above stays reachable. */
+@media (max-width: 860px) and (min-width: 601px) {
+  .evidence-dock {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: 100vw;
+    height: min(72vh, 100vh);
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    transform: translateY(100%);
+  }
+  .evidence-dock.open {
+    transform: translateY(0);
+  }
+}
+
+/* Small window ≤600px: full-screen drawer over the (drawered) sidebar layout. */
+@media (max-width: 600px) {
+  .evidence-dock {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    border-left: none;
+    transform: translateX(100%);
+  }
+  .evidence-dock.open {
+    transform: translateX(0);
   }
 }
 
@@ -2179,8 +2272,11 @@ body {
   body {
     --sidebar-w: 200px;
   }
-  .reader-panel[data-open="true"] {
-    width: min(360px, 40vw);
+}
+/* Narrow the docked third track on compact laptops (only where it is docked). */
+@media (min-width: 1025px) and (max-width: 1100px) {
+  body.dock-open #app {
+    grid-template-columns: var(--sidebar-w) 1fr min(420px, 40vw);
   }
 }
 /* Narrow window: trim insets so content isn't cramped, keep sidebar docked. */

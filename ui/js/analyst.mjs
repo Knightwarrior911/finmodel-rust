@@ -1,11 +1,11 @@
-// analyst.mjs — Analyst tools modal (Phase 6.5): EV bridge, IFRS bridge, and
-// tie-out. Each form invokes the matching desktop command (fm-value / fm-ifrs /
-// fm-tieout) and renders the result. These are explicit, selected actions — one
-// per submit — never a flat auto-tool list handed to a model.
+// analyst.mjs — Model tools in the Evidence dock's Model tab: EV bridge, IFRS
+// bridge, and tie-out. Each form invokes the matching desktop command
+// (fm-value / fm-ifrs / fm-tieout) and renders the result. These are explicit,
+// selected actions — one per submit — never a flat auto-tool list handed to a
+// model. `openAnalyst()` just opens the dock on the Model tab.
 
-import { $, call, escapeHtml, activateDialog } from "./core.mjs";
-
-let deactivate = null;
+import { $, call, escapeHtml } from "./core.mjs";
+import { openDock } from "./workbench.mjs";
 
 function status(msg, kind = "info") {
   const el = $("analystStatus");
@@ -111,23 +111,8 @@ function showTab(tab) {
 }
 
 export function openAnalyst() {
-  const modal = $("analystModal");
-  if (!modal) return;
-  modal.hidden = false;
+  openDock("model");
   showTab("ev");
-  deactivate = activateDialog(modal.querySelector(".modal-card"), {
-    initialFocus: ".analyst-tab",
-    onEscape: closeAnalyst,
-  });
-}
-
-function closeAnalyst() {
-  const modal = $("analystModal");
-  if (modal) modal.hidden = true;
-  if (deactivate) {
-    deactivate();
-    deactivate = null;
-  }
 }
 
 async function submit(form, command, extra, render) {
@@ -144,11 +129,9 @@ async function submit(form, command, extra, render) {
 }
 
 export function initAnalyst() {
-  const modal = $("analystModal");
-  if (!modal) return;
-  $("analystClose").addEventListener("click", closeAnalyst);
-  modal.querySelector(".modal-backdrop").addEventListener("click", closeAnalyst);
-  for (const btn of modal.querySelectorAll(".analyst-tab")) {
+  const panel = document.getElementById("dockPanel-model");
+  if (!panel) return;
+  for (const btn of panel.querySelectorAll(".analyst-tab")) {
     btn.addEventListener("click", () => showTab(btn.dataset.tab));
   }
   $("evForm").addEventListener("submit", (e) => {

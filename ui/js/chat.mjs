@@ -272,10 +272,18 @@ function renderPlan(plan) {
     panel.querySelector(".plan-obj").textContent = plan.objective;
   const ol = panel.querySelector(".plan-steps");
   ol.replaceChildren();
+  let rovingSet = false;
   for (const s of steps) {
     const st = String((s && s.status) || "pending");
     const li = document.createElement("li");
     li.className = `plan-step status-${st}`;
+    // Roving focus for ↑/↓ plan navigation (workbench.mjs). One tab stop.
+    li.tabIndex = -1;
+    if (st === "running") {
+      li.setAttribute("aria-current", "step");
+      li.tabIndex = 0;
+      rovingSet = true;
+    }
     const g = document.createElement("span");
     g.className = "plan-glyph";
     g.setAttribute("aria-hidden", "true");
@@ -296,6 +304,8 @@ function renderPlan(plan) {
     li.setAttribute("aria-label", `${lab.textContent}: ${st}`);
     ol.appendChild(li);
   }
+  // Ensure exactly one tab stop even when no step is running.
+  if (!rovingSet && ol.firstElementChild) ol.firstElementChild.tabIndex = 0;
   scrollToBottom();
 }
 

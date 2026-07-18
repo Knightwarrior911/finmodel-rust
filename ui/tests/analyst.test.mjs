@@ -1,6 +1,7 @@
-// analyst.test.mjs — Analyst tools modal regression (Phase 6.5). Drives the real
-// module against a mocked Tauri bridge: open/tab/close, missing-equity rejection,
-// and each form's invoke payload + rendered output.
+// analyst.test.mjs — Model tools regression (now in the Evidence dock's Model
+// tab). Drives the real modules against a mocked Tauri bridge: open-on-dock,
+// sub-tab switching, missing-equity rejection, and each form's invoke payload
+// + rendered output.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,11 +9,13 @@ import { setupDom, importModule, tick } from "./harness.mjs";
 
 async function bootAnalyst() {
   const ctx = setupDom();
+  const workbench = await importModule("workbench.mjs");
+  workbench.initWorkbench();
   const analyst = await importModule("analyst.mjs");
   analyst.initAnalyst();
   analyst.openAnalyst();
   await tick();
-  return { ctx, analyst };
+  return { ctx, analyst, workbench };
 }
 
 function setVal(name, v) {
@@ -25,12 +28,17 @@ function submitForm(id) {
   f.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
 }
 
-test("opening analyst shows modal, traps focus, and tabs switch panels", async () => {
+test("opening analyst opens the dock on the Model tab; sub-tabs switch panels", async () => {
   await bootAnalyst();
-  const modal = document.getElementById("analystModal");
-  assert.equal(modal.hidden, false, "modal shown");
-  assert.ok(document.getElementById("app").hasAttribute("inert"), "app inert behind dialog");
-  // Default panel is EV; switching tab reveals IFRS and hides EV.
+  assert.ok(document.body.classList.contains("dock-open"), "dock open");
+  assert.equal(document.getElementById("evidenceDock").hidden, false, "dock shown");
+  assert.equal(
+    document.getElementById("dockTab-model").getAttribute("aria-selected"),
+    "true",
+    "Model tab selected"
+  );
+  assert.equal(document.getElementById("dockPanel-model").hidden, false, "Model panel shown");
+  // Default sub-panel is EV; switching sub-tab reveals IFRS and hides EV.
   assert.equal(document.getElementById("evForm").hidden, false);
   document.querySelector('.analyst-tab[data-tab="ifrs"]').click();
   assert.equal(document.getElementById("evForm").hidden, true, "EV hidden after tab switch");
@@ -145,11 +153,13 @@ test("tie-out forwards both JSON documents and renders the score", async () => {
   assert.match(result, /revenue/);
 });
 
-test("Escape closes analyst and clears inert", async () => {
+test("Escape closes the dock when focus is inside it", async () => {
   await bootAnalyst();
-  const card = document.getElementById("analystModal").querySelector(".modal-card");
-  card.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  document.getElementById("dockTab-model").focus();
+  document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
   await tick();
-  assert.equal(document.getElementById("analystModal").hidden, true, "closed on Escape");
-  assert.ok(!document.getElementById("app").hasAttribute("inert"), "inert cleared");
+  assert.ok(!document.body.classList.contains("dock-open"), "dock closed on Escape");
+  assert.equal(document.getElementById("evidenceDock").hidden, true, "dock hidden");
 });

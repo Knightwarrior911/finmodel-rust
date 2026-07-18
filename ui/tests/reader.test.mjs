@@ -90,7 +90,7 @@ test("stale response is ignored (newer open wins)", async () => {
   assert.ok(!body.textContent.includes("a.com/1"), "stale discarded");
 });
 
-test("close returns focus to opener and resets reader-open", async () => {
+test("close returns focus to opener and resets dock-open", async () => {
   const ctx = setupDom();
   ctx.invokeHandlers.read_page = async () => ({ status: "ok", text: "x ".repeat(120) });
   const reader = await importModule("reader.mjs");
@@ -100,8 +100,8 @@ test("close returns focus to opener and resets reader-open", async () => {
   opener.focus();
   await reader.openReader("https://example.com/x", "Example");
   await tick();
-  assert.ok(document.body.classList.contains("reader-open"));
+  assert.ok(document.body.classList.contains("dock-open"));
   reader.closeReader();
-  assert.ok(!document.body.classList.contains("reader-open"));
+  assert.ok(!document.body.classList.contains("dock-open"));
   assert.equal(document.activeElement, opener, "focus returned to opener");
 });

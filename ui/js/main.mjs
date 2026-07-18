@@ -2,6 +2,7 @@
 
 import { initTheme, call, on } from "./core.mjs";
 import { initReader } from "./reader.mjs";
+import { initWorkbench } from "./workbench.mjs";
 import { initSidebar, refresh as refreshSidebar, setActive, getProjects } from "./sidebar.mjs";
 import {
   initChat,
@@ -41,6 +42,7 @@ async function loadModelPill() {
 
 function boot() {
   initTheme();
+  initWorkbench();
   initReader();
   initChat({
     onConversationChanged: () => {

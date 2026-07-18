@@ -9,7 +9,37 @@ live-driver wiring, the Phase-2 UI DOM/CSS cutover, and desktop verification
 --lib` **264**, `fm-agent` **47**, `fm-value` **29**, `npm --prefix ui test`
 **124**. See "Session status" below for the per-task breakdown. All touched files rustfmt'd.
 
-## LATEST SESSION — 2.1 single-event-path cutover + 2.2 Pause/Resume controls + move-to-project fix
+## LATEST SESSION — 2.2 mission shell (Evidence dock) + 2.4 dock responsive
+
+Gates green (`scripts/gates.ps1`): **core workspace · src-tauri lib · ui 137 ·
+research-eval 13**. Only UI files changed (HTML/CSS/JS + tests); no Rust touched.
+Debug port still reverted (0 refs). Dock/shell acceptance views captured live over
+HTTP (headless Chromium); the full golden-mission CDP matrix (9.3) remains.
+
+- **2.2 Evidence dock (steps 5–8) — DONE.** The right reader `<aside>` is now a
+  tabbed `#evidenceDock` (Model/Valuation/Sources/Artifacts/Reader). New
+  `ui/js/workbench.mjs` owns dock open/close/toggle, `body.dock-open`, focus return,
+  the roving tablist, and the keyboard map (Ctrl/⌘+1–5 tabs, Ctrl/⌘+J toggle,
+  ←/→/Home/End tab nav, ↑/↓/Home/End plan nav, Esc closes dock when idle+focused).
+  Preserved Ctrl/⌘+N/K/Enter. EV/IFRS/tie-out forms migrated verbatim into the Model
+  tab; `#analystModal` deleted. `analyst.openAnalyst`→`openDock("model")`;
+  `reader.mjs` delegates to the dock; `cards.mjs` triggers unchanged. `#missionHeader`
+  demoted from live region → visual pill (removes the duplicate polite region next to
+  `#chatProgress`). Settings shortcut legend updated. New `ui/tests/workbench.test.mjs`
+  (7 cases); `reader`/`analyst`/`chat` tests updated to the dock. 130→137 UI.
+- **2.4 dock responsive — DONE.** `body.dock-open` generalizes `reader-open`: third
+  grid track ≥1025 · right overlay 861–1024 · bottom sheet 601–860 · full-screen
+  drawer ≤600. Live-verified at 1440/1000/820/620 × light/dark: **0 horizontal
+  scroll, composer always in view**; reduced-motion honored (dock transition ≈0s);
+  dock-chrome tokens resolve per-theme. Live functional parity: EV form → `ev_bridge`
+  → "Enterprise value · 1,100M"; Esc returns focus to the invoker.
+  Dev harness: `node tools/ui_smoke/serve.mjs ui 8917` (ES modules need HTTP, not file://).
+- **STILL REMAINING:** (2.3) populate Valuation/Sources/Artifacts tabs from
+  `agent_event` — they are shell empty states now; (9.3) the stream-state acceptance
+  views + 6 golden-mission legs over the running Tauri app via CDP (build + temp
+  `--remote-debugging-port=9222`, run `s1..s7`, revert; needs a provider key + port free).
+
+## PRIOR SESSION — 2.1 single-event-path cutover + 2.2 Pause/Resume controls + move-to-project fix
 
 Gates green (`scripts/gates.ps1`): **app-lib 294**, workspace green, **ui 130**,
 research-eval 13. Debug port reverted (0 refs). s1–s7 verified live before the tail edits
@@ -145,20 +175,13 @@ additive Phase-2 UI slice, each unit-tested and (backend) CDP-verified via
   finmodel-app`, launch, run `s1..s7`. **Revert the port before any release build.**
 
 ### Genuinely remaining (with precise blockers, not deferrals of convenience)
-- **Phase 2 mission shell (2.2) + visual finish (2.4).** DONE this session: 2.1 legacy
-  `chat_delta`/`chat_tool` listener removal (single `agent_event` path) and **2.2's
-  Pause/Stop/Resume command-bar controls** — Pause (`agent_pause`→`RunInterrupted`,
-  resumable) + a Resume affordance (`agent_resume`, relaunch from last checkpoint), unit
-  tested (`chat.test.mjs` pause→resume flow) atop the already-live backend
-  (`registry.pause`, `resume_run`→`launch_run`; actor tests green). STILL REMAINING and
-  unstarted — the bulk of 2.2 (plan steps 5–7): convert the reader aside into the tabbed
-  **Evidence dock** (Model/Valuation/Sources/Artifacts/Reader), a new `ui/js/workbench.mjs`
-  owning `body.dock-open` + focus return + the keyboard map (`Ctrl/⌘+1..5`, `Ctrl/⌘+J`,
-  arrow plan/tab nav), migrating the EV/IFRS/tie-out controllers out of `#analystModal`
-  into the dock's Model tab and deleting the modal; plus 2.4's dock-open responsive
-  generalization + the 12 named acceptance-view captures. This is a large rewrite of a
-  *working, live-verified* UI — sustained card parity + multi-viewport/theme/a11y live
-  verification, its own session; do not rush at a tail.
+- **Phase 2 mission shell (2.2) + dock responsive (2.4) — DONE (see LATEST SESSION above).**
+  The tabbed **Evidence dock** (Model/Valuation/Sources/Artifacts/Reader), `ui/js/workbench.mjs`
+  (`body.dock-open` + focus return + keyboard map), the EV/IFRS/tie-out migration out of
+  `#analystModal` (modal deleted), and the dock-open responsive generalization all landed and
+  are gate- + live-verified. REMAINING in Phase 2: **2.3** populate Valuation/Sources/Artifacts
+  from `agent_event` (empty states today) and the stream-state acceptance captures, which fold
+  into the **9.3** live CDP matrix.
 - **6.2 progressive disclosure (live).** Blocked on a registry **core-tools designation**
   (so finance/control tools are never dropped) + the **MCP discovery bridges** (6.2
   steps 2/4/5). Inert below threshold with the fixed 12-tool registry; core (threshold +

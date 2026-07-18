@@ -13,6 +13,7 @@ import {
   flashBtn,
   copyToClipboard,
 } from "./core.mjs";
+import { openDock, closeDock } from "./workbench.mjs";
 
 let currentUrl = null;
 let currentTitle = null;
@@ -22,8 +23,6 @@ let readerReqToken = 0;
 let findTimer = 0;
 // Whether the current body has readable, findable text.
 let hasFindableText = false;
-// Element focus returns to when the reader closes.
-let readerReturnFocus = null;
 
 function openCta(url) {
   return `<button type="button" class="btn-primary reader-cta" data-url="${escapeHtml(url)}">Open in browser ↗</button>`;
@@ -90,7 +89,8 @@ function noMatchBanner(url) {
 }
 
 export function initReader() {
-  $("readerClose").addEventListener("click", closeReader);
+  // The dock's shared close button owns closing; the reader keeps only its
+  // own content actions (copy / open / find).
   $("readerCopy").addEventListener("click", async () => {
     if (!currentUrl) return;
     await copyToClipboard(currentUrl);
@@ -125,9 +125,6 @@ export function initReader() {
       openWithFallback(el.dataset.url);
     }
   });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("readerPanel").hidden) closeReader();
-  });
 }
 
 /// Open externally; on opener failure show the opener-failure state.
@@ -152,24 +149,16 @@ function setBody(html, state, findable) {
 export async function openReader(url, title) {
   const req = ++readerReqToken;
   if (!url) return;
-  // Capture focus origin the first time the reader opens (not on in-reader retry).
-  if ($("readerPanel").hidden && document.activeElement instanceof HTMLElement) {
-    readerReturnFocus = document.activeElement;
-  }
   currentUrl = url;
   currentTitle = title || null;
   const dom = domainOf(url);
-  const panel = $("readerPanel");
-  panel.hidden = false;
-  document.body.classList.add("reader-open");
-  // rAF so the slide-in transition runs from the hidden state.
-  requestAnimationFrame(() => panel.classList.add("open"));
+  // The dock owns the panel: open it on the Reader tab (captures focus origin
+  // for return, applies body.dock-open, moves focus to the Reader tab).
+  openDock("reader");
   $("readerTitle").textContent = title || dom;
   $("readerUrl").textContent = dom;
   $("readerUrl").title = url;
   $("readerFind").value = "";
-  // Move focus into the dialog (close button) for keyboard users.
-  $("readerClose").focus();
   const body = $("readerBody");
   body.setAttribute("aria-busy", "true");
   setBody(
@@ -201,20 +190,31 @@ export async function openReader(url, title) {
   }
 }
 
+/// Reset the reader and, when the dock is showing the Reader tab (or is the
+/// last mission surface), close the dock. Called on new-chat / conversation
+/// load so evidence never leaks across missions.
 export function closeReader() {
   readerReqToken++; // invalidate any in-flight request
   clearTimeout(findTimer);
   findTimer = 0;
-  const panel = $("readerPanel");
-  panel.classList.remove("open");
-  panel.hidden = true;
-  document.body.classList.remove("reader-open");
-  $("readerBody").removeAttribute("aria-busy");
-  // Return focus to whatever opened the reader.
-  if (readerReturnFocus && readerReturnFocus.focus && document.contains(readerReturnFocus)) {
-    readerReturnFocus.focus();
+  currentUrl = null;
+  currentTitle = null;
+  hasFindableText = false;
+  const body = $("readerBody");
+  if (body) {
+    body.removeAttribute("aria-busy");
+    body.dataset.state = "";
+    body.innerHTML =
+      '<p class="dock-empty">Open a source from the analyst stream to read it here.</p>';
   }
-  readerReturnFocus = null;
+  const find = $("readerFind");
+  if (find) {
+    find.hidden = true;
+    find.value = "";
+  }
+  // Always clear the dock on a mission change — evidence never leaks across
+  // missions, even if the dock was showing a non-Reader tab.
+  closeDock();
 }
 
 // Debounced Find (150 ms) → highlight, or a no-match state that preserves the page.

@@ -44,15 +44,15 @@ test("progress region is polite + atomic; alert region is assertive", async () =
   assert.equal(a.getAttribute("aria-live"), "assertive");
 });
 
-test("newChat clears alert and resets reader-open", async () => {
+test("newChat clears alert and resets dock-open", async () => {
   const { chat } = await bootChat();
-  document.body.classList.add("reader-open");
+  document.body.classList.add("dock-open");
   const a = document.getElementById("chatAlert");
   a.hidden = false;
   a.textContent = "stale error";
   chat.newChat();
   assert.equal(a.hidden, true, "alert cleared");
-  assert.ok(!document.body.classList.contains("reader-open"), "reader reset");
+  assert.ok(!document.body.classList.contains("dock-open"), "dock reset");
 });
 
 test("load failure announces + retains, offers keyboard retry (no silent new chat)", async () => {

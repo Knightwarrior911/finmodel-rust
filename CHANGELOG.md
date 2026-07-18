@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.1 — 2026-07-19 — The Evidence dock replaces the analyst pop-up
+
+- **Evidence dock.** The right-side reader is now a tabbed deal binder —
+  **Model · Valuation · Sources · Artifacts · Reader**. It docks beside the
+  analyst on wide screens, slides in as an overlay on laptops, and becomes a
+  bottom sheet / full-screen drawer on smaller windows — always without a
+  horizontal scrollbar or a hidden composer. Toggle it with Ctrl/⌘+J, jump to a
+  tab with Ctrl/⌘+1–5, and move between tabs with the arrow keys.
+- **Model tools moved into the dock.** The EV bridge, IFRS bridge, and tie-out
+  tools — previously a separate pop-up — now live in the dock's Model tab, so
+  your evidence and tools sit beside the conversation instead of covering it. The
+  old Analyst-tools modal is gone.
+- **Keyboard + accessibility.** Every dock action is keyboard-reachable, focus
+  returns to whatever opened the dock, plan steps are arrow-navigable, status
+  stays glyph-plus-text, and reduced-motion is honored.
+
 ## v0.9.0 — 2026-07-18 — The analyst shows its plan, checks its own math, and can be paused
 
 - **Live mission plan + status header.** When the analyst runs a structured
