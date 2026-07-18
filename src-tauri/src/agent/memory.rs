@@ -188,7 +188,10 @@ impl<'a> MemoryCapture<'a> {
 
         // 2. Extract from user statements (medium confidence).
         for stmt in &turn.user_statements {
-            if self.gate.check(stmt).is_err() {
+            // Gate (secrets/paths) AND the durable-preference classifier: only
+            // standing preferences/conventions/corrections are auto-captured, not
+            // one-off questions or requests (M5 auto-capture; eval-gated).
+            if self.gate.check(stmt).is_err() || !is_durable_preference(stmt) {
                 continue;
             }
             let key = normalize_user_statement(stmt);
@@ -279,6 +282,78 @@ fn normalize_user_statement(s: &str) -> String {
         .collect();
     let take = words.len().min(5);
     format!("user:{}", words[..take].join(":").to_lowercase())
+}
+
+/// Standing-intent cues: substrings that mark a user statement as a durable
+/// preference, convention, coverage/deal context, or explicit correction worth
+/// remembering across turns. Multi-word / disambiguated where a bare token
+/// would collide with finance vocabulary (e.g. "prefer" vs "preferred stock").
+const DURABLE_CUES: &[&str] = &[
+    // preferences
+    "i prefer", "we prefer", "prefers", "prefer to", "would prefer",
+    "my preference", "preference is", "i'd rather", "i would rather",
+    "rather use", "i like to", "i like using",
+    // standing instructions / conventions
+    "by default", "default to", "as a rule", "from now on", "going forward",
+    "in future", "henceforth", "always use", "always show", "always present",
+    "always include", "always exclude", "always round", "always report",
+    "always assume", "always format", "always express", "never use",
+    "never show", "never include", "i use ", "we use ", "i always ",
+    "we always ", "our convention", "house style", "our policy",
+    "our standard", "for all my", "in all my", "every time", "keep in mind",
+    "remember that", "note that i", "i want everything", "i want all",
+    // coverage / deal / entity context
+    "i focus on", "i cover ", "we cover ", "my coverage", "my sector",
+    "base currency", "fiscal year end", "our fiscal year", "our fy",
+    "we define", "we're advising", "we are advising", "we represent",
+    "our client", "our target is", "the mandate", "our engagement",
+    // explicit corrections
+    "actually,", "correction:", "i meant", "to be clear,",
+];
+
+/// Interrogative openers: a statement starting this way is a question/request,
+/// never a durable preference (even without a trailing '?').
+const QUESTION_OPENERS: &[&str] = &[
+    "what ", "what's", "whats ", "how ", "why ", "when ", "where ", "who ",
+    "which ", "do you", "can you", "could you", "would you", "should i",
+    "is there", "are there", "give me", "show me", "build ", "compare ",
+    "list ", "find ", "fetch ", "pull ", "get ", "run ", "calculate ",
+    "analyze ", "analyse ", "download ", "open ", "read ", "summarize ",
+];
+
+/// Decide whether a user statement encodes a DURABLE preference, standing
+/// instruction, correction, or coverage/deal context worth remembering across
+/// turns — as opposed to a one-off question, request, or chit-chat.
+///
+/// Rules-based (no model call), tuned to favour precision: capture only when a
+/// standing-intent cue is present AND the statement is not phrased as a
+/// question/one-off request. Tuned on the `dev` split; the precision/recall
+/// gate is reported on the untouched `held-out` split (see `auto_capture_eval`).
+pub(crate) fn is_durable_preference(stmt: &str) -> bool {
+    let t = stmt.trim();
+    if t.ends_with('?') {
+        return false;
+    }
+    let lower = t.to_lowercase();
+    // A standing cue can override a request-verb opener ("always show …" is a
+    // preference), but a genuine question opener with no standing cue is out.
+    let has_cue = DURABLE_CUES.iter().any(|c| lower.contains(c));
+    if !has_cue {
+        return false;
+    }
+    // If it opens like a question/request AND the only "cue" is weak, drop it.
+    // Strong standing markers survive request openers; bare openers do not.
+    for q in QUESTION_OPENERS {
+        if lower.starts_with(q) {
+            // Allow only when an unambiguous standing marker is present.
+            const STRONG: &[&str] = &[
+                "always", "never", "by default", "default to", "from now on",
+                "going forward", "every time", "for all my", "in all my",
+            ];
+            return STRONG.iter().any(|s| lower.contains(s));
+        }
+    }
+    true
 }
 
 // ── Recall service ────────────────────────────────────────────────────
@@ -586,5 +661,253 @@ mod tests {
         // Same memory should NOT appear in a different workspace.
         let results = r.search("prefers", &MemoryScope { workspace_id: Some("ws2".into()), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 0);
+    }
+
+    // ── M5 auto-capture eval ──────────────────────────────────────────
+    //
+    // Labelled analyst-turn set for the durable-preference classifier.
+    // `true`  = a standing preference / convention / correction / coverage-deal
+    //           fact that SHOULD be auto-captured.
+    // `false` = a one-off question/request, transient chit-chat, or secret/path
+    //           that must NOT be captured.
+    //
+    // Honesty (see plan decision 4 + review advisory): the classifier + gate
+    // were tuned ONLY against DEV; HELDOUT is scored once and is the reported
+    // gate. As a single author I can see both splits, so this is a *procedural*
+    // split, not an independent one — real production logs remain the gold
+    // standard. The set deliberately includes hard cases: durable statements
+    // phrased WITHOUT keyword cues (recall stress) and chit-chat that CONTAINS
+    // preference words (precision stress), so the number reflects the real
+    // limits of a keyword-rules classifier rather than a self-consistent toy.
+
+    fn predict_capture(stmt: &str) -> bool {
+        PrecisionGate::default().check(stmt).is_ok() && is_durable_preference(stmt)
+    }
+
+    fn score(set: &[(&str, bool)]) -> (usize, usize, usize, usize) {
+        let (mut tp, mut fp, mut tn, mut fneg) = (0usize, 0usize, 0usize, 0usize);
+        for (stmt, label) in set {
+            match (predict_capture(stmt), *label) {
+                (true, true) => tp += 1,
+                (true, false) => fp += 1,
+                (false, false) => tn += 1,
+                (false, true) => fneg += 1,
+            }
+        }
+        (tp, fp, tn, fneg)
+    }
+
+    const DEV: &[(&str, bool)] = &[
+        ("I prefer P/E over EV/EBITDA for consumer names", true),
+        ("Always show revenue in USD millions", true),
+        ("From now on, present all multiples to one decimal", true),
+        ("We use IFRS rather than US GAAP for European names", true),
+        ("Our fiscal year ends in March", true),
+        ("My coverage is European semiconductors", true),
+        ("We're advising Acme on the TechCo acquisition", true),
+        ("By default, use a 10% discount rate in DCFs", true),
+        ("Our base currency is EUR", true),
+        ("I'd rather see unlevered free cash flow", true),
+        ("Always exclude stock-based compensation from adjusted EBITDA", true),
+        ("Default to the last twelve months for all comps", true),
+        ("I like to see bear, base, and bull cases", true),
+        ("Never use sell-side consensus for the terminal value", true),
+        ("Our client is a mid-market private equity fund", true),
+        ("Going forward, round share prices to two decimals", true),
+        ("I prefer the perpetuity-growth method for terminal value", true),
+        ("We always tax-effect EBIT at the marginal rate", true),
+        ("My preference is a 2% terminal growth rate", true),
+        ("Actually, use the fiscal year ending in June", true),
+        ("Correction: the discount rate should be 9%", true),
+        ("I meant the 2024 10-K, not 2023", true),
+        ("We define net debt to include operating leases", true),
+        ("Our house style is no decimals on dollar figures", true),
+        ("I focus on large-cap US banks", true),
+        ("The mandate is a sell-side for NVDA's data-center unit", true),
+        ("For all my models, use a mid-year convention", true),
+        ("In all my comps, cap the peer set at eight names", true),
+        ("We represent the buyer in this deal", true),
+        ("I want everything in local currency", true),
+        ("As a rule, I ignore one-time restructuring charges", true),
+        ("We prefer a CAPM-based WACC over a fixed rate", true),
+        ("Note that I always want a sources page", true),
+        ("Our policy is to use spot FX as of the filing date", true),
+        ("I use a five-year explicit forecast horizon", true),
+        ("I cover industrials and materials", true),
+        ("We cover the entire EU banking sector", true),
+        ("Henceforth, label all figures with their fiscal period", true),
+        ("I would rather use median than mean for comps", true),
+        ("Our convention is fiscal quarters, not calendar", true),
+        ("I prefer diluted EPS over basic", true),
+        ("Always express growth rates as CAGR", true),
+        ("To be clear, our target is the software segment only", true),
+        ("Always include a WACC sensitivity table", true),
+        ("Round everything to the nearest million", true),
+        ("Value banks on tangible book, not earnings", true),
+        ("What were Tesla's 2025 sales?", false),
+        ("Build a DCF for AAPL", false),
+        ("Compare Apple and Microsoft revenue", false),
+        ("Pull NVDA's latest 10-K", false),
+        ("Show me the income statement", false),
+        ("List Tesla's filings", false),
+        ("How do I read a 10-K?", false),
+        ("Why is the operating margin down?", false),
+        ("Which peers should I use for AMD?", false),
+        ("Thanks!", false),
+        ("great, that works", false),
+        ("Value the preferred stock at par", false),
+        ("What's the preferred dividend on the series A?", false),
+        ("Can you use the LTM period here?", false),
+        ("Show me revenue in millions", false),
+        ("Give me the WACC", false),
+        ("Run a comps analysis on the peer set", false),
+        ("Fetch the latest quote for MSFT", false),
+        ("Get me Tesla's gross margin", false),
+        ("Analyze the risk factors", false),
+        ("Summarize the MD&A", false),
+        ("Download the annual report", false),
+        ("Open the DCF tab", false),
+        ("Calculate the enterprise value", false),
+        ("It's always the same issue with these filings", false),
+        ("I used the 2024 numbers last time", false),
+        ("We used IFRS in that old model", false),
+        ("Does this cover Q3?", false),
+        ("Is there a scenario tab?", false),
+        ("Are there any peers missing?", false),
+        ("Could you add a football field?", false),
+        ("Would you re-run with 8%?", false),
+        ("Should I include SBC?", false),
+        ("Who audits Tesla?", false),
+        ("When was the last 10-K filed?", false),
+        ("Where is the cash flow statement?", false),
+        ("hmm let me think", false),
+        ("never mind, drop that one", false),
+        ("Remind me what our fiscal year is", false),
+        ("Tell me the default discount rate", false),
+        ("my api key is sk-abc123def456", false),
+        ("the model is at C:\\Users\\me\\dcf.xlsx", false),
+        ("email me at analyst@bank.com", false),
+        ("no that's not right", false),
+        ("What multiple are they trading at?", false),
+        ("Add a revenue bridge chart", false),
+        ("Re-run the model with 12% WACC", false),
+        ("Include the pension liability", false),
+        ("Exclude the one-timers", false),
+        ("Use the 2024 10-K", false),
+        ("Set the tax rate to 21%", false),
+        ("What's our base currency again?", false),
+        ("Which method do you prefer for TV?", false),
+        ("Do you always tax-effect EBIT?", false),
+        ("Is EUR our base currency?", false),
+        ("Explain the difference between levered and unlevered beta", false),
+        ("Walk me through the DCF", false),
+        ("Draft an IC memo", false),
+        ("Export to Excel", false),
+        ("I prefer not to wait, just pull the filing", false),
+        ("Actually, that's fine", false),
+        ("We use it every day, it's great", false),
+    ];
+
+    const HELDOUT: &[(&str, bool)] = &[
+        ("I prefer to value banks on P/TBV", true),
+        ("Always present EBITDA margins alongside revenue", true),
+        ("From now on, use the 10-K, not press releases", true),
+        ("We use a 2.5% terminal growth as standard", true),
+        ("Our fiscal year ends in September", true),
+        ("My coverage is North American energy", true),
+        ("We're advising the special committee on the buyout", true),
+        ("By default, present three years of history", true),
+        ("Our base currency is GBP", true),
+        ("I'd rather see net debt broken out by instrument", true),
+        ("Always exclude discontinued operations from margins", true),
+        ("Default to a 4.5% risk-free rate", true),
+        ("I like to include a sensitivity on WACC and growth", true),
+        ("Never annualize a partial quarter", true),
+        ("Our client is a strategic acquirer in healthcare", true),
+        ("Going forward, cite the exact filing date", true),
+        ("I prefer gross profit over gross margin in tables", true),
+        ("We always reconcile GAAP to adjusted metrics", true),
+        ("My preference is USD thousands for small caps", true),
+        ("Actually, our target is the consumer unit, not enterprise", true),
+        ("I meant unlevered, not levered, free cash flow", true),
+        ("We define free cash flow after lease payments", true),
+        ("I focus on mid-cap software", true),
+        ("The mandate is a debt refinancing for the group", true),
+        ("For all my comps, use forward multiples", true),
+        ("In all my models, keep a two-decimal share count", true),
+        ("We represent the seller here", true),
+        ("We prefer the exit-multiple method for terminal value", true),
+        ("Our policy is to footnote every non-GAAP adjustment", true),
+        ("Strip out FX gains before computing margins", true),
+        ("Keep the peer set to direct competitors only", true),
+        ("Present figures net of non-controlling interest", true),
+        ("What's NVDA's data-center revenue?", false),
+        ("Build a three-statement model for META", false),
+        ("Compare margins across the peer set", false),
+        ("Pull the latest 8-K", false),
+        ("Show me the balance sheet", false),
+        ("List the comparable companies", false),
+        ("How is goodwill impaired?", false),
+        ("Why did the tax rate jump?", false),
+        ("Which discount rate did you use?", false),
+        ("Perfect, thanks", false),
+        ("The preferred equity converts at $20", false),
+        ("What's the coupon on the preferred?", false),
+        ("Can you default to LTM here?", false),
+        ("Show me figures in millions", false),
+        ("Give me the terminal value", false),
+        ("Run the sensitivity table", false),
+        ("Fetch AMD's quote", false),
+        ("Get the operating margin trend", false),
+        ("Analyze the liquidity position", false),
+        ("Summarize the earnings call", false),
+        ("Download the proxy statement", false),
+        ("Open the assumptions tab", false),
+        ("Calculate levered FCF", false),
+        ("It always takes forever to load", false),
+        ("I used forward multiples on that one", false),
+        ("We used the exit multiple last time", false),
+        ("Does the model cover FY26?", false),
+        ("Is there a debt schedule?", false),
+        ("Could you re-run at 9%?", false),
+        ("Should I use median or mean?", false),
+        ("When does the lockup expire?", false),
+        ("never mind that", false),
+        ("Remind me of our base currency", false),
+        ("Tell me which method we prefer", false),
+        ("the key is sk-live-99887766", false),
+        ("file path is D:\\deals\\model.xlsx", false),
+        ("Include operating leases as debt", false),
+        ("Use forward estimates", false),
+        ("Set terminal growth to 2.5%", false),
+        ("I meant right now, not later", false),
+        ("We use it constantly, love it", false),
+    ];
+
+    #[test]
+    fn auto_capture_eval() {
+        let (tp, fp, tn, fneg) = score(HELDOUT);
+        let precision = tp as f64 / (tp + fp).max(1) as f64;
+        let recall = tp as f64 / (tp + fneg).max(1) as f64;
+        let (dtp, dfp, _dtn, dfneg) = score(DEV);
+        eprintln!(
+            "[auto_capture_eval] DEV n={} P={:.3} R={:.3} (tp={dtp} fp={dfp} fn={dfneg})",
+            DEV.len(),
+            dtp as f64 / (dtp + dfp).max(1) as f64,
+            dtp as f64 / (dtp + dfneg).max(1) as f64,
+        );
+        eprintln!(
+            "[auto_capture_eval] HELDOUT n={} P={precision:.3} R={recall:.3} (tp={tp} fp={fp} tn={tn} fn={fneg})",
+            HELDOUT.len(),
+        );
+        // TARGET gate (plan decision 4): >=98% precision, >=90% recall.
+        // MEASURED (keyword-rules classifier, held-out): P~0.87, R~0.84 — BELOW
+        // the gate. Conclusion: hand-written keyword rules do NOT clear the
+        // precision bar, so automatic capture stays OFF; clearing it needs a
+        // model-based classifier evaluated on representative production turns,
+        // not rules. This asserts a regression floor + records the measurement;
+        // it is deliberately NOT a claim that the gate passes.
+        assert!(precision >= 0.80, "held-out precision regressed below floor: {precision:.3}");
+        assert!(recall >= 0.78, "held-out recall regressed below floor: {recall:.3}");
     }
 }
