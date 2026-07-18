@@ -13,6 +13,11 @@ turn, so the analyst carries standing context automatically:
   `claude.md`): rules unique to one project folder — e.g. "Benchmark NVDA against
   AMD/INTC," "Data source: 2025 10-K." Applied right after the global layer for
   chats in that workspace.
+- **Real-time "Thinking process" trace.** Each turn now shows a collapsible panel
+  logging every tool step live — icon + active label ("Fetching financials…") and
+  a status that flips from "In progress" to ✓ Success / ✗ Failed — with the result
+  cards below and a step count. It auto-collapses when the turn finishes, so you can
+  watch the agent work in real time and re-open the trace afterward.
 
 Order is always `base prompt → global → project` (a project refines, never
 silently contradicts, your global preferences). Workspace ids are validated
