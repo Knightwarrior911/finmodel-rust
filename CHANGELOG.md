@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.3 — Grounding layers (personalization + project rules)
+
+Two configuration layers are now chained onto the system prompt before every
+turn, so the analyst carries standing context automatically:
+
+- **Global personalization** (`config.json` in the app config dir): user-level
+  rules applied to *every* chat — e.g. "Always format tables in Markdown,"
+  "Prefer revenue shown in USD," "Keep responses concise." Set/read via the
+  `grounding_set_global` / `grounding_get_global` commands.
+- **Project workspace grounding** (`workspaces/<id>/finmodel.md`, falling back to
+  `claude.md`): rules unique to one project folder — e.g. "Benchmark NVDA against
+  AMD/INTC," "Data source: 2025 10-K." Applied right after the global layer for
+  chats in that workspace.
+
+Order is always `base prompt → global → project` (a project refines, never
+silently contradicts, your global preferences). Workspace ids are validated
+against path traversal before any file read/write. Verified live: a global rule
+made the model prefix its reply exactly as instructed. 217 lib + 116 UI green.
+
 ## v0.8.2 — Watch the subagents work
 
 - **Live task tray for parallel work.** When the analyst fans out independent

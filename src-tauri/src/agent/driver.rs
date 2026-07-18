@@ -378,6 +378,35 @@ impl LiveDriver {
         }
     }
 
+    /// Chain the global personalization + project workspace instruction layers
+    /// onto the base system prompt (`messages[0]`) before the model call.
+    /// See [`crate::agent::grounding`]. No-op when neither layer is present.
+    fn apply_grounding(&mut self) {
+        use tauri::Manager;
+        let Ok(dir) = self.app.path().app_config_dir() else {
+            return;
+        };
+        let global = crate::agent::grounding::read_global(&dir);
+        let project = crate::agent::grounding::read_project(&dir, &self.ctx.workspace_id);
+        if global.is_none() && project.is_none() {
+            return;
+        }
+        let Some(first) = self.messages.get_mut(0) else {
+            return;
+        };
+        if first.get("role").and_then(|r| r.as_str()) != Some("system") {
+            return;
+        }
+        let base = first
+            .get("content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let chained =
+            crate::agent::grounding::chain(&base, global.as_deref(), project.as_deref());
+        first["content"] = serde_json::json!(chained);
+    }
+
     fn remaining(&self) -> std::time::Duration {
         self.deadline.saturating_sub(self.started.elapsed())
     }
@@ -645,6 +674,7 @@ impl Driver for LiveDriver {
             }
         }
         self.messages = msgs;
+        self.apply_grounding();
         // Always route through Executing so request_model runs (provider or the
         // no-key FallbackDispatcher); uses_tools:false would skip it entirely.
         PreparedInfo {

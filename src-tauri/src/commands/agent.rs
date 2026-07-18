@@ -333,3 +333,58 @@ pub async fn memory_delete(app: tauri::AppHandle, id: i64) -> AppResult<String> 
         .await;
     Ok(serde_json::json!({ "ok": ok }).to_string())
 }
+
+// ── Grounding layers (global personalization + project workspace) ─────────
+
+fn config_dir(app: &tauri::AppHandle) -> AppResult<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path()
+        .app_config_dir()
+        .map_err(|e| AppError::Config(format!("no config dir: {e}")))
+}
+
+/// Read the global personalization block (`config.json`). Empty when unset.
+#[tauri::command(rename_all = "snake_case")]
+pub fn grounding_get_global(app: tauri::AppHandle) -> AppResult<String> {
+    let dir = config_dir(&app)?;
+    Ok(crate::agent::grounding::read_global(&dir).unwrap_or_default())
+}
+
+/// Persist the global personalization block to `config.json`.
+#[tauri::command(rename_all = "snake_case")]
+pub fn grounding_set_global(app: tauri::AppHandle, instructions: String) -> AppResult<()> {
+    let dir = config_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| AppError::Config(e.to_string()))?;
+    let body = serde_json::json!({ "instructions": instructions.trim() });
+    let text = serde_json::to_string_pretty(&body).map_err(|e| AppError::Engine(e.to_string()))?;
+    std::fs::write(dir.join("config.json"), text).map_err(|e| AppError::Config(e.to_string()))?;
+    Ok(())
+}
+
+/// Read a project workspace's grounding (`workspaces/<id>/finmodel.md`).
+#[tauri::command(rename_all = "snake_case")]
+pub fn grounding_get_project(app: tauri::AppHandle, workspace_id: String) -> AppResult<String> {
+    let dir = config_dir(&app)?;
+    Ok(crate::agent::grounding::read_project(&dir, &workspace_id).unwrap_or_default())
+}
+
+/// Persist a project workspace's grounding to `workspaces/<id>/finmodel.md`.
+#[tauri::command(rename_all = "snake_case")]
+pub fn grounding_set_project(
+    app: tauri::AppHandle,
+    workspace_id: String,
+    instructions: String,
+) -> AppResult<()> {
+    let ws = workspace_id.trim();
+    if ws.is_empty() {
+        return Err(AppError::Config("workspace_id required".into()));
+    }
+    let dir = config_dir(&app)?;
+    let path = crate::agent::grounding::project_file(&dir, ws)
+        .ok_or_else(|| AppError::Config("invalid workspace id".into()))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| AppError::Config(e.to_string()))?;
+    }
+    std::fs::write(&path, instructions.trim()).map_err(|e| AppError::Config(e.to_string()))?;
+    Ok(())
+}
