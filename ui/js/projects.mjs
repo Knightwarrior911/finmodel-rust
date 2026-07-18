@@ -65,7 +65,7 @@ export function renderProjectDashboard(project, chats) {
   scroll.innerHTML = `
     <section class="project-dashboard">
       <div class="dash-head">
-        <h1 class="dash-title">📁 ${escapeHtml(project.name || "Project")}</h1>
+        <h1 class="dash-title">${escapeHtml(project.name || "Project")}</h1>
         <button type="button" class="btn-ghost" id="dashSettings" data-id="${escapeHtml(project.id)}">Settings &amp; grounding</button>
       </div>
       <p class="dash-sub">${n} chat${n === 1 ? "" : "s"} · shared grounding applies to every chat in this folder.</p>

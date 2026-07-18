@@ -26,6 +26,9 @@ const SUN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke=
 const MOON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
 const PENCIL = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
 const TRASH = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>`;
+const FOLDER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+const GEAR = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 8 3.6V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+const MOVE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13l2.5 2.5 2.5-2.5"/></svg>`;
 const CHECK = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
 const CROSS = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
 
@@ -109,7 +112,7 @@ function rowHtml(c, active) {
       <span class="conv-time num">${escapeHtml(relTime(c.updated))}</span>
     </button>
     <div class="conv-actions">
-      <button type="button" class="icon-btn conv-move" data-id="${escapeHtml(c.id)}" aria-label="Move to project" title="Move to project">📁</button>
+      <button type="button" class="icon-btn conv-move" data-id="${escapeHtml(c.id)}" aria-label="Move to project" title="Move to project">${MOVE}</button>
       <button type="button" class="icon-btn conv-rename" data-id="${escapeHtml(c.id)}" aria-label="Rename conversation">${PENCIL}</button>
       <button type="button" class="icon-btn conv-delete" data-id="${escapeHtml(c.id)}" aria-label="Delete conversation">${TRASH}</button>
     </div>
@@ -143,10 +146,10 @@ function renderRows(items) {
           collapsed ? "false" : "true"
         }" aria-label="Toggle folder"><span class="proj-caret" aria-hidden="true">▾</span></button>
         <button type="button" class="proj-open" data-project="${escapeHtml(p.id)}">
-          <span class="proj-name">${escapeHtml(p.name)}</span>
+          <span class="proj-fold-ic" aria-hidden="true">${FOLDER}</span><span class="proj-name">${escapeHtml(p.name)}</span>
           <span class="proj-count num">${chats.length}</span>
         </button>
-        <button type="button" class="icon-btn proj-gear" data-project="${escapeHtml(p.id)}" aria-label="Project settings" title="Project settings">⚙</button>
+        <button type="button" class="icon-btn proj-gear" data-project="${escapeHtml(p.id)}" aria-label="Project settings" title="Project settings">${GEAR}</button>
       </div>
       <div class="proj-chats">${
         chats.map((c) => rowHtml(c, active)).join("") ||

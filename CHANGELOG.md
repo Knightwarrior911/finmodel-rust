@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.5 — Design polish
+
+A craft pass on the interface (no feature changes), guided by a product-register
+design review:
+
+- **Commanding hero.** The empty-state headline now uses a proper display scale
+  with tight tracking, so the first screen reads intentional, not plain.
+- **Consistent iconography.** Replaced the ad-hoc emoji (folders, gear, move,
+  per-tool thinking-step glyphs, parallel-fan-out) with crisp mono line-SVGs that
+  match the existing icon set — the biggest single "looks unpolished" fix.
+- **Refined surfaces.** Softer off-white canvas (no pure #fff), elevated composer
+  with a rounded field + focus ring, refined suggestion chips with a subtle hover
+  lift, and a shared ease-out motion curve for calmer, premium transitions.
+
+Verified in light and dark themes. 217 lib + 116 UI green.
+
 ## v0.8.4 — Project folders
 
 Group related chats into projects, each with its own shared context:

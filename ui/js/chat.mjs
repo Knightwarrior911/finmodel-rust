@@ -127,21 +127,32 @@ function addCopyAction(node, raw) {
 }
 
 function thinkIcon(name) {
+  const svg = (p) =>
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
   switch (name) {
-    case "get_financials": return "📊";
-    case "build_model": return "🧮";
-    case "benchmark_peers": return "📈";
+    case "get_financials":
+    case "get_quote":
+      return svg('<path d="M3 3v18h18"/><path d="M7 14l3-3 3 2 4-6"/>');
+    case "benchmark_peers":
+      return svg('<path d="M5 20V9M12 20V4M19 20v-7"/>');
+    case "build_model":
+      return svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/>');
     case "research":
     case "research_deal":
-    case "web_search": return "🔍";
-    case "read_page": return "🌐";
+    case "web_search":
+      return svg('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>');
+    case "read_page":
+      return svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18"/>');
     case "read_filing":
     case "list_filings":
-    case "analyze_pdf": return "📄";
-    case "get_quote": return "💹";
-    case "get_news": return "📰";
-    case "use_skill": return "📚";
-    default: return "⚙️";
+    case "analyze_pdf":
+      return svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>');
+    case "get_news":
+      return svg('<path d="M4 5h12v14H5a1 1 0 0 1-1-1z"/><path d="M16 8h4v9a2 2 0 0 1-2 2M7 9h6M7 13h6"/>');
+    case "use_skill":
+      return svg('<path d="M5 4a2 2 0 0 1 2-2h11v18H7a2 2 0 0 0-2 2z"/>');
+    default:
+      return svg('<circle cx="12" cy="12" r="3.5"/>');
   }
 }
 
@@ -304,7 +315,7 @@ function handleTool(payload) {
     const note = document.createElement("div");
     note.className = "think-step note running";
     note.innerHTML =
-      `<span class="think-icon" aria-hidden="true">⚡</span>` +
+      `<span class="think-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h11"/></svg></span>` +
       `<span class="think-label">Running ${n} tasks in parallel…</span>`;
     activeTurn.thinkingStepsEl.appendChild(note);
     activeTurn.fanoutNode = note;
@@ -316,7 +327,7 @@ function handleTool(payload) {
       const n = payload.count || 2;
       activeTurn.fanoutNode.classList.remove("running");
       activeTurn.fanoutNode.innerHTML =
-        `<span class="think-icon" aria-hidden="true">⚡</span>` +
+        `<span class="think-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h11"/></svg></span>` +
         `<span class="think-label">${n} tasks ran in parallel</span>`;
       activeTurn.fanoutNode = null;
     }
