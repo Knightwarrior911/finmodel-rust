@@ -1,9 +1,13 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — Unreleased (2026-07-19) — Phase 2 mission shell: the Evidence dock
-**Working tree unreleased on top of `v0.9.0`.** Gates green (`scripts/gates.ps1`):
-**core workspace · src-tauri lib · UI 137 · research-eval 13**. Only UI files
-changed (HTML/CSS/JS + tests); no Rust touched. Debug port still reverted (0 refs).
+## HANDOVER — v0.9.1 SHIPPED + LIVE (2026-07-19) — Phase 2 mission shell: the Evidence dock
+**Tagged `v0.9.1` on `master` (`finmodel-rust`); released to public `finmodel-releases`
+(flagged Latest).** CI run `29658614129` green; signed NSIS built + published; updater
+endpoint VERIFIED serving `0.9.1` (installer HTTP 200). Real Tauri webview smoked over
+WebView2 CDP: boot · dock · keyboard (Ctrl+1/5, Esc) · **real-backend `ev_bridge`** ·
+focus return · 0 horizontal scroll. Gates green (`scripts/gates.ps1`): **core workspace ·
+src-tauri lib · UI 137 · research-eval 13**. Only UI files changed; no Rust touched.
+Debug port never added (release config clean, 0 refs).
 
 This cycle finished **Task 2.2 (mission shell)** and the **Task 2.4 dock-open
 responsive generalization**, and captured the dock/shell acceptance views live.

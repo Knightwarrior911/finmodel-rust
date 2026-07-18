@@ -9,12 +9,14 @@ live-driver wiring, the Phase-2 UI DOM/CSS cutover, and desktop verification
 --lib` **264**, `fm-agent` **47**, `fm-value` **29**, `npm --prefix ui test`
 **124**. See "Session status" below for the per-task breakdown. All touched files rustfmt'd.
 
-## LATEST SESSION — 2.2 mission shell (Evidence dock) + 2.4 dock responsive
+## LATEST SESSION — 2.2 mission shell (Evidence dock) + 2.4 dock responsive → SHIPPED v0.9.1
 
+**Released:** `master` tagged `v0.9.1`, CI `29658614129` green, signed NSIS published to
+`finmodel-releases` (Latest), updater endpoint VERIFIED serving `0.9.1` (installer 200).
 Gates green (`scripts/gates.ps1`): **core workspace · src-tauri lib · ui 137 ·
-research-eval 13**. Only UI files changed (HTML/CSS/JS + tests); no Rust touched.
-Debug port still reverted (0 refs). Dock/shell acceptance views captured live over
-HTTP (headless Chromium); the full golden-mission CDP matrix (9.3) remains.
+research-eval 13**. Only UI files changed; no Rust touched. Debug port never added.
+Real Tauri webview smoked over CDP (boot · dock · keyboard · real-backend EV · focus
+return); the full golden-mission CDP matrix (9.3) still remains.
 
 - **2.2 Evidence dock (steps 5–8) — DONE.** The right reader `<aside>` is now a
   tabbed `#evidenceDock` (Model/Valuation/Sources/Artifacts/Reader). New
