@@ -24,7 +24,30 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
         return SourceKind::Secondary;
     };
 
-    const REGULATORS: &[&str] = &["sec.gov", "sec.report", "europa.eu", "gov.uk", "fca.org.uk"];
+    // US, EU, UK, and the major Asian/Commonwealth disclosure venues — a
+    // non-US issuer's filings live on its exchange/regulator archive, not
+    // EDGAR (HKEX news, Japan's EDINET/TDnet, London RNS, Euronext, SEDAR+…).
+    const REGULATORS: &[&str] = &[
+        "sec.gov",
+        "sec.report",
+        "europa.eu",
+        "gov.uk",
+        "fca.org.uk",
+        "hkexnews.hk",
+        "jpx.co.jp",
+        "edinet-fsa.go.jp",
+        "release.tdnet.info",
+        "londonstockexchange.com",
+        "euronext.com",
+        "bundesanzeiger.de",
+        "amf-france.org",
+        "borsaitaliana.it",
+        "sedarplus.ca",
+        "asx.com.au",
+        "sgx.com",
+        "nseindia.com",
+        "bseindia.com",
+    ];
     const NEWSWIRES: &[&str] = &[
         "reuters.com",
         "bloomberg.com",
@@ -304,6 +327,15 @@ mod tests {
         assert_eq!(
             classify_source_kind("https://www.businesswire.com/news/home/tsla-q1"),
             SourceKind::Primary
+        );
+        // International disclosure venues are regulators.
+        assert_eq!(
+            classify_source_kind("https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0325/doc.pdf"),
+            SourceKind::Regulatory
+        );
+        assert_eq!(
+            classify_source_kind("https://www.londonstockexchange.com/news-article/SHEL/q1-results/123"),
+            SourceKind::Regulatory
         );
         // Transcript carriers hold management's spoken words — Primary too.
         assert_eq!(

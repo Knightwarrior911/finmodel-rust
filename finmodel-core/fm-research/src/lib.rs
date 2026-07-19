@@ -44,7 +44,10 @@ pub use bridge::{
     AssumptionKey, AssumptionUnit, SuggestedAssumption, SuggestionReject,
     validate_suggested_assumption,
 };
-pub use collect::{Candidate, ReadOutcome, apply_read, assemble_ledger, canonicalize_url};
+pub use collect::{
+    Candidate, ReadOutcome, apply_read, assemble_ledger, canonicalize_url,
+    upgrade_company_candidates,
+};
 pub use events::{check_progress_sequence, is_terminal};
 pub use machine::{Action, Input, ResearchBudgets, ResearchMachine, SynthesisReject};
 pub use observe::{ErrorCategory, ResearchMetrics, ResearchTrace, RunOutcome};
@@ -1287,6 +1290,7 @@ mod tests {
         // sample latest FY: revenue 1200, ebitda 360, net_income 240,
         // shares_diluted 100, net_debt 400 (600 debt − 200 cash).
         let q = fm_fetch::Quote {
+            name: None,
             ticker: "X".into(),
             price: 50.0,
             currency: "USD".into(),
@@ -1438,6 +1442,7 @@ mod tests {
 
     fn quote(ticker: &str, price: f64, currency: &str) -> fm_fetch::Quote {
         fm_fetch::Quote {
+            name: None,
             ticker: ticker.into(),
             price,
             currency: currency.into(),

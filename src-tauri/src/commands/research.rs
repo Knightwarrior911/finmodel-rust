@@ -250,6 +250,27 @@ use std::net::ToSocketAddrs;
 /// annual reports, and investor presentations — the exact sources the
 /// primary-first doctrine hunts — are overwhelmingly PDFs, and the HTML
 /// tag-stripper turns them into garbage.
+/// Candidate company-name tokens from the research question: lowercase
+/// alphabetic words ≥4 chars that are not finance stopwords. Used to spot the
+/// company's own website in search hits (see
+/// [`fm_research::upgrade_company_candidates`]).
+fn question_name_tokens(question: &str) -> Vec<String> {
+    const STOP: &[&str] = &[
+        "about", "annual", "call", "china", "company", "comparison",
+        "competition", "earnings", "english", "fashion", "financial",
+        "goods", "growth", "guidance", "impact", "income", "interim",
+        "investor", "latest", "leather", "management", "margin", "press",
+        "presentation", "quarter", "quarterly", "relations", "release",
+        "report", "results", "revenue", "said", "sales", "statement",
+        "tariff", "tariffs", "transcript", "what", "operating",
+    ];
+    question
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .map(|w| w.to_ascii_lowercase())
+        .filter(|w| w.len() >= 4 && !STOP.contains(&w.as_str()))
+        .collect()
+}
+
 fn is_pdf_url(url: &str) -> bool {
     url::Url::parse(url.trim())
         .map(|u| u.path().to_ascii_lowercase().ends_with(".pdf"))
@@ -345,7 +366,20 @@ pub struct HttpBackend {
     /// Deal mode: parsed target/acquirer (empty otherwise).
     pub target: String,
     pub acquirer: String,
+    /// When present, blocked/unreadable sources get ONE retry through the
+    /// user-configured Roam MCP browser — live pages as a human sees them
+    /// (bot walls, consent screens, logged-in views), not a cached copy.
+    /// A closure, NOT a tauri::AppHandle: tauri types here link the full
+    /// windowing runtime into the lib-test binary, whose manifest-less exe
+    /// then fails to load (comctl32-v6 TaskDialogIndirect →
+    /// STATUS_ENTRYPOINT_NOT_FOUND).
+    pub roam: Option<RoamReader>,
 }
+
+/// Reads a live page through the user's configured Roam browser. `None` when
+/// Roam is unconfigured or the read failed.
+pub type RoamReader =
+    std::sync::Arc<dyn Fn(&str, &str) -> Option<fm_fetch::FetchedPage> + Send + Sync>;
 
 /// Render a market quote as a compact, citable excerpt with visible freshness.
 fn render_quote(q: &fm_fetch::Quote, as_of: &str) -> String {
@@ -379,37 +413,88 @@ impl HttpBackend {
             // Comparison takes one filing per ticker; single-company modes take two.
             let filing_limit = if comparison { 1 } else { 2 };
             let mut candidates = Vec::new();
+            let mut edgar_hits = 0usize;
             for t in &tickers {
                 if let Ok(cik) = fm_fetch::edgar::cik_from_ticker(t) {
                     if let Ok(filings) = fm_fetch::edgar::search_filings(&cik, forms, filing_limit)
                     {
+                        edgar_hits += filings.len();
                         candidates.extend(filings.iter().map(fm_research::candidate_from_filing));
                     }
                 }
             }
             // Company-authored sources FIRST (IR + earnings/press releases),
             // then the independent web — the analyst's order of evidence.
-            let subject = tickers.join(" ");
-            let mut web_queries: Vec<String> = vec![
-                format!("{subject} investor relations {question}"),
-                if earnings {
-                    format!("{subject} earnings release shareholder letter")
+            // Exchange-suffixed local tickers (MC.PA, 7203.T) are search noise
+            // (Bing read "MC.PA LVMH…" as Minecraft). Resolve them to the
+            // company's display name via the (cached) quote feed; a question
+            // that only says "MC.PA" still becomes an "LVMH …" query.
+            let mut subject_parts: Vec<String> = Vec::new();
+            let mut question = question.clone();
+            for t in &tickers {
+                if !t.contains('.') {
+                    subject_parts.push(t.clone());
+                    continue;
+                }
+                if let Ok(qt) = fm_fetch::fetch_quote(t) {
+                    if let Some(name) = qt.name.filter(|n| !n.trim().is_empty()) {
+                        // The raw dotted ticker inside the question is noise
+                        // too — swap it for the name everywhere.
+                        question = question.replace(t.as_str(), &name);
+                        subject_parts.push(name);
+                        continue;
+                    }
+                }
+                // No name available: keep the ticker OUT of the queries.
+            }
+            let subject = subject_parts.join(" ");
+            let core = if subject.is_empty() {
+                question.clone()
+            } else {
+                subject.clone()
+            };
+            let with_q = |tail: &str| {
+                if subject.is_empty() {
+                    format!("{question} {tail}")
                 } else {
-                    format!("{subject} press release {question}")
+                    format!("{subject} {question} {tail}")
+                }
+            };
+            let mut web_queries: Vec<String> = vec![
+                with_q("investor relations"),
+                if earnings {
+                    format!("{core} earnings release shareholder letter")
+                } else {
+                    with_q("press release")
                 },
             ];
             if earnings {
                 // What management SAID lives in the call transcript, not the
                 // release. Task-1 PDF ingestion also makes IR transcript PDFs
                 // readable when the search lands on one.
-                web_queries.push(format!("{subject} earnings call transcript"));
+                web_queries.push(format!("{core} earnings call transcript"));
+            }
+            if edgar_hits == 0 {
+                // Non-US issuer (or no EDGAR mapping): the filings live on the
+                // company site and the local exchange/regulator archive — hunt
+                // the primary documents the web way. Large caps keep an
+                // English IR mirror; ask for it explicitly (EDINET/TDnet/HKEX
+                // era pages are localized). PDF ingestion makes the annual
+                // report / presentation results readable.
+                web_queries.push(format!("{core} annual report"));
+                web_queries.push(format!("{core} investor relations english"));
+                web_queries.push(format!("{core} {}", if earnings {
+                    "interim results announcement"
+                } else {
+                    "investor presentation"
+                }));
             }
             web_queries.push(if earnings {
-                format!("{subject} latest quarterly earnings results guidance")
+                format!("{core} latest quarterly earnings results guidance")
             } else if comparison {
                 format!("{} comparison", tickers.join(" vs "))
             } else {
-                format!("{subject} {question}")
+                with_q("").trim().to_string()
             });
             for wq in &web_queries {
                 if let Ok(hits) = fm_fetch::websearch::web_search(wq, per_query) {
@@ -421,6 +506,10 @@ impl HttpBackend {
                     }));
                 }
             }
+            fm_research::upgrade_company_candidates(
+                &mut candidates,
+                &question_name_tokens(&question),
+            );
             // Reserve a quote slot per ticker for comparison, else one snapshot slot.
             let quote_slots = if comparison { tickers.len() } else { 1 };
             let mut ledger = fm_research::assemble_ledger(
@@ -492,7 +581,16 @@ impl ResearchBackend for HttpBackend {
         if q.is_empty() {
             return None;
         }
-        let subject = self.tickers.join(" ");
+        // Exchange-suffixed local tickers (MC.PA, 7203.T) are search NOISE —
+        // Bing read "MC.PA LVMH…" as Minecraft. The question names the company;
+        // only bare US-style tickers help a query.
+        let subject = self
+            .tickers
+            .iter()
+            .filter(|t| !t.contains('.'))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
         let with_subject = |tail: &str| -> String {
             if subject.is_empty() {
                 format!("{q} {tail}")
@@ -575,7 +673,7 @@ impl ResearchBackend for HttpBackend {
                 })
                 .await
                 .unwrap_or_default();
-                let candidates: Vec<fm_research::Candidate> = hits
+                let mut candidates: Vec<fm_research::Candidate> = hits
                     .iter()
                     .map(|h| {
                         fm_research::candidate_from_web_hit(
@@ -584,16 +682,23 @@ impl ResearchBackend for HttpBackend {
                         )
                     })
                     .collect();
+                fm_research::upgrade_company_candidates(
+                    &mut candidates,
+                    &question_name_tokens(&self.question),
+                );
                 fm_research::assemble_ledger(candidates, self.max_sources, 2)
             }
         }
     }
 
     async fn read(&self, ledger: Vec<SourceRecord>) -> Vec<SourceRecord> {
-        // BasicHttp/EDGAR reads run with concurrency 3; order is restored to the
-        // input ledger order (Phase 3.4). MCP is not used on this path.
+        // BasicHttp/EDGAR reads run with concurrency 3; order is restored to
+        // the input ledger order (Phase 3.4). A blocked/unreadable source gets
+        // one retry through the Roam MCP browser when configured — the user's
+        // real browser sees the live page bots are walled from.
         const READ_CONCURRENCY: usize = 3;
         let question = self.question.clone();
+        let roam = self.roam.clone();
         let mut out: Vec<Option<SourceRecord>> = (0..ledger.len()).map(|_| None).collect();
         let mut next = 0usize;
         while next < ledger.len() {
@@ -607,6 +712,7 @@ impl ResearchBackend for HttpBackend {
             let mut handles = Vec::with_capacity(chunk.len());
             for (idx, mut rec) in chunk {
                 let q = question.clone();
+                let roam = roam.clone();
                 handles.push(tauri::async_runtime::spawn_blocking(move || {
                     // A pre-read synthetic source (market quote) passes through.
                     if rec.status == fm_research::research::SourceStatus::Read
@@ -676,6 +782,32 @@ impl ResearchBackend for HttpBackend {
                                 "fetch_error".to_string(),
                             ),
                         },
+                    };
+                    let outcome = match (&roam, outcome.status) {
+                        (
+                            Some(roam),
+                            fm_research::research::SourceStatus::Blocked
+                            | fm_research::research::SourceStatus::Failed,
+                        ) => {
+                            // Live-browser retry: the user's Roam browser reads
+                            // the page a human actually sees. Only for sources
+                            // the plain fetch could not read — never everything.
+                            match roam(&url, &q) {
+                                Some(page)
+                                    if !page.text.trim().is_empty()
+                                        && page.status == fm_fetch::PageStatus::Ok =>
+                                {
+                                    fm_research::read_outcome_from_page(
+                                        &page,
+                                        Some(url.clone()),
+                                        stamp(),
+                                        4000,
+                                    )
+                                }
+                                _ => outcome,
+                            }
+                        }
+                        _ => outcome,
                     };
                     rec.status = outcome.status;
                     rec.final_url = outcome.final_url;
@@ -1315,6 +1447,7 @@ mod plan_tests {
             question: String::new(),
             target: String::new(),
             acquirer: String::new(),
+            roam: None,
         }
     }
 
@@ -1484,6 +1617,7 @@ mod pdf_tests {
             question: "what did management say about tariffs".into(),
             target: String::new(),
             acquirer: String::new(),
+            roam: None,
         };
         let ledger = tauri::async_runtime::block_on(b.search(&[]));
         for s in &ledger {
@@ -1493,6 +1627,40 @@ mod pdf_tests {
             ledger.iter().any(|s| s.kind == SourceKind::Primary
                 && s.canonical_url.to_lowercase().contains("transcript")),
             "no transcript source in the earnings ledger"
+        );
+    }
+
+    /// LIVE (network): a non-US issuer (LVMH, Euronext Paris — no EDGAR
+    /// mapping) still yields company-primary sources: IR pages, annual
+    /// report, presentations. Run:
+    /// cargo test --lib live_international_acquisition -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_international_acquisition() {
+        use crate::commands::research::ResearchBackend as _;
+        use fm_research::research::SourceKind;
+        let b = HttpBackend {
+            max_sources: 10,
+            per_query_results: 6,
+            mode: fm_research::research::ResearchMode::Company,
+            tickers: vec!["MC.PA".into()],
+            filing_forms: vec![],
+            question: "what did MC.PA guide for fiscal 2026 revenue".into(),
+            target: String::new(),
+            acquirer: String::new(),
+            roam: None,
+        };
+        let ledger = tauri::async_runtime::block_on(b.search(&[]));
+        for s in &ledger {
+            println!("  {} [{:?}] {}", s.id, s.kind, s.canonical_url);
+        }
+        assert!(!ledger.is_empty(), "no candidates for a non-US issuer");
+        assert!(
+            ledger.iter().any(|s| matches!(
+                s.kind,
+                SourceKind::Regulatory | SourceKind::Company | SourceKind::Primary
+            ) || s.canonical_url.contains("lvmh")),
+            "no company-primary source for LVMH"
         );
     }
 

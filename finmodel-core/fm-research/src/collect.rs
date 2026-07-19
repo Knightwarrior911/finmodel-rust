@@ -85,6 +85,29 @@ fn is_banned(url: &str) -> bool {
     }
 }
 
+/// Upgrade Secondary candidates whose HOST names the company itself to the
+/// Company tier. A non-US issuer's site rarely wears an "ir." subdomain the
+/// URL classifier can spot (lvmh.com/en, global.toyota) — the company's name
+/// in the hostname is the tell. Tokens shorter than 4 chars are ignored
+/// (ticker soup and stopwords churn out false hosts).
+pub fn upgrade_company_candidates(cands: &mut [Candidate], name_tokens: &[String]) {
+    for c in cands.iter_mut() {
+        if c.kind != SourceKind::Secondary {
+            continue;
+        }
+        let host = url::Url::parse(c.url.trim())
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()));
+        let Some(host) = host else { continue };
+        if name_tokens
+            .iter()
+            .any(|t| t.len() >= 4 && host.contains(t.as_str()))
+        {
+            c.kind = SourceKind::Company;
+        }
+    }
+}
+
 pub fn assemble_ledger(
     candidates: Vec<Candidate>,
     max_sources: u32,
@@ -212,6 +235,26 @@ mod tests {
         let led = assemble_ledger(cands, 10, 10);
         assert_eq!(led.len(), 2);
         assert_eq!(led[0].canonical_url, "https://ex.com/a");
+    }
+
+    #[test]
+    fn company_name_in_host_upgrades_to_company_tier() {
+        let mut cands = vec![
+            cand("https://www.lvmh.com/en", SourceKind::Secondary),
+            cand("https://global.toyota/en/ir/", SourceKind::Secondary),
+            cand("https://randomblog.example/lvmh-take", SourceKind::Secondary),
+            cand("https://reuters.com/lvmh-story", SourceKind::Newswire),
+        ];
+        upgrade_company_candidates(
+            &mut cands,
+            &["lvmh".to_string(), "toyota".to_string()],
+        );
+        assert_eq!(cands[0].kind, SourceKind::Company);
+        assert_eq!(cands[1].kind, SourceKind::Company);
+        // Name in the PATH is not the company's own site.
+        assert_eq!(cands[2].kind, SourceKind::Secondary);
+        // Non-secondary kinds are never touched.
+        assert_eq!(cands[3].kind, SourceKind::Newswire);
     }
 
     #[test]

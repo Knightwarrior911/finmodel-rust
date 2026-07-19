@@ -12,6 +12,19 @@
   management say…" questions hunt the call transcript up front; earnings
   research always adds a transcript query; transcript pages rank as the
   company's own words (issuer-primary) no matter which site carries them.
+- **Non-US companies are first-class.** European and Asian issuers have no
+  EDGAR — research now hunts their annual reports, interim results, investor
+  presentations, and English IR mirrors on the open web, and knows the local
+  disclosure venues (HKEX news, Japan's EDINET/TDnet, London RNS, Euronext,
+  SEDAR+, ASX, SGX, NSE/BSE…) as regulators. Local tickers like MC.PA resolve
+  to the company's real name for search (Bing once read "MC.PA" as
+  Minecraft), and a company's own website is recognized as a company source
+  even without an "ir." subdomain.
+- **Your browser bridges bot walls — when needed.** With a Roam browser
+  configured (Settings → Connections), a research source that comes back
+  blocked or unreadable gets one retry through the real browser — the live
+  page a human sees, not a cached copy. Plain fetch stays the default;
+  the browser is used only when appropriate.
 - **Search survives engine throttling.** DuckDuckGo answers rate limits with
   a disguised challenge page that used to parse as "zero results" and
   silently blind every research run. The searcher now detects the challenge

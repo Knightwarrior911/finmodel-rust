@@ -52,6 +52,13 @@ pub const PRIORITY_DOMAINS: &[&str] = &[
     // Earnings-call transcript carriers (management's words, free full text).
     "fool.com",
     "investing.com",
+    // International disclosure venues (non-US issuers file here, not EDGAR).
+    "hkexnews.hk",
+    "londonstockexchange.com",
+    "euronext.com",
+    "edinet-fsa.go.jp",
+    "sedarplus.ca",
+    "asx.com.au",
 ];
 
 /// M&A keywords; ≥2 present ⇒ text likely covers a deal.

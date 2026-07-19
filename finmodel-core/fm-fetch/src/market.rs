@@ -28,6 +28,11 @@ const QUOTE_HOSTS: [&str; 2] = [
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Quote {
     pub ticker: String,
+    /// Company display name from the quote feed (longName || shortName).
+    /// Lets query builders name a company whose only handle is a local
+    /// exchange ticker ("MC.PA" → "LVMH Moët Hennessy …").
+    #[serde(default)]
+    pub name: Option<String>,
     pub price: f64,
     pub currency: String,
     pub week52_high: Option<f64>,
@@ -139,6 +144,12 @@ pub fn fetch_quote(ticker: &str) -> Result<Quote, FetchError> {
     let (currency, price) = normalize_minor_unit(raw_ccy, price);
     let q = Quote {
         ticker: sym.clone(),
+        name: meta
+            .get("longName")
+            .or_else(|| meta.get("shortName"))
+            .and_then(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
         price,
         currency,
         week52_high: meta

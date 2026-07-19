@@ -872,6 +872,19 @@ fn tool_research(
         question: request.question.clone(),
         target: request.target.clone().unwrap_or_default(),
         acquirer: request.acquirer.clone().unwrap_or_default(),
+        roam: {
+            // Same McpManager path tool_read_page uses (manifest-safe, proven
+            // green at HEAD): one live-browser retry for sources the plain
+            // fetch cannot read — never for everything.
+            let app2 = app.clone();
+            Some(std::sync::Arc::new(move |url: &str, q: &str| {
+                let mgr = app2.state::<crate::commands::mcp::McpManager>();
+                mgr.with_client(&app2, |c| {
+                    fm_research::web::read_page_full(url, Some(q), Some(c))
+                })
+                .and_then(|r| r.ok())
+            }) as crate::commands::research::RoamReader)
+        },
     };
     let synth = OpenRouterSynthesizer {
         api_key,
