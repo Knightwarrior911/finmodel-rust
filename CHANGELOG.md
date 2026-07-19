@@ -2,6 +2,10 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **Engine-computed period variance.** Multi-period financials distill
+  "Revenue change, Q2 2026 vs Q1 2026 (engine-computed): +19.7%" facts -
+  declines keep their sign - so earnings prose states growth from the
+  fact pack instead of doing its own arithmetic.
 - **The write-up offers itself.** After an evidence-gathering turn, a
   quiet dismissible chip suggests the matching memo ("Want the write-up? I
   can draft an earnings note from these figures.") - deal beats comps

@@ -176,6 +176,30 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                         let line = format!("{label} — {}", cells.join("; "));
                         absorb_numbers(&mut ev.numbers, &line);
                         ev.facts.push(line);
+                        // Engine-computed variance between the first two
+                        // periods, so earnings prose can state growth
+                        // without doing (and being rejected for) arithmetic.
+                        let nums: Vec<f64> = vals
+                            .iter()
+                            .take(2)
+                            .filter_map(|v| {
+                                v.as_f64().or_else(|| {
+                                    parse_display_num(v.as_str().unwrap_or(""))
+                                })
+                            })
+                            .collect();
+                        if nums.len() == 2 && nums[1].abs() > f64::EPSILON && periods.len() >= 2 {
+                            let pct = (nums[0] - nums[1]) / nums[1].abs() * 100.0;
+                            let vline = format!(
+                                "{label} change, {} vs {} (engine-computed): {}{:.1}%",
+                                periods[0],
+                                periods[1],
+                                if pct >= 0.0 { "+" } else { "" },
+                                pct
+                            );
+                            absorb_numbers(&mut ev.numbers, &vline);
+                            ev.facts.push(vline);
+                        }
                     } else {
                         let disp = row["display"]
                             .as_str()
@@ -822,6 +846,38 @@ mod tests {
         let md = render_markdown("earnings_note", &ev.company.clone(), "2026-07-19", &[], &ev);
         assert!(md.contains("## Key figures"));
         assert!(md.contains("## Sources"));
+    }
+
+    #[test]
+    fn multi_period_rows_derive_engine_variance() {
+        let card = json!({
+            "type": "financials",
+            "entity": "Tesla, Inc.",
+            "periods": [ { "label": "Q2 2026" }, { "label": "Q1 2026" } ],
+            "rows": [
+                { "label": "Revenue", "values": ["25,500M", "21,300M"] },
+                { "label": "Net income", "values": ["1,390M", "2,703M"] },
+                { "label": "Shares", "values": ["3,210M"] }
+            ]
+        });
+        let ev = collect_evidence(&[card]);
+        let rev = ev
+            .facts
+            .iter()
+            .find(|f| f.starts_with("Revenue change"))
+            .expect("revenue variance fact");
+        assert!(rev.contains("Q2 2026 vs Q1 2026"), "period labels: {rev}");
+        assert!(rev.contains("+19.7%"), "25500 vs 21300 is +19.7%: {rev}");
+        let ni = ev
+            .facts
+            .iter()
+            .find(|f| f.starts_with("Net income change"))
+            .expect("net income variance fact");
+        assert!(ni.contains("-48.6%"), "decline keeps its sign: {ni}");
+        // Single-value rows produce no variance line.
+        assert!(!ev.facts.iter().any(|f| f.starts_with("Shares change")));
+        // Derived percents enter the whitelist for prose reuse.
+        assert!(ev.numbers.contains("19.7"));
     }
 
     #[test]
