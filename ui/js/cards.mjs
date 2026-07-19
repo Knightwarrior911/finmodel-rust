@@ -618,7 +618,7 @@ function renderResearchDigest(card) {
     .map((l) => `<li>${escapeHtml(l)}</li>`)
     .join("");
   const inner = `
-    <div class="card-head"><span class="card-title">Sources I found</span><span class="card-sub">Not summarized yet</span></div>
+    <div class="card-head"><span class="card-title">Sources I found</span><span class="card-sub">Collected before I could finish summarizing</span></div>
     <ul class="hit-list">${rows || '<li class="card-note">No sources yet.</li>'}</ul>
     ${lims ? `<div class="answer-limitations"><ul>${lims}</ul></div>` : ""}`;
   return cardShell("research_digest", inner);

@@ -168,14 +168,27 @@ fn default_depth() -> ResearchDepth {
 }
 
 impl ResearchToolArgs {
-    /// Normalize into a full [`ResearchRequest`], using the ORIGINAL user text as
+    /// Normalize into a full [`ResearchRequest`]. The model's `question` arg is
     /// the question (the model never rewrites it) and the tool's mode/tickers/
     /// depth as hints. Mode-specific fields (target/acquirer/periods/forms) are
     /// left empty for the application to fill from the routed intent / original
     /// user text (never model-supplied parties).
+    /// the question of record: tool-calling exists so the model resolves the
+    /// conversation into a self-contained ask ("yes" after "want me to check
+    /// the 10-Q?" arrives here as a real question, not the literal word "yes" —
+    /// which once sent research off to Yes Bank and the prog-rock band). The
+    /// original user text is the fallback when the model passed nothing.
+    /// Deal parties are still parsed from the user text by the app (never
+    /// trusted from the model).
     pub fn into_request(self, original_user_text: &str) -> ResearchRequest {
+        let model_q = self.question.trim();
+        let question = if model_q.is_empty() {
+            original_user_text.trim().to_string()
+        } else {
+            model_q.to_string()
+        };
         ResearchRequest {
-            question: original_user_text.trim().to_string(),
+            question,
             mode: self.mode,
             tickers: self.tickers,
             periods: Vec::new(),
@@ -522,14 +535,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_args_normalize_uses_original_text_as_question() {
+    fn tool_args_normalize_prefers_model_question() {
         let args: ResearchToolArgs = serde_json::from_str(
-            r#"{"question":"model-rewritten","mode":"company","tickers":["NVDA"],"depth":"deep"}"#,
+            r#"{"question":"NVDA data-center revenue growth drivers","mode":"company","tickers":["NVDA"],"depth":"deep"}"#,
         )
         .unwrap();
-        let req = args.into_request("What is the real user question about NVDA?");
-        // The ORIGINAL user text is the question, never the model's rewrite.
-        assert_eq!(req.question, "What is the real user question about NVDA?");
+        // A follow-up turn's raw text ("yes") carries no searchable content;
+        // the model's context-resolved question is the ask of record.
+        let req = args.into_request("yes");
+        assert_eq!(req.question, "NVDA data-center revenue growth drivers");
         assert_eq!(req.mode, ResearchMode::Company);
         assert_eq!(req.tickers, vec!["NVDA".to_string()]);
         assert_eq!(req.depth, ResearchDepth::Deep);
@@ -545,7 +559,7 @@ mod tests {
         )
         .unwrap();
         let mut req = args.into_request("Intel acquires Mobileye terms");
-        assert_eq!(req.question, "Intel acquires Mobileye terms");
+        assert_eq!(req.question, "rewrite");
         assert_eq!(req.mode, ResearchMode::Deal);
         assert!(req.target.is_none());
         assert!(req.acquirer.is_none());
@@ -554,6 +568,14 @@ mod tests {
         req.target = Some("Mobileye".into());
         req.acquirer = Some("Intel".into());
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn tool_args_empty_question_falls_back_to_user_text() {
+        let args: ResearchToolArgs =
+            serde_json::from_str(r#"{"mode":"web","tickers":[],"depth":"quick"}"#).unwrap();
+        let req = args.into_request("What did Tesla say about tariffs?");
+        assert_eq!(req.question, "What did Tesla say about tariffs?");
     }
 
     #[test]

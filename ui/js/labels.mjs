@@ -261,9 +261,9 @@ export function sourceStatusLabel(status) {
     case "read":
       return "Read";
     case "thin":
-      return "Thin";
+      return "Not much there";
     case "blocked":
-      return "Blocked";
+      return "Site blocked us";
     case "skipped":
       return "Passed over";
     case "error":

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.13 — 2026-07-19 — "Yes" no longer researches Yes Bank
+
+- **Follow-up answers stop becoming search queries.** Replying "yes" to
+  "want me to check the 10-Q?" used to send the literal word "yes" to the
+  research engine — which dutifully returned Yes Bank and the prog-rock band,
+  then burned the whole research window validating them. The research question
+  of record is now the model's context-resolved ask; your raw message is only
+  the fallback when the model passes nothing.
+- **Source statuses speak plainly.** "Thin" → "Not much there";
+  "Blocked" → "Site blocked us"; the digest header and the out-of-time
+  note now say what happened and offer to continue.
+
 ## v0.9.12 — 2026-07-19 — Move-to-project works, filing cards earn their place
 
 - **The move-to-project picker no longer vanishes on click.** Clicking the

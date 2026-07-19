@@ -142,7 +142,7 @@ impl ResearchMachine {
                     self.phase = Phase::Terminal;
                     // Honest digest from whatever was consulted, with a deadline note.
                     return self.finish_digest(
-                        "The research deadline elapsed before a validated answer was produced.",
+                        "I ran out of research time before I could pull a validated answer together — ask me to continue and I'll pick this up.",
                     );
                 }
                 _ => {}
@@ -506,7 +506,7 @@ mod tests {
         m.next(Input::Searched(vec![source("S1", SourceStatus::Read)]));
         match m.next(Input::Deadline) {
             Action::Done(ResearchOutput::Digest(d)) => {
-                assert!(d.limitations[0].contains("deadline"))
+                assert!(d.limitations[0].contains("ran out of research time"))
             }
             a => panic!("expected Done(Digest) on deadline, got {a:?}"),
         }

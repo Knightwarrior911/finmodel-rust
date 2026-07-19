@@ -1086,7 +1086,7 @@ mod tests {
         match terminal {
             Action::Done(ResearchOutput::Digest(d)) => {
                 assert!(
-                    d.limitations.iter().any(|l| l.contains("deadline")),
+                    d.limitations.iter().any(|l| l.contains("ran out of research time")),
                     "expected deadline limitation, got {:?}",
                     d.limitations
                 );

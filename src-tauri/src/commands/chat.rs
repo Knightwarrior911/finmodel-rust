@@ -807,9 +807,10 @@ impl ToolBackend for ChatToolBackend<'_> {
 
 /// The single `research` tool for an **allowed multi-action plan** only
 /// (ordinary native schemas do NOT include it — research is application-invoked).
-/// Normalize the model's hints (mode/tickers/depth) against the ORIGINAL user
-/// text, fill deal parties from that text, run the pipeline, return summary +
-/// card. Cap depth at Quick so the driver wall-clock deadline is 30s.
+/// The model's `query` is the question of record (context-resolved across the
+/// conversation — a bare "yes" follow-up never reaches the search engine); the
+/// raw user text is the fallback and still fills deal parties. Cap depth at
+/// Quick so the driver wall-clock deadline is 30s.
 fn tool_research(
     app: &tauri::AppHandle,
     args: &Value,
@@ -821,8 +822,8 @@ fn tool_research(
 
     // The registry/schema/fallback all use `query` (ecosystem standard), but
     // ResearchToolArgs is deny_unknown_fields with `question`. Translate the
-    // key at this one boundary; into_request overwrites it with the original
-    // user text anyway, so this only satisfies the strict parser.
+    // key at this one boundary; into_request prefers this model-resolved
+    // question and falls back to the raw user text only when it is empty.
     let mut argv = args.clone();
     if let Some(obj) = argv.as_object_mut() {
         if let Some(q) = obj.remove("query") {
