@@ -35,7 +35,12 @@ P0 #1 (PDF) + #2 (transcripts) + international + Roam retry + engine chain:
 P0 #3 DONE (5676a39): formula-fidelity AUDIT PASSED — rendered workbook is
 65% formula-driven (767 formulas / 406 hardcoded; hardcoded = assumption
 inputs + historical actuals, exactly right). Permanent regression gate:
-fm-build/tests/formula_fidelity.rs (fails <30%). No product change needed.
+fm-build/tests/formula_fidelity.rs (fails <30%). Presentation ALSO verified:
+units lines on every sheet (sheets/mod.rs:82 "({currency} in millions,
+unless noted)", Cover, DCF, comps, sources), accounting number formats
+(FMT_NUM parens-negatives/dash-zeros, FMT_PCT, FMT_MULT 0.0x), Sources tab
+fills from source_audit + verification, provenance cell notes, freeze panes.
+No product change needed.
 Next: scheduler wiring (8.2/8.3), run resume, model tiering (P1).
 Gates: app 302 · fm-fetch 50 · fm-research 111+13 · UI 165.
 
