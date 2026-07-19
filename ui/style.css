@@ -2708,6 +2708,12 @@ body {
   color: var(--err);
 }
 
+/* Settings hosts editors (skills, profiles) — editing surfaces get room
+   (DESIGN.md: min ~760px on desktop, never cramped). */
+.modal-card--wide {
+  width: min(780px, 94vw);
+}
+
 /* ── Skills (self-evolution action + editor) ────────────────────── */
 .msg-skill {
   position: absolute;
@@ -2748,4 +2754,53 @@ body {
 }
 .skill-add .btn-ghost {
   margin-top: 6px;
+}
+/* Lifecycle badge: tinted pill, text not color-only */
+.skill-state {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--element);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+/* How often the analyst used this skill — a number, so mono + tabular */
+.skill-uses {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--faint);
+}
+/* Inline SKILL.md editor (opens under its row — no modal-from-modal) */
+.skill-editor {
+  margin: 6px 0 10px;
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--canvas);
+}
+.skill-editor textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ink);
+  font-family: var(--font-num);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+}
+.skill-editor textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.skill-editor-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
 }

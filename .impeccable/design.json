@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-19T07:08:03.680Z",
+  "title": "Design System: finmodel",
+  "extensions": {
+    "colorMeta": {
+      "ledger-indigo": {
+        "role": "primary",
+        "displayName": "Ledger Indigo",
+        "canonical": "#4338ca",
+        "tonalRamp": [
+          "#e7e7fb",
+          "#d8d9f7",
+          "#4338ca",
+          "#3730a3"
+        ]
+      },
+      "paper-white": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#fdfdfc"
+      },
+      "night-ink": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "canonical": "#21222a"
+      }
+    },
+    "typographyMeta": {
+      "data": {
+        "displayName": "Data",
+        "purpose": "Every number, ticker, code span, citation ref. Always tabular-nums."
+      }
+    },
+    "shadows": [
+      {
+        "name": "whisper",
+        "value": "0 1px 2px rgba(33,34,42,0.05)",
+        "purpose": "Inputs, subtle lift."
+      },
+      {
+        "name": "pop",
+        "value": "0 4px 14px rgba(33,34,42,0.10)",
+        "purpose": "Menus, popovers."
+      },
+      {
+        "name": "modal",
+        "value": "0 12px 32px rgba(33,34,42,0.16)",
+        "purpose": "Dialogs only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Default state transitions, 150-250ms."
+      },
+      {
+        "name": "ease-fast",
+        "value": "cubic-bezier(0.33, 1, 0.68, 1)",
+        "purpose": "Micro-feedback."
+      }
+    ],
+    "darkTheme": {
+      "note": "Dark overrides via [data-theme=dark]",
+      "canvas": "#1b1c22",
+      "ink": "#e8e7ee",
+      "accent": "#8b85f1",
+      "hairline": "#33343e"
+    }
+  },
+  "components": [
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Workhorse row action: transparent, quiet hover fill.",
+      "html": "<button class=\"ds-btn-ghost\">Edit</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: var(--ink, #21222a); border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; font: 500 13px \"IBM Plex Sans\", system-ui, sans-serif; cursor: pointer; transition: background 0.15s cubic-bezier(0.33,1,0.68,1); } .ds-btn-ghost:hover { background: var(--element, #efedea); }"
+    },
+    {
+      "name": "List Row",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Memory/skill row: text truncates, trailing ghost actions, hairline divider.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-row-text\"><b>dcf-valuation</b> — intrinsic valuation playbook</span><button class=\"ds-btn-ghost\">Edit</button></div>",
+      "css": ".ds-row { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--hairline, #e7e6e3); font: 400 14px \"IBM Plex Sans\", system-ui, sans-serif; color: #21222a; } .ds-row-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-btn-ghost { background: transparent; color: #21222a; border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; font: 500 13px \"IBM Plex Sans\", system-ui, sans-serif; cursor: pointer; } .ds-btn-ghost:hover { background: #efedea; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Patient Analyst",
+    "overview": "A senior colleague who shows their work: warm-neutral surfaces, one indigo voice for action, hairline structure, numbers in mono. Warmth from clarity and guidance, not decoration.",
+    "keyCharacteristics": [
+      "Warm tinted neutrals, never pure black/white",
+      "One accent (ledger indigo) for action/selection/citation only",
+      "Hairlines at rest; shadows only for true overlays",
+      "Mono + tabular-nums for every number",
+      "Soft, tactile, generously padded components"
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Indigo is the only voice of action.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sacred Number Rule",
+        "body": "Numbers are always mono + tabular.",
+        "section": "typography"
+      },
+      {
+        "name": "The Overlay-Only Rule",
+        "body": "If it doesn't float, it doesn't cast.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do give editing surfaces room (wide dialogs for editors, min 760px desktop)",
+      "Do disclose progressively before adding layers",
+      "Do pair status colors with glyph or word"
+    ],
+    "donts": [
+      "Don't build cramped modal-heavy UI or modal-from-modal",
+      "Don't ship SaaS dashboard tropes (card grids, hero metrics, gradients)",
+      "Don't add consumer fintech gloss",
+      "Don't use side-stripes, gradient text, glassmorphism, or a second accent"
+    ]
+  }
+}

@@ -262,7 +262,8 @@ async function loadSkillsList() {
   try {
     const skills = await call("skills_list");
     if (!skills.length) {
-      el.innerHTML = '<span class="field-hint">No skills yet.</span>';
+      el.innerHTML =
+        '<span class="field-hint">No skills yet. Add one below, or finish a multi-step task in chat and choose "Save as skill".</span>';
       return;
     }
     el.innerHTML = "";
@@ -275,8 +276,80 @@ async function loadSkillsList() {
         s.state && s.state !== "active"
           ? ` <span class="skill-state">(${escapeHtml(s.state)})</span>`
           : "";
-      txt.innerHTML = `<b>${escapeHtml(s.name)}</b>${stateLabel} — ${escapeHtml(s.description)}`;
+      // Surface how often the analyst actually used this skill (lifecycle).
+      const uses =
+        s.use_count > 0
+          ? ` <span class="skill-uses">· used ${Number(s.use_count)}×</span>`
+          : "";
+      txt.innerHTML = `<b>${escapeHtml(s.name)}</b>${stateLabel}${uses} — ${escapeHtml(s.description)}`;
       row.appendChild(txt);
+      // View/edit the full SKILL.md inline (skills_get → skills_save). Saving
+      // under a renamed frontmatter `name` moves the file (old name deleted).
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "btn-ghost";
+      edit.textContent = "Edit";
+      edit.dataset.skillEdit = s.name;
+      edit.addEventListener("click", async () => {
+        const existing = row.nextElementSibling;
+        if (existing && existing.classList.contains("skill-editor")) {
+          existing.remove(); // toggle closed
+          return;
+        }
+        let content = "";
+        try {
+          content = await call("skills_get", { name: s.name });
+        } catch (_) {
+          return;
+        }
+        const box = document.createElement("div");
+        box.className = "skill-editor";
+        const ta = document.createElement("textarea");
+        ta.rows = 14;
+        ta.value = content;
+        ta.setAttribute("aria-label", `Edit skill ${s.name}`);
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "btn-ghost";
+        save.textContent = "Save";
+        save.dataset.skillSave = s.name;
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "btn-ghost";
+        cancel.textContent = "Cancel";
+        const st = document.createElement("span");
+        st.className = "field-hint";
+        cancel.addEventListener("click", () => box.remove());
+        save.addEventListener("click", async () => {
+          const v = ta.value;
+          const m = v.match(/^\s*name:\s*(.+)$/m);
+          const newName = m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+          if (!newName) {
+            st.textContent = "Frontmatter needs a `name:` line.";
+            return;
+          }
+          try {
+            await call("skills_save", { name: newName, content: v });
+            // Rename semantics: a changed frontmatter name moves the skill.
+            if (newName !== s.name) {
+              await call("skills_delete", { name: s.name });
+            }
+            loadSkillsList();
+          } catch (e) {
+            st.textContent = (e && e.message) || "Save failed.";
+          }
+        });
+        const btns = document.createElement("div");
+        btns.className = "skill-editor-btns";
+        btns.appendChild(save);
+        btns.appendChild(cancel);
+        btns.appendChild(st);
+        box.appendChild(ta);
+        box.appendChild(btns);
+        row.after(box);
+        ta.focus();
+      });
+      row.appendChild(edit);
       // Restore a stale/archived skill back into default context (Task 7.2/7.3).
       if (s.state === "stale" || s.state === "archived") {
         const restore = document.createElement("button");

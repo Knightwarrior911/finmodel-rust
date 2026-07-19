@@ -169,3 +169,69 @@ test("skills list surfaces lifecycle state + restore for stale skills (Task 7.2)
   assert.ok(restored, "skill_restore invoked");
   assert.equal(restored.payload.name, "earnings-snapshot");
 });
+
+test("skill Edit opens an inline editor via skills_get and saves via skills_save", async () => {
+  const { ctx } = await bootSettings();
+  const MD =
+    "---\nname: dcf-valuation\ndescription: d\n---\n1. Call build_model.";
+  ctx.invokeHandlers.skills_list = async () => [
+    { name: "dcf-valuation", description: "d", state: "active", use_count: 2 },
+  ];
+  ctx.invokeHandlers.skills_get = async () => MD;
+  ctx.invokeHandlers.skills_save = async () => {};
+  document.dispatchEvent(new window.CustomEvent("open-settings"));
+  await tick();
+  await tick();
+  const list = document.getElementById("skillsList");
+  // Use count is surfaced on the row.
+  assert.match(list.textContent, /used 2×/);
+  const edit = list.querySelector('button[data-skill-edit="dcf-valuation"]');
+  assert.ok(edit, "Edit button present");
+  edit.click();
+  await tick();
+  await tick();
+  const editor = list.querySelector(".skill-editor");
+  assert.ok(editor, "inline editor opened (no second modal)");
+  const ta = editor.querySelector("textarea");
+  assert.equal(ta.value, MD, "prefilled with full SKILL.md via skills_get");
+  // Edit the body and save under the same name.
+  ta.value = MD + "\n2. Sanity-check WACC.";
+  editor.querySelector('button[data-skill-save="dcf-valuation"]').click();
+  await tick();
+  await tick();
+  const saved = ctx.invokeLog.find((c) => c.name === "skills_save");
+  assert.ok(saved, "skills_save invoked");
+  assert.equal(saved.payload.name, "dcf-valuation");
+  assert.match(saved.payload.content, /Sanity-check WACC/);
+  // Same-name save must NOT delete anything.
+  assert.ok(!ctx.invokeLog.find((c) => c.name === "skills_delete"));
+});
+
+test("renaming a skill in the editor saves the new name and deletes the old", async () => {
+  const { ctx } = await bootSettings();
+  ctx.invokeHandlers.skills_list = async () => [
+    { name: "old-name", description: "d", state: "active", use_count: 0 },
+  ];
+  ctx.invokeHandlers.skills_get = async () =>
+    "---\nname: old-name\ndescription: d\n---\nbody";
+  ctx.invokeHandlers.skills_save = async () => {};
+  ctx.invokeHandlers.skills_delete = async () => {};
+  document.dispatchEvent(new window.CustomEvent("open-settings"));
+  await tick();
+  await tick();
+  const list = document.getElementById("skillsList");
+  list.querySelector('button[data-skill-edit="old-name"]').click();
+  await tick();
+  await tick();
+  const editor = list.querySelector(".skill-editor");
+  editor.querySelector("textarea").value =
+    "---\nname: new-name\ndescription: d\n---\nbody";
+  editor.querySelector('button[data-skill-save="old-name"]').click();
+  await tick();
+  await tick();
+  const saved = ctx.invokeLog.find((c) => c.name === "skills_save");
+  assert.equal(saved.payload.name, "new-name", "saved under frontmatter name");
+  const deleted = ctx.invokeLog.find((c) => c.name === "skills_delete");
+  assert.ok(deleted, "old file removed on rename");
+  assert.equal(deleted.payload.name, "old-name");
+});
