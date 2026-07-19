@@ -1,5 +1,19 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.12 SHIPPED + LIVE (2026-07-19) — move-picker fix + humane filing cards
+**Tagged `v0.9.12`; Latest on finmodel-releases; CI green; endpoint verified
+(0.9.12, sig 420 clean, installer 200, digest match).**
+- Move picker bug: the <select> click bubbled past the .conv-move branch to the
+  .conv-row branch → onSelect loaded the chat → sidebar re-render destroyed the
+  open picker ("flicker and it's gone"). Guard at top of the convList click
+  handler: closest(".conv-move-sel") → stopPropagation + return.
+- filing_doc cards: read_filing (chat.rs) now ships "preview" (240-char
+  whitespace-collapsed excerpt head, word-boundary cut). UI: form-aware
+  filingFormLabel/filingItemLabel in labels.mjs (8-K sub-items resolve on major
+  number); section reads show "Read Item N · Name" + quoted preview, whole-doc
+  opens show named chips; char counts gone. CSS .filing-read-line/.filing-preview.
+Gates: UI 159 · app-lib 297.
+
 ## HANDOVER — v0.9.11 SHIPPED + LIVE (2026-07-19) — agentic doctrine: work until done
 **Tagged `v0.9.11` on master; released to public finmodel-releases (Latest =
 v0.9.11).** CI green; signed NSIS published; endpoint verified (latest.json
