@@ -1716,6 +1716,54 @@ mod pdf_tests {
         );
     }
 
+    /// LIVE (network): the EXACT failing user case (Veoneer/Magna 2021
+    /// synergies) — the ledger must never again contain careers boards,
+    /// LinkedIn, or employer-review sites. Run:
+    /// cargo test --lib live_no_careers_pages -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_no_careers_pages() {
+        use crate::commands::research::ResearchBackend as _;
+        let b = HttpBackend {
+            max_sources: 10,
+            per_query_results: 6,
+            mode: fm_research::research::ResearchMode::Web,
+            tickers: vec![],
+            filing_forms: vec![],
+            question: "Veoneer Magna M&A transaction July 2021 cost synergies announced".into(),
+            target: String::new(),
+            acquirer: String::new(),
+            roam: None,
+        };
+        let r = ResearchRequest {
+            question: b.question.clone(),
+            mode: fm_research::research::ResearchMode::Web,
+            tickers: vec![],
+            periods: vec![],
+            filing_forms: vec![],
+            target: None,
+            acquirer: None,
+            depth: fm_research::research::ResearchDepth::Standard,
+        };
+        let plan = tauri::async_runtime::block_on(b.plan(&r)).expect("plan");
+        let ledger = tauri::async_runtime::block_on(b.search(&plan.queries));
+        for s in &ledger {
+            println!("  {} [{:?}] {}", s.id, s.kind, s.canonical_url);
+        }
+        assert!(!ledger.is_empty(), "no candidates");
+        const BANNED: &[&str] = &[
+            "teamtailor", "linkedin", "ambitionbox", "glassdoor", "indeed",
+            "greenhouse", "lever.co", "/jobs", "/careers",
+        ];
+        for s in &ledger {
+            let u = s.canonical_url.to_lowercase();
+            assert!(
+                !BANNED.iter().any(|b| u.contains(b)),
+                "banned source leaked into the ledger: {u}"
+            );
+        }
+    }
+
     /// LIVE (network): a real public PDF through the full fetch→extract→excerpt
     /// path. Run: cargo test --lib live_pdf_read -- --ignored --nocapture
     #[test]
