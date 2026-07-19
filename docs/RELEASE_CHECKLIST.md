@@ -164,6 +164,17 @@ Produces under `src-tauri/target/release/bundle/nsis/`:
 ```
 `version` MUST be greater (semver) than the installed build or clients won't offer it.
 
+> **Signature newline pitfall (bit us in v0.9.10).** The `.sig` file ends with a
+> trailing newline. If it is pasted or shell-substituted verbatim (``
+> preserves inner newlines when quoted; naive scripts append \n), the client
+> updater fails with `Invalid symbol 10, offset 420` at install time — AFTER
+> download, on every machine. Strip it when building `latest.json`:
+> `node -e "...readFileSync(sig,'utf8').replace(/[\r\n]+$/,'')"` (or `tr -d '\r\n'`).
+> Verify BEFORE publishing: the signature string must be exactly 420 chars ending
+> in `=` with no embedded/trailing newline. Also note: replacing a release asset
+> does NOT reliably bust GitHub's download CDN — verify the served bytes changed
+> (step 7), and if stale, re-upload with changed content (different byte size).
+
 ### Client behavior
 - On launch the app silently checks the endpoint; if a newer signed build exists it
   shows a "Restart & update" banner. Settings → "Check now" forces a check.
