@@ -1,5 +1,30 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.11 SHIPPED + LIVE (2026-07-19) — agentic doctrine: work until done
+**Tagged `v0.9.11` on master; released to public finmodel-releases (Latest =
+v0.9.11).** CI green; signed NSIS published; endpoint verified (latest.json
+serves 0.9.11, sig 420 chars/no newline, installer 200, digest match).
+
+The product doctrine changed: budgets are RUNAWAY GUARDS, not work quotas.
+- fm-agent budget.rs: INTERACTIVE 200 rounds / 4M tokens / 1h / 8 children;
+  WORKFLOW 1000 rounds / 20M tokens / 8h / 32 children. (A round is charged on
+  BOTH ModelResponded and ToolsCompleted — old "10 rounds" was ~5 tool cycles;
+  that starved a simple two-topic filing question on 2026-07-19.)
+- Grace pass is real now: budget_stop → Action::Synthesize; the actor calls the
+  new Driver::wrap_up() (default no-op) when machine.in_budget_grace(); the
+  LiveDriver impl makes ONE no-tools streamed model call over gathered evidence
+  and sets last_content before synthesize() persists. Previously synthesize()
+  persisted stale prose — a run stopped right after tool results ended with
+  "ask me to continue" and no answer.
+- select_workflow: targeted lookups ("say anything", "mention", "discuss",
+  "comment on"…) return None and stay interactive instead of escalating to a
+  five-deliverable workflow.
+- v0.9.10 postscript: its published latest.json carried a trailing newline in
+  the signature → client "Invalid symbol 10, offset 420" at install. Fixed
+  in-place (asset replaced; GitHub download CDN needed a byte-size change to
+  bust). Checklist now documents the pitfall.
+Gates: fm-agent 50 · app-lib 297 · UI 154. Release ritual: docs/RELEASE_CHECKLIST.md.
+
 ## HANDOVER — v0.9.10 SHIPPED + LIVE (2026-07-19) — warm-colleague UI polish + Grok-like cites
 **Tagged `v0.9.10` on master (finmodel-rust); released to public finmodel-releases
 (Latest = v0.9.10).** CI green. Signed NSIS published; updater endpoint verified
