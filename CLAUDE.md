@@ -1,5 +1,22 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.13 SHIPPED + LIVE (2026-07-19) — context-resolved research questions
+**Tagged `v0.9.13`; Latest on finmodel-releases; CI green; endpoint verified
+(0.9.13, sig 420 clean, installer 200, digest match).**
+- Root cause: ResearchToolArgs::into_request HARD-OVERWROTE the question with
+  the raw user message. A "yes" reply to "want me to check the 10-Q?" became
+  the literal research query → Yes Bank / Yes (band) / yesofficial YouTube,
+  full deadline burned validating garbage.
+- Fix (fm-research/research.rs): the model's `question` arg is the question
+  of record (tool calling = context resolution); raw user text is the fallback
+  when empty. Deal parties still parsed from user text (parse_ma_query,
+  never model-trusted). Stale comments in chat.rs tool_research updated.
+- Copy: sourceStatusLabel Thin→"Not much there", Blocked→"Site blocked us";
+  digest sub "Collected before I could finish summarizing"; fm-research
+  deadline limitation offers to continue (assertions updated in fm-research
+  machine.rs + src-tauri commands/research.rs).
+Gates: fm-research 109 + eval 13 · app-lib 297 · UI 159.
+
 ## HANDOVER — v0.9.12 SHIPPED + LIVE (2026-07-19) — move-picker fix + humane filing cards
 **Tagged `v0.9.12`; Latest on finmodel-releases; CI green; endpoint verified
 (0.9.12, sig 420 clean, installer 200, digest match).**
