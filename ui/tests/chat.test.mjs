@@ -129,3 +129,45 @@ test("pause surfaces a Resume affordance that relaunches via agent_resume", asyn
   });
   await tick();
 });
+
+test("a follow-up promise surfaces an approval-gated schedule offer", async () => {
+  const { ctx } = await bootChat();
+  let created = null;
+  ctx.invokeHandlers.agent_send = async () => ({
+    conversation_id: "c9",
+    run_id: "run-9",
+    commitment: { text: "Re-run this after the next earnings release.", due: "after_next_earnings" },
+  });
+  ctx.invokeHandlers.schedule_create = async (args) => {
+    created = args;
+    return { id: "sch-1", next_due: "2026-08-23T00:00:00Z" };
+  };
+
+  document.getElementById("chatInput").value =
+    "Re-run this after the next earnings release.";
+  document.getElementById("chatSend").click();
+  await tick();
+  await tick();
+
+  const offer = document.querySelector(".schedule-offer");
+  assert.ok(offer, "offer rendered");
+  assert.match(offer.textContent, /come back to this/);
+  assert.match(offer.textContent, /about five weeks/);
+
+  // Nothing is scheduled until the user says yes.
+  assert.equal(created, null, "no silent scheduling");
+  offer.querySelector(".schedule-yes").click();
+  await tick();
+  assert.ok(created, "approval creates the schedule");
+  assert.equal(created.prompt, "Re-run this after the next earnings release.");
+  assert.equal(created.due, "after_next_earnings");
+  assert.match(offer.textContent, /Scheduled/);
+
+  // End the run so the harness doesn't leak a streaming state.
+  ctx.emit("agent_event", {
+    run_id: "run-9",
+    conversation_id: "c9",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+});

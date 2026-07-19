@@ -310,6 +310,38 @@ pub async fn agent_send(
     project_id: Option<String>,
     text: String,
 ) -> AppResult<String> {
+    use serde_json::json;
+    // A follow-up promise in the user's text becomes a PROPOSED schedule —
+    // surfaced to the UI for explicit approval, never scheduled silently
+    // (Task 8.2 precision doctrine).
+    let commitment = crate::agent::commitments::extract_commitment(&text);
+    let (conv_id, run_id) = send_message_inner(
+        app,
+        (*registry).clone(),
+        conversation_id,
+        workspace_id,
+        project_id,
+        text,
+    )
+    .await?;
+    let mut out = json!({ "conversation_id": conv_id, "run_id": run_id });
+    if let Some(c) = commitment {
+        out["commitment"] = json!({ "text": c.text, "due": c.due_semantics });
+    }
+    Ok(out.to_string())
+}
+
+/// The shared send path: creates the conversation/message/run rows and spawns
+/// the run. Used by the `agent_send` command and the schedule tick (which has
+/// no `State` wrapper).
+pub(crate) async fn send_message_inner(
+    app: tauri::AppHandle,
+    registry: ActorRegistry,
+    conversation_id: Option<String>,
+    workspace_id: Option<String>,
+    project_id: Option<String>,
+    text: String,
+) -> AppResult<(String, String)> {
     use crate::commands::settings::read_settings;
     use fm_agent::budget::Policy;
     use serde_json::json;
@@ -413,7 +445,7 @@ pub async fn agent_send(
 
     launch_run(LaunchSpec {
         app: app.clone(),
-        registry: (*registry).clone(),
+        registry,
         handle: handle.clone(),
         conversation_id: conv_id.clone(),
         run_id: run_id.clone(),
@@ -426,11 +458,181 @@ pub async fn agent_send(
     })
     .await?;
 
-    Ok(json!({
-        "conversation_id": conv_id,
-        "run_id": run_id,
-    })
-    .to_string())
+    Ok((conv_id, run_id))
+}
+
+/// ── Scheduled follow-through (Tasks 8.2/8.3, now LIVE) ────────────────────
+
+/// ISO timestamp `secs` seconds from now (UTC).
+fn iso_in_secs(secs: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    crate::store::iso_from_epoch(now + secs)
+}
+
+/// Map coarse due semantics from commitment extraction to a concrete due time.
+/// Deliberately approximate for event-anchored phrases (a calendar service can
+/// tighten these later); the UI labels them honestly.
+pub(crate) fn due_semantics_to_secs(due: Option<&str>) -> i64 {
+    const DAY: i64 = 86_400;
+    match due {
+        Some("tomorrow") => DAY,
+        Some("next_week") => 7 * DAY,
+        Some("next_quarter") => 90 * DAY,
+        Some("after_next_earnings") => 35 * DAY,
+        _ => 7 * DAY,
+    }
+}
+
+/// Create a user-approved schedule. `due` carries the commitment's coarse
+/// semantics; `recurrence` is `none | daily | weekly`.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn schedule_create(
+    app: tauri::AppHandle,
+    conversation_id: Option<String>,
+    prompt: String,
+    due: Option<String>,
+    recurrence: Option<String>,
+) -> AppResult<String> {
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(AppError::Config("empty schedule prompt".into()));
+    }
+    let rec = recurrence
+        .filter(|r| r == "daily" || r == "weekly")
+        .map(|r| r.to_string());
+    let next_due = iso_in_secs(due_semantics_to_secs(due.as_deref()));
+    let id = new_id();
+    let handle = store(&app)?.handle.clone();
+    let sid = id.clone();
+    let conv = conversation_id.filter(|c| !c.trim().is_empty());
+    let nd = next_due.clone();
+    let scope = serde_json::json!({ "prompt": prompt }).to_string();
+    handle
+        .call(move |db| -> Result<(), String> {
+            db.insert_schedule(
+                &sid,
+                None,
+                conv.as_deref(),
+                "UTC",
+                rec.as_deref(),
+                &nd,
+                &scope,
+                None,
+                None,
+                &crate::store::now_iso(),
+            )
+            .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(AppError::Engine)?;
+    Ok(serde_json::json!({ "id": id, "next_due": next_due }).to_string())
+}
+
+/// All non-cancelled schedules, soonest first.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn schedules_list(app: tauri::AppHandle) -> AppResult<String> {
+    let handle = store(&app)?.handle.clone();
+    let rows = handle
+        .call(|db| db.list_schedules().map_err(|e| e.to_string()))
+        .await
+        .map_err(AppError::Engine)?;
+    Ok(serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into()))
+}
+
+/// Cancel a schedule (user said stop).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn schedule_cancel(app: tauri::AppHandle, id: String) -> AppResult<bool> {
+    let handle = store(&app)?.handle.clone();
+    handle
+        .call(move |db| db.cancel_schedule(&id).map_err(|e| e.to_string()))
+        .await
+        .map_err(AppError::Engine)?;
+    Ok(true)
+}
+
+/// One scheduler sweep: claim every due schedule and launch its run. Recurring
+/// schedules re-arm for the next occurrence; one-shots finish; a failed launch
+/// retries with backoff up to 5 attempts. Called by the 60s tick in lib.rs.
+pub async fn run_due_schedules(app: &tauri::AppHandle) {
+    let Ok(app_store) = store(app) else { return };
+    let handle = app_store.handle.clone();
+    let registry = {
+        use tauri::Manager;
+        app.state::<ActorRegistry>().inner().clone()
+    };
+    loop {
+        let now = crate::store::now_iso();
+        let claimed = handle
+            .call(move |db| db.claim_due_schedule(&now, "tick").map_err(|e| e.to_string()))
+            .await;
+        let Ok(Some(id)) = claimed else { break };
+        let sid = id.clone();
+        let row = handle
+            .call(move |db| db.get_schedule(&sid).map_err(|e| e.to_string()))
+            .await;
+        let Ok(Some(row)) = row else {
+            let sid = id.clone();
+            let retry = iso_in_secs(15 * 60);
+            let _ = handle
+                .call(move |db| db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string()))
+                .await;
+            continue;
+        };
+        let prompt = serde_json::from_str::<serde_json::Value>(&row.scope_json)
+            .ok()
+            .and_then(|v| v["prompt"].as_str().map(str::to_string))
+            .unwrap_or_default();
+        if prompt.is_empty() {
+            let sid = id.clone();
+            let _ = handle
+                .call(move |db| db.finish_schedule(&sid, "empty_scope", &crate::store::now_iso()).map_err(|e| e.to_string()))
+                .await;
+            continue;
+        }
+        let launched = send_message_inner(
+            app.clone(),
+            registry.clone(),
+            row.conversation_id.clone(),
+            None,
+            None,
+            prompt,
+        )
+        .await;
+        let sid = id.clone();
+        match launched {
+            Ok(_) => match row.recurrence.as_deref() {
+                Some("daily") => {
+                    let nd = iso_in_secs(86_400);
+                    let _ = handle
+                        .call(move |db| db.rearm_schedule(&sid, &nd).map_err(|e| e.to_string()))
+                        .await;
+                }
+                Some("weekly") => {
+                    let nd = iso_in_secs(7 * 86_400);
+                    let _ = handle
+                        .call(move |db| db.rearm_schedule(&sid, &nd).map_err(|e| e.to_string()))
+                        .await;
+                }
+                _ => {
+                    let _ = handle
+                        .call(move |db| {
+                            db.finish_schedule(&sid, "launched", &crate::store::now_iso())
+                                .map_err(|e| e.to_string())
+                        })
+                        .await;
+                }
+            },
+            Err(_) => {
+                let retry = iso_in_secs(15 * 60);
+                let _ = handle
+                    .call(move |db| db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string()))
+                    .await;
+            }
+        }
+    }
 }
 
 /// Resolve a parked approval for a run (Approve once / Deny / Create new

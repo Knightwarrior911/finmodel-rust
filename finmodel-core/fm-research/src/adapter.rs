@@ -124,6 +124,7 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
 /// URL and tagging the originating backend.
 pub fn candidate_from_web_hit(hit: &WebHit, backend: SourceBackend) -> Candidate {
     Candidate {
+        pinned: false,
         url: hit.url.clone(),
         title: hit.title.clone(),
         kind: classify_source_kind(&hit.url),
@@ -149,6 +150,7 @@ pub fn candidate_from_filing(f: &fm_fetch::edgar::Filing) -> Candidate {
         ),
         kind: SourceKind::Regulatory,
         backend: SourceBackend::BasicHttp,
+        pinned: false,
         snippet: Some(format!(
             "Form {} · filed {} · accession {}",
             f.form_type, f.filing_date, f.accession_number

@@ -129,3 +129,12 @@ test("filingItemLabel is form-aware and survives sub-items", () => {
   // Unknown items keep the plain form.
   assert.equal(filingItemLabel("10-K", "42"), "Item 42");
 });
+
+import { scheduleDueLabel } from "../js/labels.mjs";
+
+test("scheduleDueLabel speaks plainly and is honest about approximation", () => {
+  assert.equal(scheduleDueLabel("tomorrow"), "tomorrow");
+  assert.equal(scheduleDueLabel("next_week"), "in a week");
+  assert.match(scheduleDueLabel("after_next_earnings"), /about five weeks/);
+  assert.match(scheduleDueLabel(null), /about a week/);
+});

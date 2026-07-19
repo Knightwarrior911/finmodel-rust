@@ -214,3 +214,16 @@ pub struct MigrationReport {
     /// Path of the ACL-protected timestamped JSON backup, if one was made.
     pub backup_dir: Option<String>,
 }
+
+/// One scheduled follow-through (Task 8.3), as surfaced to the UI and the tick.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ScheduleRow {
+    pub id: String,
+    pub conversation_id: Option<String>,
+    pub recurrence: Option<String>,
+    pub next_due: String,
+    /// JSON scope; `{"prompt": …}` for user-approved follow-ups.
+    pub scope_json: String,
+    pub status: String,
+    pub last_outcome: Option<String>,
+}

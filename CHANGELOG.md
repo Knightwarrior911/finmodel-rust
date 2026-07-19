@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.9.17 — 2026-07-19 — Scheduled follow-ups, private companies, and your URL as truth
+
+- **The analyst comes back on its own.** Say "re-run this after the next
+  earnings release" or "remind me next week" and finmodel offers to schedule
+  it — one click, and a background tick re-runs the work when it's due and
+  drops the update in the same chat. Recurring (daily/weekly) supported;
+  nothing is ever scheduled without your explicit yes; failed launches retry
+  with backoff.
+- **Private companies are first-class.** No ticker, no filings — the analyst
+  researches by name: the company's website, news, and the open web, with the
+  same citation discipline. Public-company tooling is never assumed.
+- **Your URL is the source of truth.** Paste a website into your question and
+  it is read first and pinned to the top of the source ledger — ahead of
+  every heuristic tier, including regulators. (Banned domains stay banned,
+  even pinned.)
+- **Grounding is absolute.** The analyst's standing orders now spell it out:
+  no company fact may come from training memory — every number, date,
+  product, or person must trace to a source fetched in this conversation,
+  and "I couldn't verify X in the sources I reached" replaces guessing.
+
 ## v0.9.16 — 2026-07-19 — Research reads PDFs, finds transcripts, and never goes blind
 
 - **PDFs are now readable evidence.** Investor presentations, annual reports,

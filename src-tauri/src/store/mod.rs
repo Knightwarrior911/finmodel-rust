@@ -1121,6 +1121,73 @@ impl Db {
         Ok((attempts, terminal))
     }
 
+    /// All non-cancelled schedules, soonest due first (UI list + boot sweep).
+    pub fn list_schedules(&self) -> StoreResult<Vec<crate::store::models::ScheduleRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, recurrence, next_due, scope_json, status, last_outcome
+             FROM schedules WHERE status != 'cancelled' ORDER BY next_due",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(crate::store::models::ScheduleRow {
+                    id: r.get(0)?,
+                    conversation_id: r.get(1)?,
+                    recurrence: r.get(2)?,
+                    next_due: r.get(3)?,
+                    scope_json: r.get(4)?,
+                    status: r.get(5)?,
+                    last_outcome: r.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// One schedule by id (the tick reads the claimed row's scope).
+    pub fn get_schedule(
+        &self,
+        id: &str,
+    ) -> StoreResult<Option<crate::store::models::ScheduleRow>> {
+        self.conn
+            .query_row(
+                "SELECT id, conversation_id, recurrence, next_due, scope_json, status, last_outcome
+                 FROM schedules WHERE id=?1",
+                params![id],
+                |r| {
+                    Ok(crate::store::models::ScheduleRow {
+                        id: r.get(0)?,
+                        conversation_id: r.get(1)?,
+                        recurrence: r.get(2)?,
+                        next_due: r.get(3)?,
+                        scope_json: r.get(4)?,
+                        status: r.get(5)?,
+                        last_outcome: r.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Cancel a pending schedule (user said stop). Claimed/running rows finish
+    /// their in-flight attempt; they simply never re-arm.
+    pub fn cancel_schedule(&self, id: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE schedules SET status='cancelled', claim_owner=NULL, claimed_at=NULL WHERE id=?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Re-arm a claimed recurring schedule for its next occurrence.
+    pub fn rearm_schedule(&self, id: &str, next_due: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE schedules SET status='pending', next_due=?1, claim_owner=NULL, claimed_at=NULL, last_outcome='launched' WHERE id=?2",
+            params![next_due, id],
+        )?;
+        Ok(())
+    }
+
     /// A schedule's `(status, attempts, last_outcome)` for inspection/tests.
     pub fn schedule_state(&self, id: &str) -> StoreResult<Option<(String, i64, Option<String>)>> {
         self.conn
@@ -1670,6 +1737,11 @@ pub fn iso_seconds_ago(secs: i64) -> String {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     iso_utc(now - secs)
+}
+
+/// ISO-8601 UTC timestamp for a unix epoch (schedule due-time arithmetic).
+pub fn iso_from_epoch(secs: i64) -> String {
+    iso_utc(secs)
 }
 
 fn iso_utc(secs: i64) -> String {

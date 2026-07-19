@@ -26,6 +26,10 @@ pub struct Candidate {
     pub kind: SourceKind,
     pub backend: SourceBackend,
     pub snippet: Option<String>,
+    /// User-designated source of truth (the user pasted this URL): ranks
+    /// ahead of everything, including regulators. The user's word outranks
+    /// the tier heuristic.
+    pub pinned: bool,
 }
 
 /// Canonicalize a URL for dedupe: lowercase scheme+host, drop userinfo, port
@@ -133,8 +137,9 @@ pub fn assemble_ledger(
         deduped.push((c, canon, domain));
     }
 
-    // 2. Stable rank: regulatory/company/primary, then newswire, then secondary.
-    deduped.sort_by_key(|(c, _, _)| c.kind.rank());
+    // 2. Stable rank: user-pinned sources first, then regulatory/company/
+    // primary, then newswire, then secondary.
+    deduped.sort_by_key(|(c, _, _)| (!c.pinned, c.kind.rank()));
 
     // 3. Per-domain cap, then the overall source budget.
     let mut per_domain: HashMap<String, u32> = HashMap::new();
@@ -204,6 +209,7 @@ mod tests {
 
     fn cand(url: &str, kind: SourceKind) -> Candidate {
         Candidate {
+            pinned: false,
             url: url.into(),
             title: url.into(),
             kind,
@@ -255,6 +261,21 @@ mod tests {
         assert_eq!(cands[2].kind, SourceKind::Secondary);
         // Non-secondary kinds are never touched.
         assert_eq!(cands[3].kind, SourceKind::Newswire);
+    }
+
+    #[test]
+    fn pinned_source_outranks_even_the_regulator() {
+        let mut pinned = cand("https://example-company.com/about", SourceKind::Company);
+        pinned.pinned = true;
+        let cands = vec![
+            cand("https://sec.gov/filing", SourceKind::Regulatory),
+            pinned,
+            cand("https://reuters.com/story", SourceKind::Newswire),
+        ];
+        let led = assemble_ledger(cands, 10, 10);
+        assert_eq!(led[0].id, "S1");
+        assert!(led[0].canonical_url.contains("example-company.com"));
+        assert!(led[1].canonical_url.contains("sec.gov"));
     }
 
     #[test]

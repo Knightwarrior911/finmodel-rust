@@ -3307,3 +3307,28 @@ body {
   padding-top: 10px;
   margin: 6px 0 0;
 }
+
+/* Schedule offer — approval-gated follow-up proposal */
+.schedule-offer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  animation: soft-in var(--dur) var(--ease) both;
+}
+.schedule-offer-text {
+  font-size: 13.5px;
+  color: var(--text);
+  flex: 1;
+  min-width: 220px;
+}
+.schedule-offer-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}

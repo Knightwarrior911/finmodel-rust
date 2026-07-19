@@ -125,6 +125,19 @@ pub fn run() {
                     }
                 });
             }
+            // Scheduler tick (Task 8.3, live): every 60s, claim due schedules
+            // and launch their runs. First sweep after a short boot delay so
+            // store/registry state is managed before any launch.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                    loop {
+                        commands::agent::run_due_schedules(&handle).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(commands::handler())

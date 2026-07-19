@@ -948,3 +948,43 @@ fn memory_edit_updates_content() {
     // Unknown id matches no row.
     assert!(!db.update_memory_value(9999, "x", NOW).unwrap());
 }
+
+#[test]
+fn schedule_lifecycle_list_cancel_rearm() {
+    let td = TempDir::new("sched");
+    let db = mem_db(&td);
+    let now = "2026-07-19T10:00:00Z";
+    db.insert_schedule(
+        "sch1", None, None, "UTC", Some("daily"),
+        "2026-07-19T09:00:00Z", r#"{"prompt":"morning brief"}"#, None, None, now,
+    )
+    .unwrap();
+    db.insert_schedule(
+        "sch2", None, None, "UTC", None,
+        "2026-07-20T09:00:00Z", r#"{"prompt":"one shot"}"#, None, None, now,
+    )
+    .unwrap();
+
+    let rows = db.list_schedules().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].id, "sch1", "soonest due first");
+    assert_eq!(rows[0].recurrence.as_deref(), Some("daily"));
+
+    // Claim the due one; re-arm it for tomorrow (recurring).
+    let claimed = db.claim_due_schedule(now, "tick").unwrap();
+    assert_eq!(claimed.as_deref(), Some("sch1"));
+    db.rearm_schedule("sch1", "2026-07-20T09:00:00Z").unwrap();
+    let st = db.schedule_state("sch1").unwrap().unwrap();
+    assert_eq!(st.0, "pending");
+    // Re-armed row is claimable again at its NEW due time, not before.
+    assert_eq!(db.claim_due_schedule(now, "tick").unwrap(), None);
+
+    // Cancel removes it from the list and from claiming.
+    db.cancel_schedule("sch1").unwrap();
+    db.cancel_schedule("sch2").unwrap();
+    assert!(db.list_schedules().unwrap().is_empty());
+    assert_eq!(
+        db.claim_due_schedule("2026-07-21T00:00:00Z", "tick").unwrap(),
+        None
+    );
+}

@@ -271,6 +271,29 @@ fn question_name_tokens(question: &str) -> Vec<String> {
         .collect()
 }
 
+/// User-pasted URLs in the research question become PINNED candidates —
+/// the user said "use this as the source of truth", so it outranks every
+/// heuristic tier (kind still classified honestly for the label). Capped at
+/// three; trailing punctuation stripped; banned domains still excluded by
+/// the ledger assembler.
+fn pinned_candidates(question: &str) -> Vec<fm_research::Candidate> {
+    question
+        .split_whitespace()
+        .filter(|w| w.starts_with("http://") || w.starts_with("https://"))
+        .map(|w| w.trim_end_matches(['.', ',', ')', ']', ';', '\'', '"']))
+        .filter(|w| url::Url::parse(w).is_ok())
+        .take(3)
+        .map(|u| fm_research::Candidate {
+            pinned: true,
+            url: u.to_string(),
+            title: String::new(),
+            kind: fm_research::classify_source_kind(u),
+            backend: fm_research::SourceBackend::BasicHttp,
+            snippet: None,
+        })
+        .collect()
+}
+
 fn is_pdf_url(url: &str) -> bool {
     url::Url::parse(url.trim())
         .map(|u| u.path().to_ascii_lowercase().ends_with(".pdf"))
@@ -506,6 +529,10 @@ impl HttpBackend {
                     }));
                 }
             }
+            // The user's own URLs lead the ledger.
+            let mut seeded = pinned_candidates(&question);
+            seeded.append(&mut candidates);
+            let mut candidates = seeded;
             fm_research::upgrade_company_candidates(
                 &mut candidates,
                 &question_name_tokens(&question),
@@ -682,6 +709,10 @@ impl ResearchBackend for HttpBackend {
                         )
                     })
                     .collect();
+                // The user's own URLs lead the ledger.
+                let mut seeded = pinned_candidates(&self.question);
+                seeded.append(&mut candidates);
+                let mut candidates = seeded;
                 fm_research::upgrade_company_candidates(
                     &mut candidates,
                     &question_name_tokens(&self.question),
@@ -1516,6 +1547,27 @@ mod plan_tests {
             println!("  {} [{:?}/{:?}] {}", s.id, s.kind, s.status, s.canonical_url);
         }
         assert!(ok >= 1, "at least one source must be readable");
+    }
+
+    #[test]
+    fn user_urls_become_pinned_candidates() {
+        let c = pinned_candidates(
+            "give me an overview of https://www.acme-widgets.example/about, and compare with https://en.wikipedia.org/wiki/Acme.",
+        );
+        // Both extracted (wikipedia is dropped later by the ledger ban, not here);
+        // trailing punctuation stripped; pinned set; kind honestly classified.
+        assert_eq!(c.len(), 2);
+        assert!(c[0].pinned);
+        assert_eq!(c[0].url, "https://www.acme-widgets.example/about");
+        assert_eq!(c[1].url, "https://en.wikipedia.org/wiki/Acme");
+        assert!(pinned_candidates("no links here").is_empty());
+    }
+
+    #[test]
+    fn pinned_wikipedia_still_never_enters_the_ledger() {
+        let cands = pinned_candidates("use https://en.wikipedia.org/wiki/Acme as truth");
+        let led = fm_research::assemble_ledger(cands, 10, 10);
+        assert!(led.is_empty(), "the wikipedia ban outranks even a pin");
     }
 
     #[test]

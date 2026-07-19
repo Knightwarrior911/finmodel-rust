@@ -513,3 +513,22 @@ export function filingItemLabel(form, id) {
   const name = table[raw] || table[raw.split(".")[0]];
   return name ? `Item ${raw} · ${name}` : `Item ${raw}`;
 }
+
+/**
+ * Warm label for a schedule's coarse due semantics. Event-anchored phrases
+ * are honestly approximate — the backend schedules a concrete date.
+ */
+export function scheduleDueLabel(due) {
+  switch (String(due || "")) {
+    case "tomorrow":
+      return "tomorrow";
+    case "next_week":
+      return "in a week";
+    case "next_quarter":
+      return "next quarter (about three months out)";
+    case "after_next_earnings":
+      return "after the next earnings report (about five weeks)";
+    default:
+      return "in about a week";
+  }
+}

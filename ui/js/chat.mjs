@@ -27,6 +27,7 @@ import {
 } from "./labels.mjs";
 import { closeReader } from "./reader.mjs";
 import { evidenceIngest, evidenceReset } from "./evidence.mjs";
+import { scheduleDueLabel } from "./labels.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
 
 let currentId = null;
@@ -1034,6 +1035,9 @@ async function sendViaAgent(msg) {
   });
   currentId = res.conversation_id || currentId;
   activeRunId = res.run_id || activeRunId;
+  // A follow-up promise in the message becomes a PROPOSAL — scheduling always
+  // needs an explicit yes (never silently created from inference).
+  if (res.commitment && res.commitment.text) renderScheduleOffer(res.commitment);
   if (projectId) {
     pendingProjectId = null;
     onChanged(); // reflect the new chat under its folder in the sidebar
@@ -1041,6 +1045,37 @@ async function sendViaAgent(msg) {
   const terminal = await waitForAgentTerminal(activeRunId);
   lastTerminalKind = terminal.kind;
   surfaceMinimalAnswer(terminal);
+}
+
+/// Quiet, dismissible offer to schedule a follow-up the user promised in
+/// their own words ("re-run this after earnings"). Approving creates the
+/// schedule; the 60-second tick launches it when due.
+function renderScheduleOffer(commitment) {
+  const when = scheduleDueLabel(commitment.due);
+  const div = document.createElement("div");
+  div.className = "msg schedule-offer";
+  div.innerHTML =
+    `<span class="schedule-offer-text">Want me to come back to this ${escapeHtml(when)}? I'll re-run it and drop the update in this chat.</span>` +
+    `<span class="schedule-offer-actions">` +
+    `<button type="button" class="btn-primary schedule-yes">Schedule it</button>` +
+    `<button type="button" class="btn-ghost schedule-no">No thanks</button>` +
+    `</span>`;
+  div.querySelector(".schedule-yes").addEventListener("click", async () => {
+    try {
+      await call("schedule_create", {
+        conversation_id: currentId,
+        prompt: commitment.text,
+        due: commitment.due || null,
+        recurrence: null,
+      });
+      div.innerHTML = `<span class="schedule-offer-text">Scheduled — I'll pick this up ${escapeHtml(when)}.</span>`;
+    } catch (e) {
+      div.innerHTML = `<span class="schedule-offer-text">Couldn't save that schedule${e && e.message ? ` (${escapeHtml(e.message)})` : ""} — try again in a moment.</span>`;
+    }
+  });
+  div.querySelector(".schedule-no").addEventListener("click", () => div.remove());
+  scrollEl().appendChild(div);
+  scrollToBottom();
 }
 
 /// If no live delta bubble was created (fail-closed / non-streaming terminal),
