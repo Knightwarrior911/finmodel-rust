@@ -1,12 +1,14 @@
 # Finmodel — Financial Model Engine
 
 ## HANDOVER — v0.9.21 STAGED (2026-07-19) — draft_memo shipped to master; CI BILLING-BLOCKED
-**Release commit 7becd04 on master. NOT TAGGED YET: GitHub Actions is
-rejecting ALL jobs with "account payments have failed or your spending limit
-needs to be increased" (0 steps, instant failure, rerun identical). User must
-fix GitHub billing; then: wait green CI on 7becd04 → tag v0.9.21 → publish
-the ALREADY BUILT+SIGNED installer (target/release/bundle/nsis/
-finmodel_0.9.21_x64-setup.exe + latest.json, sig 420 clean).**
+**v0.9.21 NOT TAGGED YET: GitHub Actions is rejecting ALL jobs with
+"account payments have failed or your spending limit needs to be increased"
+(0 steps, instant failure, rerun identical). User must fix GitHub billing;
+then: wait green CI on the CURRENT master head → tag v0.9.21 there →
+REBUILD + sign the installer (cargo tauri build --bundles nsis + signer
+sign + fresh latest.json) → publish to finmodel-releases. Do NOT ship the
+installer staged earlier at 7becd04 — it predates draft_sections /
+comps_note / workflow wiring that the v0.9.21 changelog now claims.**
 
 Every CI-equivalent gate ran LOCALLY with exit codes on the target OS:
 app-lib 318 (Windows = the app job) · UI 175 · fm-research/fm-fetch/fm-build
