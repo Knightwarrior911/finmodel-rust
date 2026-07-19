@@ -125,6 +125,22 @@ fn absorb_numbers(numbers: &mut HashSet<String>, text: &str) {
     }
 }
 
+/// Parse the leading number out of a display cell like "97,690M" or
+/// "-1,234.5". Returns None for non-numeric cells.
+fn parse_display_num(s: &str) -> Option<f64> {
+    let t: String = s
+        .trim()
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit() && *c != '-')
+        .take_while(|c| c.is_ascii_digit() || *c == ',' || *c == '.' || *c == '-')
+        .filter(|c| *c != ',')
+        .collect();
+    if t.is_empty() || t == "-" {
+        return None;
+    }
+    t.parse::<f64>().ok()
+}
+
 /// Distill the conversation's result cards into an evidence pack.
 pub fn collect_evidence(cards: &[Value]) -> Evidence {
     let mut ev = Evidence::default();
@@ -168,6 +184,38 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                         let line = format!("{label}: {disp}");
                         absorb_numbers(&mut ev.numbers, &line);
                         ev.facts.push(line);
+                    }
+                }
+                // Engine-computed margins: analysts will state them, so compute
+                // them deterministically instead of letting prose invent math.
+                let disp_of = |want: &str| -> Option<f64> {
+                    card["rows"].as_array().and_then(|rows| {
+                        rows.iter().find_map(|r| {
+                            let l = r["label"].as_str().unwrap_or("");
+                            if l.eq_ignore_ascii_case(want) {
+                                r["value"].as_f64().or_else(|| {
+                                    parse_display_num(r["display"].as_str().unwrap_or(""))
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                };
+                if let Some(rev) = disp_of("Revenue").filter(|r| *r > 0.0) {
+                    for (line_label, margin_label) in [
+                        ("Gross profit", "Gross margin"),
+                        ("Operating income", "Operating margin"),
+                        ("Net income", "Net margin"),
+                    ] {
+                        if let Some(v) = disp_of(line_label) {
+                            let line = format!(
+                                "{margin_label} (engine-computed): {:.1}%",
+                                v / rev * 100.0
+                            );
+                            absorb_numbers(&mut ev.numbers, &line);
+                            ev.facts.push(line);
+                        }
                     }
                 }
                 for seg in card["segments"].as_array().unwrap_or(&Vec::new()) {
@@ -758,6 +806,12 @@ mod tests {
         assert!(!ev.numbers.is_empty(), "no numbers absorbed");
         assert!(!ev.sources.is_empty(), "no sources from real research card");
         assert!(!ev.company.is_empty(), "company not inferred from real card");
+        // Engine-computed margins appear when revenue + profit lines exist.
+        assert!(
+            ev.facts.iter().any(|f| f.starts_with("Gross margin (engine-computed):")),
+            "no engine-computed gross margin; facts: {:?}",
+            ev.facts.iter().take(8).collect::<Vec<_>>()
+        );
         // The real model card (TSLA DCF) distills into valuation facts.
         assert!(
             ev.facts.iter().any(|f| f.starts_with("DCF value per share")),
@@ -883,6 +937,88 @@ mod tests {
         }
         println!("fallbacks: {fallbacks}/{}", sections.len());
         assert!(fallbacks < sections.len(), "mini never validated a comps section");
+    }
+
+    /// LIVE: company_profile through the production loop with gpt-4.1-mini
+    /// over the frozen real-app evidence (research + financials + model).
+    /// Run: cargo test --lib live_company_profile_mini -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_company_profile_mini() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            panic!("no API key in the credential store");
+        };
+        let raw = include_str!("../../tests/fixtures/real_cards.json");
+        let fixtures: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let cards: Vec<Value> = fixtures.as_object().unwrap().values().cloned().collect();
+        let ev = collect_evidence(&cards);
+        let (sections, fallbacks) = draft_sections(
+            &key,
+            "openai/gpt-4.1-mini",
+            "https://openrouter.ai/api/v1/chat/completions",
+            "company_profile",
+            &ev,
+        );
+        for (h, t, fb) in &sections {
+            println!("== {h} {}
+{t}
+", if *fb { "[FALLBACK]" } else { "[model]" });
+        }
+        println!("fallbacks: {fallbacks}/{}", sections.len());
+        assert!(fallbacks < sections.len(), "mini never validated a profile section");
+    }
+
+    /// LIVE: deal_summary through the production loop with gpt-4.1-mini over
+    /// a deal card in the exact shape research_deal emits (summary object +
+    /// sources_read).
+    /// Run: cargo test --lib live_deal_summary_mini -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_deal_summary_mini() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            panic!("no API key in the credential store");
+        };
+        let deal = json!({
+            "type": "deal",
+            "summary": {
+                "acquirer": "Magna International",
+                "target": "Veoneer Active Safety",
+                "announced": "2021-07-22",
+                "value_usd_m": 3800.0,
+                "consideration": "all cash",
+                "synergies_usd_m": 100.0,
+                "status": "superseded by Qualcomm bid"
+            },
+            "sources_read": [
+                "https://www.magna.com/company/newsroom/releases/2021-07-22",
+                "https://www.veoneer.com/en/press/magna-acquire-veoneer"
+            ]
+        });
+        let research = json!({
+            "type": "research_answer",
+            "answer": {
+                "summary": { "text": "Magna agreed to acquire Veoneer for $3.8 billion in cash on July 22, 2021; Magna cited $100M of annual cost synergies from combining ADAS operations [S1]." },
+                "sections": [],
+                "sources": [
+                    { "final_url": "https://www.magna.com/company/newsroom/releases/2021-07-22", "title": "Magna to acquire Veoneer press release" }
+                ]
+            }
+        });
+        let ev = collect_evidence(&[deal, research]);
+        let (sections, fallbacks) = draft_sections(
+            &key,
+            "openai/gpt-4.1-mini",
+            "https://openrouter.ai/api/v1/chat/completions",
+            "deal_summary",
+            &ev,
+        );
+        for (h, t, fb) in &sections {
+            println!("== {h} {}
+{t}
+", if *fb { "[FALLBACK]" } else { "[model]" });
+        }
+        println!("fallbacks: {fallbacks}/{}", sections.len());
+        assert!(fallbacks < sections.len(), "mini never validated a deal section");
     }
 
     /// LIVE (network + configured key): the FULL production drafting loop —

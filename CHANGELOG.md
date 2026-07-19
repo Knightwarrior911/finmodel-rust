@@ -2,6 +2,11 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **Engine-computed margins.** Gross, operating, and net margins are
+  computed deterministically from the financials evidence, so profile and
+  earnings prose can state "18.0% gross margin" without the model doing
+  (and being rejected for) its own arithmetic. All four memo kinds are now
+  live-validated against gpt-4.1-mini through the production loop.
 - **Memo → deck.** Ask for slides and the memo becomes a compact branded
   PPTX too: cover, the validated prose sections (spilling across slides
   rather than clipping), a key-figures table, and the numbered source
