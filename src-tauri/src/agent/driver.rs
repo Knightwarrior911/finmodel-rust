@@ -1359,9 +1359,16 @@ impl Driver for LiveDriver {
             "role": "system",
             "content": "(wrap up now: tool calls are no longer available this turn - answer the user's question directly and completely from the evidence gathered above; if something material is still missing, say exactly what and offer to continue)",
         }));
+        // Wrap-up prose is synthesis: use the stronger model when configured.
+        let settings = crate::commands::settings::read_settings(&self.app);
+        let wrap_model = if settings.synthesis_model.trim().is_empty() {
+            self.cfg.model.clone()
+        } else {
+            settings.synthesis_model.trim().to_string()
+        };
         let no_tools: Vec<serde_json::Value> = Vec::new();
         let req = crate::commands::chat::build_chat_request(
-            &self.cfg.model,
+            &wrap_model,
             &self.messages,
             &no_tools,
             true,

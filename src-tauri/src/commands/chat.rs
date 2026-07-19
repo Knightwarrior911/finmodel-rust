@@ -172,7 +172,14 @@ pub async fn load_conversation(app: tauri::AppHandle, id: String) -> AppResult<S
                     }
                 }
             }
-            Ok(json!({ "id": id, "title": title, "messages": messages }))
+            // Last run status so a reload can offer Resume for a run the
+            // process died under (boot repair marks those 'interrupted').
+            let last_run = db
+                .latest_run_for_conversation(&id)
+                .ok()
+                .flatten()
+                .map(|r| json!({ "id": r.id, "status": r.status }));
+            Ok(json!({ "id": id, "title": title, "messages": messages, "last_run": last_run }))
         })
         .await
         .map_err(AppError::Engine)?;
@@ -855,7 +862,12 @@ fn tool_research(
     if api_key.is_empty() {
         return Err("research requires an OpenRouter API key".into());
     }
-    let model = settings.model.trim().to_string();
+    // The memo-grade synthesis runs on the stronger model when configured.
+    let model = if settings.synthesis_model.trim().is_empty() {
+        settings.model.trim().to_string()
+    } else {
+        settings.synthesis_model.trim().to_string()
+    };
     let strict_json = settings
         .model_capability
         .as_ref()

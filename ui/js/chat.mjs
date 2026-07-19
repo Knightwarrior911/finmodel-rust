@@ -577,6 +577,12 @@ export async function loadConversation(id) {
       host.appendChild = realAppend;
     }
     host.appendChild(frag);
+    // A run the process died under (boot repair marked it 'interrupted')
+    // stays resumable across reload — offer Resume just like a live pause.
+    if (conv.last_run && conv.last_run.status === "interrupted") {
+      activeRunId = conv.last_run.id;
+      showResume(conv.last_run.id);
+    }
     closeReader(); // changing chat resets the reader (Phase 4.3)
     scrollToBottom(true);
     onChanged();

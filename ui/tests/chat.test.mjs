@@ -171,3 +171,38 @@ test("a follow-up promise surfaces an approval-gated schedule offer", async () =
   });
   await tick();
 });
+
+test("an interrupted run survives reload as a Resume affordance", async () => {
+  const { ctx, chat } = await bootChat();
+  let resumed = null;
+  ctx.invokeHandlers.load_conversation = async () => ({
+    id: "c-int",
+    title: "Interrupted mission",
+    messages: [{ role: "user", content: "deep dive on NVDA", ts: "t" }],
+    last_run: { id: "run-dead", status: "interrupted" },
+  });
+  ctx.invokeHandlers.agent_resume = async (args) => {
+    resumed = args;
+    return "run-alive";
+  };
+  await chat.loadConversation("c-int");
+  await tick();
+  const alert = document.getElementById("chatAlert");
+  assert.equal(alert.hidden, false, "resume region shown after reload");
+  const btn = [...alert.querySelectorAll("button")].find(
+    (b) => b.textContent === "Resume",
+  );
+  assert.ok(btn, "Resume button present");
+  btn.click();
+  await tick();
+  assert.ok(resumed, "agent_resume called");
+  assert.equal(resumed.interrupted_run_id, "run-dead");
+  // Settle the relaunched run so no terminal-wait handle outlives the test.
+  ctx.emit("agent_event", {
+    run_id: "run-alive",
+    conversation_id: "c-int",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+  await tick();
+});

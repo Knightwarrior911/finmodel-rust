@@ -798,8 +798,33 @@
           >
             Skills
           </button>
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
+            id="settingsTab-scheduled"
+            aria-controls="settingsPanel-scheduled"
+            aria-selected="false"
+            tabindex="-1"
+            data-settings-tab="scheduled"
+          >
+            Scheduled
+          </button>
         </div>
         <div class="modal-body">
+          <div
+            class="settings-panel"
+            id="settingsPanel-scheduled"
+            role="tabpanel"
+            aria-labelledby="settingsTab-scheduled"
+            hidden
+          >
+            <p class="field-hint">
+              Follow-ups you approved. Each runs on time in its own chat and
+              drops the update there.
+            </p>
+            <ul id="schedulesList" class="schedules-list"></ul>
+          </div>
           <div
             class="settings-panel"
             id="settingsPanel-general"
@@ -860,6 +885,18 @@
             aria-labelledby="settingsTab-connections"
             hidden
           >
+          <label class="field">
+            <span class="field-label">Research synthesis model (optional)</span>
+            <input
+              id="synthesisModel"
+              type="text"
+              placeholder="e.g. anthropic/claude-sonnet-4 — blank uses your main model"
+            />
+            <span class="field-hint"
+              >A stronger model just for the heavy writing: research syntheses
+              and wrap-ups. Everyday tool calls stay on your main model.</span
+            >
+          </label>
           <label class="field">
             <span class="field-label">EDGAR contact email</span>
             <input

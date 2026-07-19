@@ -110,7 +110,7 @@ export function readModelProfiles() {
 
 // Settings sections: roving tablist mirroring the evidence dock (one
 // vocabulary — same classes, same keyboard map: ←/→/Home/End).
-const SETTINGS_TABS = ["general", "connections", "memory", "skills"];
+const SETTINGS_TABS = ["general", "connections", "memory", "skills", "scheduled"];
 
 export function selectSettingsTab(tab) {
   if (!SETTINGS_TABS.includes(tab)) return;
@@ -141,6 +141,7 @@ export async function openSettings() {
     $("edgarContact").value = s.edgar_contact || "";
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
+    $("synthesisModel").value = s.synthesis_model || "";
     if ($("appVersion") && s.version)
       $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
@@ -149,6 +150,7 @@ export async function openSettings() {
     fillRoleProfile("verifier", mp.verifier);
     loadMemoryList();
     loadSkillsList();
+    loadSchedulesList();
   } catch (_) {
     /* offline / first launch */
   }
@@ -408,6 +410,59 @@ async function loadSkillsList() {
 }
 
 /// Open Settings with the New-skill editor pre-filled (self-evolution draft).
+/// Scheduled follow-ups: list + cancel (approval-created in chat; the tick
+/// runs them). Quiet rows: what, when, how often, and a way out.
+export async function loadSchedulesList() {
+  const list = $("schedulesList");
+  if (!list) return;
+  try {
+    const rows = await call("schedules_list");
+    const items = Array.isArray(rows) ? rows : [];
+    if (items.length === 0) {
+      list.innerHTML =
+        '<li class="card-note">Nothing scheduled. Ask me to "re-run this after earnings" or "remind me next week" in any chat.</li>';
+      return;
+    }
+    list.innerHTML = items
+      .map((r) => {
+        let prompt = "";
+        try {
+          prompt = JSON.parse(r.scope_json || "{}").prompt || "";
+        } catch {
+          /* opaque scope */
+        }
+        const when = (r.next_due || "").slice(0, 10);
+        const rec =
+          r.recurrence === "daily"
+            ? " · every day"
+            : r.recurrence === "weekly"
+              ? " · every week"
+              : "";
+        const status = r.status === "pending" ? "" : ` · ${escapeHtml(r.status)}`;
+        return `<li class="schedule-row" data-id="${escapeHtml(r.id)}">
+          <span class="schedule-row-main">
+            <span class="schedule-row-prompt">${escapeHtml(prompt || "(scheduled task)")}</span>
+            <span class="schedule-row-meta num">due ${escapeHtml(when)}${rec}${status}</span>
+          </span>
+          <button type="button" class="btn-ghost schedule-cancel" data-id="${escapeHtml(r.id)}">Cancel</button>
+        </li>`;
+      })
+      .join("");
+    list.querySelectorAll(".schedule-cancel").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await call("schedule_cancel", { id: btn.dataset.id });
+          loadSchedulesList();
+        } catch {
+          /* row stays; next open retries */
+        }
+      });
+    });
+  } catch {
+    list.innerHTML = '<li class="card-note">Couldn\'t load schedules just now.</li>';
+  }
+}
+
 export function openSettingsWithSkillDraft(draft) {
   openSettings();
   selectSettingsTab("skills");
@@ -522,6 +577,7 @@ export function initSettings(opts = {}) {
         out_dir: $("outDir").value,
         mcp_command: cmd.split(/\s+/)[0] || "",
         mcp_args: cmd.split(/\s+/).slice(1),
+        synthesis_model: $("synthesisModel").value,
         model_profiles: readModelProfiles(),
       });
       $("apiKey").value = "";

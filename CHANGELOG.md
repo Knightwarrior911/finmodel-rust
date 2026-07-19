@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.18 — 2026-07-19 — Nothing gets lost: resume after restart, a schedules panel, a heavier pen
+
+- **A run survives an app restart.** Close or crash mid-mission and the work
+  is no longer gone: on reopening that chat, a calm "Paused — Resume / New
+  research" bar picks the run back up from its last completed step.
+- **Scheduled follow-ups have a home.** Settings → Scheduled lists everything
+  you've approved — what runs, when it's due, how often — with one-click
+  cancel.
+- **A heavier pen for the heavy writing (optional).** Settings → Connections
+  gains a "Research synthesis model": point it at a stronger model and
+  research syntheses and wrap-ups are written by it, while everyday tool
+  calls stay on your fast main model.
+
 ## v0.9.17 — 2026-07-19 — Scheduled follow-ups, private companies, and your URL as truth
 
 - **The analyst comes back on its own.** Say "re-run this after the next

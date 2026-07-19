@@ -83,6 +83,13 @@ pub struct Settings {
     /// Default output folder for generated workbooks (3.2 / 3.6).
     #[serde(default)]
     pub out_dir: String,
+    /// Optional stronger model for research synthesis + budget wrap-ups
+    /// (the memo-grade writing). Blank → the main `model` handles everything.
+    /// (Full fast-orchestrator/strong-finisher tiering for ordinary chat
+    /// turns needs a stream-handoff redesign — this covers the two seams
+    /// where a whole call is already dedicated to synthesis.)
+    #[serde(default)]
+    pub synthesis_model: String,
     /// Web-research MCP server command + args (Phase 8.2).
     #[serde(default)]
     pub mcp_command: String,
@@ -161,6 +168,7 @@ pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
         "edgar_contact": s.edgar_contact,
         "out_dir": s.out_dir,
         "mcp_command": s.mcp_command,
+        "synthesis_model": s.synthesis_model,
         "mcp_args": s.mcp_args,
         "version": version,
         "model_capability": s.model_capability,
@@ -188,6 +196,7 @@ pub fn save_settings(
     out_dir: Option<String>,
     mcp_command: Option<String>,
     mcp_args: Option<Vec<String>>,
+    synthesis_model: Option<String>,
     model_profiles: Option<crate::agent::model_router::ModelProfiles>,
 ) -> AppResult<String> {
     let mut s = read_settings(&app);
@@ -220,6 +229,9 @@ pub fn save_settings(
     }
     if let Some(a) = mcp_args {
         s.mcp_args = a;
+    }
+    if let Some(m) = synthesis_model {
+        s.synthesis_model = m.trim().to_string();
     }
     // Explicit role profiles (Task 1.5). Present → set (an empty object clears the
     // roles back to orchestrator-only); absent → keep existing.
