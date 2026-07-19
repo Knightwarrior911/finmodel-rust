@@ -53,7 +53,10 @@ test("a pinned memory shows the badge and an Unpin control (Task 7.2)", async ()
     { id: 8, kind: "preference", content: "Uses IFRS", pinned: true },
   ]);
   const list = document.getElementById("memoryList");
-  assert.match(list.textContent, /📌/);
+  const badge = list.querySelector(".memory-pin-badge");
+  assert.ok(badge, "pin badge present");
+  assert.equal(badge.getAttribute("aria-label"), "pinned");
+  assert.ok(badge.querySelector("svg"), "pin is an svg glyph, not an emoji");
   const pin = list.querySelector("button[data-pin]");
   assert.equal(pin.textContent, "Unpin");
 });

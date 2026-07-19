@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.7 — 2026-07-19 — The interface grows up
+
+- **Quieter, more professional visual register.** The oversized centered
+  greeting becomes a calm left-aligned workbench opener; capsule pills across
+  the app (example chips, mission chip, badges, skill states) become quiet
+  rectangles; the New chat button trades its saturated block fill for a soft
+  indigo that fills on hover; the composer and message bubbles tighten their
+  corners. Surfaces that don't float no longer cast shadows, per the design
+  system's Overlay-Only rule.
+- **No more emoji glyphs.** The memory pin badge is a proper vector glyph.
+
 ## v0.9.6 — 2026-07-19 — Three bases, credit metrics, and a roomier run budget
 
 - **Quarterly and LTM bases.** `get_financials` now takes `basis`:

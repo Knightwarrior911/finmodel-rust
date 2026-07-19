@@ -201,8 +201,10 @@ async function loadMemoryList() {
     if (m.pinned) {
       const badge = document.createElement("span");
       badge.className = "memory-pin-badge";
-      badge.textContent = " 📌";
+      badge.innerHTML =
+        ' <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 3l5 5-6.5 2.2L12 14l-2-2-5.5 7.5L3 19l7.5-5.5-2-2 3.8-2.5z"/></svg>';
       badge.setAttribute("aria-label", "pinned");
+      badge.setAttribute("role", "img");
       txt.appendChild(badge);
     }
     // Pin/unpin: protect a good memory from automatic forgetting (Task 7.2).
