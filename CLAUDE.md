@@ -1,5 +1,34 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.21 STAGED (2026-07-19) — draft_memo shipped to master; CI BILLING-BLOCKED
+**Release commit 7becd04 on master. NOT TAGGED YET: GitHub Actions is
+rejecting ALL jobs with "account payments have failed or your spending limit
+needs to be increased" (0 steps, instant failure, rerun identical). User must
+fix GitHub billing; then: wait green CI on 7becd04 → tag v0.9.21 → publish
+the ALREADY BUILT+SIGNED installer (target/release/bundle/nsis/
+finmodel_0.9.21_x64-setup.exe + latest.json, sig 420 clean).**
+
+Every CI-equivalent gate ran LOCALLY with exit codes on the target OS:
+app-lib 318 (Windows = the app job) · UI 175 · fm-research/fm-fetch/fm-build
+green · no Python changes (test/ruff cover the legacy core only).
+
+draft_memo (the drafting leg of research→numbers→prose, goal work):
+- agent/memo.rs: collect_evidence (REAL-FIXTURE tested against a live user
+  DB's card JSON — tests/fixtures/real_cards.json), section_specs per kind
+  (earnings_note / company_profile / deal_summary), validate_slot
+  (evidence-only numbers + derived analyst roundings 97690→97.7/97.69;
+  slop-phrase ban; decimal-safe sentence caps — a live mini draft was
+  wrongly rejected when '.' split $97.7; real-source citations),
+  fallback_text (honest fact sentences), render_markdown (deterministic
+  scaffold: title/tables/segments/sources).
+- tool_draft_memo in chat.rs (14th tool; counts updated): conversation
+  cards → evidence → per-slot complete_once on synthesis_model||model →
+  validate → retry-with-reason → fallback → .md artifact in out_dir +
+  memo card. UI: memo card, Artifacts dock pickup, warm labels.
+- LIVE mini smoke (agent::memo::tests::live_memo_slot_mini, --ignored):
+  gpt-4.1-mini's first headline VALIDATED — cited, precise, no slop.
+GOAL remains ACTIVE (broad, ongoing).
+
 ## HANDOVER — v0.9.20 SHIPPED + LIVE (2026-07-19) — live-session diagnosis: careers-page ban
 **Tagged `v0.9.20` (0cf5e70); Latest on finmodel-releases; CI green; endpoint
 verified (0.9.20, sig 420 clean, installer 200, digest match). Installer was
