@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.11 — 2026-07-19 — The analyst works until the job is done
+
+- **No more "step budget" dead ends.** The per-turn work quotas (10–12 rounds —
+  in practice barely five tool calls, since a round was charged on both the
+  model reply and the tool completion) are gone. Ceilings still exist but only
+  as runaway guards — hundreds of steps, hours of wall clock, sized so no
+  legitimate task ever hits them. The analyst now works like a colleague:
+  until the job is done, or you press Stop or Pause.
+- **If a guard ever trips, you still get an answer.** The wrap-up pass now
+  actually makes one final no-tools model call over the evidence gathered.
+  Previously it silently persisted stale text — which is why a stopped run
+  could end with "ask me to continue" and nothing else.
+- **Targeted questions stay targeted.** "Did Tesla say anything about tariffs
+  or China competition?" is answered directly from the filing and the news —
+  it is no longer escalated into a full five-step earnings review producing
+  deliverables nobody asked for.
+- **More parallel headroom.** Interactive turns can fan out subagents; workflow
+  missions get room for up to 32 children.
+
 ## v0.9.10 — 2026-07-19 — The analyst talks like a colleague, not a debugger
 
 - **Tool activity as a story.** Live checks read as calm colleague narration —

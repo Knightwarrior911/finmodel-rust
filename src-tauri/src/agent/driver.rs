@@ -1345,6 +1345,49 @@ impl Driver for LiveDriver {
         }
     }
 
+    async fn wrap_up(&mut self) {
+        // Runaway-guard grace: one final NO-TOOLS model call so a tripped guard
+        // still ends in a streamed, evidence-based answer. (The v0.9.4 grace
+        // pass persisted stale prose without ever asking the model to wrap up —
+        // a run stopped right after tool results had nothing to persist and the
+        // turn died with "ask me to continue".) Skipped for the no-key fallback
+        // and after a user cancel.
+        if self.cfg.api_key.trim().is_empty() || self.ctx.cancel.is_cancelled() {
+            return;
+        }
+        self.messages.push(serde_json::json!({
+            "role": "system",
+            "content": "(wrap up now: tool calls are no longer available this turn - answer the user's question directly and completely from the evidence gathered above; if something material is still missing, say exactly what and offer to continue)",
+        }));
+        let no_tools: Vec<serde_json::Value> = Vec::new();
+        let req = crate::commands::chat::build_chat_request(
+            &self.cfg.model,
+            &self.messages,
+            &no_tools,
+            true,
+            false,
+        );
+        let result = crate::commands::chat::stream_completion_for_agent(
+            &self.app,
+            &self.ctx.conversation_id,
+            &self.ctx.run_id,
+            &self.cfg,
+            &req,
+            &self.ctx.cancel,
+            self.remaining(),
+        )
+        .await;
+        if let Ok(acc) = result {
+            if !acc.content.trim().is_empty() {
+                self.last_content = acc.content.clone();
+                self.messages.push(serde_json::json!({
+                    "role": "assistant",
+                    "content": acc.content,
+                }));
+            }
+        }
+    }
+
     async fn synthesize(&mut self) {
         // Persist the turn as one assistant message with ordered parts:
         // tool result cards (execution order) first, then the final prose.

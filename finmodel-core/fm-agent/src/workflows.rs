@@ -243,6 +243,24 @@ pub fn workflow(id: &str) -> Option<WorkflowSpec> {
 pub fn select_workflow(user_msg: &str) -> Option<&'static str> {
     let m = user_msg.to_lowercase();
     let has = |ns: &[&str]| ns.iter().any(|n| m.contains(n));
+    // Targeted lookups stay interactive: "did they say anything about X?" wants
+    // a direct sourced answer, not a five-deliverable workflow. Escalating a
+    // lookup burns the turn on scope nobody asked for (a v0.9.10 tariff
+    // question became a full earnings review this way).
+    if has(&[
+        "say anything",
+        "said anything",
+        "mention",
+        "talk about",
+        "talked about",
+        "discuss",
+        "comment on",
+        "comments on",
+        "did they say",
+        "did it say",
+    ]) {
+        return None;
+    }
     if has(&[
         "pitch",
         "deck",
@@ -446,6 +464,26 @@ mod tests {
         assert_eq!(select_workflow("Check on NVDA"), None);
         assert_eq!(select_workflow("what's up with tesla"), None);
         assert_eq!(select_workflow(""), None);
+    }
+
+    #[test]
+    fn targeted_lookups_stay_interactive() {
+        // A question about what a filing/call SAID is a lookup, not a mission —
+        // even when it names an earnings release or guidance.
+        for msg in [
+            "in the first quarter earnings release did tesla say anything about tariff impact or competition from china?",
+            "did NVDA mention export controls in the latest quarter?",
+            "any mention of buybacks in the Q2 results?",
+            "did management discuss margins on the earnings call?",
+            "what did the 10-K say — did they comment on China competition?",
+        ] {
+            assert_eq!(select_workflow(msg), None, "request: {msg}");
+        }
+        // Full-review asks still route to the workflow.
+        assert_eq!(
+            select_workflow("Review NVDA earnings and guidance"),
+            Some("earnings_review")
+        );
     }
 
     #[test]

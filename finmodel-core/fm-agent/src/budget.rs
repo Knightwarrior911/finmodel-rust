@@ -1,10 +1,15 @@
-//! Run budgets and policy. The reducer consults [`Budget`] to decide when a run
+//! Run guards and policy. The reducer consults [`Budget`] to decide when a run
 //! must stop; the driver charges usage as model/tool rounds complete.
 //!
-//! Default interactive policy: 10 model/tool rounds, 32k cumulative turn tokens,
-//! 120 s wall clock. A [`WorkflowSpec`](crate) may raise these for research or
-//! artifact work; accepting such a tool escalates the current run to that policy
-//! *from the original start time*.
+//! These ceilings are RUNAWAY GUARDS, not work quotas. The product doctrine is
+//! agentic: the analyst works until the task is done — like a human analyst, it
+//! never abandons a legitimate multi-step job because a counter ran out. The
+//! guards exist solely to stop pathological loops (a model stuck re-issuing the
+//! same call forever) and are sized far beyond anything real work reaches. If a
+//! guard ever trips, the run still ends with a wrap-up answer synthesized from
+//! the evidence gathered (see the reducer's grace pass), never a dead end.
+//! A [`WorkflowSpec`](crate) may raise these further; accepting such a tool
+//! escalates the current run to that policy *from the original start time*.
 
 use serde::{Deserialize, Serialize};
 
@@ -24,24 +29,28 @@ pub struct Policy {
 }
 
 impl Policy {
-    /// The default interactive policy (decision: 10 rounds / 32k tokens / 120 s;
-    /// raised from 8 once multi-company questions proved to bind on rounds even
-    /// with the one-call financials spread).
+    /// The default interactive guard rail. History: 8 → 10 rounds still starved
+    /// real turns (a paginated filing read alone is 5+ tool cycles, and a round
+    /// is charged on BOTH the model response and the tool completion — so "10
+    /// rounds" was only ~5 tool cycles). Re-sized as a runaway guard: no
+    /// legitimate interactive turn should ever hit these; the user's Stop/Pause
+    /// buttons — not a counter — are how work ends early.
     pub const INTERACTIVE: Policy = Policy {
-        max_rounds: 10,
-        max_tokens: 32_000,
-        deadline_ms: 120_000,
-        max_children: 0,
+        max_rounds: 200,
+        max_tokens: 4_000_000,
+        deadline_ms: 60 * 60_000,
+        max_children: 8,
     };
 
-    /// The research/artifact workflow policy (12 rounds / 30-minute deadline).
-    /// Token ceiling is raised but still clamped by the driver to the selected
-    /// model's real context/cost limits.
+    /// The research/artifact workflow guard rail — multi-chain, multi-agent
+    /// missions (an analyst-day of work compressed). Sized so a golden workflow
+    /// with fan-out never binds; only a genuinely stuck run trips it, and even
+    /// then the grace pass delivers an answer from the evidence gathered.
     pub const WORKFLOW: Policy = Policy {
-        max_rounds: 12,
-        max_tokens: 200_000,
-        deadline_ms: 30 * 60_000,
-        max_children: 12,
+        max_rounds: 1_000,
+        max_tokens: 20_000_000,
+        deadline_ms: 8 * 60 * 60_000,
+        max_children: 32,
     };
 
     /// Escalate to `other` while preserving the stricter side of any dimension
@@ -199,14 +208,14 @@ mod tests {
         let p = Policy::WORKFLOW.clamp_tokens(50_000);
         assert_eq!(p.max_tokens, 50_000);
         let p2 = Policy::INTERACTIVE.clamp_tokens(1_000_000);
-        assert_eq!(p2.max_tokens, 32_000);
+        assert_eq!(p2.max_tokens, 1_000_000);
     }
 
     #[test]
     fn remaining_children_saturates() {
         let b = Budget::new(Policy::WORKFLOW);
-        assert_eq!(b.remaining_children(0), 12);
-        assert_eq!(b.remaining_children(12), 0);
-        assert_eq!(b.remaining_children(20), 0);
+        assert_eq!(b.remaining_children(0), 32);
+        assert_eq!(b.remaining_children(32), 0);
+        assert_eq!(b.remaining_children(40), 0);
     }
 }

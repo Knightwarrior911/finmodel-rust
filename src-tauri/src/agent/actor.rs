@@ -106,6 +106,11 @@ pub trait Driver {
     async fn repair_tool_call(&mut self, tool_call_id: &str) -> ModelOut;
     /// Execute a batch of tool calls; returns tokens consumed.
     async fn schedule_tools(&mut self, batch: &[String]) -> ToolBatchOutcome;
+    /// Budget-grace wrap-up: one final no-tools model call that answers from
+    /// the evidence already gathered. Called only when a runaway guard tripped
+    /// mid-run (`AgentMachine::in_budget_grace`) — the normal completion path
+    /// already has the model's own final prose. Default: no-op (test drivers).
+    async fn wrap_up(&mut self) {}
     async fn synthesize(&mut self);
     async fn verify(&mut self) -> bool;
     /// Take the verification card produced by the last `verify()`, if any, so the
@@ -562,6 +567,11 @@ pub async fn run_turn<D: Driver>(
                 Input::ApprovalResolved { response: resp }
             }
             Action::Synthesize => {
+                if machine.in_budget_grace() {
+                    // A runaway guard tripped mid-run: make the wrap-up model
+                    // call so the turn ends with a real answer, not a dead end.
+                    driver.wrap_up().await;
+                }
                 driver.synthesize().await;
                 // Synthesis is the terminal work step: complete every step still
                 // open so the delivered plan reads fully done (Task 3.2).

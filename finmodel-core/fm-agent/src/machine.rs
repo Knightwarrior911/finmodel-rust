@@ -156,6 +156,14 @@ impl AgentMachine {
         self.budget
     }
 
+    /// True while the run is in the budget-grace wrap-up pass: a runaway guard
+    /// tripped and the reducer granted one final no-tools synthesis. The driver
+    /// uses this to make a real wrap-up model call so the run ends with an
+    /// answer built from the gathered evidence, never a dead end.
+    pub fn in_budget_grace(&self) -> bool {
+        self.budget_grace.is_some()
+    }
+
     /// The reducer's first move: recall context and select the tool policy.
     pub fn start(&self) -> Action {
         Action::Prepare
@@ -920,6 +928,6 @@ mod tests {
         m.next(Input::WorkflowAccepted {
             policy: Policy::WORKFLOW,
         });
-        assert_eq!(m.budget().policy.max_rounds, 12);
+        assert_eq!(m.budget().policy.max_rounds, Policy::WORKFLOW.max_rounds);
     }
 }
