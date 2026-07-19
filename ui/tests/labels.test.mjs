@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  draftOfferForCards,
   toolRunningLabel,
   toolDoneLabel,
   toolFailedLabel,
@@ -147,3 +148,17 @@ test("memo kinds and drafting activity speak plainly", () => {
   assert.equal(toolDoneLabel("draft_memo"), "Drafted the memo");
 });
 import { memoKindLabel } from "../js/labels.mjs";
+
+test("draftOfferForCards picks the most specific memo kind", () => {
+  assert.equal(draftOfferForCards([]), null);
+  assert.equal(draftOfferForCards(["quote", "news"]), null, "thin evidence: no offer");
+  assert.equal(draftOfferForCards(["financials", "memo"]), null, "already drafted");
+  assert.equal(draftOfferForCards(["deal", "financials"]).kind, "deal_summary");
+  assert.equal(draftOfferForCards(["benchmark", "financials"]).kind, "comps_note");
+  assert.equal(draftOfferForCards(["financials", "research_answer"]).kind, "earnings_note");
+  assert.equal(draftOfferForCards(["research_answer"]).kind, "company_profile");
+  const o = draftOfferForCards(["financials"]);
+  assert.match(o.prompt, /^Draft the/);
+  assert.match(o.text, /write-up/);
+});
+

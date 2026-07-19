@@ -2,6 +2,11 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **The write-up offers itself.** After an evidence-gathering turn, a
+  quiet dismissible chip suggests the matching memo ("Want the write-up? I
+  can draft an earnings note from these figures.") - deal beats comps
+  beats earnings beats profile, never when a memo already exists, and
+  drafting runs only on your explicit yes.
 - **Engine-computed margins.** Gross, operating, and net margins are
   computed deterministically from the financials evidence, so profile and
   earnings prose can state "18.0% gross margin" without the model doing

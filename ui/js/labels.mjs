@@ -554,3 +554,38 @@ export function memoKindLabel(kind) {
       return "Memo";
   }
 }
+
+/** After an evidence-gathering turn, which memo (if any) is worth offering?
+ * Returns null when there's nothing to draft from — or a memo already exists.
+ * Priority mirrors specificity: a deal beats comps beats earnings beats profile.
+ */
+export function draftOfferForCards(types) {
+  const t = new Set(types || []);
+  if (t.has("memo")) return null;
+  if (t.has("deal"))
+    return {
+      kind: "deal_summary",
+      prompt: "Draft the deal summary",
+      text: "Want the write-up? I can draft a deal summary from what we just gathered.",
+    };
+  if (t.has("benchmark"))
+    return {
+      kind: "comps_note",
+      prompt: "Draft the comps note",
+      text: "Want the write-up? I can draft a comps note from this peer comparison.",
+    };
+  if (t.has("financials"))
+    return {
+      kind: "earnings_note",
+      prompt: "Draft the earnings note",
+      text: "Want the write-up? I can draft an earnings note from these figures.",
+    };
+  if (t.has("research_answer"))
+    return {
+      kind: "company_profile",
+      prompt: "Draft the company profile",
+      text: "Want the write-up? I can draft a company profile from this research.",
+    };
+  return null;
+}
+

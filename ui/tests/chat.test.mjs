@@ -237,3 +237,45 @@ test("a standing preference surfaces an approval-gated memory offer", async () =
   });
   await tick();
 });
+
+test("an evidence turn offers the write-up; yes sends the drafting prompt", async () => {
+  const { ctx } = await bootChat();
+  const sends = [];
+  ctx.invokeHandlers.agent_send = async (args) => {
+    sends.push(args.text);
+    return { conversation_id: "c11", run_id: "run-" + sends.length };
+  };
+  document.getElementById("chatInput").value = "Pull TSLA financials";
+  document.getElementById("chatSend").click();
+  await tick();
+  ctx.emit("agent_event", {
+    run_id: "run-1",
+    conversation_id: "c11",
+    event: {
+      kind: "result_part_added",
+      payload: { card: { type: "financials", entity: "Tesla, Inc.", rows: [] } },
+    },
+  });
+  ctx.emit("agent_event", {
+    run_id: "run-1",
+    conversation_id: "c11",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+  await tick();
+  const offer = document.querySelector(".draft-offer");
+  assert.ok(offer, "draft offer rendered after an evidence turn");
+  assert.match(offer.textContent, /earnings note/);
+  assert.equal(sends.length, 1, "no drafting without the explicit yes");
+  offer.querySelector(".draft-yes").click();
+  await tick();
+  assert.equal(sends[1], "Draft the earnings note", "yes sends the drafting prompt");
+  assert.ok(!document.querySelector(".draft-offer"), "offer dismissed on yes");
+  ctx.emit("agent_event", {
+    run_id: "run-2",
+    conversation_id: "c11",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+});
+

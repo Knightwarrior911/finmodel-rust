@@ -27,10 +27,11 @@ import {
 } from "./labels.mjs";
 import { closeReader } from "./reader.mjs";
 import { evidenceIngest, evidenceReset } from "./evidence.mjs";
-import { scheduleDueLabel } from "./labels.mjs";
+import { scheduleDueLabel, draftOfferForCards } from "./labels.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
 
 let currentId = null;
+let turnCardTypes = new Set();
 let streaming = false;
 let onChanged = () => {};
 let activeTurn = null; // { assistantNode, pending: Map<name, node[]> }
@@ -134,6 +135,7 @@ function appendAssistant(text, live) {
 function appendCard(card) {
   // Every card — live or replayed — also feeds the Evidence dock ledger.
   evidenceIngest(card);
+  if (card && card.type) turnCardTypes.add(String(card.type));
   const div = document.createElement("div");
   div.className = "msg msg-card";
   if (activeRunId) div.dataset.runId = activeRunId;
@@ -1034,6 +1036,7 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
 
 async function sendViaAgent(msg) {
   const projectId = pendingProjectId;
+  turnCardTypes = new Set();
   const res = await call("agent_send", {
     conversation_id: currentId || null,
     text: msg,
@@ -1054,6 +1057,16 @@ async function sendViaAgent(msg) {
   const terminal = await waitForAgentTerminal(activeRunId);
   lastTerminalKind = terminal.kind;
   surfaceMinimalAnswer(terminal);
+  // Evidence gathered, no memo yet, run finished clean, nothing else being
+  // offered → quietly suggest the write-up (drafting needs an explicit yes).
+  if (
+    terminal.kind === "run_completed" &&
+    !(res.commitment && res.commitment.text) &&
+    !(res.memory_candidate && res.memory_candidate.text)
+  ) {
+    const offer = draftOfferForCards([...turnCardTypes]);
+    if (offer) renderDraftOffer(offer);
+  }
 }
 
 /// Quiet, dismissible offer to remember a standing preference the user just
@@ -1077,6 +1090,28 @@ function renderMemoryOffer(candidate) {
     }
   });
   div.querySelector(".memory-no").addEventListener("click", () => div.remove());
+  scrollEl().appendChild(div);
+  scrollToBottom();
+}
+
+/// Quiet, dismissible offer to draft the memo after an evidence-gathering
+/// turn. Drafting runs only on the explicit yes - the click sends the same
+/// chat message the user could have typed.
+function renderDraftOffer(offer) {
+  if (document.querySelector(".draft-offer")) return;
+  const div = document.createElement("div");
+  div.className = "msg schedule-offer draft-offer";
+  div.innerHTML =
+    `<span class="schedule-offer-text">${escapeHtml(offer.text)}</span>` +
+    `<span class="schedule-offer-actions">` +
+    `<button type="button" class="btn-primary draft-yes">${escapeHtml(offer.prompt)}</button>` +
+    `<button type="button" class="btn-ghost draft-no">No thanks</button>` +
+    `</span>`;
+  div.querySelector(".draft-yes").addEventListener("click", () => {
+    div.remove();
+    send(offer.prompt);
+  });
+  div.querySelector(".draft-no").addEventListener("click", () => div.remove());
   scrollEl().appendChild(div);
   scrollToBottom();
 }
