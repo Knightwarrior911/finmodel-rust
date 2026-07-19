@@ -118,6 +118,18 @@ fn validate_skill_name(args: &Value) -> Result<(), String> {
     require_nonempty(args, "name")
 }
 
+fn validate_memo_kind(args: &Value) -> Result<(), String> {
+    let kind = args["kind"].as_str().unwrap_or("").trim();
+    if crate::agent::memo::KINDS.contains(&kind) {
+        Ok(())
+    } else {
+        Err(format!(
+            "kind must be one of: {}",
+            crate::agent::memo::KINDS.join(", ")
+        ))
+    }
+}
+
 // --- Provider-facing parameter schemas (single authority; see `agent_schemas`).
 
 fn schema_ticker_only() -> Value {
@@ -136,6 +148,16 @@ fn schema_get_financials() -> Value {
             "basis": { "type": "string", "enum": ["annual", "quarterly", "ltm"], "description": "annual (default): multi-year FY spread; quarterly: last 8 fiscal quarters (Q4 derived); ltm: trailing twelve months — use for comps and current-run-rate questions" }
         },
         "required": ["ticker"]
+    })
+}
+fn schema_draft_memo() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "kind": { "type": "string", "enum": ["earnings_note", "company_profile", "deal_summary"], "description": "The memo type to draft." },
+            "company": { "type": "string", "description": "Company display name for the title (optional; inferred from evidence when absent)." }
+        },
+        "required": ["kind"]
     })
 }
 fn schema_use_skill() -> Value {
@@ -255,6 +277,20 @@ impl ToolRegistry {
                 trust: TrustPolicy::Untrusted,
                 validate: validate_ticker,
                 params_schema: schema_get_financials,
+                model_visible: true,
+            },
+            ToolSpec {
+                name: "draft_memo",
+                label: "Draft memo",
+                description: "Write a professional memo (earnings_note, company_profile, or deal_summary) FROM THE EVIDENCE ALREADY GATHERED in this conversation - run get_financials/research/read_filing first, then call this to draft the write-up. Produces a Markdown artifact with cited prose, key-figure tables, and a sources list. Never invents numbers.",
+                risk: Risk::ReadOnly,
+                capabilities: &["drafting"],
+                required_args: &["kind"],
+                interruptible: true,
+                idempotent: false,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_memo_kind,
+                params_schema: schema_draft_memo,
                 model_visible: true,
             },
             ToolSpec {
@@ -577,10 +613,11 @@ mod tests {
             "build_model",
             "get_financials",
             "use_skill",
+            "draft_memo",
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 13);
+        assert_eq!(r.names().len(), 14);
     }
 
     #[test]
@@ -691,7 +728,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 13);
+        assert_eq!(cat.lines().count(), 14);
         assert!(cat.contains("build_model"));
     }
 
@@ -733,6 +770,6 @@ mod tests {
         assert_eq!(ranked[0], "build_model");
         // Deterministic: identical query → identical order.
         assert_eq!(ranked, r.rank_for_query("build a dcf excel model"));
-        assert_eq!(ranked.len(), 13);
+        assert_eq!(ranked.len(), 14);
     }
 }

@@ -32,6 +32,7 @@ import {
   softErrorMessage,
   filingFormLabel,
   filingItemLabel,
+  memoKindLabel,
 } from "./labels.mjs";
 
 function parentDir(p) {
@@ -458,6 +459,26 @@ function renderFilingDoc(card) {
   return cardShell("filing_doc", inner);
 }
 
+// ── memo (drafted deliverable) ──────────────────────────────────────
+function renderMemo(card) {
+  const kind = memoKindLabel(card.kind);
+  const fell = Number(card.fallback_sections || 0);
+  const note =
+    fell > 0
+      ? `<p class="card-note">${fell} section${fell === 1 ? "" : "s"} composed directly from the evidence (drafting model text did not pass validation).</p>`
+      : "";
+  const inner = `
+    <div class="card-head">
+      <span class="card-title">${escapeHtml(card.company || "")}</span>
+      <span class="card-sub">${escapeHtml(kind)} · ${escapeHtml(String(card.sections || 0))} sections · ${escapeHtml(String(card.sources || 0))} sources</span>
+    </div>
+    ${note}
+    <div class="card-actions">
+      <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.memo_path || "")}">Open memo</button>
+      <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.memo_path || "")}">Show in folder</button>
+    </div>`;
+  return cardShell("memo", inner);
+}
 // ── assumptions (interactive build grid) ────────────────────────────
 function renderAssumptions(card) {
   const proj = card.proj_periods || [];
@@ -685,6 +706,9 @@ export function renderCard(card) {
       break;
     case "financials":
       el = renderFinancials(card);
+      break;
+    case "memo":
+      el = renderMemo(card);
       break;
     case "filing_doc":
       el = renderFilingDoc(card);

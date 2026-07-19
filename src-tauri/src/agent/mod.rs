@@ -21,6 +21,7 @@ pub mod events;
 pub mod executors;
 pub mod fallback;
 pub mod grounding;
+pub mod memo;
 pub mod memory;
 pub mod model_router;
 pub mod provider;

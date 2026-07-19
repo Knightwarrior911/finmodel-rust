@@ -1,0 +1,117 @@
+{
+ "financials": {
+  "currency": "USD",
+  "entity": "Tesla, Inc.",
+  "filed": "2026-01-29",
+  "fiscal_year": "2025",
+  "period_end": "2025-12-31",
+  "rows": [
+   {
+    "display": "$94.83B",
+    "label": "Revenue",
+    "value": 94827000000
+   },
+   {
+    "display": "$17.09B",
+    "label": "Gross profit",
+    "value": 17094000000
+   },
+   {
+    "display": "$4.36B",
+    "label": "Operating income",
+    "value": 4355000000
+   },
+   {
+    "display": "$3.79B",
+    "label": "Net income",
+    "value": 3794000000
+   },
+   {
+    "display": "$1.08",
+    "label": "Diluted EPS",
+    "value": 1.08
+   }
+  ],
+  "source": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001318605&type=10-K",
+  "ticker": "TSLA",
+  "type": "financials"
+ },
+ "research_answer": {
+  "answer": {
+   "confidence": "low",
+   "generated_at": "2026-07-17",
+   "limitations": [
+    "No independent source was read."
+   ],
+   "model": "openai/gpt-4.1-mini",
+   "question": "search the web for what is the sales of tesla for 2025 from its annual report",
+   "sections": [],
+   "sources": [
+    {
+     "backend": "basic_http",
+     "canonical_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm",
+     "domain": "www.sec.gov",
+     "error_code": null,
+     "excerpt": "Item 1A: RISK FACTORS\nYou should carefully consider the risks described below together with the other information set forth in this report, which could materially affect our business, financial condition and future results. The risks described below are not the only risks facing our company. Risks and uncertainties not currently known to us or that we currently deem to be immaterial also may materially adversely affect our business, financial condition and operating results.\nRisks Related to Our Ability to Grow Our Business\nWe may experience issues or delays in developing, launching and ramping the production of our products, services and features, or we may be unable to control our manufacturing costs.\nWe are developing new technologies and services, unique manufacturing processes and design features in our products. There is no guarantee we will be able to successfully develop or timely introduce and scale these new products, services and features, or that there will be widespread consumer adoption. We also have previously experienced and may in the future experience launch and production ramp delays.\nIn particular, our future business depends on development of our driver assistance systems and autonomous driving solutions and increasing the production of mass-market vehicles, including Cybercab, our purpose-built Robotaxi product. In order to be successful, we will need to further advance our capabilities in AI, and implement, maintain and ramp efficient and cost-effective manufacturing capabilities, processes and supply chains and achieve the design tolerances, high quality and output rates we have planned at our manufacturing facilities. We will also need to hire, train and compensate skilled employees to operate these facilities. Bottlenecks and other unexpected challenges such as those we experienced in the past may arise during our production ramps, and we must address them promptly while continuing to improve manufacturing processes and reducing costs. If we are not successful in achieving these goals, we could face delays in establishing and/or sustaining our product ramps or be unable to meet our related cost and profitability targets. Similarly, we are also developing Bots for future commercialization, and we may experience delays in launching and ramping the production of this product.\nWe have experienced, and may also experience similar future delays in launching and/or ramping production of our energy storage products and Solar Roof; new product versions or variants; new vehicles; and future products, features and services based on artificial intelligence. Likewise, we may encounter delays with the design, construction and regulatory or other approvals necessary to build and bring online future manufacturing facilities and products. In addition, as we continue to develop our artificial intelligence services and products, we may face many additional challenges, including the availability and cost of energy, processing power limitations and the substantial power requirements for our data centers.\nAny delay or other complication in ramping the production of our current products or the development, manufacture, launch and production ramp of our future products, features and services, or in doing so cost-effectively and with high quality, may harm our brand, business, prospects, financial condition and operating results.\n12\nTable of Contents\nOur suppliers may fail to deliver components according to schedules, prices, quality and volumes that are acceptable to us, or we may be unable to manage these components effectively.\nOur products contain thousands of parts purchased globally from hundreds of suppliers, including single-source direct suppliers, which exposes us to multiple potential sources of component shortages. Unexpected changes in business conditions, materials pricing, including inflation of raw material costs, labor issues, wars, trade policies, natural disasters, health epidemics, trade and shipping disru",
+     "final_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm",
+     "id": "S1",
+     "kind": "regulatory",
+     "requested_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm",
+     "retrieved_at": "2026-07-17",
+     "snippet": "Such proxy statement will be filed with the Securities and Exchange Commission within 120 days of the registrant's fiscal year ended December 31, 2025. TESLA, INC. ANNUAL REPORT ON FORM 10-K FOR THE YEAR ENDED DECEMBER 31, 2025 INDEX",
+     "status": "read",
+     "title": "tsla-20251231 - SEC.gov"
+    },
+    {
+     "backend": "basic_http",
+     "canonical_url": "https://www.sec.gov/search-filings",
+     "domain": "www.sec.gov",
+     "error_code": "blocked",
+     "excerpt": null,
+     "final_url": "https://www.sec.gov/search-filings",
+     "id": "S2",
+     "kind": "regulatory",
+     "requested_url": "https://www.sec.gov/search-filings",
+     "retrieved_at": "2026-07-17",
+     "snippet": "Search Filings Enjoy free public access to millions of informational documents filed by publicly traded companies and others in the SEC's Electronic Data Gathering, Analysis, and Retrieval (EDGAR) system.",
+     "status": "blocked",
+     "title": "Search Filings - SEC.gov"
+    },
+    {
+     "backend": "basic_http",
+     "canonical_url": "https://ir.tesla.com/_flysystem/s3/sec/000162828025003063/tsla-20241231-gen.pdf",
+     "domain": "ir.tesla.com",
+     "error_code": "blocked",
+     "excerpt": null,
+     "final_url": "https://ir.tesla.com/_flysystem/s3/sec/000162828025003063/tsla-20241231-gen.pdf",
+     "id": "S3",
+     "kind": "company",
+     "requested_url": "https://ir.tesla.com/_flysystem/s3/sec/000162828025003063/tsla-20241231-gen.pdf",
+     "retrieved_at": "2026-07-17",
+     "snippet": "Our used vehicle business supports new vehicle sales by integrating the trade-in of a customer's existing Tesla or non-Tesla vehicle with the sale of a new Tesla vehicle.",
+     "status": "blocked",
+     "title": "PDF Tesla, Inc."
+    }
+   ],
+   "summary": {
+    "citations": [
+     {
+      "quote": "You should carefully consider the risks described below together with the other information set forth in this report, which could materially affect our business, financial condition and future results.",
+      "source_id": "S1"
+     }
+    ],
+    "text": "The provided source does not contain any information regarding Tesla's sales figures for the year 2025 or any related financial projections. It primarily discusses risk factors related to Tesla's business operations and production challenges."
+   }
+  },
+  "type": "research_answer"
+ },
+ "quote": {
+  "as_of_epoch": 1784318401,
+  "currency": "USD",
+  "price": 333.74,
+  "ticker": "AAPL",
+  "type": "quote",
+  "week52_high": 334.99,
+  "week52_low": 201.5
+ }
+}

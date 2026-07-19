@@ -324,3 +324,24 @@ test("financials card renders the segment revenue section with eliminations labe
   const plain = cards.renderCard({ type: "financials", ticker: "AAPL", rows: [] });
   assert.ok(!plain.querySelector(".fin-segments"));
 });
+
+test("memo card renders kind, sections, sources, and validation note", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "memo", kind: "earnings_note", company: "Tesla, Inc.",
+    memo_path: "C:/out/Tesla_earnings_note_2026-07-19.md",
+    sections: 3, fallback_sections: 1, sources: 4,
+  });
+  const text = el.textContent;
+  assert.match(text, /Tesla, Inc./);
+  assert.match(text, /Earnings note · 3 sections · 4 sources/);
+  assert.match(text, /1 section composed directly from the evidence/);
+  assert.ok(el.querySelector('[data-open-excel]'), "open action present");
+  // Clean draft: no validation note.
+  const clean = cards.renderCard({
+    type: "memo", kind: "deal_summary", company: "Magna",
+    memo_path: "C:/out/m.md", sections: 3, fallback_sections: 0, sources: 2,
+  });
+  assert.doesNotMatch(clean.textContent, /composed directly/);
+});

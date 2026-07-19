@@ -29,6 +29,12 @@ export const TOOL_STORY = {
     failed: "Couldn't build the model",
     verb: "Building",
   },
+  draft_memo: {
+    running: "Writing it up…",
+    done: "Drafted the memo",
+    failed: "Couldn't finish the draft",
+    verb: "Drafting",
+  },
   benchmark_peers: {
     running: "Comparing peers…",
     done: "Compared the peers",
@@ -530,5 +536,19 @@ export function scheduleDueLabel(due) {
       return "after the next earnings report (about five weeks)";
     default:
       return "in about a week";
+  }
+}
+
+/** Memo kinds in plain words. */
+export function memoKindLabel(kind) {
+  switch (String(kind || "")) {
+    case "earnings_note":
+      return "Earnings note";
+    case "company_profile":
+      return "Company profile";
+    case "deal_summary":
+      return "Deal summary";
+    default:
+      return "Memo";
   }
 }

@@ -159,3 +159,18 @@ test("source click opens through the handler with url and title", async () => {
   assert.match(got.url, /ir\.tesla\.com/);
   assert.equal(got.title, "Q1 2026 Update");
 });
+
+test("memo artifacts land in the dock newest-first", async () => {
+  const ev = await boot();
+  const st = ev.createEvidenceState();
+  ev.evidenceAddCard(st, {
+    type: "memo", kind: "earnings_note", company: "TSLA",
+    memo_path: "C:/out/tsla_note.md",
+  });
+  assert.equal(st.artifacts.length, 1);
+  assert.equal(st.artifacts[0].kind, "memo");
+  const el = document.createElement("div");
+  ev.renderEvidenceArtifacts(el, st, {});
+  assert.match(el.textContent, /Memo/);
+  assert.match(el.textContent, /TSLA memo/);
+});

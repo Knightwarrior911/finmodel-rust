@@ -121,6 +121,14 @@ export function evidenceAddCard(state, card) {
         kind: "workbook",
       }) || changed;
   }
+  if (card.memo_path) {
+    changed =
+      addArtifact(state, {
+        path: card.memo_path,
+        label: card.company ? `${card.company} memo` : "Memo",
+        kind: "memo",
+      }) || changed;
+  }
   if (card.pptx_path) {
     changed =
       addArtifact(state, {
@@ -252,7 +260,7 @@ export function renderEvidenceArtifacts(el, state, { onOpen } = {}) {
   const rows = state.artifacts
     .map(
       (a) => `<li class="dock-artifact" data-art-path="${escapeHtml(a.path)}" role="button" tabindex="0">
-      <span class="dock-artifact-kind">${a.kind === "deck" ? "Deck" : "Workbook"}</span>
+      <span class="dock-artifact-kind">${a.kind === "deck" ? "Deck" : a.kind === "memo" ? "Memo" : "Workbook"}</span>
       <span class="dock-artifact-label">${escapeHtml(a.label)}</span>
       <span class="dock-artifact-open" aria-hidden="true">Open ↗</span>
     </li>`,

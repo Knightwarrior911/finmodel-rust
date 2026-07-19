@@ -138,3 +138,12 @@ test("scheduleDueLabel speaks plainly and is honest about approximation", () => 
   assert.match(scheduleDueLabel("after_next_earnings"), /about five weeks/);
   assert.match(scheduleDueLabel(null), /about a week/);
 });
+
+test("memo kinds and drafting activity speak plainly", () => {
+  assert.equal(memoKindLabel("earnings_note"), "Earnings note");
+  assert.equal(memoKindLabel("deal_summary"), "Deal summary");
+  assert.equal(memoKindLabel("whatever"), "Memo");
+  assert.equal(toolRunningLabel("draft_memo"), "Writing it up…");
+  assert.equal(toolDoneLabel("draft_memo"), "Drafted the memo");
+});
+import { memoKindLabel } from "../js/labels.mjs";

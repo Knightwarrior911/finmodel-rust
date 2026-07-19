@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.21 — 2026-07-19 — The analyst writes the memo
+
+- **New: draft_memo.** Research first, then say "draft an earnings note" (or
+  a company profile, or a deal summary) — the analyst writes a professional
+  memo FROM THE EVIDENCE IN THE CONVERSATION and saves it as a Markdown
+  artifact: cited prose sections, a key-figures table, segment revenue when
+  present, and a numbered sources list.
+- **Anti-slop by construction.** The scaffold — title, tables, sources — is
+  composed deterministically by the app. The model only fills short prose
+  slots (1–3 sentences each), and every slot is validated: a number that
+  isn't in the evidence rejects the draft (analyst roundings like
+  "$97.7 billion" for 97,690M are derived and allowed), banned filler
+  phrasing rejects ("impressive", "it's important to note", "delve"…),
+  and citations must reference real sources. A rejected slot gets one retry
+  with the exact reason, then falls back to honest fact sentences — a memo
+  never fails to exist and never invents a figure.
+- Live-verified with the production test model (gpt-4.1-mini): its first
+  draft of an earnings headline passed validation — cited, precise, no slop.
+- Memo cards in chat (open / show in folder) and memos collect in the
+  Evidence dock's Artifacts tab.
+
 ## v0.9.20 — 2026-07-19 — Careers pages are not evidence
 
 - **Jobs boards and employer-review sites are banned as sources.** A live

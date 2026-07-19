@@ -749,6 +749,7 @@ pub(crate) fn run_tool(
         "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
         "research" => tool_research(app, args, user_msg),
         "use_skill" => tool_use_skill(app, args),
+        "draft_memo" => tool_draft_memo(app, args, conversation_id),
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -757,6 +758,157 @@ pub(crate) fn run_tool(
 /// model can follow them (progressive disclosure — the catalog only carries
 /// names + descriptions). The body is returned as the tool summary; there is no
 /// result card (display is null) since the payload is instructions, not data.
+/// Draft a memo from the conversation's accumulated evidence cards.
+/// The scaffold (tables, sources) is deterministic; the model (the synthesis
+/// model when configured, else the main model) fills short validated prose
+/// slots; failed slots fall back to honest fact sentences (agent::memo).
+fn tool_draft_memo(
+    app: &tauri::AppHandle,
+    args: &Value,
+    conversation_id: &str,
+) -> Result<(String, Value), String> {
+    use crate::agent::memo;
+    let kind = args["kind"].as_str().unwrap_or("").trim().to_string();
+    if !memo::KINDS.contains(&kind.as_str()) {
+        return Err(format!("unknown memo kind: {kind}"));
+    }
+    // 1. Evidence = every result card in this conversation.
+    let store = app
+        .try_state::<crate::store::AppStore>()
+        .ok_or_else(|| "store unavailable".to_string())?;
+    let handle = store.handle.clone();
+    let conv = conversation_id.to_string();
+    let cards: Vec<Value> = tauri::async_runtime::block_on(handle.call(move |db| {
+        let mut out = Vec::new();
+        if let Ok(branch) = db.branch_path(&conv) {
+            for m in &branch {
+                if let Ok(parts) = db.message_parts(&m.id) {
+                    for part in parts {
+                        if part.kind == "result" {
+                            if let Some(card) = serde_json::from_str::<Value>(&part.payload_json)
+                                .ok()
+                                .and_then(|v| v.get("card").cloned())
+                            {
+                                out.push(card);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }));
+    let ev = memo::collect_evidence(&cards);
+    if ev.is_empty() {
+        return Err(
+            "no evidence in this conversation yet - run get_financials, research, or read_filing first, then draft"
+                .into(),
+        );
+    }
+    let company = args["company"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if ev.company.is_empty() {
+                "Company".to_string()
+            } else {
+                ev.company.clone()
+            }
+        });
+
+    // 2. Fill the prose slots (memo-grade writing goes to the synthesis model
+    //    when configured; production tests run the main model = gpt-4.1-mini).
+    let settings = read_settings(app);
+    let api_key = settings.openrouter_api_key.trim().to_string();
+    let write_model = if settings.synthesis_model.trim().is_empty() {
+        settings.model.trim().to_string()
+    } else {
+        settings.synthesis_model.trim().to_string()
+    };
+    let chat_url = crate::commands::settings::chat_completions_url(&settings);
+    let source_list = ev
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, (t, _))| format!("[S{}] {}", i + 1, t))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let system = "You are drafting one section of an investment-banking memo. Use ONLY the facts provided. Cite research statements as [S<n>] from the source list. No hedging filler; no adjectives like impressive or remarkable; plain declarative sentences an MD would sign.";
+    let mut sections: Vec<(String, String, bool)> = Vec::new();
+    let mut fallbacks = 0usize;
+    for (heading, instruction, max_s) in memo::section_specs(&kind) {
+        let user = format!(
+            "Section: {heading}\nInstruction: {instruction}\nMax sentences: {max_s}\n\nFACTS:\n{}\n\nRESEARCH NOTES:\n{}\n\nSOURCES:\n{source_list}",
+            ev.facts.join("\n"),
+            ev.notes.join("\n"),
+        );
+        let mut text: Option<String> = None;
+        if !api_key.is_empty() {
+            if let Ok(draft) =
+                crate::commands::settings::complete_once(&api_key, &write_model, &chat_url, system, &user, 300)
+            {
+                match memo::validate_slot(&draft, &ev, max_s) {
+                    Ok(()) => text = Some(draft.trim().to_string()),
+                    Err(reason) => {
+                        let retry_user = format!(
+                            "{user}\n\nYour previous draft was REJECTED: {reason}. Fix exactly that and rewrite."
+                        );
+                        if let Ok(second) = crate::commands::settings::complete_once(
+                            &api_key,
+                            &write_model,
+                            &chat_url,
+                            system,
+                            &retry_user,
+                            300,
+                        ) {
+                            if memo::validate_slot(&second, &ev, max_s).is_ok() {
+                                text = Some(second.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let (final_text, fell_back) = match text {
+            Some(t) => (t, false),
+            None => {
+                fallbacks += 1;
+                (memo::fallback_text(heading, &ev), true)
+            }
+        };
+        sections.push((heading.to_string(), final_text, fell_back));
+    }
+
+    // 3. Render + persist the artifact.
+    let today = &iso_now()[..10];
+    let md = memo::render_markdown(&kind, &company, today, &sections, &ev);
+    let dir = if settings.out_dir.trim().is_empty() {
+        std::env::temp_dir().join("finmodel-memos")
+    } else {
+        std::path::PathBuf::from(settings.out_dir.trim())
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("out dir: {e}"))?;
+    let stem: String = company
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("{stem}_{kind}_{today}.md"));
+    std::fs::write(&path, &md).map_err(|e| format!("write memo: {e}"))?;
+
+    let card = json!({
+        "type": "memo",
+        "kind": kind,
+        "company": company,
+        "memo_path": path.to_string_lossy(),
+        "sections": sections.len(),
+        "fallback_sections": fallbacks,
+        "sources": ev.sources.len(),
+    });
+    Ok((truncate(&md, 12_000), card))
+}
+
 fn tool_use_skill(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
     use tauri::Manager;
     let name = args
