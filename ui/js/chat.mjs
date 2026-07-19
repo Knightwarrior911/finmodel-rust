@@ -962,19 +962,45 @@ async function sendViaAgent(msg) {
 }
 
 /// If no live delta bubble was created (fail-closed / non-streaming terminal),
-/// surface a minimal final answer so the turn never renders empty.
+/// surface a minimal final answer so the turn never renders empty. Always human
+/// prose — never raw payload JSON (a budget stop once leaked
+/// '{"detail":"rounds","kind":"budget"}' into the chat).
 function surfaceMinimalAnswer(terminal) {
   if (activeTurn && activeTurn.assistantNode) return;
-  const detail =
-    (terminal.env &&
-      terminal.env.event &&
-      terminal.env.event.payload &&
-      (terminal.env.event.payload.detail || terminal.env.event.payload.stop)) ||
-    terminal.kind;
-  appendAssistant(
-    typeof detail === "string" ? detail : JSON.stringify(detail),
-    true,
-  );
+  const payload =
+    (terminal.env && terminal.env.event && terminal.env.event.payload) || {};
+  const stop = payload.stop;
+  let text;
+  switch (terminal.kind) {
+    case "run_budget_limited": {
+      const which =
+        stop && stop.detail === "tokens"
+          ? "token budget"
+          : stop && stop.detail === "deadline"
+            ? "time budget"
+            : "step budget";
+      text = `I hit this turn's ${which} before I could finish. Ask me to continue and I'll pick up from what I found so far.`;
+      break;
+    }
+    case "run_cancelled":
+      text = "Stopped at your request.";
+      break;
+    case "run_interrupted":
+      text = "Paused — use Resume to continue this run.";
+      break;
+    case "run_failed": {
+      const code =
+        typeof stop === "object" && stop && typeof stop.detail === "string"
+          ? ` (${stop.detail})`
+          : "";
+      text = `Something went wrong and this run could not finish${code}. Try again, or rephrase the request.`;
+      break;
+    }
+    default:
+      text =
+        typeof payload.detail === "string" ? payload.detail : "Done.";
+  }
+  appendAssistant(text, true);
 }
 
 async function send(text) {

@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.4 — 2026-07-19 — Budget stops end with an answer, and shares outstanding is a first-class figure
+
+- **A budget-limited turn now wraps up instead of dying.** When a run exhausts
+  its step or token budget mid-task, the analyst gets one final no-tools
+  synthesis pass to answer from the evidence it already gathered — then the run
+  still ends as "Budget reached" (partial). Previously the run stopped cold
+  after its last tool call, leaving the question unanswered. Time-budget
+  exhaustion still stops immediately.
+- **No more raw JSON in chat.** The fallback message for a turn that ended
+  without streaming text used to print the internal stop payload verbatim
+  (`{"detail":"rounds","kind":"budget"}`). Every terminal now renders a human
+  sentence telling you what happened and what to do next.
+- **get_financials now reports share counts.** Shares outstanding from the
+  10-K cover page (dei: EntityCommonStockSharesOutstanding — the exact
+  disclosed number, e.g. Tesla FY2025: 3,752,431,984), with the balance-sheet
+  count as fallback, plus weighted-average diluted shares as a separate labeled
+  row so the two are never conflated. Asking "how many shares does Tesla have?"
+  is now a one-tool answer instead of a filing hunt.
+
 ## v0.9.3 — 2026-07-19 — Settings gets sections, skills get an editor
 
 - **Settings is now sectioned.** The settings dialog is organized into four

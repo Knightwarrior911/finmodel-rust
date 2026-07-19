@@ -124,6 +124,11 @@ pub struct AgentMachine {
     arg_repair_used: bool,
     /// At most one verification repair per run.
     verify_repair_used: bool,
+    /// Set when a rounds/tokens budget trip was converted into one final
+    /// no-tools synthesis pass (the "wrap-up round"): the run still terminates
+    /// as budget-limited/partial, but with an answer built from the evidence
+    /// already gathered instead of dying mid-task.
+    budget_grace: Option<BudgetKind>,
     cancel_requested: bool,
 }
 
@@ -138,6 +143,7 @@ impl AgentMachine {
             ready_batch: Vec::new(),
             arg_repair_used: false,
             verify_repair_used: false,
+            budget_grace: None,
             cancel_requested: false,
         }
     }
@@ -290,7 +296,12 @@ impl AgentMachine {
 
             // ---- Synthesizing ----
             (AgentPhase::Synthesizing, Input::Synthesized) => {
-                if self.needs_verification {
+                if self.budget_grace.is_some() {
+                    // Wrap-up round: the budget is spent — no verification pass,
+                    // straight to memory capture then the budget-limited terminal.
+                    self.phase = AgentPhase::Executing; // transient; extract then terminate
+                    Action::ExtractMemory
+                } else if self.needs_verification {
                     self.phase = AgentPhase::Verifying;
                     Action::Verify
                 } else {
@@ -316,6 +327,16 @@ impl AgentMachine {
 
             // ---- Memory then terminal ----
             (_, Input::MemoryDone) => {
+                // A grace-synthesized run terminates as budget-limited/partial:
+                // the answer exists, but the run did not finish cleanly.
+                if let Some(kind) = self.budget_grace {
+                    return self.terminate(
+                        AgentPhase::BudgetLimited,
+                        EventKind::RunBudgetLimited,
+                        StopReason::Budget(kind),
+                        true,
+                    );
+                }
                 let partial = self.verify_repair_used && self.needs_verification;
                 let stop = if partial {
                     StopReason::UnverifiedClaim
@@ -389,6 +410,14 @@ impl AgentMachine {
     }
 
     fn budget_stop(&mut self, kind: BudgetKind) -> Action {
+        // Rounds/tokens exhaustion earns one wrap-up synthesis from the
+        // evidence already gathered — an answer, not a dead end. The deadline
+        // is wall-clock-real and always hard-stops, and grace fires once.
+        if kind != BudgetKind::Deadline && self.budget_grace.is_none() {
+            self.budget_grace = Some(kind);
+            self.phase = AgentPhase::Synthesizing;
+            return Action::Synthesize;
+        }
         self.terminate(
             AgentPhase::BudgetLimited,
             EventKind::RunBudgetLimited,
@@ -820,22 +849,64 @@ mod tests {
                 final_answer: false,
                 tokens: 1,
             });
-            if matches!(last, Action::Emit { .. }) {
+            if matches!(last, Action::Synthesize) {
                 break;
             }
             last = m.next(Input::ToolsCompleted { tokens: 1 });
-            if matches!(last, Action::Emit { .. }) {
+            if matches!(last, Action::Synthesize) {
                 break;
             }
         }
+        // Rounds exhaustion earns one wrap-up synthesis (an answer from the
+        // gathered evidence), then the run still terminates budget-limited.
+        assert_eq!(last, Action::Synthesize);
+        assert_eq!(m.phase(), AgentPhase::Synthesizing);
+        assert_eq!(m.next(Input::Synthesized), Action::ExtractMemory);
         assert_eq!(
-            last,
+            m.next(Input::MemoryDone),
             Action::Emit {
                 event: EventKind::RunBudgetLimited,
                 stop: StopReason::Budget(BudgetKind::Rounds),
                 partial: true
             }
         );
+        assert_eq!(m.phase(), AgentPhase::BudgetLimited);
+    }
+
+    #[test]
+    fn deadline_still_hard_stops_and_grace_fires_once() {
+        // Deadline: no grace, immediate budget terminal (wall clock is real).
+        let mut m = AgentMachine::new(Policy::INTERACTIVE);
+        m.next(Input::Prepared {
+            uses_tools: true,
+            plan_needed: false,
+            needs_verification: false,
+        });
+        let a = m.next(Input::Tick {
+            elapsed_ms: Policy::INTERACTIVE.deadline_ms + 1,
+        });
+        assert!(matches!(
+            a,
+            Action::Emit {
+                event: EventKind::RunBudgetLimited,
+                ..
+            }
+        ));
+        // Grace fires at most once: a second budget trip terminates directly.
+        let mut g = AgentMachine::new(Policy::INTERACTIVE);
+        g.next(Input::Prepared {
+            uses_tools: true,
+            plan_needed: false,
+            needs_verification: false,
+        });
+        g.budget_grace = Some(BudgetKind::Rounds);
+        assert!(matches!(
+            g.budget_stop(BudgetKind::Rounds),
+            Action::Emit {
+                event: EventKind::RunBudgetLimited,
+                ..
+            }
+        ));
     }
 
     #[test]

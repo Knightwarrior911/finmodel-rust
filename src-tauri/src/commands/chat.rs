@@ -1229,7 +1229,10 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
 
     // First candidate tag with an annual (10-K, fp=FY) value: the requested
     // fiscal year, else the latest; latest filing wins for a period (restatement).
-    let pick = |tags: &[&str], unit: &str| -> Option<(f64, i64, String, String)> {
+    let pick_in = |map: &serde_json::Map<String, Value>,
+                   tags: &[&str],
+                   unit: &str|
+     -> Option<(f64, i64, String, String)> {
         let endof = |v: &Value| {
             v.get("end")
                 .and_then(|x| x.as_str())
@@ -1243,7 +1246,7 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
                 .to_string()
         };
         for &tag in tags {
-            let Some(vals) = us.get(tag).and_then(|e| e["units"][unit].as_array()) else {
+            let Some(vals) = map.get(tag).and_then(|e| e["units"][unit].as_array()) else {
                 continue;
             };
             let mut ann: Vec<&Value> = vals
@@ -1285,6 +1288,23 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
             }
         }
         None
+    };
+    let pick = |tags: &[&str], unit: &str| pick_in(us, tags, unit);
+
+    // Share counts read as integers with thousands separators, not $ figures.
+    let count = |v: f64| -> String {
+        let n = v.round() as i64;
+        let mut out = String::new();
+        for (i, c) in n.abs().to_string().chars().rev().enumerate() {
+            if i > 0 && i % 3 == 0 {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        if n < 0 {
+            out.push('-');
+        }
+        out.chars().rev().collect()
     };
 
     let money = |v: f64| -> String {
@@ -1341,6 +1361,43 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
             };
             lines.push(format!("- {label}: {disp}"));
             rows.push(json!({ "label": label, "value": val, "display": disp }));
+        }
+    }
+    // Shares outstanding: the 10-K cover-page count (dei taxonomy) is the
+    // exact disclosed number; us-gaap CommonStockSharesOutstanding is the
+    // balance-sheet fallback. Distinct from weighted-average shares, which is
+    // reported separately so the two are never conflated.
+    let shares: &[(&str, Option<&serde_json::Map<String, Value>>, &[&str])] = &[
+        (
+            "Shares outstanding (cover page)",
+            raw["facts"]["dei"].as_object(),
+            &["EntityCommonStockSharesOutstanding"],
+        ),
+        (
+            "Shares outstanding (balance sheet)",
+            Some(us),
+            &["CommonStockSharesOutstanding"],
+        ),
+        (
+            "Diluted shares (weighted average)",
+            Some(us),
+            &["WeightedAverageNumberOfDilutedSharesOutstanding"],
+        ),
+    ];
+    let mut cover_done = false;
+    for &(label, map, tags) in shares {
+        // Only one "outstanding" row: cover page wins, balance sheet is fallback.
+        if label.starts_with("Shares outstanding") && cover_done {
+            continue;
+        }
+        let Some(map) = map else { continue };
+        if let Some((val, _vfy, end, _vfiled)) = pick_in(map, tags, "shares") {
+            if label.starts_with("Shares outstanding") {
+                cover_done = true;
+            }
+            let disp = count(val);
+            lines.push(format!("- {label}: {disp} (as of {end})"));
+            rows.push(json!({ "label": label, "value": val, "display": disp, "as_of": end }));
         }
     }
     if rows.is_empty() {

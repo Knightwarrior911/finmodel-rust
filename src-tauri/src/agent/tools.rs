@@ -244,7 +244,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "get_financials",
                 label: "Get financials",
-                description: "Get a company's EXACT reported annual financials (revenue/sales, gross profit, operating income, net income, diluted EPS) straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
+                description: "Get a company's EXACT reported annual financials (revenue/sales, gross profit, operating income, net income, diluted EPS, shares outstanding from the 10-K cover page, weighted-average diluted shares) straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
                 risk: Risk::ReadOnly,
                 capabilities: &["market", "filings", "financials"],
                 required_args: &["ticker"],
