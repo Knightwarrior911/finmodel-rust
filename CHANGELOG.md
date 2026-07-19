@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.8 — 2026-07-19 — Blocked sources get a fallback, not a shrug
+
+- **The analyst no longer gives up on bot-protected websites.** When a page
+  blocks automated readers (tesla.com and most large corporate sites do), the
+  tool result now carries the fallback playbook — research synthesis, SEC
+  filings (DEF 14A proxy / 10-K executive-officer sections for management
+  questions), news — and the analyst is instructed to try them immediately
+  instead of asking permission to continue.
+- **Source-fallback doctrine in the system prompt.** Blocked, empty, or
+  unavailable sources trigger the next-best source automatically, matching how
+  a human analyst works.
+- Tip: configuring the Roam browser (Settings → Connections → "Roam MCP
+  command") lets read_page drive a real browser through bot protection.
+
 ## v0.9.7 — 2026-07-19 — The interface grows up
 
 - **Quieter, more professional visual register.** The oversized centered

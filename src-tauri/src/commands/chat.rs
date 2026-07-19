@@ -22,7 +22,7 @@ use crate::error::{AppError, AppResult};
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. When a request needs more than one step or tool, you MUST begin your reply with a one-line plan on its own line, that starts with Plan: — for example, Plan: pull Tesla and Ford financials, then compare. Then carry it out end to end — call the tools you need and give the answer — without stopping to ask whether to continue; pause only for a required approval or a genuine either/or choice. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. When a source is blocked, empty, or unavailable, immediately try the next-best source (research, SEC filings, news) and answer from what you can reach — never stop to ask permission before trying a fallback. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. When a request needs more than one step or tool, you MUST begin your reply with a one-line plan on its own line, that starts with Plan: — for example, Plan: pull Tesla and Ford financials, then compare. Then carry it out end to end — call the tools you need and give the answer — without stopping to ask whether to continue; pause only for a required approval or a genuine either/or choice. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table.";
 
 /// Convert unix seconds to an ISO-8601 UTC timestamp (civil date via Hinnant's
 /// algorithm). Lexicographically sortable == chronological.
@@ -1102,7 +1102,22 @@ fn tool_read_page(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value
     let status = serde_json::to_value(page.status).unwrap_or(json!("ok"));
     let card = json!({ "type": "page", "url": url, "title": page.title, "status": status });
     let text = if page.text.trim().is_empty() {
-        format!("(page returned no readable text; status: {status})")
+        // A dead-end result teaches the model to give up or ask permission.
+        // Instead, carry the fallback playbook a human analyst would use.
+        let is_blocked = status == json!("blocked");
+        if is_blocked {
+            format!(
+                "This site blocks automated readers (status: blocked). Do NOT ask the user what to do — fall back immediately:\n\
+                 1. `research` — cited synthesis from search + accessible sources (best general fallback).\n\
+                 2. For management/executive info: SEC filings — the DEF 14A proxy statement and 10-K Part I ('Information about our Executive Officers') via `read_filing`/`list_filings`.\n\
+                 3. `get_news` for recent coverage.\n\
+                 Answer from those sources and cite them. (A Roam browser configured in Settings → Connections lets read_page handle bot-protected sites.)"
+            )
+        } else {
+            format!(
+                "(page returned no readable text; status: {status}) Fall back without asking: try `research` for a cited answer, or the company's SEC filings via `read_filing`."
+            )
+        }
     } else {
         truncate(&page.text, 8000)
     };
