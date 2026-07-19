@@ -1,5 +1,40 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.19 SHIPPED + LIVE (2026-07-19) — tiering, rebrand, segments
+**Tagged `v0.9.19` (280ae2c); Latest on finmodel-releases; CI green on that
+sha; endpoint verified (0.9.19, sig 420 clean, installer 200, digest match).**
+
+1. **Stream-handoff tiering (real, every turn)**: with synthesis_model set,
+   fast-model rounds stream under "<run>:draft" (UI filters deltas by run
+   id — draft prose never paints; ':draft' reaches ONLY ephemeral window
+   events, nothing persisted); on final_answer the driver's
+   finish_with_strong_model streams the real answer under the real run id.
+   Message surgery is pure + tested (driver.rs finisher module: draft pop
+   only for plain prose, nudge push/pop symmetry, BYTE-IDENTICAL history
+   restore on failure → turn always answers). Finisher prompt preserves
+   [n] cite markers verbatim. NOT yet exercised with a live paid call —
+   opt-in only, falls back to the fast draft on any failure.
+2. **Rebrand**: src-tauri/icon-source.svg (indigo tile, ascending bars,
+   trend tick) → cargo tauri icon regenerated ALL platform icons.
+3. **Segments (3c)**: fm-fetch/src/segments.rs — XBRL instance parser.
+   Rules (from review): contexts with EXACTLY ONE dimension (segments axis)
+   — double-tagged product/geo facts excluded (no double-count); counting by
+   ELEMENT BLOCKS not substring (closing tags double-counted — caught by
+   fixture test); eliminations kept + labeled + sorted last; concept
+   precedence mirrors the spread. instance URL = primary doc *_htm.xml;
+   edgar::fetch_url_text (verbatim, 25MB cap). LIVE-verified: TSLA FY2025
+   Automotive 82.056B / Energy 12.771B. get_financials (annual) attaches
+   card.segments + text section; card renders .fin-segments table.
+4. **Basis toggle (3b)**: financials_card command (spawn_blocking around
+   tool_get_financials); Annual/Quarterly/LTM chips in renderFinancials;
+   wireCard delegation swaps the card in place (renderCard on the response).
+5. **Memory offers (3a)**: agent_send returns memory_candidate when
+   is_durable_preference fires AND no commitment did; chat renders
+   approval-gated "Remember it" chip → memory_add command
+   (insert_memory kind=preference, confidence 1.0, source user_approved).
+   Unattended capture stays OFF (precision doctrine).
+Gates (exit codes): app 311 · UI 172 · fm-fetch 53 (+live segment test).
+
 ## HANDOVER — v0.9.18 SHIPPED + LIVE (2026-07-19) — P1 complete
 **Tagged `v0.9.18` (efd1efe); Latest on finmodel-releases; CI green on that
 sha; endpoint verified (0.9.18, sig 420 clean, installer 200, digest match).**
