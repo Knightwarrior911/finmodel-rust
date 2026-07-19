@@ -1,7 +1,7 @@
 //! Run budgets and policy. The reducer consults [`Budget`] to decide when a run
 //! must stop; the driver charges usage as model/tool rounds complete.
 //!
-//! Default interactive policy: 8 model/tool rounds, 32k cumulative turn tokens,
+//! Default interactive policy: 10 model/tool rounds, 32k cumulative turn tokens,
 //! 120 s wall clock. A [`WorkflowSpec`](crate) may raise these for research or
 //! artifact work; accepting such a tool escalates the current run to that policy
 //! *from the original start time*.
@@ -24,9 +24,11 @@ pub struct Policy {
 }
 
 impl Policy {
-    /// The default interactive policy (decision: 8 rounds / 32k tokens / 120 s).
+    /// The default interactive policy (decision: 10 rounds / 32k tokens / 120 s;
+    /// raised from 8 once multi-company questions proved to bind on rounds even
+    /// with the one-call financials spread).
     pub const INTERACTIVE: Policy = Policy {
-        max_rounds: 8,
+        max_rounds: 10,
         max_tokens: 32_000,
         deadline_ms: 120_000,
         max_children: 0,
@@ -179,15 +181,17 @@ mod tests {
     #[test]
     fn escalation_grows_all_dimensions() {
         let mut b = Budget::new(Policy::INTERACTIVE);
-        for _ in 0..8 {
+        let used = Policy::INTERACTIVE.max_rounds;
+        for _ in 0..used {
             b.charge_round(100);
         }
         assert_eq!(b.exhausted(), Some(BudgetKind::Rounds));
         b.escalate(Policy::WORKFLOW);
-        // rounds ceiling rose to 12, usage (8) preserved -> can continue again
+        // rounds ceiling rose to the workflow policy, usage preserved -> can
+        // continue again
         assert!(b.can_continue());
-        assert_eq!(b.policy.max_rounds, 12);
-        assert_eq!(b.rounds_used, 8);
+        assert_eq!(b.policy.max_rounds, Policy::WORKFLOW.max_rounds);
+        assert_eq!(b.rounds_used, used);
     }
 
     #[test]

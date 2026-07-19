@@ -132,7 +132,8 @@ fn schema_get_financials() -> Value {
         "properties": {
             "ticker": { "type": "string", "description": "US-listed ticker, e.g. TSLA" },
             "year": { "type": "integer", "description": "Anchor fiscal year, e.g. 2025 (default: latest reported); the spread covers this year and earlier" },
-            "years": { "type": "integer", "description": "How many fiscal years to return (default 3, max 6)" }
+            "years": { "type": "integer", "description": "How many fiscal years to return (default 3, max 6; annual basis only)" },
+            "basis": { "type": "string", "enum": ["annual", "quarterly", "ltm"], "description": "annual (default): multi-year FY spread; quarterly: last 8 fiscal quarters (Q4 derived); ltm: trailing twelve months — use for comps and current-run-rate questions" }
         },
         "required": ["ticker"]
     })
@@ -245,7 +246,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "get_financials",
                 label: "Get financials",
-                description: "Get a company's EXACT reported annual financials as a multi-year spread (default 3 FYs): income statement, balance sheet (cash, assets, LT debt, equity), cash flow (CFO, capex), shares outstanding from the 10-K cover page, weighted-average diluted shares — plus growth, margins, FCF, and net cash PRE-COMPUTED deterministically (use those numbers as-is; never recompute). Straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
+                description: "Get a company's EXACT reported financials from SEC EDGAR XBRL on three bases: annual (default; multi-year FY spread with income statement, balance sheet incl. debt, cash flow, interest, D&A, share counts), quarterly (last 8 fiscal quarters), or ltm (trailing twelve months — the comps basis). Growth, margins, EBITDA, FCF, leverage, interest coverage, and net cash are PRE-COMPUTED deterministically (use those numbers as-is; never recompute). Straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
                 risk: Risk::ReadOnly,
                 capabilities: &["market", "filings", "financials"],
                 required_args: &["ticker"],
@@ -301,7 +302,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "read_filing",
                 label: "Read filing",
-                description: "Read the narrative text of a company's latest SEC filing (10-K/10-Q): risk factors (item 1A), MD&A (item 7), business description (item 1). For a SPECIFIC reported figure — revenue/sales, net income, EPS, margins — prefer `research` (cited) or `build_model`; do not scrape numbers out of narrative items. Never use web_search for filing content.",
+                description: "Read the narrative text of a company's latest SEC filing (10-K/10-Q): risk factors (item 1A), MD&A (item 7), business description (item 1), financial statements & notes (item 8 — includes the SEGMENT reporting note: revenue/profit by business segment and geography, not available via XBRL company facts). For a SPECIFIC reported figure — revenue/sales, net income, EPS, margins — prefer `research` (cited) or `build_model`; do not scrape numbers out of narrative items. Never use web_search for filing content.",
                 risk: Risk::ReadOnly,
                 capabilities: &["filings", "edgar"],
                 required_args: &["ticker"],

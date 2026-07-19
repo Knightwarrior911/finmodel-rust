@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.6 — 2026-07-19 — Three bases, credit metrics, and a roomier run budget
+
+- **Quarterly and LTM bases.** `get_financials` now takes `basis`:
+  `annual` (default), `quarterly` (last 8 fiscal quarters, with Q4 derived
+  as FY − Q1..Q3 and marked), or `ltm` (trailing twelve months — the real
+  comps basis, stitched FY + interim − prior interim with staleness guards).
+- **Credit metrics in the spread.** Interest expense, D&A, and short-term debt
+  join the annual spread; EBITDA, total debt, leverage (debt/EBITDA), interest
+  coverage, and net cash/(debt) are pre-computed deterministically. Discontinued
+  XBRL tags no longer shadow current ones (most-recent-data tag wins).
+- **Segment routing.** Segment revenue/profit tables live in the 10-K item 8
+  segment note (not XBRL company facts); the filing reader and skills now route
+  segment questions there explicitly.
+- **Run budget raised to 10 rounds** (from 8) for interactive turns — multi-company
+  questions kept binding on rounds even with the one-call spread.
+
 ## v0.9.5 — 2026-07-19 — get_financials becomes a real analyst spread
 
 - **Multi-year spread in one call.** `get_financials` now returns up to 6
