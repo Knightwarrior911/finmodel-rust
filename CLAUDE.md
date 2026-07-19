@@ -37,7 +37,9 @@ Since staging, master also gained (all riding v0.9.21):
 - comps_note memo kind (peer set / relative positioning / valuation read);
   model + benchmark cards distill into evidence; engine-computed revenue
   ratios + fraction→percent derivations keep honest prose validating.
-- Gates now: app 321 · UI 175 · fm-agent 50.
+- Memo → deck: fm-pptx add_prose archetype + write_memo_deck; draft_memo
+  deck:true saves a branded PPTX beside the .md; card 'Open deck' action.
+- Gates now: app 321 · UI 176 · fm-agent 50 · fm-pptx 6.
 Workflow integration (same head): earnings_review/company_brief/
 ma_screen/pitch_prep allow draft_memo; plan templates end with the drafting
 step; prompt doctrine teaches the kind mapping. NOTE: when billing is fixed,
