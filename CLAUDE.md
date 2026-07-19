@@ -27,6 +27,11 @@ draft_memo (the drafting leg of research→numbers→prose, goal work):
   memo card. UI: memo card, Artifacts dock pickup, warm labels.
 - LIVE mini smoke (agent::memo::tests::live_memo_slot_mini, --ignored):
   gpt-4.1-mini's first headline VALIDATED — cited, precise, no slop.
+Workflow integration (next commit): earnings_review/company_brief/
+ma_screen/pitch_prep allow draft_memo; plan templates end with the drafting
+step; prompt doctrine teaches the kind mapping. NOTE: when billing is fixed,
+tag v0.9.21 on the CURRENT master head and REBUILD the installer (the staged
+one predates the workflow integration).
 GOAL remains ACTIVE (broad, ongoing).
 
 ## HANDOVER — v0.9.20 SHIPPED + LIVE (2026-07-19) — live-session diagnosis: careers-page ban
