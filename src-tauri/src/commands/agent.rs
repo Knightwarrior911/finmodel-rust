@@ -553,16 +553,17 @@ pub async fn schedule_cancel(app: tauri::AppHandle, id: String) -> AppResult<boo
     Ok(true)
 }
 
-/// One scheduler sweep: claim every due schedule and launch its run. Recurring
-/// schedules re-arm for the next occurrence; one-shots finish; a failed launch
-/// retries with backoff up to 5 attempts. Called by the 60s tick in lib.rs.
-pub async fn run_due_schedules(app: &tauri::AppHandle) {
-    let Ok(app_store) = store(app) else { return };
-    let handle = app_store.handle.clone();
-    let registry = {
-        use tauri::Manager;
-        app.state::<ActorRegistry>().inner().clone()
-    };
+/// One scheduler sweep over the store: claim every due schedule and hand its
+/// prompt to `launch`. Recurring schedules re-arm for the next occurrence;
+/// one-shots finish; a failed launch retries with a 15-minute backoff and is
+/// TERMINAL after 5 attempts (never retries forever). The launcher is
+/// injected so this whole decision path is tested against a real store
+/// without a Tauri runtime.
+pub(crate) async fn sweep_due_schedules<F, Fut>(handle: &crate::store::StoreHandle, launch: F)
+where
+    F: Fn(Option<String>, String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
     loop {
         let now = crate::store::now_iso();
         let claimed = handle
@@ -577,7 +578,9 @@ pub async fn run_due_schedules(app: &tauri::AppHandle) {
             let sid = id.clone();
             let retry = iso_in_secs(15 * 60);
             let _ = handle
-                .call(move |db| db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string()))
+                .call(move |db| {
+                    db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string())
+                })
                 .await;
             continue;
         };
@@ -588,22 +591,17 @@ pub async fn run_due_schedules(app: &tauri::AppHandle) {
         if prompt.is_empty() {
             let sid = id.clone();
             let _ = handle
-                .call(move |db| db.finish_schedule(&sid, "empty_scope", &crate::store::now_iso()).map_err(|e| e.to_string()))
+                .call(move |db| {
+                    db.finish_schedule(&sid, "empty_scope", &crate::store::now_iso())
+                        .map_err(|e| e.to_string())
+                })
                 .await;
             continue;
         }
-        let launched = send_message_inner(
-            app.clone(),
-            registry.clone(),
-            row.conversation_id.clone(),
-            None,
-            None,
-            prompt,
-        )
-        .await;
+        let launched = launch(row.conversation_id.clone(), prompt).await;
         let sid = id.clone();
         match launched {
-            Ok(_) => match row.recurrence.as_deref() {
+            Ok(()) => match row.recurrence.as_deref() {
                 Some("daily") => {
                     let nd = iso_in_secs(86_400);
                     let _ = handle
@@ -628,10 +626,143 @@ pub async fn run_due_schedules(app: &tauri::AppHandle) {
             Err(_) => {
                 let retry = iso_in_secs(15 * 60);
                 let _ = handle
-                    .call(move |db| db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string()))
+                    .call(move |db| {
+                        db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string())
+                    })
                     .await;
             }
         }
+    }
+}
+
+/// The live tick: sweep with the real run launcher (called every 60s, lib.rs).
+pub async fn run_due_schedules(app: &tauri::AppHandle) {
+    let Ok(app_store) = store(app) else { return };
+    let handle = app_store.handle.clone();
+    let registry = {
+        use tauri::Manager;
+        app.state::<ActorRegistry>().inner().clone()
+    };
+    let app = app.clone();
+    sweep_due_schedules(&handle, move |conv, prompt| {
+        let app = app.clone();
+        let registry = registry.clone();
+        async move {
+            send_message_inner(app, registry, conv, None, None, prompt)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+    })
+    .await;
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    fn mem_handle() -> (crate::store::StoreHandle, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("fm-sched-{}", new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = crate::store::Db::open_in_memory(&dir.join("blobs")).unwrap();
+        (crate::store::StoreHandle::spawn(db), dir)
+    }
+
+    fn insert(handle: &crate::store::StoreHandle, id: &str, recurrence: Option<&str>, prompt: &str) {
+        let id = id.to_string();
+        let rec = recurrence.map(str::to_string);
+        let scope = serde_json::json!({ "prompt": prompt }).to_string();
+        let fut = handle.call(move |db| {
+            db.insert_schedule(
+                &id, None, None, "UTC", rec.as_deref(),
+                "2020-01-01T00:00:00Z", // long past due
+                &scope, None, None, "2020-01-01T00:00:00Z",
+            )
+            .map_err(|e| e.to_string())
+        });
+        tauri::async_runtime::block_on(fut).unwrap();
+    }
+
+    fn state(handle: &crate::store::StoreHandle, id: &str) -> (String, i64, Option<String>) {
+        let id = id.to_string();
+        tauri::async_runtime::block_on(
+            handle.call(move |db| db.schedule_state(&id).map_err(|e| e.to_string())),
+        )
+        .unwrap()
+        .unwrap()
+    }
+
+    #[test]
+    fn sweep_launches_oneshot_and_rearms_recurring() {
+        let (handle, dir) = mem_handle();
+        insert(&handle, "one", None, "check TSLA again");
+        insert(&handle, "day", Some("daily"), "morning brief");
+        let launched: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+        let l2 = launched.clone();
+        tauri::async_runtime::block_on(sweep_due_schedules(&handle, move |_conv, prompt| {
+            let l = l2.clone();
+            async move {
+                l.lock().unwrap().push(prompt);
+                Ok(())
+            }
+        }));
+        let mut got = launched.lock().unwrap().clone();
+        got.sort();
+        assert_eq!(got, vec!["check TSLA again".to_string(), "morning brief".to_string()]);
+        // One-shot finished; recurring re-armed pending with a FUTURE due time
+        // (a second immediate sweep launches nothing).
+        assert_eq!(state(&handle, "one").0, "done");
+        let (st, _, outcome) = state(&handle, "day");
+        assert_eq!(st, "pending");
+        assert_eq!(outcome.as_deref(), Some("launched"));
+        let n = Arc::new(AtomicUsize::new(0));
+        let n2 = n.clone();
+        tauri::async_runtime::block_on(sweep_due_schedules(&handle, move |_c, _p| {
+            let n = n2.clone();
+            async move {
+                n.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        }));
+        assert_eq!(n.load(Ordering::SeqCst), 0, "re-armed schedule is not due yet");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn failing_launch_backs_off_and_terminates_after_five_attempts() {
+        let (handle, dir) = mem_handle();
+        insert(&handle, "bad", None, "doomed run");
+        for attempt in 1..=5i64 {
+            // Force the row due again despite the 15-minute backoff
+            // (rearm resets status to pending with the given due time and
+            // preserves the attempts counter — exactly the state a matured
+            // backoff would reach).
+            let fut = handle.call(|db| {
+                db.rearm_schedule("bad", "2020-01-01T00:00:00Z").map_err(|e| e.to_string())
+            });
+            tauri::async_runtime::block_on(fut).unwrap();
+            tauri::async_runtime::block_on(sweep_due_schedules(&handle, |_c, _p| async {
+                Err("provider down".to_string())
+            }));
+            let (st, attempts, _) = state(&handle, "bad");
+            assert_eq!(attempts, attempt);
+            if attempt < 5 {
+                assert_eq!(st, "pending", "retries with backoff");
+            } else {
+                assert_eq!(st, "failed", "TERMINAL after 5 attempts — never forever");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn due_semantics_map_is_total() {
+        assert_eq!(due_semantics_to_secs(Some("tomorrow")), 86_400);
+        assert_eq!(due_semantics_to_secs(Some("next_week")), 7 * 86_400);
+        assert_eq!(due_semantics_to_secs(Some("garbage")), 7 * 86_400);
+        assert_eq!(due_semantics_to_secs(None), 7 * 86_400);
     }
 }
 
