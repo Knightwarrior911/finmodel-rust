@@ -4,11 +4,14 @@
 **v0.9.21 NOT TAGGED YET: GitHub Actions is rejecting ALL jobs with
 "account payments have failed or your spending limit needs to be increased"
 (0 steps, instant failure, rerun identical). User must fix GitHub billing;
-then: wait green CI on the CURRENT master head → tag v0.9.21 there →
-REBUILD + sign the installer (cargo tauri build --bundles nsis + signer
-sign + fresh latest.json) → publish to finmodel-releases. Do NOT ship the
-installer staged earlier at 7becd04 — it predates draft_sections /
-comps_note / workflow wiring that the v0.9.21 changelog now claims.**
+then: wait green CI on master head → tag v0.9.21 → publish. A FRESH
+SIGNED installer already exists, built at RC 4171a1b (the frozen release
+candidate): src-tauri/target/release/bundle/nsis/
+finmodel_0.9.21_x64-setup.exe (6,360,226 bytes) + .sig (420) +
+latest.json (signature + release URL baked in). If master head still
+equals 4171a1b (± docs-only commits), publish THAT bundle as-is;
+if feature code moved, rebuild + re-sign first. The older bundle from
+7becd04 was overwritten by this build.**
 
 Every CI-equivalent gate ran LOCALLY with exit codes on the target OS:
 app-lib 318 (Windows = the app job) · UI 175 · fm-research/fm-fetch/fm-build
