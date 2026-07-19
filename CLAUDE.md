@@ -27,7 +27,16 @@ draft_memo (the drafting leg of research→numbers→prose, goal work):
   memo card. UI: memo card, Artifacts dock pickup, warm labels.
 - LIVE mini smoke (agent::memo::tests::live_memo_slot_mini, --ignored):
   gpt-4.1-mini's first headline VALIDATED — cited, precise, no slop.
-Workflow integration (next commit): earnings_review/company_brief/
+Since staging, master also gained (all riding v0.9.21):
+- memo::draft_sections = the ONE production drafting loop (tool_draft_memo
+  delegates); live gates run the exact production path:
+  live_memo_full_mini (earnings note over frozen real-app evidence:
+  3/3 model-written, 0 fallbacks) and live_comps_note_mini (3/3).
+- comps_note memo kind (peer set / relative positioning / valuation read);
+  model + benchmark cards distill into evidence; engine-computed revenue
+  ratios + fraction→percent derivations keep honest prose validating.
+- Gates now: app 321 · UI 175 · fm-agent 50.
+Workflow integration (same head): earnings_review/company_brief/
 ma_screen/pitch_prep allow draft_memo; plan templates end with the drafting
 step; prompt doctrine teaches the kind mapping. NOTE: when billing is fixed,
 tag v0.9.21 on the CURRENT master head and REBUILD the installer (the staged
