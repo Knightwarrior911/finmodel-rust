@@ -1,5 +1,33 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.20 SHIPPED + LIVE (2026-07-19) — live-session diagnosis: careers-page ban
+**Tagged `v0.9.20` (0cf5e70); Latest on finmodel-releases; CI green; endpoint
+verified (0.9.20, sig 420 clean, installer 200, digest match). Installer was
+built at 2ad7238; the tag adds ONLY #[cfg(test)] code (live regression test)
+— release binary identical.**
+
+First LIVE-SESSION diagnosis: user reported random company pages in research.
+Method: copy finmodel.db+wal from AppData/Roaming/com.finmodel.desktop (NEVER
+open the live WAL DB read-write), inspect via bun:sqlite readonly; grasp OCR
+of the running window confirmed what the user saw. Findings (Veoneer/Magna
+2021 synergies question):
+- research READ veoneerin.teamtailor.com/jobs (ranked Company via name-token
+  upgrade!), linkedin.com/company/veoneer, ambitionbox.com employee reviews;
+- 2 runs ended "selected model could not produce a validated synthesis"
+  (gpt-4.1-mini) → raw digest of the junk pages rendered;
+- 4 read_filing calls failed on the DELISTED 2021 target (tool reaches the
+  latest filing only).
+Fixes: BANNED_DOMAINS += teamtailor/greenhouse/lever/myworkdayjobs/glassdoor/
+indeed/ambitionbox/comparably/zippia/linkedin; BANNED_PATHS /jobs|/careers|
+/vacancies even on the company's own domain; SYSTEM_PROMPT historical-events
+doctrine (research not read_filing for past events; deal mode for M&A).
+LIVE-verified on the exact failing question: ledger contains zero banned
+hosts (live_no_careers_pages, --ignored).
+RECOMMEND TO USER: set Research synthesis model (Settings → Connections) —
+the failed-synthesis digests are the mini model failing cite-validated
+writing; that setting exists for exactly this.
+Gates: fm-research 112+13 · app 311 (+1 live ignored).
+
 ## HANDOVER — v0.9.19 SHIPPED + LIVE (2026-07-19) — tiering, rebrand, segments
 **Tagged `v0.9.19` (280ae2c); Latest on finmodel-releases; CI green on that
 sha; endpoint verified (0.9.19, sig 420 clean, installer 200, digest match).**
