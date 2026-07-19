@@ -19,13 +19,14 @@ use serde_json::Value;
 
 /// Memo kinds an analyst actually writes. Kept to three until each earns
 /// its structure.
-pub const KINDS: &[&str] = &["earnings_note", "company_profile", "deal_summary"];
+pub const KINDS: &[&str] = &["earnings_note", "company_profile", "deal_summary", "comps_note"];
 
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
         "earnings_note" => "Earnings note",
         "company_profile" => "Company profile",
         "deal_summary" => "Deal summary",
+        "comps_note" => "Comps note",
         _ => "Memo",
     }
 }
@@ -112,6 +113,12 @@ fn absorb_numbers(numbers: &mut HashSet<String>, text: &str) {
             if v >= 10.0 {
                 numbers.insert(normalize_num(&format!("{v:.1}")));
                 numbers.insert(normalize_num(&format!("{v:.0}")));
+            }
+            // Fractional ratios read as percents in prose: 0.64 → "64%".
+            if v > 0.0 && v < 1.0 {
+                let pct = v * 100.0;
+                numbers.insert(normalize_num(&format!("{pct:.0}")));
+                numbers.insert(normalize_num(&format!("{pct:.1}")));
             }
         }
         numbers.insert(n);
@@ -324,6 +331,33 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                     absorb_numbers(&mut ev.numbers, &line);
                     ev.facts.push(line);
                 }
+                // Engine-computed scale ratios so relative-positioning prose
+                // can say "5.1x AMD's revenue" without inventing arithmetic.
+                let revs: Vec<(String, f64)> = card["rows"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|r| {
+                                Some((
+                                    r["ticker"].as_str()?.to_string(),
+                                    r["revenue_m"].as_f64()?,
+                                ))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if let Some((base_t, base_r)) = revs.first().cloned() {
+                    for (t, r) in revs.iter().skip(1) {
+                        if *r > 0.0 {
+                            let line = format!(
+                                "Revenue scale (engine-computed): {base_t} is {:.1}x {t}",
+                                base_r / r
+                            );
+                            absorb_numbers(&mut ev.numbers, &line);
+                            ev.facts.push(line);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -429,6 +463,11 @@ pub fn section_specs(kind: &str) -> Vec<(&'static str, &'static str, usize)> {
             ("Transaction", "One to two sentences: who is acquiring whom, headline value, and consideration structure, from the facts.", 2),
             ("Strategic rationale", "Two sentences on why, per the parties' own statements in the research notes.", 2),
             ("Economics", "Two sentences on price, synergies, and financing where stated in the evidence. Never estimate what the sources do not state.", 2),
+        ],
+        "comps_note" => vec![
+            ("Peer set", "One to two sentences naming the peers compared and the fiscal periods used, from the fact pack only.", 2),
+            ("Relative positioning", "Two to three sentences on how the subject compares on growth, margins, and leverage - every figure from the fact pack, each peer named.", 3),
+            ("Valuation read", "Two sentences on what the comparison implies for relative valuation. State only what the evidence supports; if no market multiples are in the facts, say the comparison is operational only.", 2),
         ],
         _ => vec![],
     }
@@ -736,12 +775,101 @@ mod tests {
             ]
         });
         let ev = collect_evidence(&[card]);
-        assert_eq!(ev.facts.len(), 2);
+        // 2 peer rows + 1 engine-computed revenue-scale ratio.
+        assert_eq!(ev.facts.len(), 3);
         assert!(ev.facts[0].starts_with("Peer NVDA: FY 2025, Revenue (m) 130497"));
+        assert!(
+            ev.facts[2].contains("NVDA is 5.1x AMD"),
+            "ratio fact missing: {}",
+            ev.facts[2]
+        );
+        // Fraction margins derive percent forms for natural prose.
+        assert!(ev.numbers.contains("64"), "0.64 should derive 64");
         assert!(ev.facts[0].contains("EBITDA margin 0.64"));
         // Null cells are dropped, not rendered as null.
         assert!(!ev.facts[1].contains("null"));
         assert!(ev.numbers.contains("130497"));
+    }
+
+    #[test]
+    fn comps_note_kind_is_complete() {
+        assert!(KINDS.contains(&"comps_note"));
+        assert_eq!(kind_label("comps_note"), "Comps note");
+        let specs = section_specs("comps_note");
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].0, "Peer set");
+        // Every kind has specs; unknown kinds have none.
+        for k in KINDS {
+            assert!(!section_specs(k).is_empty(), "kind {k} has no sections");
+        }
+        assert!(section_specs("nope").is_empty());
+    }
+
+    #[test]
+    fn comps_note_renders_from_benchmark_evidence() {
+        let card = json!({
+            "type": "benchmark",
+            "headers": [
+                { "key": "ticker", "label": "Ticker" },
+                { "key": "fiscal_year", "label": "FY" },
+                { "key": "revenue_m", "label": "Revenue (m)" },
+                { "key": "ebitda_margin", "label": "EBITDA margin" }
+            ],
+            "rows": [
+                { "ticker": "NVDA", "fiscal_year": "2025", "revenue_m": 130497.0, "ebitda_margin": 0.64 },
+                { "ticker": "AMD", "fiscal_year": "2024", "revenue_m": 25785.0, "ebitda_margin": 0.21 }
+            ]
+        });
+        let ev = collect_evidence(&[card]);
+        let md = render_markdown("comps_note", "NVDA", "2026-07-19", &[], &ev);
+        assert!(md.contains("Comps note"));
+        assert!(md.contains("## Sources") || !ev.facts.is_empty());
+        // Fallback prose stays evidence-grounded for every comps section.
+        for (h, _, _) in section_specs("comps_note") {
+            let fb = fallback_text(h, &ev);
+            assert!(!fb.trim().is_empty(), "empty fallback for {h}");
+        }
+    }
+
+    /// LIVE: comps_note through the production loop with gpt-4.1-mini over
+    /// peer-comps evidence (benchmark + quote cards).
+    /// Run: cargo test --lib live_comps_note_mini -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_comps_note_mini() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            panic!("no API key in the credential store");
+        };
+        let bench = json!({
+            "type": "benchmark",
+            "headers": [
+                { "key": "ticker", "label": "Ticker" },
+                { "key": "fiscal_year", "label": "FY" },
+                { "key": "revenue_m", "label": "Revenue (m)" },
+                { "key": "ebitda_margin", "label": "EBITDA margin" },
+                { "key": "net_debt_to_ebitda", "label": "ND/EBITDA" }
+            ],
+            "rows": [
+                { "ticker": "NVDA", "fiscal_year": "2025", "revenue_m": 130497.0, "ebitda_margin": 0.64, "net_debt_to_ebitda": -0.4 },
+                { "ticker": "AMD", "fiscal_year": "2024", "revenue_m": 25785.0, "ebitda_margin": 0.21, "net_debt_to_ebitda": 0.1 }
+            ]
+        });
+        let quote = json!({ "type": "quote", "ticker": "NVDA", "price": 788.17, "currency": "USD" });
+        let ev = collect_evidence(&[bench, quote]);
+        let (sections, fallbacks) = draft_sections(
+            &key,
+            "openai/gpt-4.1-mini",
+            "https://openrouter.ai/api/v1/chat/completions",
+            "comps_note",
+            &ev,
+        );
+        for (h, t, fb) in &sections {
+            println!("== {h} {}
+{t}
+", if *fb { "[FALLBACK]" } else { "[model]" });
+        }
+        println!("fallbacks: {fallbacks}/{}", sections.len());
+        assert!(fallbacks < sections.len(), "mini never validated a comps section");
     }
 
     /// LIVE (network + configured key): the FULL production drafting loop —

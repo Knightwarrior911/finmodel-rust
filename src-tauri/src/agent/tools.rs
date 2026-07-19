@@ -154,7 +154,7 @@ fn schema_draft_memo() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "kind": { "type": "string", "enum": ["earnings_note", "company_profile", "deal_summary"], "description": "The memo type to draft." },
+            "kind": { "type": "string", "enum": ["earnings_note", "company_profile", "deal_summary", "comps_note"], "description": "The memo type to draft." },
             "company": { "type": "string", "description": "Company display name for the title (optional; inferred from evidence when absent)." }
         },
         "required": ["kind"]
@@ -282,7 +282,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "draft_memo",
                 label: "Draft memo",
-                description: "Write a professional memo (earnings_note, company_profile, or deal_summary) FROM THE EVIDENCE ALREADY GATHERED in this conversation - run get_financials/research/read_filing first, then call this to draft the write-up. Produces a Markdown artifact with cited prose, key-figure tables, and a sources list. Never invents numbers.",
+                description: "Write a professional memo (earnings_note, company_profile, deal_summary, or comps_note) FROM THE EVIDENCE ALREADY GATHERED in this conversation - run get_financials/research/read_filing first, then call this to draft the write-up. Produces a Markdown artifact with cited prose, key-figure tables, and a sources list. Never invents numbers.",
                 risk: Risk::ReadOnly,
                 capabilities: &["drafting"],
                 required_args: &["kind"],

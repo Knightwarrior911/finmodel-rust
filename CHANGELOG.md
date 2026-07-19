@@ -2,6 +2,18 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **Comps notes.** A fourth memo kind: after benchmark_peers, "draft the
+  comps note" writes peer set, relative positioning, and an honest
+  valuation read. The engine pre-computes scale ratios ("NVDA is 5.1x
+  AMD") so prose never invents arithmetic, and fraction margins read
+  naturally as percents (0.64 → "64%").
+- **Valuation + comps feed every memo.** DCF model cards (value per share,
+  implied upside, EV, WACC) and peer benchmark tables now distill into the
+  evidence pack alongside financials, research, quotes, deals, and filings.
+- **Missions end with the deliverable.** Earnings review, company brief,
+  trading comps, M&A screen, and pitch prep workflows now include the
+  drafting step in their plans.
+
 - **New: draft_memo.** Research first, then say "draft an earnings note" (or
   a company profile, or a deal summary) — the analyst writes a professional
   memo FROM THE EVIDENCE IN THE CONVERSATION and saves it as a Markdown

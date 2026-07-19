@@ -548,6 +548,8 @@ export function memoKindLabel(kind) {
       return "Company profile";
     case "deal_summary":
       return "Deal summary";
+    case "comps_note":
+      return "Comps note";
     default:
       return "Memo";
   }
