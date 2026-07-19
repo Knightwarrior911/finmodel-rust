@@ -1,3 +1,20 @@
+## Session (2026-07-19) v0.9.2–9.9 — Multi-year spread, credit metrics, blocked-source fallback
+- **get_financials** became the analyst spread: up to 6 fiscal years, balance sheet
+  (cash/assets/LT debt/equity), cash flow (CFO/capex), shares, interest/D&A/short-term
+  debt. Three bases: annual (default), quarterly (last 8 quarters, Q4 derived),
+  ltm (trailing 12 months via fm_extract::ltm). Growth, margins, EBITDA, leverage,
+  FCF, interest coverage pre-computed deterministically — model never does arithmetic.
+  Recency-preferring tag selection (discontinued tags don't shadow current).
+- **Budget grace**: rounds/tokens exhaustion earns one wrap-up synthesis pass before
+  terminating as budget-limited. 8-to-10 round interactive budget.
+- **Blocked-source doctrine**: system prompt tells model to fall back immediately
+  (research, SEC filings, news) without asking permission. Tool result carries the
+  fallback playbook when a page is blocked.
+- **Lifecycle fix**: tool_use_skill now calls record_skill_use (async, best-effort).
+- **Skill seeding**: seed_builtin_skills at startup, marker file, never overwrites.
+  See agent/skills.rs BUILTIN_SKILLS const.
+- Chat tests: 297 lib (3 live EDGAR ignored); READ_PAGE schema updated.
+
 # src-tauri — finmodel desktop backend (Tauri 2)
 
 Standalone Cargo workspace (detached from `finmodel-core`; path-deps into the

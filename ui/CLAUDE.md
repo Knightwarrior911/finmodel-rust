@@ -1,3 +1,25 @@
+## Session (2026-07-19) v0.9.2–9.9 — Skill editor, settings tabs, visual refinement
+- **Settings restructured** (settings.mjs): General / Connections / Memory / Skills
+  tabs, roving tablist with arrow keys. Dialog widened to modal-card--wide (780px).
+  selectSettingsTab(tab) export, openSettingsWithSkillDraft lands on Skills tab.
+- **Skill editor** (settings.mjs loadSkillsList): each row has Edit button that opens
+  inline SKILL.md editor via skills_get/skills_save. Renaming via frontmatter name
+  deletes the old file. Use counts surfaced as skill-uses (mono/tabular); lifecycle
+  state as tinted skill-state pill.
+- **Financials card** (cards.mjs renderFinancials): multi-year spread with periods[]
+  and rows[].values per-column; derived rows get class="fin-derived". Backward compat
+  with old single-value cards.
+- **Visual de-cartooning** (style.css): greeting 21px left-aligned, chips become
+  6px rectangles, New chat btn gets accent-soft fill at rest, composer 10px radius,
+  user bubbles/cards flat at rest (no shadows), all 999px border-radius converted to
+  radius-sm. Memory pin badge: 📌 emoji replaced with SVG glyph (settings.mjs + css).
+- **Thinking trail** (chat.mjs + style.css): boxed panel → hairline timeline with
+  state nodes, measured durations stamped in mono, breathing dot live indicator,
+  220ms step entrance, reduced-motion honored. sr-only utility class for a11y.
+  animation: think-step-in, think-breathe.
+- Tests: 143 jsdom tests (memory.test.mjs pin test updated from emoji assertion to
+  SVG+aria-label; cards.test.mjs has multi-year spread + legacy fallback tests).
+  
 # ui — finmodel desktop frontend (vanilla ES modules, no build step)
 
 Chat-first, claude.ai-style. `index.html` (3-region grid) + `style.css` +

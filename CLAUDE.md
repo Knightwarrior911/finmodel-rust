@@ -1,5 +1,91 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.2–9.9 SHIPPED (2026-07-19) — skills system live, analyst spread, visual redesign
+**Tags v0.9.2 through v0.9.9 on master (finmodel-rust); all released to public
+finmodel-releases (Latest = v0.9.9).** CI green for every tag. Signed NSIS builds
+published + endpoints verified (latest.json serves 0.9.9, installer 200).
+
+This was an 8-release cycle spanning four themes: (1) skills library, (2) settings &
+design context, (3) analyst-tool accuracy & coverage, (4) UI professionalism.
+
+### Shipped this cycle
+
+**13 built-in skills (v0.9.2).** 8 IB/analysis skills (dcf-valuation,
+comparable-companies, precedent-transactions, earnings-analysis,
+ma-accretion-dilution, lbo-screen, company-profile, credit-analysis)
++ 5 workflow skills (planner, orchestrator, task-executor, reviewer,
+verification-loop). Bundled in the binary, seeded once to <config>/skills/,
+never overwrites user files. **Lifecycle bug fix:** use_skill now records usage
+(count + last_used) so actively-used skills don't age out to stale/archived.
+
+**Settings sectioned + skill editor (v0.9.3).** Skills are first-class: inline
+SKILL.md editor (view, edit, rename; rename moves the file), use counts + lifecycle
+badges. Settings split into General / Connections / Memory / Skills tabs with
+roving keyboard nav (dock vocabulary reused). Dialog widened from 520 to 780px.
+PRODUCT.md + DESIGN.md + .impeccable/design.json committed (register=product,
+north star "The Patient Analyst", codified rules and anti-references).
+
+**Budget grace + human terminal messages + shares outstanding (v0.9.4).**
+Rounds/tokens exhaustion now earns one final no-tools synthesis pass (grace)
+instead of dying mid-task; deadline still hard-stops. Raw JSON payload no longer
+leaks into chat — every terminal renders a human sentence. get_financials adds
+shares outstanding from the 10-K cover page (dei taxonomy) and weighted-average
+diluted shares as separate rows.
+
+**Multi-year analyst spread (v0.9.5).** get_financials returns a full annual
+spread (default 3 FYs, up to 6): income statement, balance sheet (cash, total
+assets, LT debt, equity), cash flow (CFO, capex), diluted EPS, cover-page shares,
+weighted-average diluted shares. Revenue growth YoY, margins, FCF, and net cash
+computed deterministically in Rust — model never does the arithmetic. Multi-year
+table card in chat. Discontinued XBRL tags no longer shadow current ones
+(most-recent-data tag wins).Tested live against real TSLA EDGAR data.
+
+**Quarterly/LTM bases + credit metrics + segment routing + 10-round budget
+(v0.9.6).** get_financials gains basis: quarterly (last 8 fiscal quarters, Q4
+derived as FY − Q1..Q3, marked with *), ltm (trailing 12 months via
+fm_extract::ltm, the real comps basis). Interest expense, D&A, and short-term debt
+join the annual spread; EBITDA, total debt, leverage, interest coverage, and net cash
+are pre-computed. Segment questions route to 10-K item 8 segment note (not available
+as structured XBRL). Interactive budget raised 8 to 10 rounds.
+
+**Visual de-cartooning (v0.9.7).** Empty state: 38px centered hero to 21px
+left-aligned workbench opener. Capsule pills to quiet 6px rectangles. New chat
+button: saturated indigo to soft tint filling on hover. Composer: 16px radius to
+10px, whisper shadow. User bubbles + cards: shadows removed (Overlay-Only Rule),
+corners tightened. Memory pin: emoji to vector SVG. All remaining 999px capsules
+flattened to radius-sm.
+
+**Blocked-source fallback (v0.9.8).** Bot-protected websites (tesla.com, Akamai
+403) no longer dead-end the analyst — the tool result carries the fallback
+playbook (research synthesis, SEC proxy/10-K executive-officer sections, news).
+System prompt doctrine: blocked source routes to next-best immediately instead of
+asking permission.
+
+**Thinking trail redesign (v0.9.9).** Boxed grey Thinking process panel becomes a
+quiet timeline ledger: hairline rail with state nodes (indigo running, green done,
+red failed), measured per-step durations in mono stamped on completion, breathing
+accent dot instead of spinner, 220ms step entrance, reduced-motion honored. State
+signaled once on the rail instead of three times per row.
+
+### NOT done — remaining
+- **Quarterly data coverage** is read-only (get_financials basis=quarterly);
+  segment-structure XBRL instance parsing (dimensional facts) is a future feature.
+- **Interest expense gap**: some issuers (TSLA post-FY2023) stop tagging it; the
+  row-level label honestly reports what is reported.
+- **LTM/quarterly card renderer** uses the same single-column table card as annual
+  (the period-axis columns work, but no tabbed toggle between bases).
+- **Full tool docs** (parameters for every tool) are still model-visible schema
+  only, not a user-facing reference.
+
+### Build & verify
+- All gates: pwsh -File scripts/gates.ps1
+- Backend only: cd src-tauri && cargo test --lib (297 lib tests)
+- Live EDGAR tests: cargo test --lib -- --ignored (3 live network tests)
+- FM-agent: cargo test -p fm-agent (49 tests)
+- FM-extract: cargo test -p fm-extract (66 tests)
+- UI only: cd ui && node --test (143 jsdom tests)
+- Release ritual: docs/RELEASE_CHECKLIST.md
+
 ## HANDOVER — v0.9.1 SHIPPED + LIVE (2026-07-19) — Phase 2 mission shell: the Evidence dock
 **Tagged `v0.9.1` on `master` (`finmodel-rust`); released to public `finmodel-releases`
 (flagged Latest).** CI run `29658614129` green; signed NSIS built + published; updater
