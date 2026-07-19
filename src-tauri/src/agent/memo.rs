@@ -334,6 +334,84 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
     ev
 }
 
+/// The production drafting loop: for every section of `kind`, ask the
+/// writing model for a slot, validate it against the evidence, retry once
+/// with the exact rejection reason, and fall back to honest fact sentences.
+/// Returns (heading, text, fell_back) per section plus the fallback count.
+/// Blocking; called from tool context and from the live verification test.
+pub fn draft_sections(
+    api_key: &str,
+    model: &str,
+    chat_url: &str,
+    kind: &str,
+    ev: &Evidence,
+) -> (Vec<(String, String, bool)>, usize) {
+    let source_list = ev
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, (t, _))| format!("[S{}] {}", i + 1, t))
+        .collect::<Vec<_>>()
+        .join("
+");
+    let system = "You are drafting one section of an investment-banking memo. Use ONLY the facts provided. Cite research statements as [S<n>] from the source list. No hedging filler; no adjectives like impressive or remarkable; plain declarative sentences an MD would sign.";
+    let mut sections: Vec<(String, String, bool)> = Vec::new();
+    let mut fallbacks = 0usize;
+    for (heading, instruction, max_s) in section_specs(kind) {
+        let user = format!(
+            "Section: {heading}
+Instruction: {instruction}
+Max sentences: {max_s}
+
+FACTS:
+{}
+
+RESEARCH NOTES:
+{}
+
+SOURCES:
+{source_list}",
+            ev.facts.join("
+"),
+            ev.notes.join("
+"),
+        );
+        let mut text: Option<String> = None;
+        if !api_key.is_empty() {
+            if let Ok(draft) = crate::commands::settings::complete_once(
+                api_key, model, chat_url, system, &user, 300,
+            ) {
+                match validate_slot(&draft, ev, max_s) {
+                    Ok(()) => text = Some(draft.trim().to_string()),
+                    Err(reason) => {
+                        let retry_user = format!(
+                            "{user}
+
+Your previous draft was REJECTED: {reason}. Fix exactly that and rewrite."
+                        );
+                        if let Ok(second) = crate::commands::settings::complete_once(
+                            api_key, model, chat_url, system, &retry_user, 300,
+                        ) {
+                            if validate_slot(&second, ev, max_s).is_ok() {
+                                text = Some(second.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let (final_text, fell_back) = match text {
+            Some(t) => (t, false),
+            None => {
+                fallbacks += 1;
+                (fallback_text(heading, ev), true)
+            }
+        };
+        sections.push((heading.to_string(), final_text, fell_back));
+    }
+    (sections, fallbacks)
+}
+
 /// Prose slots per memo kind: (heading, writing instruction, max sentences).
 pub fn section_specs(kind: &str) -> Vec<(&'static str, &'static str, usize)> {
     match kind {
@@ -664,6 +742,44 @@ mod tests {
         // Null cells are dropped, not rendered as null.
         assert!(!ev.facts[1].contains("null"));
         assert!(ev.numbers.contains("130497"));
+    }
+
+    /// LIVE (network + configured key): the FULL production drafting loop —
+    /// memo::draft_sections, the exact function tool_draft_memo calls — run
+    /// with gpt-4.1-mini over the frozen real-app evidence. Proves every
+    /// section of an earnings note drafts, validates, and renders end to end.
+    /// Run: cargo test --lib live_memo_full_mini -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_memo_full_mini() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            panic!("no API key in the credential store");
+        };
+        let raw = include_str!("../../tests/fixtures/real_cards.json");
+        let fixtures: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let cards: Vec<Value> = fixtures.as_object().unwrap().values().cloned().collect();
+        let ev = collect_evidence(&cards);
+        let (sections, fallbacks) = draft_sections(
+            &key,
+            "openai/gpt-4.1-mini",
+            "https://openrouter.ai/api/v1/chat/completions",
+            "earnings_note",
+            &ev,
+        );
+        assert_eq!(sections.len(), section_specs("earnings_note").len());
+        for (h, t, fb) in &sections {
+            println!("== {h} {}
+{t}
+", if *fb { "[FALLBACK]" } else { "[model]" });
+            assert!(!t.trim().is_empty(), "empty section {h}");
+        }
+        let md = render_markdown("earnings_note", &ev.company.clone(), "2026-07-19", &sections, &ev);
+        assert!(md.contains("## Sources"));
+        println!("fallbacks: {fallbacks}/{}", sections.len());
+        assert!(
+            fallbacks < sections.len(),
+            "every section fell back - the mini model never validated"
+        );
     }
 
     /// LIVE (network + configured key): one real slot written by the

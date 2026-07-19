@@ -828,58 +828,8 @@ fn tool_draft_memo(
         settings.synthesis_model.trim().to_string()
     };
     let chat_url = crate::commands::settings::chat_completions_url(&settings);
-    let source_list = ev
-        .sources
-        .iter()
-        .enumerate()
-        .map(|(i, (t, _))| format!("[S{}] {}", i + 1, t))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let system = "You are drafting one section of an investment-banking memo. Use ONLY the facts provided. Cite research statements as [S<n>] from the source list. No hedging filler; no adjectives like impressive or remarkable; plain declarative sentences an MD would sign.";
-    let mut sections: Vec<(String, String, bool)> = Vec::new();
-    let mut fallbacks = 0usize;
-    for (heading, instruction, max_s) in memo::section_specs(&kind) {
-        let user = format!(
-            "Section: {heading}\nInstruction: {instruction}\nMax sentences: {max_s}\n\nFACTS:\n{}\n\nRESEARCH NOTES:\n{}\n\nSOURCES:\n{source_list}",
-            ev.facts.join("\n"),
-            ev.notes.join("\n"),
-        );
-        let mut text: Option<String> = None;
-        if !api_key.is_empty() {
-            if let Ok(draft) =
-                crate::commands::settings::complete_once(&api_key, &write_model, &chat_url, system, &user, 300)
-            {
-                match memo::validate_slot(&draft, &ev, max_s) {
-                    Ok(()) => text = Some(draft.trim().to_string()),
-                    Err(reason) => {
-                        let retry_user = format!(
-                            "{user}\n\nYour previous draft was REJECTED: {reason}. Fix exactly that and rewrite."
-                        );
-                        if let Ok(second) = crate::commands::settings::complete_once(
-                            &api_key,
-                            &write_model,
-                            &chat_url,
-                            system,
-                            &retry_user,
-                            300,
-                        ) {
-                            if memo::validate_slot(&second, &ev, max_s).is_ok() {
-                                text = Some(second.trim().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let (final_text, fell_back) = match text {
-            Some(t) => (t, false),
-            None => {
-                fallbacks += 1;
-                (memo::fallback_text(heading, &ev), true)
-            }
-        };
-        sections.push((heading.to_string(), final_text, fell_back));
-    }
+    let (sections, fallbacks) =
+        memo::draft_sections(&api_key, &write_model, &chat_url, &kind, &ev);
 
     // 3. Render + persist the artifact.
     let today = &iso_now()[..10];
