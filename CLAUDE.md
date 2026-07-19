@@ -1,7 +1,9 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.9.10 SHIPPING (2026-07-19) — warm-colleague UI polish + Grok-like cites
-**Bump to v0.9.10 on master (finmodel-rust); publish to public finmodel-releases after CI.**
+## HANDOVER — v0.9.10 SHIPPED + LIVE (2026-07-19) — warm-colleague UI polish + Grok-like cites
+**Tagged `v0.9.10` on master (finmodel-rust); released to public finmodel-releases
+(Latest = v0.9.10).** CI green. Signed NSIS published; updater endpoint verified
+(latest.json serves 0.9.10, installer 200).
 UI-only cycle on top of v0.9.9: tool activity story, mission/progress folded into the
 thinking trail, shared approval vocabulary, indigo one-voice activity chrome, CSS-only
 motion, numbered inline cites + Sources strip (letter avatars; no favicon network).
