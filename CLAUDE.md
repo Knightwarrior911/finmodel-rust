@@ -1,5 +1,37 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.17 SHIPPED + LIVE (2026-07-19) — scheduled follow-through + absolute grounding
+**Tagged `v0.9.17` (17f2d2e); Latest on finmodel-releases; CI green on that
+sha; endpoint verified (0.9.17, sig 420 clean, installer 200, digest match).**
+
+Scheduler (Tasks 8.2/8.3) is LIVE:
+- agent_send extracts a commitment (agent/commitments.rs, precision-gated)
+  and returns it in the response; chat.mjs renders an approval-gated offer
+  (.schedule-offer, warm copy via scheduleDueLabel). NOTHING schedules
+  without an explicit yes.
+- schedule_create / schedules_list / schedule_cancel commands; store gains
+  list/get/cancel/rearm + ScheduleRow.
+- 60s tick in lib.rs setup → commands::agent::run_due_schedules → the tested
+  core sweep_due_schedules(handle, launch) with an INJECTED launcher:
+  oneshot→done, daily/weekly→re-armed future-due, failure→15-min backoff,
+  TERMINAL failed at 5 attempts (tests prove all transitions vs a real
+  store; live glue = two lines calling send_message_inner).
+- agent_send refactored into send_message_inner (AppHandle+ActorRegistry
+  owned args) so the tick can launch runs without a State wrapper.
+
+Grounding/user asks:
+- SYSTEM_PROMPT doctrine: NO company facts from training memory; private
+  companies researched by NAME (site+research+news, no public tooling
+  assumed); user-pasted URLs read FIRST as source of truth; unsupported →
+  say what couldn't be verified.
+- fm-research Candidate.pinned: user URLs outrank ALL tiers in
+  assemble_ledger (sort (!pinned, rank)); wikipedia ban still wins over a
+  pin (tested). App-side pinned_candidates() parses up to 3 URLs from the
+  question (fused + generic arms).
+Remaining P1: run resume across reload; model tiering; schedules management
+UI in Settings (commands exist; list/cancel surface deferred).
+Gates (exit codes): app 308 · UI 167 · fm-research 112+13 · fm-fetch 50.
+
 ## HANDOVER — v0.9.16 SHIPPED + LIVE (2026-07-19) — research reads what humans read
 **Tagged `v0.9.16` (716e50c); Latest on finmodel-releases; CI green on that
 sha; endpoint verified (0.9.16, sig 420 clean, installer 200, digest match).**
