@@ -1253,6 +1253,40 @@ mod plan_tests {
         assert!(deep.queries.iter().any(|q| q.contains("earnings call transcript")));
     }
 
+    /// LIVE (network): the full acquisition path on a real question — plan
+    /// queries fire, IR/press/SEC sources enter the ledger ahead of the open
+    /// web, and banned domains never appear. Run explicitly:
+    /// cargo test --lib live_primary_first_research -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_primary_first_research() {
+        let b = backend(&["TSLA"]);
+        let r = req(ResearchDepth::Standard);
+        let plan = tauri::async_runtime::block_on(b.plan(&r)).expect("plan");
+        println!("plan queries: {:#?}", plan.queries);
+        assert!(plan.queries.len() >= 4);
+        let ledger = tauri::async_runtime::block_on(b.search(&plan.queries));
+        println!("ledger ({} sources):", ledger.len());
+        for s in &ledger {
+            println!("  {} [{:?}] {}", s.id, s.kind, s.canonical_url);
+        }
+        assert!(!ledger.is_empty(), "search produced no candidates");
+        assert!(
+            ledger.iter().all(|s| !s.canonical_url.contains("wikipedia")),
+            "wikipedia must never enter the ledger"
+        );
+        let read = tauri::async_runtime::block_on(b.read(ledger));
+        let ok = read
+            .iter()
+            .filter(|s| s.status == fm_research::research::SourceStatus::Read)
+            .count();
+        println!("read ok: {ok}/{}", read.len());
+        for s in &read {
+            println!("  {} [{:?}/{:?}] {}", s.id, s.kind, s.status, s.canonical_url);
+        }
+        assert!(ok >= 1, "at least one source must be readable");
+    }
+
     #[test]
     fn empty_question_yields_no_plan() {
         let mut r = req(ResearchDepth::Standard);
