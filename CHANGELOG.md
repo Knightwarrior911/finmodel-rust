@@ -2,6 +2,10 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **Off-company facts stay out.** A stray quote for a different ticker in
+  the same conversation (checked case-insensitively against the memo's
+  subject) no longer leaks into the memo; enterprise value formats with
+  thousands separators; the Drivers section stops restating Results.
 - **Engine-computed period variance.** Multi-period financials distill
   "Revenue change, Q2 2026 vs Q1 2026 (engine-computed): +19.7%" facts -
   declines keep their sign - so earnings prose states growth from the

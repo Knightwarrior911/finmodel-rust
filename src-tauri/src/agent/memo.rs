@@ -44,6 +44,9 @@ pub struct Evidence {
     pub numbers: HashSet<String>,
     /// Company display name / ticker, best-effort.
     pub company: String,
+    /// Subject ticker (from financials/model cards), used to keep
+    /// off-company facts (a stray quote for another name) out of the memo.
+    pub ticker: String,
 }
 
 impl Evidence {
@@ -125,6 +128,20 @@ fn absorb_numbers(numbers: &mut HashSet<String>, text: &str) {
     }
 }
 
+/// Thousands-separated integer display: 100465 → "100,465".
+fn fmt_thousands(v: i64) -> String {
+    let neg = v < 0;
+    let digits = v.abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if neg { format!("-{out}") } else { out }
+}
+
 /// Parse the leading number out of a display cell like "97,690M" or
 /// "-1,234.5". Returns None for non-numeric cells.
 fn parse_display_num(s: &str) -> Option<f64> {
@@ -153,6 +170,9 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                         .or_else(|| card["ticker"].as_str())
                         .unwrap_or("")
                         .to_string();
+                }
+                if ev.ticker.is_empty() {
+                    ev.ticker = card["ticker"].as_str().unwrap_or("").to_string();
                 }
                 let periods: Vec<String> = card["periods"]
                     .as_array()
@@ -257,9 +277,14 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                 }
             }
             "quote" => {
+                // A quote for a DIFFERENT ticker than the memo subject is
+                // conversation noise, not memo evidence - drop it.
+                let qt = card["ticker"].as_str().unwrap_or("");
+                if !ev.ticker.is_empty() && !qt.is_empty() && !qt.eq_ignore_ascii_case(&ev.ticker) {
+                    continue;
+                }
                 let line = format!(
-                    "Market quote {}: {} {}",
-                    card["ticker"].as_str().unwrap_or(""),
+                    "Market quote {qt}: {} {}",
                     card["price"].as_f64().unwrap_or(0.0),
                     card["currency"].as_str().unwrap_or("")
                 );
@@ -331,6 +356,9 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                 if ev.company.is_empty() {
                     ev.company = card["ticker"].as_str().unwrap_or("").to_string();
                 }
+                if ev.ticker.is_empty() {
+                    ev.ticker = card["ticker"].as_str().unwrap_or("").to_string();
+                }
                 let cur = card["currency"].as_str().unwrap_or("USD");
                 let v = &card["valuation"];
                 if let Some(pps) = v["price_per_share"].as_f64() {
@@ -353,7 +381,10 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                     ev.facts.push(line);
                 }
                 if let Some(evv) = v["ev"].as_f64() {
-                    let line = format!("Enterprise value: {:.0}M {cur}", evv / 1.0e6);
+                    let line = format!(
+                        "Enterprise value: {}M {cur}",
+                        fmt_thousands((evv / 1.0e6).round() as i64)
+                    );
                     absorb_numbers(&mut ev.numbers, &line);
                     ev.facts.push(line);
                 }
@@ -537,7 +568,7 @@ pub fn section_specs(kind: &str) -> Vec<(&'static str, &'static str, usize)> {
         "earnings_note" => vec![
             ("Headline", "One sentence stating the single most important takeaway of the period, led by the number that proves it.", 1),
             ("Results", "Two to three sentences on revenue, profitability, and the standout line items versus the prior period. Numbers only from the fact pack.", 3),
-            ("Drivers and outlook", "Two to three sentences on what drove the quarter and any guidance or forward commentary found in the research notes. If no guidance appears in the evidence, say management gave none in the sources reviewed.", 3),
+            ("Drivers and outlook", "Two to three sentences on what drove the quarter and any guidance or forward commentary found in the research notes. Do not restate figures already covered under Results. If no guidance appears in the evidence, say management gave none in the sources reviewed.", 3),
         ],
         "company_profile" => vec![
             ("Business", "Two to three sentences describing what the company actually sells and to whom, from the research notes only.", 3),
@@ -849,6 +880,34 @@ mod tests {
     }
 
     #[test]
+    fn off_company_quotes_stay_out_of_the_memo() {
+        let fin = json!({
+            "type": "financials", "entity": "Tesla, Inc.", "ticker": "TSLA",
+            "rows": [ { "label": "Revenue", "display": "97,690M" } ]
+        });
+        let stray = json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" });
+        let own = json!({ "type": "quote", "ticker": "tsla", "price": 382.13, "currency": "USD" });
+        let ev = collect_evidence(&[fin, stray, own]);
+        assert_eq!(ev.ticker, "TSLA");
+        assert!(
+            !ev.facts.iter().any(|f| f.contains("AAPL")),
+            "stray AAPL quote leaked: {:?}",
+            ev.facts
+        );
+        assert!(ev.facts.iter().any(|f| f.contains("382.13")), "case-insensitive own quote kept");
+        // Without a known subject ticker, quotes pass through (no basis to filter).
+        let ev2 = collect_evidence(&[json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" })]);
+        assert!(ev2.facts.iter().any(|f| f.contains("AAPL")));
+    }
+
+    #[test]
+    fn enterprise_value_formats_with_thousands_separators() {
+        assert_eq!(fmt_thousands(100465), "100,465");
+        assert_eq!(fmt_thousands(-1234567), "-1,234,567");
+        assert_eq!(fmt_thousands(999), "999");
+    }
+
+    #[test]
     fn multi_period_rows_derive_engine_variance() {
         let card = json!({
             "type": "financials",
@@ -1109,6 +1168,8 @@ mod tests {
         let md = render_markdown("earnings_note", &ev.company.clone(), "2026-07-19", &sections, &ev);
         assert!(md.contains("## Sources"));
         println!("fallbacks: {fallbacks}/{}", sections.len());
+        println!("==== FULL MEMO ====");
+        println!("{md}");
         assert!(
             fallbacks < sections.len(),
             "every section fell back - the mini model never validated"
