@@ -746,7 +746,66 @@
           </button>
         </div>
         <div id="settingsStatus" class="status" hidden></div>
+        <div
+          class="dock-tabs settings-tabs"
+          role="tablist"
+          aria-label="Settings sections"
+        >
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
+            id="settingsTab-general"
+            aria-controls="settingsPanel-general"
+            aria-selected="true"
+            data-settings-tab="general"
+          >
+            General
+          </button>
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
+            id="settingsTab-connections"
+            aria-controls="settingsPanel-connections"
+            aria-selected="false"
+            tabindex="-1"
+            data-settings-tab="connections"
+          >
+            Connections
+          </button>
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
+            id="settingsTab-memory"
+            aria-controls="settingsPanel-memory"
+            aria-selected="false"
+            tabindex="-1"
+            data-settings-tab="memory"
+          >
+            Memory
+          </button>
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
+            id="settingsTab-skills"
+            aria-controls="settingsPanel-skills"
+            aria-selected="false"
+            tabindex="-1"
+            data-settings-tab="skills"
+          >
+            Skills
+          </button>
+        </div>
         <div class="modal-body">
+          <div
+            class="settings-panel"
+            id="settingsPanel-general"
+            role="tabpanel"
+            aria-labelledby="settingsTab-general"
+          >
           <label class="field">
             <span class="field-label">Provider</span>
             <span class="field-row">
@@ -793,6 +852,14 @@
               <option value="dark">Dark</option>
             </select>
           </label>
+          </div>
+          <div
+            class="settings-panel"
+            id="settingsPanel-connections"
+            role="tabpanel"
+            aria-labelledby="settingsTab-connections"
+            hidden
+          >
           <label class="field">
             <span class="field-label">EDGAR contact email</span>
             <input
@@ -874,8 +941,15 @@
               </div>
             </details>
           </label>
-          <label class="field">
-            <span class="field-label">Saved memories</span>
+          </div>
+          <div
+            class="settings-panel"
+            id="settingsPanel-memory"
+            role="tabpanel"
+            aria-labelledby="settingsTab-memory"
+            hidden
+          >
+          <div class="field">
             <input
               id="memoryFilter"
               type="text"
@@ -888,9 +962,16 @@
               >Facts the analyst remembers (say "remember: …" in chat to add).
               Delete any it got wrong.</span
             >
-          </label>
-          <label class="field">
-            <span class="field-label">Skills</span>
+          </div>
+          </div>
+          <div
+            class="settings-panel"
+            id="settingsPanel-skills"
+            role="tabpanel"
+            aria-labelledby="settingsTab-skills"
+            hidden
+          >
+          <div class="field">
             <div id="skillsList" class="memory-list"></div>
             <details class="skill-add">
               <summary>New skill</summary>
@@ -909,7 +990,8 @@
               description + steps). The agent can also propose one from a solved
               task.</span
             >
-          </label>
+          </div>
+          </div>
           <p class="field-hint shortcut-legend">
             Shortcuts: Ctrl/⌘+N new chat · Ctrl/⌘+K filter conversations ·
             Ctrl/⌘+Enter send · Esc stops a streaming reply · Ctrl/⌘+J toggle

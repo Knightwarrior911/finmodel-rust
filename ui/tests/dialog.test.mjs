@@ -235,3 +235,55 @@ test("renaming a skill in the editor saves the new name and deletes the old", as
   assert.ok(deleted, "old file removed on rename");
   assert.equal(deleted.payload.name, "old-name");
 });
+
+test("settings sections are a roving tablist; General is default", async () => {
+  const { settings } = await bootSettings();
+  document.dispatchEvent(new window.CustomEvent("open-settings"));
+  await tick();
+  await tick();
+  const gen = document.getElementById("settingsTab-general");
+  const skills = document.getElementById("settingsTab-skills");
+  assert.equal(gen.getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("settingsPanel-general").hidden, false);
+  assert.equal(document.getElementById("settingsPanel-skills").hidden, true);
+  // Click switches panel + aria state + roving tabindex.
+  skills.click();
+  await tick();
+  assert.equal(skills.getAttribute("aria-selected"), "true");
+  assert.equal(gen.getAttribute("aria-selected"), "false");
+  assert.equal(gen.tabIndex, -1);
+  assert.equal(skills.tabIndex, 0);
+  assert.equal(document.getElementById("settingsPanel-skills").hidden, false);
+  assert.equal(document.getElementById("settingsPanel-general").hidden, true);
+  // Arrow-key roving from the focused tab (mirrors the dock keyboard map).
+  skills.focus();
+  skills.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+  );
+  await tick();
+  assert.equal(
+    document.getElementById("settingsTab-memory").getAttribute("aria-selected"),
+    "true",
+  );
+  // Reopening settings resets to General.
+  settings.selectSettingsTab("skills");
+  document.dispatchEvent(new window.CustomEvent("open-settings"));
+  await tick();
+  await tick();
+  assert.equal(gen.getAttribute("aria-selected"), "true");
+});
+
+test("a skill draft opens Settings on the Skills section", async () => {
+  const { settings } = await bootSettings();
+  settings.openSettingsWithSkillDraft("---\nname: x\ndescription: y\n---\nz");
+  await tick();
+  await tick();
+  assert.equal(
+    document
+      .getElementById("settingsTab-skills")
+      .getAttribute("aria-selected"),
+    "true",
+  );
+  assert.equal(document.getElementById("settingsPanel-skills").hidden, false);
+  assert.equal(document.getElementById("newSkillContent").value.includes("name: x"), true);
+});

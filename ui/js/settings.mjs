@@ -108,7 +108,25 @@ export function readModelProfiles() {
   };
 }
 
+// Settings sections: roving tablist mirroring the evidence dock (one
+// vocabulary — same classes, same keyboard map: ←/→/Home/End).
+const SETTINGS_TABS = ["general", "connections", "memory", "skills"];
+
+export function selectSettingsTab(tab) {
+  if (!SETTINGS_TABS.includes(tab)) return;
+  for (const t of SETTINGS_TABS) {
+    const btn = document.getElementById(`settingsTab-${t}`);
+    const panel = document.getElementById(`settingsPanel-${t}`);
+    if (!btn || !panel) continue;
+    const sel = t === tab;
+    btn.setAttribute("aria-selected", String(sel));
+    btn.tabIndex = sel ? 0 : -1;
+    panel.hidden = !sel;
+  }
+}
+
 export async function openSettings() {
+  selectSettingsTab("general");
   clearStatus();
   try {
     const s = await call("load_settings");
@@ -390,6 +408,7 @@ async function loadSkillsList() {
 /// Open Settings with the New-skill editor pre-filled (self-evolution draft).
 export function openSettingsWithSkillDraft(draft) {
   openSettings();
+  selectSettingsTab("skills");
   const ta = $("newSkillContent");
   if (ta) {
     ta.value = draft || "";
@@ -423,6 +442,30 @@ export function initSettings(opts = {}) {
     }
   });
   $("settingsClose").addEventListener("click", closeSettings);
+  // Section tabs: click selects; ←/→/Home/End rove (mirrors the dock tablist).
+  const tablist = modal.querySelector(".settings-tabs");
+  tablist?.addEventListener("click", (e) => {
+    const tab = e.target?.dataset?.settingsTab;
+    if (tab) selectSettingsTab(tab);
+  });
+  tablist?.addEventListener("keydown", (e) => {
+    const cur = SETTINGS_TABS.indexOf(
+      document.activeElement?.dataset?.settingsTab,
+    );
+    if (cur < 0) return;
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown")
+      next = (cur + 1) % SETTINGS_TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+      next = (cur + SETTINGS_TABS.length - 1) % SETTINGS_TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = SETTINGS_TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    const t = SETTINGS_TABS[next];
+    selectSettingsTab(t);
+    document.getElementById(`settingsTab-${t}`)?.focus();
+  });
   $("skillSaveBtn")?.addEventListener("click", async () => {
     const content = $("newSkillContent").value;
     const m = content.match(/^\s*name:\s*(.+)$/m);

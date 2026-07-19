@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.9.3 — 2026-07-19 — Settings gets sections, skills get an editor
+
+- **Settings is now sectioned.** The settings dialog is organized into four
+  tabs — **General · Connections · Memory · Skills** — with the same keyboard
+  vocabulary as the evidence dock (←/→/Home/End move between tabs). No more
+  one long scroll mixing API keys with skill playbooks; the dialog is wider
+  (780px) so editing surfaces have room.
+- **Skills are viewable and editable.** Every skill row now has an Edit button
+  that opens the full SKILL.md in an inline editor — view the playbook, change
+  the steps, save. Renaming a skill in its frontmatter moves the file. Rows
+  show how often the analyst has used each skill, and stale/archived skills
+  wear a proper badge. "Save as skill" drafts from chat now land directly on
+  the Skills section.
+- **Design context committed.** PRODUCT.md and DESIGN.md now codify the app's
+  design system ("The Patient Analyst": warm neutrals, one indigo accent,
+  hairlines, mono numbers) so future features are held to a written spec.
+
 ## v0.9.2 — 2026-07-19 — The analyst ships with a skill library
 
 - **13 built-in skills.** The skill library is no longer empty: the app now

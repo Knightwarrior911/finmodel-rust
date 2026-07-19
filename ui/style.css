@@ -2713,6 +2713,16 @@ body {
 .modal-card--wide {
   width: min(780px, 94vw);
 }
+/* Settings section tablist — same vocabulary as the evidence dock tabs */
+.settings-tabs {
+  padding: 0 20px 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 /* ── Skills (self-evolution action + editor) ────────────────────── */
 .msg-skill {
