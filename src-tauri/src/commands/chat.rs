@@ -818,7 +818,7 @@ fn tool_research(
 ) -> Result<(String, Value), String> {
     use crate::commands::research::{run_research, HttpBackend, OpenRouterSynthesizer};
     use fm_research::machine::{Action, ResearchBudgets, ResearchMachine};
-    use fm_research::research::{ResearchDepth, ResearchMode, ResearchOutput, ResearchToolArgs};
+    use fm_research::research::{ResearchMode, ResearchOutput, ResearchToolArgs};
 
     // The registry/schema/fallback all use `query` (ecosystem standard), but
     // ResearchToolArgs is deny_unknown_fields with `question`. Translate the
@@ -843,9 +843,11 @@ fn tool_research(
             request.acquirer = Some(a);
         }
     }
-    // Tool-call path has no chat Stop wiring; Quick + driver timeout keep the
-    // stage awaits under a 30s wall-clock bound.
-    request.depth = ResearchDepth::Quick;
+    // Depth is the model's call (default Standard): the agentic run guards
+    // (hours, not seconds) give research room to actually work the source
+    // hierarchy — company site, filings, IR releases — before the open web.
+    // Quick remains available as an explicit fast check. The stage pump still
+    // enforces the per-depth deadline internally.
     request.validate().map_err(|e| e.to_string())?;
 
     let settings = read_settings(app);

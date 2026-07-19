@@ -32,9 +32,17 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
         "ft.com",
         "wsj.com",
         "cnbc.com",
+    ];
+    // Paid press-release distribution: the text is WRITTEN BY THE COMPANY
+    // (earnings releases, deal announcements) — issuer-primary evidence, not
+    // independent journalism. Ranks above newswires, below the company's own
+    // site.
+    const PR_DISTRIBUTORS: &[&str] = &[
         "businesswire.com",
         "prnewswire.com",
         "globenewswire.com",
+        "newsfilecorp.com",
+        "accesswire.com",
     ];
     if REGULATORS
         .iter()
@@ -42,9 +50,37 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
     {
         return SourceKind::Regulatory;
     }
-    // Company investor-relations subdomains (issuer-primary content).
-    if host.starts_with("investor.") || host.starts_with("ir.") || host.contains(".investor.") {
+    // Company-authored content: IR/press/newsroom subdomains, or IR/press
+    // sections of the corporate site. The company's own words are the first
+    // source of truth after the regulator.
+    const COMPANY_SUBDOMAINS: &[&str] = &["investor.", "ir.", "press.", "news.", "media."];
+    const COMPANY_PATHS: &[&str] = &[
+        "/investor-relations",
+        "/investors",
+        "/investor",
+        "/press-release",
+        "/press-releases",
+        "/press",
+        "/newsroom",
+        "/news-release",
+        "/news-releases",
+        "/media-center",
+        "/ir/",
+    ];
+    let path = url::Url::parse(url.trim())
+        .map(|u| u.path().to_ascii_lowercase())
+        .unwrap_or_default();
+    if COMPANY_SUBDOMAINS.iter().any(|p| host.starts_with(p))
+        || host.contains(".investor.")
+        || COMPANY_PATHS.iter().any(|p| path.contains(p))
+    {
         return SourceKind::Company;
+    }
+    if PR_DISTRIBUTORS
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+    {
+        return SourceKind::Primary;
     }
     if NEWSWIRES
         .iter()
@@ -247,6 +283,21 @@ mod tests {
         assert_eq!(
             classify_source_kind("https://www.reuters.com/story"),
             SourceKind::Newswire
+        );
+        // Company press/newsroom pages on the main domain are issuer-primary.
+        assert_eq!(
+            classify_source_kind("https://www.tesla.com/press-release/q1-2026"),
+            SourceKind::Company
+        );
+        assert_eq!(
+            classify_source_kind("https://www.apple.com/newsroom/2026/07/results/"),
+            SourceKind::Company
+        );
+        // PR distribution carries the company's own words — Primary, above
+        // independent newswires.
+        assert_eq!(
+            classify_source_kind("https://www.businesswire.com/news/home/tsla-q1"),
+            SourceKind::Primary
         );
         assert_eq!(
             classify_source_kind("https://someblog.example/post"),

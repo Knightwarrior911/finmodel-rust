@@ -401,13 +401,13 @@ mod tests {
     fn plan_queries_clamped_to_budget() {
         let mut m = ResearchMachine::new(req(ResearchDepth::Standard), budgets(), "t");
         assert_eq!(m.next(Input::Start), Action::Plan);
-        // 5 queries but Standard budget is 3.
+        // 9 queries but Standard budget is 4.
         let plan = ResearchPlan {
-            queries: (0..5).map(|i| format!("q{i}")).collect(),
+            queries: (0..9).map(|i| format!("q{i}")).collect(),
             required_source_types: vec![],
         };
         match m.next(Input::Planned(Some(plan))) {
-            Action::Search { queries } => assert_eq!(queries.len(), 3),
+            Action::Search { queries } => assert_eq!(queries.len(), 4),
             a => panic!("expected clamped Search, got {a:?}"),
         }
     }
@@ -520,12 +520,12 @@ mod tests {
             queries: vec!["q".into()],
             required_source_types: vec![],
         })));
-        // 10 candidates, Standard source budget is 6.
-        let many: Vec<SourceRecord> = (0..10)
+        // 14 candidates, Standard source budget is 10.
+        let many: Vec<SourceRecord> = (0..14)
             .map(|i| source(&format!("S{i}"), SourceStatus::Read))
             .collect();
         match m.next(Input::Searched(many)) {
-            Action::Read { source_ids } => assert_eq!(source_ids.len(), 6),
+            Action::Read { source_ids } => assert_eq!(source_ids.len(), 10),
             a => panic!("expected capped Read, got {a:?}"),
         }
     }

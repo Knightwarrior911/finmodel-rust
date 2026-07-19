@@ -59,11 +59,43 @@ pub fn domain_of(url: &str) -> Option<String> {
 /// record's status/excerpt/final_url via [`apply_read`]. Ranking is a STABLE
 /// sort by [`SourceKind::rank`] (input order preserved within a rank), so the
 /// output is fully deterministic.
+/// Domains that are NEVER acceptable evidence for financial research, no
+/// matter what the search engine returns: encyclopedias anyone can edit and
+/// user-generated forums. Product doctrine — an analyst cites the company,
+/// the regulator, or the independent press, never Wikipedia.
+const BANNED_DOMAINS: &[&str] = &[
+    "wikipedia.org",
+    "wikimedia.org",
+    "wikidata.org",
+    "fandom.com",
+    "reddit.com",
+    "quora.com",
+];
+
+/// True when the URL's host is (or is under) a banned domain.
+fn is_banned(url: &str) -> bool {
+    let host = url::Url::parse(url.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()));
+    match host {
+        Some(h) => BANNED_DOMAINS
+            .iter()
+            .any(|d| h == *d || h.ends_with(&format!(".{d}"))),
+        None => false,
+    }
+}
+
 pub fn assemble_ledger(
     candidates: Vec<Candidate>,
     max_sources: u32,
     max_per_domain: u32,
 ) -> Vec<SourceRecord> {
+    // 0. Banned domains never enter the ledger (see BANNED_DOMAINS).
+    let candidates: Vec<Candidate> = candidates
+        .into_iter()
+        .filter(|c| !is_banned(&c.url))
+        .collect();
+
     // 1. Dedupe by canonical URL (first occurrence wins); drop unparseable.
     let mut seen: HashSet<String> = HashSet::new();
     let mut deduped: Vec<(Candidate, String, String)> = Vec::new();
@@ -180,6 +212,18 @@ mod tests {
         let led = assemble_ledger(cands, 10, 10);
         assert_eq!(led.len(), 2);
         assert_eq!(led[0].canonical_url, "https://ex.com/a");
+    }
+
+    #[test]
+    fn banned_domains_never_enter_the_ledger() {
+        let cands = vec![
+            cand("https://en.wikipedia.org/wiki/Tesla,_Inc.", SourceKind::Secondary),
+            cand("https://www.reddit.com/r/teslainvestorsclub", SourceKind::Secondary),
+            cand("https://ir.tesla.com/press-release/q1", SourceKind::Company),
+        ];
+        let led = assemble_ledger(cands, 10, 10);
+        assert_eq!(led.len(), 1, "only the IR page survives");
+        assert!(led[0].canonical_url.contains("ir.tesla.com"));
     }
 
     #[test]

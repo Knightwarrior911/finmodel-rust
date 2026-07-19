@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.14 — 2026-07-19 — Research works the evidence hierarchy like an analyst
+
+- **The company's own words come first.** Research now hunts investor-relations
+  pages, press releases, earnings releases, shareholder letters, and investor
+  presentations BEFORE independent commentary, and the open web last. Company
+  press/newsroom pages on the main corporate domain now rank as issuer-primary
+  (they used to fall to the bottom tier), and paid press-release distribution
+  (Business Wire, PR Newswire, GlobeNewswire) is recognized as the company's
+  own text — above newswires, below the company site.
+- **Wikipedia is never a source.** Banned at every layer — search ranking,
+  ledger assembly, and the web-search card — along with Reddit, Quora, and
+  Fandom. An analyst cites the company, the regulator, or the press.
+- **Research actually digs now.** The agent's research calls were silently
+  capped at 1 query / 3 sources / 30 seconds, and the multi-query planner was
+  wired to a stub that never planned. Depth is now the model's call (default
+  Standard: 4 queries / 10 sources; Deep: 8 queries / 16 sources, reaching
+  into presentations, call transcripts, and filings), and every mode runs the
+  primary-first query set.
+
 ## v0.9.13 — 2026-07-19 — "Yes" no longer researches Yes Bank
 
 - **Follow-up answers stop becoming search queries.** Replying "yes" to

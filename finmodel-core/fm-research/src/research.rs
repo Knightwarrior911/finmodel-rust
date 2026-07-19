@@ -42,8 +42,9 @@ pub struct DepthBudgets {
 }
 
 impl ResearchDepth {
-    /// Quick = 1 query / 3 sources / 30 s; Standard = 3 / 6 / 90 s;
-    /// Deep = 5 / 10 / 180 s.
+    /// Quick = 1 query / 3 sources / 30 s (fast check); Standard = 4 / 10 /
+    /// 180 s (the default — sized so the primary-source query set runs in
+    /// full); Deep = 8 / 16 / 420 s (exhaustive dig).
     pub fn budgets(self) -> DepthBudgets {
         match self {
             ResearchDepth::Quick => DepthBudgets {
@@ -52,14 +53,14 @@ impl ResearchDepth {
                 deadline_secs: 30,
             },
             ResearchDepth::Standard => DepthBudgets {
-                max_queries: 3,
-                max_sources: 6,
-                deadline_secs: 90,
-            },
-            ResearchDepth::Deep => DepthBudgets {
-                max_queries: 5,
+                max_queries: 4,
                 max_sources: 10,
                 deadline_secs: 180,
+            },
+            ResearchDepth::Deep => DepthBudgets {
+                max_queries: 8,
+                max_sources: 16,
+                deadline_secs: 420,
             },
         }
     }
@@ -431,17 +432,17 @@ mod tests {
         assert_eq!(
             ResearchDepth::Standard.budgets(),
             DepthBudgets {
-                max_queries: 3,
-                max_sources: 6,
-                deadline_secs: 90
+                max_queries: 4,
+                max_sources: 10,
+                deadline_secs: 180
             }
         );
         assert_eq!(
             ResearchDepth::Deep.budgets(),
             DepthBudgets {
-                max_queries: 5,
-                max_sources: 10,
-                deadline_secs: 180
+                max_queries: 8,
+                max_sources: 16,
+                deadline_secs: 420
             }
         );
         assert!(!ResearchDepth::Quick.plans());

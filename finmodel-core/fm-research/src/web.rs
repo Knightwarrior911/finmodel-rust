@@ -43,10 +43,13 @@ pub fn web_search(
 }
 
 /// Search-engine plumbing / junk that no user wants back from a search card
-/// (SERP redirects, tracking, sign-in). Content domains (wikipedia, reddit,
-/// youtube, …) are deliberately KEPT here — unlike the filings-discovery
-/// ranker, general search must not drop them.
+/// (SERP redirects, tracking, sign-in) — plus domains banned as evidence
+/// everywhere (product doctrine: Wikipedia is never a source). Other content
+/// domains (youtube, reddit for the search card, …) are kept.
 const WEB_JUNK: &[&str] = &[
+    "wikipedia.org",
+    "wikimedia.org",
+    "wikidata.org",
     "gstatic.com",
     "googleapis.com",
     "accounts.google",
@@ -105,8 +108,8 @@ pub fn read_page(
     read_page_full(url, query, mcp).map(|p| p.text)
 }
 
-/// Drop only SERP chrome/junk, then stably float priority (financial/newswire)
-/// domains to the front — content domains (wikipedia/reddit/…) are preserved.
+/// Drop SERP chrome/junk and banned-evidence domains, then stably float
+/// priority (financial/newswire) domains to the front.
 fn rank_hits(hits: Vec<SearchHit>) -> Vec<SearchHit> {
     let is_junk = |u: &str| WEB_JUNK.iter().any(|d| u.contains(d));
     let is_priority = |u: &str| PRIORITY_DOMAINS.iter().any(|d| u.contains(d));
@@ -232,11 +235,10 @@ mod tests {
             },
         ];
         let ranked = rank_hits(hits);
-        // SERP junk dropped; content domains (wikipedia) KEPT — unlike the
-        // filings ranker.
-        assert_eq!(ranked.len(), 3);
+        // SERP junk AND wikipedia dropped (never a source, per doctrine).
+        assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].url, "https://www.reuters.com/y"); // priority floated first
-        assert!(ranked.iter().any(|h| h.url.contains("wikipedia.org")));
+        assert!(!ranked.iter().any(|h| h.url.contains("wikipedia.org")));
         assert!(!ranked.iter().any(|h| h.url.contains("duckduckgo.com/l/")));
     }
 

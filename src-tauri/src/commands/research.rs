@@ -323,20 +323,33 @@ impl HttpBackend {
                     }
                 }
             }
-            let web_query = if earnings {
-                format!(
-                    "{} latest quarterly earnings results guidance",
-                    tickers.join(" ")
-                )
+            // Company-authored sources FIRST (IR + earnings/press releases),
+            // then the independent web — the analyst's order of evidence.
+            let subject = tickers.join(" ");
+            let mut web_queries: Vec<String> = vec![
+                format!("{subject} investor relations {question}"),
+                if earnings {
+                    format!("{subject} earnings release shareholder letter")
+                } else {
+                    format!("{subject} press release {question}")
+                },
+            ];
+            web_queries.push(if earnings {
+                format!("{subject} latest quarterly earnings results guidance")
             } else if comparison {
                 format!("{} comparison", tickers.join(" vs "))
             } else {
-                format!("{} {}", tickers.join(" "), question)
-            };
-            if let Ok(hits) = fm_fetch::websearch::web_search(&web_query, per_query) {
-                candidates.extend(hits.iter().map(|h| {
-                    fm_research::candidate_from_web_hit(h, fm_research::SourceBackend::BasicHttp)
-                }));
+                format!("{subject} {question}")
+            });
+            for wq in &web_queries {
+                if let Ok(hits) = fm_fetch::websearch::web_search(wq, per_query) {
+                    candidates.extend(hits.iter().map(|h| {
+                        fm_research::candidate_from_web_hit(
+                            h,
+                            fm_research::SourceBackend::BasicHttp,
+                        )
+                    }));
+                }
             }
             // Reserve a quote slot per ticker for comparison, else one snapshot slot.
             let quote_slots = if comparison { tickers.len() } else { 1 };
@@ -393,9 +406,40 @@ impl HttpBackend {
 }
 
 impl ResearchBackend for HttpBackend {
-    async fn plan(&self, _request: &ResearchRequest) -> Option<ResearchPlan> {
-        // The application decides planning; the unattended backend does not.
-        None
+    async fn plan(&self, request: &ResearchRequest) -> Option<ResearchPlan> {
+        // Deterministic primary-source-first plan (no model round). Doctrine:
+        // the company's own words — IR pages, press/earnings releases,
+        // presentations — are searched BEFORE anyone else's commentary; the
+        // open web comes last. The reducer clamps to the depth budget
+        // (Standard 4, Deep 8), so the ordering here is the priority order.
+        let q = request.question.trim().to_string();
+        if q.is_empty() {
+            return None;
+        }
+        let subject = self.tickers.join(" ");
+        let with_subject = |tail: &str| -> String {
+            if subject.is_empty() {
+                format!("{q} {tail}")
+            } else {
+                format!("{subject} {q} {tail}")
+            }
+        };
+        let mut queries = vec![
+            with_subject("investor relations"),
+            with_subject("press release"),
+            q.clone(),
+            with_subject("news analysis"),
+        ];
+        if request.depth == fm_research::research::ResearchDepth::Deep {
+            queries.push(with_subject("investor presentation"));
+            queries.push(with_subject("earnings call transcript"));
+            queries.push(with_subject("SEC filing"));
+            queries.push(with_subject("annual report"));
+        }
+        Some(ResearchPlan {
+            queries,
+            required_source_types: vec![],
+        })
     }
 
     async fn search(&self, queries: &[String]) -> Vec<SourceRecord> {
@@ -1155,5 +1199,66 @@ mod tests {
         assert_eq!(overrides.len(), 1);
         assert_eq!(overrides[0].key, "tax_rate_pct");
         assert_eq!(rejected, vec![(1, SuggestionReject::CitationNotRead)]);
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    use fm_research::research::{ResearchDepth, ResearchMode};
+
+    fn backend(tickers: &[&str]) -> HttpBackend {
+        HttpBackend {
+            max_sources: 10,
+            per_query_results: 6,
+            mode: ResearchMode::Web,
+            tickers: tickers.iter().map(|s| s.to_string()).collect(),
+            filing_forms: vec![],
+            question: String::new(),
+            target: String::new(),
+            acquirer: String::new(),
+        }
+    }
+
+    fn req(depth: ResearchDepth) -> ResearchRequest {
+        ResearchRequest {
+            question: "tariff impact and China competition".into(),
+            mode: ResearchMode::Web,
+            tickers: vec!["TSLA".into()],
+            periods: vec![],
+            filing_forms: vec![],
+            target: None,
+            acquirer: None,
+            depth,
+        }
+    }
+
+    #[test]
+    fn primary_first_plan_targets_company_sources() {
+        let plan = tauri::async_runtime::block_on(
+            backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)),
+        )
+        .expect("deterministic plan");
+        // The FIRST queries hunt the company's own words; the open web is last.
+        assert!(plan.queries[0].contains("investor relations"));
+        assert!(plan.queries[1].contains("press release"));
+        assert!(plan.queries.iter().all(|q| q.contains("tariff")||q.contains("TSLA")));
+        // Deep widens into presentations, transcripts, and filings.
+        let deep = tauri::async_runtime::block_on(
+            backend(&["TSLA"]).plan(&req(ResearchDepth::Deep)),
+        )
+        .unwrap();
+        assert!(deep.queries.len() > plan.queries.len());
+        assert!(deep.queries.iter().any(|q| q.contains("investor presentation")));
+        assert!(deep.queries.iter().any(|q| q.contains("earnings call transcript")));
+    }
+
+    #[test]
+    fn empty_question_yields_no_plan() {
+        let mut r = req(ResearchDepth::Standard);
+        r.question = String::new();
+        assert!(
+            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).is_none()
+        );
     }
 }
