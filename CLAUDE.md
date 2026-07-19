@@ -1,5 +1,30 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.14 SHIPPED + LIVE (2026-07-19) — primary-source-first research
+**Tagged `v0.9.14` (aa89b64); Latest on finmodel-releases; CI green; endpoint
+verified (0.9.14, sig 420 clean, installer 200, digest match). LIVE-verified
+end-to-end** via `cargo test --lib live_primary_first_research -- --ignored
+--nocapture`: plan fired 4 primary-first queries on the real TSLA tariff
+question; ir.tesla.com + /press ranked S1/S2 (Company); zero wikipedia; 4/9
+read in ~7s (tesla IR bot-blocked — known v0.9.8 fallback case).
+
+Doctrine: company sources → credible press → open web; Wikipedia never.
+- adapter.rs: PR distributors (businesswire/prnewswire/globenewswire/
+  newsfilecorp/accesswire) → Primary; Company via IR/press/news/media
+  subdomains OR corporate-site paths (/investor-relations, /press-release,
+  /newsroom, …). KNOWN EDGE: third-party /pressreleases/ paths (globeandmail)
+  classify Company — issuer-authored text on a carrier; refine to Primary if
+  it bothers.
+- collect.rs assemble_ledger: BANNED_DOMAINS hard filter (wikipedia/wikimedia/
+  wikidata/fandom/reddit/quora). web.rs WEB_JUNK += wikipedia (search card too).
+- research.rs budgets: Standard 4q/10s/180s (default), Deep 8q/16s/420s.
+- commands/research.rs: HttpBackend::plan now returns a DETERMINISTIC
+  primary-first query set (was None — Standard/Deep never multi-queried!);
+  fused_search runs IR + press-release queries before the generic one.
+- commands/chat.rs tool_research: depth is the model's call (was forced Quick
+  = 1q/3s/30s — the reason users out-researched the app).
+Gates: fm-research 110 + eval 13 · app-lib 299 (+1 live ignored) · UI 159.
+
 ## HANDOVER — v0.9.13 SHIPPED + LIVE (2026-07-19) — context-resolved research questions
 **Tagged `v0.9.13`; Latest on finmodel-releases; CI green; endpoint verified
 (0.9.13, sig 420 clean, installer 200, digest match).**
