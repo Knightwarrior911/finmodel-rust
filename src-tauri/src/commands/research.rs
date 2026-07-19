@@ -246,6 +246,70 @@ impl ResearchSynthesizer for OpenRouterSynthesizer {
 
 use std::net::ToSocketAddrs;
 
+/// True when the URL's path names a PDF (query/fragment ignored). IR decks,
+/// annual reports, and investor presentations — the exact sources the
+/// primary-first doctrine hunts — are overwhelmingly PDFs, and the HTML
+/// tag-stripper turns them into garbage.
+fn is_pdf_url(url: &str) -> bool {
+    url::Url::parse(url.trim())
+        .map(|u| u.path().to_ascii_lowercase().ends_with(".pdf"))
+        .unwrap_or(false)
+}
+
+/// Download a PDF (25 MB cap, 30 s timeout), extract its text natively via
+/// fm-extract (pure Rust — no Python), and window it to the most
+/// question-relevant excerpt like the filing reader does. Returns a
+/// [`fm_fetch::FetchedPage`] so the standard read-outcome path applies.
+fn fetch_pdf_page(url: &str, question: &str) -> Result<fm_fetch::FetchedPage, String> {
+    const MAX_PDF_BYTES: usize = 25 * 1024 * 1024;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("finmodel-research/1.0")
+        .build()
+        .map_err(|e| format!("client:{e}"))?;
+    let resp = client.get(url).send().map_err(|e| format!("get:{e}"))?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(format!("http_{status}"));
+    }
+    let bytes = resp.bytes().map_err(|e| format!("body:{e}"))?;
+    if bytes.len() > MAX_PDF_BYTES {
+        return Err("pdf_too_large".into());
+    }
+    if !bytes.starts_with(b"%PDF") {
+        return Err("not_a_pdf".into());
+    }
+    // fm-extract's reader takes a path; use a scoped temp file.
+    let tmp = std::env::temp_dir().join(format!(
+        "fm-research-{}.pdf",
+        fm_agent::ids::format_uuid_v4({
+            let mut b = [0u8; 16];
+            rand::Rng::fill(&mut rand::thread_rng(), &mut b);
+            b
+        })
+    ));
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("tmp:{e}"))?;
+    let text = fm_extract::extract_pdf_text(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    let text = text.map_err(|e| format!("pdf_extract:{e:?}"))?;
+    if text.trim().is_empty() {
+        // Scanned/image-only PDF — no text layer to cite from.
+        return Err("pdf_no_text_layer".into());
+    }
+    let title = url::Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            u.path_segments()
+                .and_then(|mut s| s.next_back().map(|p| p.to_string()))
+        })
+        .unwrap_or_default();
+    Ok(fm_fetch::FetchedPage {
+        title,
+        text: fm_research::select_filing_excerpt(&text, question, 4000),
+        status: fm_fetch::PageStatus::Ok,
+    })
+}
+
 /// A UTC `YYYY-MM-DD` retrieval stamp (no date crate).
 fn stamp() -> String {
     fm_research::today_iso()
@@ -334,6 +398,12 @@ impl HttpBackend {
                     format!("{subject} press release {question}")
                 },
             ];
+            if earnings {
+                // What management SAID lives in the call transcript, not the
+                // release. Task-1 PDF ingestion also makes IR transcript PDFs
+                // readable when the search lands on one.
+                web_queries.push(format!("{subject} earnings call transcript"));
+            }
             web_queries.push(if earnings {
                 format!("{subject} latest quarterly earnings results guidance")
             } else if comparison {
@@ -359,6 +429,12 @@ impl HttpBackend {
                 2,
             );
             for t in &tickers {
+                // A web hit for the same quote page may already be in the
+                // ledger — never append a duplicate synthetic row.
+                let quote_url = format!("https://finance.yahoo.com/quote/{t}");
+                if ledger.iter().any(|s| s.canonical_url.trim_end_matches('/') == quote_url) {
+                    continue;
+                }
                 if let Ok(q) = fm_fetch::fetch_quote(t) {
                     let id = format!("S{}", ledger.len() + 1);
                     ledger.push(fm_research::synthetic_source(
@@ -430,6 +506,15 @@ impl ResearchBackend for HttpBackend {
             q.clone(),
             with_subject("news analysis"),
         ];
+        // "What did management say…" questions live in the call transcript —
+        // hunt it at any depth, not just Deep.
+        let ql = q.to_lowercase();
+        if ["say", "said", "mention", "discuss", "comment", "call", "guidance"]
+            .iter()
+            .any(|k| ql.contains(k))
+        {
+            queries.insert(2, with_subject("earnings call transcript"));
+        }
         if request.depth == fm_research::research::ResearchDepth::Deep {
             queries.push(with_subject("investor presentation"));
             queries.push(with_subject("earnings call transcript"));
@@ -565,6 +650,19 @@ impl ResearchBackend for HttpBackend {
                                 ),
                             }
                         }
+                        Ok(_) if is_pdf_url(&url) => match fetch_pdf_page(&url, &q) {
+                            Ok(page) => fm_research::read_outcome_from_page(
+                                &page,
+                                Some(url.clone()),
+                                stamp(),
+                                4000,
+                            ),
+                            Err(code) => fm_research::read_outcome_failed(
+                                None,
+                                stamp(),
+                                format!("pdf:{code}"),
+                            ),
+                        },
                         Ok(_) => match fm_fetch::fetch_page(&url) {
                             Ok(page) => fm_research::read_outcome_from_page(
                                 &page,
@@ -1288,11 +1386,128 @@ mod plan_tests {
     }
 
     #[test]
+    fn transcript_query_for_spoken_questions() {
+        // The req() question asks about "tariff impact and China competition" —
+        // no spoken-word cue, so no transcript query at Standard.
+        let plain = tauri::async_runtime::block_on(
+            backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)),
+        )
+        .unwrap();
+        assert!(!plain.queries.iter().any(|q| q.contains("transcript")));
+        // A "what did they say" question hunts the call transcript up front.
+        let mut r = req(ResearchDepth::Standard);
+        r.question = "did management say anything about tariffs on the call".into();
+        let spoken =
+            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).unwrap();
+        assert!(
+            spoken.queries.iter().any(|q| q.contains("earnings call transcript")),
+            "queries: {:?}",
+            spoken.queries
+        );
+    }
+
+    #[test]
     fn empty_question_yields_no_plan() {
         let mut r = req(ResearchDepth::Standard);
         r.question = String::new();
         assert!(
             tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod pdf_tests {
+    use super::*;
+
+    #[test]
+    fn pdf_urls_detected_by_path_not_query() {
+        assert!(is_pdf_url("https://ir.tesla.com/deck/Q1-2026.pdf"));
+        assert!(is_pdf_url("https://x.com/a/B.PDF?dl=1#page=3"));
+        assert!(!is_pdf_url("https://x.com/pdf-viewer?file=a.pdf")); // path is not a pdf
+        assert!(!is_pdf_url("https://x.com/report.html"));
+        assert!(!is_pdf_url("not a url"));
+    }
+
+    /// A minimal one-page PDF with a real text layer — built with a correct
+    /// xref table (offsets computed, not hand-typed) — pushed through the same
+    /// extractor the read path uses.
+    #[test]
+    fn pdf_text_layer_extracts() {
+        let stream = "BT /F1 12 Tf 72 720 Td (Tariff impact rose in Q1 2026) Tj ET";
+        let objects = [
+            "<</Type/Catalog/Pages 2 0 R>>".to_string(),
+            "<</Type/Pages/Kids[3 0 R]/Count 1>>".to_string(),
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>"
+                .to_string(),
+            format!("<</Length {}>>stream\n{stream}\nendstream", stream.len()),
+            "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>".to_string(),
+        ];
+        let mut pdf = String::from("%PDF-1.4\n");
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+        }
+        let xref_at = pdf.len();
+        pdf.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
+        pdf.push_str("0000000000 65535 f \n");
+        for off in &offsets {
+            pdf.push_str(&format!("{off:010} 00000 n \n"));
+        }
+        pdf.push_str(&format!(
+            "trailer<</Size {}/Root 1 0 R>>\nstartxref\n{xref_at}\n%%EOF",
+            objects.len() + 1
+        ));
+        let tmp = std::env::temp_dir().join("fm-test-mini.pdf");
+        std::fs::write(&tmp, pdf.as_bytes()).unwrap();
+        let text = fm_extract::extract_pdf_text(&tmp.to_string_lossy());
+        let _ = std::fs::remove_file(&tmp);
+        let text = text.expect("mini pdf extracts");
+        assert!(text.contains("Tariff impact rose"), "got: {text:?}");
+    }
+
+    /// LIVE (network): Earnings-mode acquisition surfaces a call transcript
+    /// as an issuer-primary source. Run:
+    /// cargo test --lib live_transcript_acquisition -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_transcript_acquisition() {
+        use crate::commands::research::ResearchBackend as _;
+        use fm_research::research::SourceKind;
+        let b = HttpBackend {
+            max_sources: 10,
+            per_query_results: 6,
+            mode: fm_research::research::ResearchMode::Earnings,
+            tickers: vec!["TSLA".into()],
+            filing_forms: vec![],
+            question: "what did management say about tariffs".into(),
+            target: String::new(),
+            acquirer: String::new(),
+        };
+        let ledger = tauri::async_runtime::block_on(b.search(&[]));
+        for s in &ledger {
+            println!("  {} [{:?}] {}", s.id, s.kind, s.canonical_url);
+        }
+        assert!(
+            ledger.iter().any(|s| s.kind == SourceKind::Primary
+                && s.canonical_url.to_lowercase().contains("transcript")),
+            "no transcript source in the earnings ledger"
+        );
+    }
+
+    /// LIVE (network): a real public PDF through the full fetch→extract→excerpt
+    /// path. Run: cargo test --lib live_pdf_read -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_pdf_read() {
+        let page = fetch_pdf_page(
+            "https://www.apple.com/newsroom/pdfs/fy2024-q4/FY24_Q4_Consolidated_Financial_Statements.pdf",
+            "total net sales",
+        )
+        .expect("live pdf fetch+extract");
+        println!("title: {} · excerpt {} chars", page.title, page.text.len());
+        assert!(page.text.len() > 500);
+        assert!(page.title.ends_with(".pdf"));
     }
 }

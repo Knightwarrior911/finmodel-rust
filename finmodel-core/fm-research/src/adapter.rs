@@ -82,6 +82,12 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
     {
         return SourceKind::Primary;
     }
+    // Earnings-call transcripts: the text is management speaking, regardless
+    // of which site carries it — issuer-primary evidence, same tier as the
+    // company's PR-wire releases.
+    if path.contains("transcript") {
+        return SourceKind::Primary;
+    }
     if NEWSWIRES
         .iter()
         .any(|d| host == *d || host.ends_with(&format!(".{d}")))
@@ -297,6 +303,17 @@ mod tests {
         // independent newswires.
         assert_eq!(
             classify_source_kind("https://www.businesswire.com/news/home/tsla-q1"),
+            SourceKind::Primary
+        );
+        // Transcript carriers hold management's spoken words — Primary too.
+        assert_eq!(
+            classify_source_kind(
+                "https://www.fool.com/earnings/call-transcripts/2026/04/23/tesla-tsla-q1-2026-earnings-call-transcript/"
+            ),
+            SourceKind::Primary
+        );
+        assert_eq!(
+            classify_source_kind("https://www.investing.com/equities/tesla-motors-earnings-transcript"),
             SourceKind::Primary
         );
         assert_eq!(

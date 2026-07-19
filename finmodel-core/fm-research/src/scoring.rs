@@ -49,6 +49,9 @@ pub const PRIORITY_DOMAINS: &[&str] = &[
     "mergermarket.com",
     "yahoo.com",
     "marketwatch.com",
+    // Earnings-call transcript carriers (management's words, free full text).
+    "fool.com",
+    "investing.com",
 ];
 
 /// M&A keywords; ≥2 present ⇒ text likely covers a deal.

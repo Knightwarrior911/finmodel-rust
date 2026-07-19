@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.16 — 2026-07-19 — Research reads PDFs, finds transcripts, and never goes blind
+
+- **PDFs are now readable evidence.** Investor presentations, annual reports,
+  and IR decks — the sources the primary-first doctrine hunts — are
+  overwhelmingly PDFs, and research used to dead-end on them. PDF links are
+  now downloaded (25 MB cap), text-extracted natively (pure Rust, no Python),
+  and windowed to the most question-relevant excerpt like filings are.
+  Scanned image-only PDFs fail honestly instead of citing garbage.
+- **Earnings-call transcripts are a first-class source.** "What did
+  management say…" questions hunt the call transcript up front; earnings
+  research always adds a transcript query; transcript pages rank as the
+  company's own words (issuer-primary) no matter which site carries them.
+- **Search survives engine throttling.** DuckDuckGo answers rate limits with
+  a disguised challenge page that used to parse as "zero results" and
+  silently blind every research run. The searcher now detects the challenge
+  and falls through a three-engine chain (DuckDuckGo → Bing RSS → Mojeek) —
+  verified live while all three HTML endpoints were actively blocking this
+  machine. Empty results are never cached.
+
 ## v0.9.15 — 2026-07-19 — The Evidence dock becomes a real deal binder
 
 - **Sources tab is live.** Every source the analyst reads or cites — research

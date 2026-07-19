@@ -1,6 +1,6 @@
 [package]
 name = "finmodel-app"
-version = "0.9.15"
+version = "0.9.16"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"
@@ -40,6 +40,7 @@ keyring = { version = "3", features = ["windows-native"] }
 # dependency gate; MSRV tracks current stable (1.96.0).
 rusqlite = { version = "=0.39.0", features = ["bundled", "backup"] }
 sha2 = "0.10"
+url = "2"
 
 # finmodel engine crates (the port). Path deps into the finmodel-core workspace.
 fm-types = { path = "../finmodel-core/fm-types" }

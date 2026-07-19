@@ -1,7 +1,10 @@
 //! Plain-HTTP web search + page fetch — the non-MCP fallback for the search
-//! facade. DuckDuckGo HTML endpoint (same host/technique as the annual-report
-//! discovery) → structured hits; a page fetch + minimal tag-strip good enough
-//! for non-protected pages (protected pages need the Roam MCP path).
+//! facade. Engine chain: DuckDuckGo HTML → Bing HTML → Mojeek — a research
+//! product cannot go blind because one engine throttles (DDG answers rate
+//! limits with an HTTP 202 "anomaly" challenge page that parses to zero
+//! hits; treating that as success silently blinded every research run).
+//! A page fetch + minimal tag-strip good enough for non-protected pages
+//! (protected pages need the Roam MCP path).
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -51,52 +54,126 @@ fn client() -> &'static reqwest::blocking::Client {
     &WEB_CLIENT
 }
 
-/// DuckDuckGo HTML search → up to `limit` structured hits.
+/// Multi-engine web search → up to `limit` structured hits. Tries DDG,
+/// then Bing HTML, then Mojeek; the first engine returning hits wins. Only a
+/// non-empty result is cached, so a throttled engine never poisons the cache.
 pub fn web_search(query: &str, limit: usize) -> Result<Vec<WebHit>, FetchError> {
     let key = search_key("basic", query);
     if let Some(cached) = SEARCH_CACHE.get(&key)
         && let Ok(mut hits) = serde_json::from_str::<Vec<WebHit>>(&cached)
+        && !hits.is_empty()
     {
         hits.truncate(limit);
         return Ok(hits);
     }
-    let html = with_retries(|| {
-        match client()
-            .post("https://html.duckduckgo.com/html/")
-            .form(&[("q", query), ("kl", "us-en")])
-            .send()
-        {
-            Ok(resp) => {
-                let status = resp.status();
-                let code = status.as_u16();
-                match retry_class(code) {
-                    RetryClass::Success => resp
-                        .text()
-                        .map_err(|e| (false, None, FetchError::Parse(e.to_string()))),
-                    RetryClass::Retriable => {
-                        let ra = resp
-                            .headers()
-                            .get("retry-after")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
-                        drop(resp);
-                        Err((true, ra, FetchError::Network(format!("HTTP {status}"))))
-                    }
-                    RetryClass::Terminal => {
-                        drop(resp);
-                        Err((false, None, FetchError::Network(format!("HTTP {status}"))))
-                    }
+    let mut last_err: Option<FetchError> = None;
+    let engines: [(&str, fn(&str) -> Result<Vec<WebHit>, FetchError>); 3] = [
+        ("ddg", search_ddg),
+        ("bing", search_bing),
+        ("mojeek", search_mojeek),
+    ];
+    for (_name, engine) in engines {
+        match engine(query) {
+            Ok(hits) if !hits.is_empty() => {
+                if let Ok(blob) = serde_json::to_string(&hits) {
+                    SEARCH_CACHE.insert(key, blob);
+                }
+                let mut hits = hits;
+                hits.truncate(limit);
+                return Ok(hits);
+            }
+            Ok(_) => {} // empty page (blocked/challenge) — fall through
+            Err(e) => last_err = Some(e),
+        }
+    }
+    match last_err {
+        // Every engine errored — surface the last error.
+        Some(e) => Err(e),
+        // Engines answered but with zero hits (obscure query) — honest empty.
+        None => Ok(Vec::new()),
+    }
+}
+
+/// One engine request with the shared retry/backoff policy. `is_challenge`
+/// lets an engine mark "2xx but actually a block page" (DDG's 202).
+fn engine_get(
+    build: impl Fn() -> reqwest::blocking::RequestBuilder,
+    is_challenge: impl Fn(u16) -> bool,
+) -> Result<String, FetchError> {
+    with_retries(|| match build().send() {
+        Ok(resp) => {
+            let status = resp.status();
+            let code = status.as_u16();
+            if is_challenge(code) {
+                drop(resp);
+                return Err((
+                    true,
+                    None,
+                    FetchError::Network(format!("challenge HTTP {code}")),
+                ));
+            }
+            match retry_class(code) {
+                RetryClass::Success => resp
+                    .text()
+                    .map_err(|e| (false, None, FetchError::Parse(e.to_string()))),
+                RetryClass::Retriable => {
+                    let ra = resp
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    drop(resp);
+                    Err((true, ra, FetchError::Network(format!("HTTP {status}"))))
+                }
+                RetryClass::Terminal => {
+                    drop(resp);
+                    Err((false, None, FetchError::Network(format!("HTTP {status}"))))
                 }
             }
-            Err(e) => Err((true, None, FetchError::Network(e.to_string()))),
         }
-    })?;
-    let mut hits = parse_ddg_hits(&html);
-    if let Ok(blob) = serde_json::to_string(&hits) {
-        SEARCH_CACHE.insert(key, blob);
-    }
-    hits.truncate(limit);
-    Ok(hits)
+        Err(e) => Err((true, None, FetchError::Network(e.to_string()))),
+    })
+}
+
+fn search_ddg(query: &str) -> Result<Vec<WebHit>, FetchError> {
+    // DDG signals rate limiting with HTTP 202 + an "anomaly" challenge page —
+    // a 2xx that must NOT be treated as success.
+    let html = engine_get(
+        || {
+            client()
+                .post("https://html.duckduckgo.com/html/")
+                .form(&[("q", query), ("kl", "us-en")])
+        },
+        |code| code == 202,
+    )?;
+    Ok(parse_ddg_hits(&html))
+}
+
+fn search_bing(query: &str) -> Result<Vec<WebHit>, FetchError> {
+    // The RSS format serves real organic results to plain HTTP clients even
+    // when Bing's HTML endpoint walls them behind a JS shell (verified live
+    // while every HTML engine on this network was challenge-blocked).
+    let xml = engine_get(
+        || {
+            client()
+                .get("https://www.bing.com/search")
+                .query(&[("q", query), ("format", "rss")])
+        },
+        |_| false,
+    )?;
+    Ok(parse_bing_rss(&xml))
+}
+
+fn search_mojeek(query: &str) -> Result<Vec<WebHit>, FetchError> {
+    let html = engine_get(
+        || {
+            client()
+                .get("https://www.mojeek.com/search")
+                .query(&[("q", query)])
+        },
+        |_| false,
+    )?;
+    Ok(parse_mojeek_hits(&html))
 }
 
 /// Parse DDG HTML results into hits (pure — unit-testable).
@@ -128,6 +205,74 @@ pub fn parse_ddg_hits(html: &str) -> Vec<WebHit> {
             title,
             url,
             snippet,
+        });
+    }
+    out
+}
+
+/// Parse Bing RSS results into hits (pure). Items whose link points back at
+/// bing.com (the query echo) are skipped.
+pub fn parse_bing_rss(xml: &str) -> Vec<WebHit> {
+    fn tag(item: &str, name: &str) -> String {
+        let open = format!("<{name}>");
+        let close = format!("</{name}>");
+        item.split(&open)
+            .nth(1)
+            .and_then(|rest| rest.split(&close).next())
+            .map(|v| xml_unescape(v.trim()))
+            .unwrap_or_default()
+    }
+    let mut out = Vec::new();
+    for item in xml.split("<item>").skip(1) {
+        let url = tag(item, "link");
+        if !url.starts_with("http") || url.contains("bing.com") {
+            continue;
+        }
+        out.push(WebHit {
+            title: tag(item, "title"),
+            url,
+            snippet: tag(item, "description"),
+        });
+    }
+    out
+}
+
+/// Minimal XML entity decode for RSS text nodes.
+fn xml_unescape(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+/// Parse Mojeek organic results (`ul.results-standard li`) into hits (pure).
+pub fn parse_mojeek_hits(html: &str) -> Vec<WebHit> {
+    let doc = Html::parse_document(html);
+    let (Ok(row), Ok(a_sel), Ok(snip)) = (
+        Selector::parse("ul.results-standard li, li.result"),
+        Selector::parse("h2 a, a.title"),
+        Selector::parse("p.s, p.desc"),
+    ) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    for res in doc.select(&row) {
+        let Some(a) = res.select(&a_sel).next() else {
+            continue;
+        };
+        let url = a.value().attr("href").unwrap_or("").trim().to_string();
+        if !url.starts_with("http") {
+            continue;
+        }
+        out.push(WebHit {
+            title: a.text().collect::<String>().trim().to_string(),
+            url,
+            snippet: res
+                .select(&snip)
+                .next()
+                .map(|s| s.text().collect::<String>().trim().to_string())
+                .unwrap_or_default(),
         });
     }
     out
@@ -476,5 +621,43 @@ mod tests {
             serde_json::to_string(&PageStatus::Thin).unwrap(),
             "\"thin\""
         );
+    }
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+
+    #[test]
+    fn parse_bing_rss_extracts_and_skips_query_echo() {
+        let xml = r#"<rss><channel>
+          <item><title>Bing echo</title><link>http://www.bing.com:80/search?q=x</link></item>
+          <item><title>Tesla IR &amp; updates</title><link>https://ir.tesla.com/press</link><description>Investor relations home.</description></item>
+          <item><title>TSLA transcript</title><link>https://www.fool.com/earnings/call-transcripts/tsla</link><description>Q1 call.</description></item>
+        </channel></rss>"#;
+        let hits = parse_bing_rss(xml);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].url, "https://ir.tesla.com/press");
+        assert_eq!(hits[0].title, "Tesla IR & updates");
+        assert_eq!(hits[1].snippet, "Q1 call.");
+    }
+
+    #[test]
+    fn parse_mojeek_hits_extracts() {
+        let html = r#"<ul class="results-standard">
+          <li><h2><a href="https://www.sec.gov/tsla">TSLA filings</a></h2><p class="s">EDGAR filings.</p></li>
+          <li><h2><a href="/ads/click">ad</a></h2></li>
+        </ul>"#;
+        let hits = parse_mojeek_hits(html);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].url, "https://www.sec.gov/tsla");
+        assert_eq!(hits[0].snippet, "EDGAR filings.");
+    }
+
+    #[test]
+    fn empty_or_challenge_pages_parse_to_zero_hits() {
+        assert!(parse_bing_rss("<html><body>captcha</body></html>").is_empty());
+        assert!(parse_mojeek_hits("").is_empty());
+        assert!(parse_ddg_hits("<html>anomaly challenge</html>").is_empty());
     }
 }
