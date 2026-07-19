@@ -1,5 +1,25 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.18 SHIPPED + LIVE (2026-07-19) — P1 complete
+**Tagged `v0.9.18` (efd1efe); Latest on finmodel-releases; CI green on that
+sha; endpoint verified (0.9.18, sig 420 clean, installer 200, digest match).**
+
+P1 items all done:
+- **Resume across restart**: load_conversation returns last_run {id,status}
+  (latest_run_for_conversation); chat.mjs shows the existing Paused/Resume
+  bar when status=='interrupted' (boot repair marks orphans exactly that).
+  Field parity Rust↔JS grep-verified; agent_resume path unchanged from the
+  live-verified v0.9.0 flow.
+- **Schedules panel**: Settings → Scheduled tab (SETTINGS_TABS + panel +
+  loadSchedulesList): prompt · due date · recurrence · status + Cancel via
+  schedule_cancel. settings.test.mjs covers list + cancel round-trip.
+- **Synthesis model** (honest scope): Settings.synthesis_model (Connections
+  field). Used by tool_research's OpenRouterSynthesizer and driver wrap_up.
+  NOT the main chat loop — a fast-orchestrator/strong-finisher split needs
+  a stream handoff (the fast model's final prose already streamed before we
+  know it was final). That redesign is the remaining tiering follow-up.
+Gates (exit codes): app 308 · UI 169.
+
 ## HANDOVER — v0.9.17 SHIPPED + LIVE (2026-07-19) — scheduled follow-through + absolute grounding
 **Tagged `v0.9.17` (17f2d2e); Latest on finmodel-releases; CI green on that
 sha; endpoint verified (0.9.17, sig 420 clean, installer 200, digest match).**
