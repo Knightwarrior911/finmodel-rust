@@ -434,3 +434,72 @@ export function missionMetaLine({ workflow, planDone, planTotal, verify } = {}) 
   if (verify && v) parts.push(v);
   return parts.join(" · ");
 }
+
+// ── filings: human names for forms and items ────────────────────────
+// SEC form codes and item numbers are filing jargon; the card wears the
+// plain-English name next to the code so a non-expert knows what they got.
+
+const FILING_FORM_NAMES = {
+  "10-K": "Annual report",
+  "10-Q": "Quarterly report",
+  "8-K": "Current report",
+  "DEF 14A": "Proxy statement",
+  "20-F": "Annual report (foreign issuer)",
+  "S-1": "IPO registration",
+  "424B4": "IPO prospectus",
+};
+
+const FILING_ITEM_NAMES = {
+  "10-K": {
+    1: "Business",
+    "1A": "Risk factors",
+    "1B": "Unresolved staff comments",
+    "1C": "Cybersecurity",
+    2: "Properties",
+    3: "Legal proceedings",
+    5: "Market for the stock",
+    7: "Management's discussion (MD&A)",
+    "7A": "Market risk",
+    8: "Financial statements",
+    "9A": "Controls and procedures",
+    10: "Directors and governance",
+    11: "Executive compensation",
+    15: "Exhibits",
+  },
+  "10-Q": {
+    1: "Financial statements",
+    2: "Management's discussion (MD&A)",
+    3: "Market risk",
+    4: "Controls and procedures",
+  },
+  "8-K": {
+    1: "Business and operations",
+    2: "Financial information",
+    3: "Securities and trading",
+    4: "Accountant and financial-statement matters",
+    5: "Governance and management",
+    6: "Asset-backed securities",
+    7: "Regulation FD disclosure",
+    8: "Other events",
+    9: "Financial statements and exhibits",
+  },
+};
+
+/** "10-K" → "Annual report"; unknown forms fall back to the code itself. */
+export function filingFormLabel(form) {
+  const f = String(form || "").trim().toUpperCase();
+  return FILING_FORM_NAMES[f] || f;
+}
+
+/**
+ * "Item 2" → "Item 2 · Financial information" (form-aware; 8-K sub-items like
+ * "2.02" resolve on their major number). Unknown items stay "Item <id>".
+ */
+export function filingItemLabel(form, id) {
+  const f = String(form || "").trim().toUpperCase();
+  const raw = String(id == null ? "" : id).trim().toUpperCase();
+  if (!raw) return "";
+  const table = FILING_ITEM_NAMES[f] || {};
+  const name = table[raw] || table[raw.split(".")[0]];
+  return name ? `Item ${raw} · ${name}` : `Item ${raw}`;
+}

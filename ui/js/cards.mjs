@@ -30,6 +30,8 @@ import {
   sourceAvatarLetter,
   sourceRowMeta,
   softErrorMessage,
+  filingFormLabel,
+  filingItemLabel,
 } from "./labels.mjs";
 
 function parentDir(p) {
@@ -387,29 +389,42 @@ function renderFinancials(card) {
 
 // ── filing_doc (10-K/10-Q reader) ───────────────────────────────────
 function renderFilingDoc(card) {
-  const items = card.items || [];
-  const chips = items
-    .map(
-      (id) =>
-        `<span class="filing-item-chip num">Item ${escapeHtml(id)}</span>`,
-    )
-    .join("");
+  const form = card.form || "";
+  const formName = filingFormLabel(form);
   const sub = [
-    escapeHtml(card.form || ""),
-    card.item ? `Item ${escapeHtml(card.item)}` : null,
+    escapeHtml(form),
+    formName && formName !== form ? escapeHtml(formName) : null,
     card.filing_date ? escapeHtml(card.filing_date) : null,
   ]
     .filter(Boolean)
     .join(" · ");
+  // A section read names the section it read; a whole-document open lists
+  // what's inside. Never both — the chip wall next to a section line was
+  // noise, and "Excerpt ready · N characters" told the reader nothing.
+  const readLine = card.item
+    ? `<p class="filing-read-line">Read ${escapeHtml(filingItemLabel(form, card.item))}</p>`
+    : "";
+  const chips = card.item
+    ? ""
+    : (card.items || [])
+        .map(
+          (id) =>
+            `<span class="filing-item-chip">${escapeHtml(filingItemLabel(form, id))}</span>`,
+        )
+        .join("");
+  const preview = card.preview
+    ? `<blockquote class="filing-preview">${escapeHtml(card.preview)}</blockquote>`
+    : "";
   const inner = `
     <div class="card-head">
       <span class="card-title num">${escapeHtml(card.ticker || "")}</span>
       <span class="card-sub">${sub}</span>
     </div>
+    ${readLine}
+    ${preview}
     ${chips ? `<div class="filing-items">${chips}</div>` : ""}
-    ${card.chars ? `<p class="card-note">Excerpt ready · ${escapeHtml(String(card.chars))} characters</p>` : ""}
     <div class="card-actions">
-      <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url || "")}">Open in browser ↗</button>
+      <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url || "")}">Open on SEC.gov ↗</button>
     </div>`;
   return cardShell("filing_doc", inner);
 }

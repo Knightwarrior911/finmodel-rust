@@ -217,3 +217,60 @@ test("verification card uses colleague language", async () => {
   assert.match(el.textContent, /key figures checked/);
   assert.doesNotMatch(el.textContent, /Partial — unverified|material figures verified/);
 });
+
+test("filing_doc: section read shows its human name and preview, no byte counts", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "filing_doc",
+    ticker: "TSLA",
+    form: "8-K",
+    filing_date: "2026-07-02",
+    url: "https://www.sec.gov/x",
+    item: "2",
+    items: ["2", "9"],
+    chars: 574,
+    preview:
+      "Tesla's revenue for the quarter reflects tariff-related cost pressure and…",
+  });
+  const text = el.textContent;
+  assert.ok(
+    text.includes("Item 2 · Financial information"),
+    "section read is named in plain English",
+  );
+  assert.ok(
+    text.includes("tariff-related cost pressure"),
+    "the actual excerpt opening is quoted",
+  );
+  assert.ok(!text.includes("characters"), "no byte-count schema-speak");
+  assert.ok(!text.includes("574"), "char count is gone");
+  assert.ok(
+    !el.querySelector(".filing-item-chip"),
+    "a section read does not also wear the whole-document chip wall",
+  );
+  assert.ok(
+    text.includes("Current report"),
+    "form code carries its plain name",
+  );
+});
+
+test("filing_doc: whole-document open lists named contents", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "filing_doc",
+    ticker: "TSLA",
+    form: "8-K",
+    filing_date: "2026-07-02",
+    url: "https://www.sec.gov/x",
+    item: null,
+    items: ["2", "9"],
+  });
+  const chips = [...el.querySelectorAll(".filing-item-chip")].map(
+    (c) => c.textContent,
+  );
+  assert.deepEqual(chips, [
+    "Item 2 · Financial information",
+    "Item 9 · Financial statements and exhibits",
+  ]);
+});

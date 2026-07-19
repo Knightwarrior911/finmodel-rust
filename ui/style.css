@@ -1628,6 +1628,20 @@ body.sidebar-collapsed .sidebar-expand {
   border-radius: var(--radius-sm);
   padding: 2px 8px;
 }
+.filing-read-line {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  color: var(--text);
+  font-weight: 500;
+}
+.filing-preview {
+  margin: 8px 0 0;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--hairline);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
 
 /* search hits */
 .hit-list,

@@ -105,3 +105,27 @@ test("mission meta line stays quiet and human", () => {
   );
   assert.equal(missionMetaLine({}), "");
 });
+
+import { filingFormLabel, filingItemLabel } from "../js/labels.mjs";
+
+test("filingFormLabel names the common SEC forms", () => {
+  assert.equal(filingFormLabel("10-K"), "Annual report");
+  assert.equal(filingFormLabel("8-K"), "Current report");
+  assert.equal(filingFormLabel("10-Q"), "Quarterly report");
+  // Unknown forms fall back to the code — never blank.
+  assert.equal(filingFormLabel("SC 13D"), "SC 13D");
+});
+
+test("filingItemLabel is form-aware and survives sub-items", () => {
+  assert.equal(filingItemLabel("8-K", "2"), "Item 2 · Financial information");
+  // 8-K sub-items resolve on the major number.
+  assert.equal(
+    filingItemLabel("8-K", "2.02"),
+    "Item 2.02 · Financial information",
+  );
+  assert.equal(filingItemLabel("10-K", "1A"), "Item 1A · Risk factors");
+  // Same number, different form, different meaning.
+  assert.equal(filingItemLabel("10-K", "2"), "Item 2 · Properties");
+  // Unknown items keep the plain form.
+  assert.equal(filingItemLabel("10-K", "42"), "Item 42");
+});

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.12 — 2026-07-19 — Move-to-project works, filing cards earn their place
+
+- **The move-to-project picker no longer vanishes on click.** Clicking the
+  dropdown fell through to the row underneath, which loaded that conversation
+  and re-rendered the sidebar — destroying the open picker (the flicker). The
+  picker now owns its clicks.
+- **Filing cards show what was read, not byte counts.** "Excerpt ready · 574
+  characters" is gone. A section read is named in plain English ("Read Item 2
+  · Financial information") with the opening lines of the actual text quoted
+  beneath; a whole-document open lists its contents by name ("Item 9 ·
+  Financial statements and exhibits"). Form codes carry their plain names
+  ("8-K · Current report"), and the SEC link says where it goes.
+
 ## v0.9.11 — 2026-07-19 — The analyst works until the job is done
 
 - **No more "step budget" dead ends.** The per-turn work quotas (10–12 rounds —

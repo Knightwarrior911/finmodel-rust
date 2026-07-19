@@ -151,3 +151,33 @@ test("move menu with no projects shows a hint, not a dead-end picker", async () 
     /No projects yet/,
   );
 });
+
+test("clicking the move picker does not load the conversation", async () => {
+  const ctx = setupDom();
+  ctx.invokeHandlers.list_conversations = async () => [
+    { id: "9-pick", title: "Pick me", updated: new Date().toISOString() },
+  ];
+  ctx.invokeHandlers.projects_list = async () => [
+    { id: "proj_z", name: "Deals" },
+  ];
+  const sb = await importModule("sidebar.mjs");
+  let selected = null;
+  sb.initSidebar({ onSelect: (id) => (selected = id), onNew: () => {} });
+  await sb.refresh();
+  await tick();
+
+  const row = document.querySelector('.conv-row[data-id="9-pick"]');
+  row.querySelector(".conv-move").click();
+  const sel = row.querySelector(".conv-move-sel");
+  assert.ok(sel, "picker rendered");
+  // The click that opens the native dropdown bubbles to the list handler; it
+  // must not select the conversation (that re-render killed the picker live:
+  // the screen flickered and the menu vanished).
+  sel.click();
+  await tick();
+  assert.equal(selected, null, "conversation was not loaded");
+  assert.ok(
+    document.body.contains(sel),
+    "picker is still alive after the click",
+  );
+});

@@ -290,6 +290,15 @@ export function initSidebar(opts = {}) {
   document.addEventListener("theme-changed", updateThemeIcon);
 
   $("convList").addEventListener("click", (e) => {
+    // The move picker lives inside a conversation row: a click on the open
+    // <select> must NOT fall through to the row branch below, which loads the
+    // conversation and re-renders the sidebar — killing the picker mid-click
+    // (the "flicker and it's gone" bug). The picker's own change/blur handlers
+    // own its lifecycle.
+    if (e.target.closest(".conv-move-sel")) {
+      e.stopPropagation();
+      return;
+    }
     const projToggle = e.target.closest(".proj-toggle");
     if (projToggle) {
       e.stopPropagation();

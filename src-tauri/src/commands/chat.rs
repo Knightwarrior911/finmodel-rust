@@ -1789,6 +1789,22 @@ fn tool_list_filings(args: &Value) -> Result<(String, Value), String> {
     Ok((truncate(&text, 1800), card))
 }
 
+/// First ~240 chars of a filing excerpt, whitespace-collapsed, for the chat
+/// card. The card used to say "Excerpt ready · 574 characters" — a byte count
+/// tells the reader nothing; the opening lines of what was actually read do.
+fn filing_preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out: String = flat.chars().take(240).collect();
+    if flat.chars().count() > 240 {
+        // Cut at the last word boundary so the quote never ends mid-word.
+        if let Some(i) = out.rfind(' ') {
+            out.truncate(i);
+        }
+        out.push('…');
+    }
+    out
+}
+
 fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value), String> {
     let ticker = args["ticker"].as_str().unwrap_or("").trim().to_string();
     if ticker.is_empty() {
@@ -1818,15 +1834,17 @@ fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
     let items = fm_fetch::split_filing_items(&text);
     let ids: Vec<String> = items.iter().map(|(id, _)| id.clone()).collect();
 
-    let (llm_text, item_val, chars) = if let Some(want) = &item {
+    let (llm_text, item_val, chars, preview) = if let Some(want) = &item {
         match items.iter().find(|(id, _)| id == want) {
             Some((_, body)) => {
                 let clipped = truncate(body, 20_000);
                 let n = clipped.chars().count();
+                let pv = filing_preview(&clipped);
                 (
                     format!("{form} Item {want} for {ticker}:\n\n{clipped}"),
                     json!(want),
                     n,
+                    pv,
                 )
             }
             None => (
@@ -1836,11 +1854,13 @@ fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
                 ),
                 Value::Null,
                 0,
+                String::new(),
             ),
         }
     } else {
         let head = truncate(&text, 4_000);
         let n = head.chars().count();
+        let pv = filing_preview(&head);
         (
             format!(
                 "{form} for {ticker}. Items: {}\n\nExcerpt:\n{head}",
@@ -1848,6 +1868,7 @@ fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
             ),
             Value::Null,
             n,
+            pv,
         )
     };
     let card = json!({
@@ -1859,6 +1880,7 @@ fn tool_read_filing(app: &tauri::AppHandle, args: &Value) -> Result<(String, Val
         "item": item_val,
         "items": ids,
         "chars": chars,
+        "preview": preview,
     });
     Ok((truncate(&llm_text, 20_500), card))
 }
