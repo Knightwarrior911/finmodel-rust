@@ -190,7 +190,7 @@ function ensureThinking() {
   toggle.className = "thinking-toggle";
   toggle.setAttribute("aria-expanded", "true");
   toggle.innerHTML =
-    `<span class="thinking-caret" aria-hidden="true">▾</span>` +
+    `<span class="thinking-caret" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>` +
     `<span class="thinking-title">Thinking process</span>` +
     `<span class="thinking-count"></span>`;
   const steps = document.createElement("div");
@@ -221,10 +221,11 @@ function addThinkStep(name, detail) {
   ensureThinking();
   const step = document.createElement("div");
   step.className = "think-step running";
+  step.dataset.t0 = String(performance.now());
   step.innerHTML =
     `<span class="think-icon" aria-hidden="true">${thinkIcon(name)}</span>` +
     `<span class="think-label">${escapeHtml(phaseLabel(name, detail))}</span>` +
-    `<span class="think-status"><span class="spinner"></span>In progress</span>`;
+    `<span class="think-status" role="status"><span class="think-dot" aria-hidden="true"></span><span class="sr-only">In progress</span></span>`;
   activeTurn.thinkingStepsEl.appendChild(step);
   activeTurn.stepCount = (activeTurn.stepCount || 0) + 1;
   updateThinkCount();
@@ -237,10 +238,14 @@ function finishThinkStep(step, ok) {
   step.classList.remove("running");
   step.classList.add(ok ? "success" : "failed");
   const st = step.querySelector(".think-status");
-  if (st)
-    st.innerHTML = ok
-      ? `<span class="think-tick" aria-hidden="true">✓</span>Success`
-      : `<span class="think-x" aria-hidden="true">✗</span>Failed`;
+  if (!st) return;
+  // Measured duration, mono + tabular: precision is the aesthetic.
+  const t0 = Number(step.dataset.t0 || 0);
+  const secs = t0 ? (performance.now() - t0) / 1000 : 0;
+  const dur = secs >= 0.05 ? `${secs.toFixed(1)}s` : "";
+  st.innerHTML = ok
+    ? `<span class="think-tick" aria-hidden="true">✓</span><span class="sr-only">Done</span>${dur ? `<span class="think-dur">${dur}</span>` : ""}`
+    : `<span class="think-x" aria-hidden="true">✗</span>failed${dur ? `<span class="think-dur">${dur}</span>` : ""}`;
 }
 
 // Render the mission plan (Task 2.3): the whole plan rides each `plan_updated`

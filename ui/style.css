@@ -861,95 +861,174 @@ body.sidebar-collapsed .sidebar-expand {
 }
 
 /* ── Thinking process (agent thought loop) ──────────────────────── */
+/* A quiet activity ledger: no box, a hairline timeline rail, measured
+   durations in mono. State is conveyed by small glyphs + motion, once. */
 .thinking {
   max-width: 780px;
-  margin: 4px auto 2px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--fg, #888) 4%, transparent);
+  margin: 2px auto 4px;
+  padding: 0 20px;
 }
 .thinking-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 8px 14px;
   background: none;
-  border: 0;
-  cursor: pointer;
+  border: none;
+  padding: 4px 0;
+  font: 500 12px var(--font);
+  letter-spacing: 0.02em;
   color: var(--muted);
-  font: inherit;
-  font-size: 13px;
+  cursor: pointer;
   text-align: left;
 }
 .thinking-toggle:hover {
-  color: var(--fg, inherit);
+  color: var(--ink);
 }
 .thinking-caret {
-  display: inline-block;
-  font-size: 11px;
-  transition: transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 160ms var(--ease-fast);
 }
 .thinking.collapsed .thinking-caret {
   transform: rotate(-90deg);
 }
 .thinking-title {
-  font-weight: 600;
+  font-weight: 500;
 }
 .thinking-count {
-  color: var(--muted);
+  color: var(--faint);
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
 }
 .thinking-steps {
-  padding: 2px 14px 10px;
+  margin: 2px 0 4px 4px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 .thinking.collapsed .thinking-steps {
   display: none;
 }
 .think-step {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 3px 0;
   font-size: 13px;
+  color: var(--muted);
+  animation: think-step-in 220ms var(--ease) both;
 }
-.think-icon {
-  width: 18px;
-  text-align: center;
-  flex: none;
+@keyframes think-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Timeline node: a small marker sitting on the rail. */
+.think-step::before {
+  content: "";
+  position: absolute;
+  left: -17.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: background 200ms var(--ease);
+}
+.think-step.running::before {
+  background: var(--accent);
+}
+.think-step.success::before {
+  background: var(--ok);
+}
+.think-step.failed::before {
+  background: var(--err);
 }
 .think-label {
   flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.think-step.running .think-label {
+  color: var(--ink);
 }
 .think-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-size: 12px;
-  color: var(--muted);
-  flex: none;
+  color: var(--faint);
 }
-.think-step .think-status .spinner {
-  width: 11px;
-  height: 11px;
-  border-width: 2px;
+/* Live pulse: one breathing dot, not a spinning border. */
+.think-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: think-breathe 1.4s var(--ease) infinite;
 }
-.think-step.success .think-status {
-  color: #3fb950;
+@keyframes think-breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
-.think-step.failed .think-status,
-.think-step.failed .think-label {
-  color: #f85149;
+.think-tick {
+  color: var(--ok);
+  font-weight: 600;
 }
-.think-tick,
 .think-x {
-  font-weight: 700;
+  color: var(--err);
+  font-weight: 600;
+}
+.think-step.failed .think-label,
+.think-step.failed .think-status {
+  color: var(--err);
+}
+.think-dur {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--faint);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .think-dot {
+    animation: none;
+    opacity: 1;
+  }
+  .think-step {
+    animation: none;
+  }
 }
 .think-step.note .think-label {
-  color: var(--accent, #6ea8fe);
-  font-weight: 600;
+  color: var(--accent-strong);
+  font-weight: 500;
 }
 
 /* ── Tool activity (Phase D) ────────────────────────────────────── */
@@ -2699,14 +2778,12 @@ body {
   height: 14px;
   display: block;
 }
+/* Icons stay quiet; state lives on the rail node and status glyph only. */
+.think-step .think-icon {
+  color: var(--faint);
+}
 .think-step.running .think-icon {
-  color: var(--accent);
-}
-.think-step.success .think-icon {
-  color: var(--ok, #16a34a);
-}
-.think-step.failed .think-icon {
-  color: var(--err);
+  color: var(--ink);
 }
 
 /* Settings hosts editors (skills, profiles) — editing surfaces get room

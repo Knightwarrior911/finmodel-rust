@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.9 — 2026-07-19 — The thinking trail becomes an instrument trace
+
+- **Activity ledger redesign.** The boxed grey "Thinking process" panel is now
+  a quiet timeline: a hairline rail with small state nodes (indigo running,
+  green done, red failed), tool steps in a single calm voice, and measured
+  durations in mono/tabular (0.4s, 1.2s) stamped as each step completes —
+  precision as the aesthetic.
+- **Motion that means something.** The generic spinning circle is gone; the
+  live step breathes with a single accent dot (1.4s ease), new steps slide in
+  over 220ms, and reduced-motion turns all of it off. State is signaled once,
+  on the rail node, instead of three times (colored icon + tick + word).
+- Screen-reader step status preserved via visually-hidden text.
+
 ## v0.9.8 — 2026-07-19 — Blocked sources get a fallback, not a shrug
 
 - **The analyst no longer gives up on bot-protected websites.** When a page
