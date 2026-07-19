@@ -113,5 +113,40 @@
   "type": "quote",
   "week52_high": 334.99,
   "week52_low": 201.5
+ },
+ "model": {
+  "case": "base",
+  "comps": {
+   "count": 1,
+   "excluded": []
+  },
+  "currency": "USD",
+  "pptx_path": "C:\\Users\\vinit\\OneDrive\\Documents\\finmodel\\TSLA_deck.pptx",
+  "ticker": "TSLA",
+  "type": "model",
+  "valuation": {
+   "current_price": 382.13,
+   "ev": 100464892429.33,
+   "has_dcf": true,
+   "has_wacc": true,
+   "method": "EBITDA exit multiple",
+   "price_per_share": 32.36,
+   "sheets": [
+    "Cover",
+    "Assumptions",
+    "IS",
+    "BS",
+    "CF",
+    "DCF",
+    "WACC",
+    "Sensitivities",
+    "Comps Peers",
+    "Comps Summary",
+    "Sources"
+   ],
+   "upside_pct": -0.9153,
+   "wacc": 0.1665
+  },
+  "xlsx_path": "C:\\Users\\vinit\\OneDrive\\Documents\\finmodel\\TSLA_model.xlsx"
  }
 }

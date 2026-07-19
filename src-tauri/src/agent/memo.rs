@@ -248,6 +248,83 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                     ev.sources.push((bits, u.to_string()));
                 }
             }
+            "model" => {
+                if ev.company.is_empty() {
+                    ev.company = card["ticker"].as_str().unwrap_or("").to_string();
+                }
+                let cur = card["currency"].as_str().unwrap_or("USD");
+                let v = &card["valuation"];
+                if let Some(pps) = v["price_per_share"].as_f64() {
+                    let line = format!(
+                        "DCF value per share: {pps:.2} {cur} ({} case, {})",
+                        card["case"].as_str().unwrap_or("base"),
+                        v["method"].as_str().unwrap_or("DCF")
+                    );
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+                if let Some(px) = v["current_price"].as_f64() {
+                    let line = format!("Current share price: {px:.2} {cur}");
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+                if let Some(u) = v["upside_pct"].as_f64() {
+                    let line = format!("Implied upside to DCF: {:.1}%", u * 100.0);
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+                if let Some(evv) = v["ev"].as_f64() {
+                    let line = format!("Enterprise value: {:.0}M {cur}", evv / 1.0e6);
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+                if let Some(w) = v["wacc"].as_f64() {
+                    let line = format!("WACC: {:.2}%", w * 100.0);
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+            }
+            "benchmark" => {
+                // Peer comps table: one dense fact line per peer row, using
+                // the card's own header labels so memo prose matches the UI.
+                let headers: Vec<(String, String)> = card["headers"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|h| {
+                                (
+                                    h["key"].as_str().unwrap_or("").to_string(),
+                                    h["label"].as_str().unwrap_or("").to_string(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for row in card["rows"].as_array().unwrap_or(&Vec::new()) {
+                    let mut bits: Vec<String> = Vec::new();
+                    for (key, label) in &headers {
+                        let val = &row[key.as_str()];
+                        if val.is_null() || key == "ticker" {
+                            continue;
+                        }
+                        let shown = val
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| val.to_string());
+                        bits.push(format!("{label} {shown}"));
+                    }
+                    if bits.is_empty() {
+                        continue;
+                    }
+                    let line = format!(
+                        "Peer {}: {}",
+                        row["ticker"].as_str().unwrap_or("?"),
+                        bits.join(", ")
+                    );
+                    absorb_numbers(&mut ev.numbers, &line);
+                    ev.facts.push(line);
+                }
+            }
             _ => {}
         }
     }
@@ -551,10 +628,42 @@ mod tests {
         assert!(!ev.numbers.is_empty(), "no numbers absorbed");
         assert!(!ev.sources.is_empty(), "no sources from real research card");
         assert!(!ev.company.is_empty(), "company not inferred from real card");
+        // The real model card (TSLA DCF) distills into valuation facts.
+        assert!(
+            ev.facts.iter().any(|f| f.starts_with("DCF value per share")),
+            "model card valuation not distilled"
+        );
+        assert!(ev.numbers.contains("32.36"), "DCF per-share number missing");
         // The scaffold renders from real evidence without panicking.
         let md = render_markdown("earnings_note", &ev.company.clone(), "2026-07-19", &[], &ev);
         assert!(md.contains("## Key figures"));
         assert!(md.contains("## Sources"));
+    }
+
+    #[test]
+    fn benchmark_card_distills_peer_rows() {
+        // Exact shape from tool_benchmark in commands/chat.rs.
+        let card = json!({
+            "type": "benchmark",
+            "title": "NVDA vs AMD comps",
+            "headers": [
+                { "key": "ticker", "label": "Ticker" },
+                { "key": "fiscal_year", "label": "FY" },
+                { "key": "revenue_m", "label": "Revenue (m)" },
+                { "key": "ebitda_margin", "label": "EBITDA margin" }
+            ],
+            "rows": [
+                { "ticker": "NVDA", "fiscal_year": "2025", "revenue_m": 130497.0, "ebitda_margin": 0.64 },
+                { "ticker": "AMD", "fiscal_year": "2024", "revenue_m": 25785.0, "ebitda_margin": null }
+            ]
+        });
+        let ev = collect_evidence(&[card]);
+        assert_eq!(ev.facts.len(), 2);
+        assert!(ev.facts[0].starts_with("Peer NVDA: FY 2025, Revenue (m) 130497"));
+        assert!(ev.facts[0].contains("EBITDA margin 0.64"));
+        // Null cells are dropped, not rendered as null.
+        assert!(!ev.facts[1].contains("null"));
+        assert!(ev.numbers.contains("130497"));
     }
 
     /// LIVE (network + configured key): one real slot written by the
