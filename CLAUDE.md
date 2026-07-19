@@ -1,5 +1,40 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.16 SHIPPED + LIVE (2026-07-19) — research reads what humans read
+**Tagged `v0.9.16` (716e50c); Latest on finmodel-releases; CI green on that
+sha; endpoint verified (0.9.16, sig 420 clean, installer 200, digest match).**
+P0 #1 (PDF) + #2 (transcripts) + international + Roam retry + engine chain:
+- PDF ingestion: read path detects .pdf URLs → 25MB-capped download →
+  fm_extract::extract_pdf_text (temp file) → select_filing_excerpt. Live:
+  Apple FY24-Q4 statements PDF → 4002-char excerpt. Berkshire letters fail
+  gracefully (pdf-extract font limits → honest pdf: error → fallback doctrine).
+- Transcripts: path contains "transcript" → SourceKind::Primary; earnings
+  fused_search + spoken-word plan queries hunt them. Live: TSLA ledger with 4
+  transcript carriers ranked Primary.
+- Multi-engine search (fm-fetch websearch.rs): DDG HTTP 202 = disguised
+  challenge (was parsed as zero-hit success = silent blindness); chain
+  DDG → Bing RSS (&format=rss serves organic results past the JS wall) →
+  Mojeek; empty results never cached. Live-verified under real blocking.
+- International: HKEX/EDINET/TDnet/RNS/Euronext/SEDAR+/ASX/SGX/NSE/BSE in
+  REGULATORS + PRIORITY_DOMAINS; edgar_hits==0 → annual-report/interim/
+  presentation/English-IR queries; dotted tickers resolve via Quote.name
+  (longName||shortName — raw MC.PA searched as Minecraft!); question name
+  tokens upgrade the company's own domain to Company tier
+  (fm_research::upgrade_company_candidates). Live: MC.PA-only question →
+  lvmh.com S1-S5, zero wikipedia.
+- Roam live-browser retry: HttpBackend.roam: Option<RoamReader> CLOSURE.
+  **NEVER put tauri::AppHandle in HttpBackend/research graph**: it links the
+  windowing runtime into the manifest-less lib-test exe → comctl32-v6
+  TaskDialogIndirect → STATUS_ENTRYPOINT_NOT_FOUND for the WHOLE suite (cost
+  a full cargo clean + PE-import bisect to find). chat.rs builds the closure
+  (tool_read_page-style McpManager path). Retry fires ONLY for
+  Blocked/Failed sources — user directive: browser when appropriate, not
+  everything.
+- **Gate on EXIT CODES** (cargo test …; echo EXIT=0): a grep-filtered gate
+  hid a load-crashed suite as green this cycle.
+Remaining P0: #3 Excel formula-fidelity audit; then scheduler wiring (8.2/8.3).
+Gates: app 302 · fm-fetch 50 · fm-research 111+13 · UI 165.
+
 ## HANDOVER — v0.9.15 SHIPPED + LIVE (2026-07-19) — Evidence dock populated (Task 2.3)
 **Tagged `v0.9.15` (277bc4f); Latest on finmodel-releases; CI green; endpoint
 verified (0.9.15, sig 420 clean, installer 200, digest match). LIVE-smoked on
