@@ -133,7 +133,11 @@ export function evidenceAddCard(state, card) {
     changed =
       addArtifact(state, {
         path: card.pptx_path,
-        label: card.ticker ? `${card.ticker} deck` : "Deck",
+        label: card.ticker
+          ? `${card.ticker} deck`
+          : card.company
+            ? `${card.company} deck`
+            : "Deck",
         kind: "deck",
       }) || changed;
   }
