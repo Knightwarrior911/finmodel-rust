@@ -279,6 +279,16 @@ export function sourceStatusLabel(status) {
 export function sourceKindLabel(kind) {
   const k = String(kind || "").toLowerCase();
   switch (k) {
+    case "regulatory":
+      return "Regulator";
+    case "company":
+      return "Company source";
+    case "primary":
+      return "Company statement";
+    case "newswire":
+      return "Press";
+    case "secondary":
+      return "Web";
     case "filing":
       return "Filing";
     case "news":
