@@ -32,7 +32,11 @@ P0 #1 (PDF) + #2 (transcripts) + international + Roam retry + engine chain:
   everything.
 - **Gate on EXIT CODES** (cargo test …; echo EXIT=0): a grep-filtered gate
   hid a load-crashed suite as green this cycle.
-Remaining P0: #3 Excel formula-fidelity audit; then scheduler wiring (8.2/8.3).
+P0 #3 DONE (5676a39): formula-fidelity AUDIT PASSED — rendered workbook is
+65% formula-driven (767 formulas / 406 hardcoded; hardcoded = assumption
+inputs + historical actuals, exactly right). Permanent regression gate:
+fm-build/tests/formula_fidelity.rs (fails <30%). No product change needed.
+Next: scheduler wiring (8.2/8.3), run resume, model tiering (P1).
 Gates: app 302 · fm-fetch 50 · fm-research 111+13 · UI 165.
 
 ## HANDOVER — v0.9.15 SHIPPED + LIVE (2026-07-19) — Evidence dock populated (Task 2.3)
