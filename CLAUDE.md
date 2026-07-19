@@ -1,5 +1,29 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.15 SHIPPED + LIVE (2026-07-19) — Evidence dock populated (Task 2.3)
+**Tagged `v0.9.15` (277bc4f); Latest on finmodel-releases; CI green; endpoint
+verified (0.9.15, sig 420 clean, installer 200, digest match). LIVE-smoked on
+the real index.html over http-server + headless Chromium: module graph
+(chat→evidence→reader/workbench) loads clean, zero console errors, all three
+panels populate; smoke caught + fixed raw 'company'/'regulatory' kind chips
+(sourceKindLabel now names all five tiers).**
+
+New ui/js/evidence.mjs — conversation-level dock ledger fed from appendCard
+(single funnel for live result_part_added AND history replay):
+- Sources: dedup by url (first-seen numbering matches inline cites), rows =
+  number · letter avatar · title · publisher · status/kind; click →
+  openDock(reader) + openReader. Intake: answer.sources / card.sources,
+  research_digest items, deal sources_read, page, filing_doc.
+- Valuation: Map ticker → latest model card valuation (implied/current/
+  upside/EV/WACC) + last verification verdict.
+- Artifacts: xlsx_path/pptx_path cards newest-first; rebuild floats to top
+  (dedup by path); click → openPath.
+- Reset on newChat + loadConversation (rebuilds from replayed cards).
+P0 roadmap next: PDF ingestion in research reads (fm-extract is wired for
+tie-out only), earnings-call transcript source, Excel formula-fidelity audit,
+then scheduler wiring (8.2/8.3).
+Gates: UI 165 · app-lib 299 · fm-research 110+13.
+
 ## HANDOVER — v0.9.14 SHIPPED + LIVE (2026-07-19) — primary-source-first research
 **Tagged `v0.9.14` (aa89b64); Latest on finmodel-releases; CI green; endpoint
 verified (0.9.14, sig 420 clean, installer 200, digest match). LIVE-verified
