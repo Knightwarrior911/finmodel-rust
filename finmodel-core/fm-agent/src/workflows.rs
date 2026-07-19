@@ -129,7 +129,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             id: "company_brief",
             label: "Company/sector brief",
             required_tools: &["research", "read_page"],
-            allowed_tools: &["research", "read_page", "web_search", "get_news", "list_filings", "read_filing", "get_quote"],
+            allowed_tools: &["research", "read_page", "web_search", "get_news", "list_filings", "read_filing", "get_quote", "draft_memo"],
             default_confidentiality: Confidentiality::Confidential,
             required_input: &["entity"],
             optional_input: &["as_of", "focus_areas"],
@@ -138,7 +138,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             max_children: 12,
             needs_verification: true,
             approval_policy: ApprovalPolicy::NewVersionAuto,
-            plan_template: "Gather primary sources → synthesize brief → cite every figure.",
+            plan_template: "Gather primary sources → synthesize brief → cite every figure → draft the company profile.",
             disclaimer: "Source-grounded summary; not investment advice.",
             golden: false,
         },
@@ -146,7 +146,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             id: "earnings_review",
             label: "Earnings review",
             required_tools: &["list_filings", "read_filing", "get_news", "get_quote"],
-            allowed_tools: &["list_filings", "read_filing", "get_news", "get_quote", "research", "web_search", "benchmark_peers"],
+            allowed_tools: &["list_filings", "read_filing", "get_news", "get_quote", "research", "web_search", "benchmark_peers", "draft_memo"],
             default_confidentiality: Confidentiality::Confidential,
             required_input: &["ticker"],
             optional_input: &["period", "peer_prior"],
@@ -155,7 +155,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             max_children: 12,
             needs_verification: true,
             approval_policy: ApprovalPolicy::NewVersionAuto,
-            plan_template: "Latest filing → period metrics → guidance/news → prior comparison → cited variance table.",
+            plan_template: "Latest filing → period metrics → guidance/news → prior comparison → cited variance table → draft the earnings note.",
             disclaimer: "Figures normalized to the issuer fiscal calendar.",
             golden: true,
         },
@@ -197,7 +197,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             id: "ma_screen",
             label: "M&A / deal screen",
             required_tools: &["research_deal", "get_news", "web_search"],
-            allowed_tools: &["research_deal", "get_news", "web_search", "read_page"],
+            allowed_tools: &["research_deal", "get_news", "web_search", "read_page", "draft_memo"],
             default_confidentiality: Confidentiality::Confidential,
             required_input: &["theme"],
             optional_input: &["min_size", "since", "status"],
@@ -206,7 +206,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             max_children: 12,
             needs_verification: true,
             approval_policy: ApprovalPolicy::None,
-            plan_template: "Find precedents → announcement date/status per row → cited screen table.",
+            plan_template: "Find precedents → announcement date/status per row → cited screen table → draft the deal summary.",
             disclaimer: "Each precedent carries announcement date and status.",
             golden: false,
         },
@@ -214,7 +214,7 @@ pub fn builtin_workflows() -> Vec<WorkflowSpec> {
             id: "pitch_prep",
             label: "Pitch / meeting prep",
             required_tools: &["research", "build_model"],
-            allowed_tools: &["research", "research_deal", "web_search", "get_news", "list_filings", "read_filing", "benchmark_peers", "build_model"],
+            allowed_tools: &["research", "research_deal", "web_search", "get_news", "list_filings", "read_filing", "benchmark_peers", "build_model", "draft_memo"],
             default_confidentiality: Confidentiality::Confidential,
             required_input: &["deal"],
             optional_input: &["sections", "audience"],
@@ -492,11 +492,13 @@ mod tests {
         let plan = er.initial_plan("NVDA earnings");
         assert_eq!(plan.objective, "NVDA earnings");
         assert_eq!(plan.version, 1);
-        // 5-arrow template → 5 stable steps s1..s5.
-        assert_eq!(plan.steps.len(), 5);
+        // 6-arrow template → 6 stable steps s1..s6 (the draft-the-note step
+        // completes the mission with a written deliverable).
+        assert_eq!(plan.steps.len(), 6);
         assert_eq!(plan.steps[0].id, "s1");
         assert_eq!(plan.steps[0].label, "Latest filing");
-        assert_eq!(plan.steps[4].id, "s5");
+        assert_eq!(plan.steps[5].id, "s6");
+        assert_eq!(plan.steps[5].label, "draft the earnings note");
         assert!(plan
             .steps
             .iter()
