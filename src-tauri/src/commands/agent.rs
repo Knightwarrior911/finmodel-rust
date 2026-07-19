@@ -315,6 +315,7 @@ pub async fn agent_send(
     // surfaced to the UI for explicit approval, never scheduled silently
     // (Task 8.2 precision doctrine).
     let commitment = crate::agent::commitments::extract_commitment(&text);
+    let text_probe = text.clone();
     let (conv_id, run_id) = send_message_inner(
         app,
         (*registry).clone(),
@@ -327,6 +328,12 @@ pub async fn agent_send(
     let mut out = json!({ "conversation_id": conv_id, "run_id": run_id });
     if let Some(c) = commitment {
         out["commitment"] = json!({ "text": c.text, "due": c.due_semantics });
+    } else if crate::agent::memory::is_durable_preference(&text_probe) {
+        // A standing preference ("always show figures in USD millions")
+        // becomes a PROPOSAL — remembered only on the user's explicit yes.
+        // (The measured unattended classifier sat below the 98% precision
+        // gate; approval-gating sidesteps the gate entirely.)
+        out["memory_candidate"] = json!({ "text": text_probe });
     }
     Ok(out.to_string())
 }
@@ -529,6 +536,46 @@ pub async fn schedule_create(
         .await
         .map_err(AppError::Engine)?;
     Ok(serde_json::json!({ "id": id, "next_due": next_due }).to_string())
+}
+
+/// Save a user-approved memory (the chat's "Remember it" chip). Scoped to
+/// the workspace; kind `preference`; confidence 1.0 — the user said yes.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn memory_add(
+    app: tauri::AppHandle,
+    content: String,
+    workspace_id: Option<String>,
+) -> AppResult<String> {
+    let content = content.trim().to_string();
+    if content.is_empty() {
+        return Err(AppError::Config("empty memory".into()));
+    }
+    let app_store = store(&app)?;
+    let handle = app_store.handle.clone();
+    let ws = workspace_id.unwrap_or_else(|| app_store.default_workspace_id.clone());
+    let public_id = new_id();
+    let key = content.to_lowercase();
+    let row_id = handle
+        .call(move |db| {
+            db.insert_memory(
+                &public_id,
+                "workspace",
+                Some(&ws),
+                None,
+                "preference",
+                &content,
+                &key,
+                0.7,
+                1.0,
+                "user_approved",
+                None,
+                &crate::store::now_iso(),
+            )
+            .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(AppError::Engine)?;
+    Ok(serde_json::json!({ "id": row_id }).to_string())
 }
 
 /// All non-cancelled schedules, soonest first.

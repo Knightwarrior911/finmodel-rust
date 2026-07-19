@@ -1044,6 +1044,9 @@ async function sendViaAgent(msg) {
   // A follow-up promise in the message becomes a PROPOSAL — scheduling always
   // needs an explicit yes (never silently created from inference).
   if (res.commitment && res.commitment.text) renderScheduleOffer(res.commitment);
+  // A standing preference becomes a proposal too — remembered only on yes.
+  else if (res.memory_candidate && res.memory_candidate.text)
+    renderMemoryOffer(res.memory_candidate);
   if (projectId) {
     pendingProjectId = null;
     onChanged(); // reflect the new chat under its folder in the sidebar
@@ -1051,6 +1054,31 @@ async function sendViaAgent(msg) {
   const terminal = await waitForAgentTerminal(activeRunId);
   lastTerminalKind = terminal.kind;
   surfaceMinimalAnswer(terminal);
+}
+
+/// Quiet, dismissible offer to remember a standing preference the user just
+/// stated ("always show figures in USD millions"). Saving requires the
+/// explicit yes — the unattended classifier stays off (precision doctrine).
+function renderMemoryOffer(candidate) {
+  const div = document.createElement("div");
+  div.className = "msg schedule-offer memory-offer";
+  div.innerHTML =
+    `<span class="schedule-offer-text">That sounds like a standing preference — want me to remember it for future work?</span>` +
+    `<span class="schedule-offer-actions">` +
+    `<button type="button" class="btn-primary memory-yes">Remember it</button>` +
+    `<button type="button" class="btn-ghost memory-no">No thanks</button>` +
+    `</span>`;
+  div.querySelector(".memory-yes").addEventListener("click", async () => {
+    try {
+      await call("memory_add", { content: candidate.text });
+      div.innerHTML = `<span class="schedule-offer-text">Remembered — you can review or remove it in Settings → Memory.</span>`;
+    } catch (e) {
+      div.innerHTML = `<span class="schedule-offer-text">Couldn't save that${e && e.message ? ` (${escapeHtml(e.message)})` : ""} — you can add it from Settings → Memory.</span>`;
+    }
+  });
+  div.querySelector(".memory-no").addEventListener("click", () => div.remove());
+  scrollEl().appendChild(div);
+  scrollToBottom();
 }
 
 /// Quiet, dismissible offer to schedule a follow-up the user promised in

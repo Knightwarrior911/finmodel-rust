@@ -742,7 +742,106 @@ impl LiveDriver {
     }
 }
 
+/// Message surgery for the stream-handoff finisher (pure — unit-tested).
+/// The fast model's plain-prose draft is removed (tool evidence stays), a
+/// compose nudge is pushed for the strong model, and afterwards the nudge is
+/// dropped and either the strong prose is appended (success) or the draft is
+/// restored verbatim (failure) — the turn ALWAYS ends with an answer.
+pub(crate) mod finisher {
+    use serde_json::Value;
+
+    pub const COMPOSE_NUDGE: &str = "(final compose: all research and tool work above is complete - write the definitive final answer to the user's request now, grounded STRICTLY in the tool evidence in this conversation; preserve every citation marker and source reference exactly as the evidence names them - never drop, renumber, or invent [n] markers; do not mention drafts or models)";
+
+    /// True for a plain-prose assistant message (the fast draft) — never a
+    /// tool-calling turn.
+    fn is_plain_draft(m: &Value) -> bool {
+        m["role"] == "assistant" && m.get("tool_calls").is_none() && m["content"].is_string()
+    }
+
+    /// Pop the fast draft (if the tail is one) and push the compose nudge.
+    /// Returns the popped draft for a possible restore.
+    pub fn begin(messages: &mut Vec<Value>) -> Option<Value> {
+        let draft = match messages.last() {
+            Some(m) if is_plain_draft(m) => messages.pop(),
+            _ => None,
+        };
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": COMPOSE_NUDGE,
+        }));
+        draft
+    }
+
+    /// Success: drop the nudge, append the strong model's prose.
+    pub fn succeed(messages: &mut Vec<Value>, content: &str) {
+        let nudge = messages.pop();
+        debug_assert!(nudge.map(|n| n["content"] == COMPOSE_NUDGE).unwrap_or(false));
+        messages.push(serde_json::json!({ "role": "assistant", "content": content }));
+    }
+
+    /// Failure: drop the nudge, restore the fast draft verbatim.
+    pub fn fail(messages: &mut Vec<Value>, draft: Option<Value>) {
+        let nudge = messages.pop();
+        debug_assert!(nudge.map(|n| n["content"] == COMPOSE_NUDGE).unwrap_or(false));
+        if let Some(d) = draft {
+            messages.push(d);
+        }
+    }
+}
+
 impl LiveDriver {
+    /// Stream-handoff finisher: the fast model signalled it was done; the
+    /// configured synthesis model now writes the prose the user sees. The
+    /// fast draft is removed from history (evidence stays — tool results are
+    /// already there); on any failure the fast draft is restored so the turn
+    /// still ends with an answer.
+    async fn finish_with_strong_model(&mut self, strong: &str, fast: ModelOut) -> ModelOut {
+        let draft = finisher::begin(&mut self.messages);
+        let draft_content = self.last_content.clone();
+        let no_tools: Vec<serde_json::Value> = Vec::new();
+        let req = crate::commands::chat::build_chat_request(
+            strong,
+            &self.messages,
+            &no_tools,
+            true,
+            false,
+        );
+        let result = crate::commands::chat::stream_completion_for_agent(
+            &self.app,
+            &self.ctx.conversation_id,
+            &self.ctx.run_id, // REAL id: this is the stream the user watches
+            &self.cfg,
+            &req,
+            &self.ctx.cancel,
+            self.remaining(),
+        )
+        .await;
+        match result {
+            Ok(acc) if !acc.content.trim().is_empty() => {
+                finisher::succeed(&mut self.messages, &acc.content);
+                self.last_content = acc.content.clone();
+                ModelOut {
+                    calls: vec![],
+                    final_answer: true,
+                    tokens: fast.tokens.saturating_add(
+                        acc.meta
+                            .usage
+                            .as_ref()
+                            .and_then(|u| u.get("total_tokens"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                    ),
+                }
+            }
+            _ => {
+                // Strong model unavailable: the fast draft still answers.
+                finisher::fail(&mut self.messages, draft);
+                self.last_content = draft_content;
+                fast
+            }
+        }
+    }
+
     /// No-key turn: resolve the message through the isolated FallbackDispatcher.
     /// First call issues the validated tool (or a Direct help answer); the
     /// second call (after the tool ran) closes the turn.
@@ -1040,7 +1139,20 @@ impl Driver for LiveDriver {
         );
         let app = self.app.clone();
         let conv = self.ctx.conversation_id.clone();
-        let run = self.ctx.run_id.clone();
+        // Stream-handoff tiering: with a synthesis model configured, the fast
+        // model's rounds stream under "<run>:draft" — the UI filters deltas by
+        // run id, so orchestration prose never paints. Only the strong
+        // finisher (below) streams under the real run id.
+        let strong_model = {
+            let s = crate::commands::settings::read_settings(&self.app);
+            let m = s.synthesis_model.trim().to_string();
+            if m.is_empty() || m == self.cfg.model { None } else { Some(m) }
+        };
+        let run = if strong_model.is_some() {
+            format!("{}:draft", self.ctx.run_id)
+        } else {
+            self.ctx.run_id.clone()
+        };
         let cfg = self.cfg.clone();
         let cancel = self.ctx.cancel.clone();
 
@@ -1050,7 +1162,15 @@ impl Driver for LiveDriver {
         .await;
 
         match result {
-            Ok(acc) => self.accept_stream(&acc),
+            Ok(acc) => {
+                let out = self.accept_stream(&acc);
+                if let (Some(strong), true) =
+                    (&strong_model, out.final_answer && out.calls.is_empty())
+                {
+                    return self.finish_with_strong_model(strong, out).await;
+                }
+                out
+            }
             Err(e)
                 if crate::agent::provider::classify_provider_error(&e)
                     == crate::agent::provider::ProviderError::ToolIncompatible
@@ -2407,5 +2527,61 @@ mod tests {
         };
         assert_eq!(kind_for("qt"), vec![EventKind::ToolSucceeded]);
         assert_eq!(kind_for("nw"), vec![EventKind::ToolFailed]);
+    }
+}
+
+#[cfg(test)]
+mod finisher_tests {
+    use super::finisher;
+    use serde_json::json;
+
+    fn history_with_draft() -> Vec<serde_json::Value> {
+        vec![
+            json!({"role":"system","content":"policy"}),
+            json!({"role":"user","content":"question"}),
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"t1"}]}),
+            json!({"role":"tool","content":"evidence","tool_call_id":"t1"}),
+            json!({"role":"assistant","content":"fast draft answer"}),
+        ]
+    }
+
+    #[test]
+    fn begin_pops_only_a_plain_prose_draft() {
+        let mut m = history_with_draft();
+        let draft = finisher::begin(&mut m);
+        assert_eq!(draft.unwrap()["content"], "fast draft answer");
+        // Evidence untouched; nudge is now the tail.
+        assert_eq!(m.len(), 5);
+        assert_eq!(m[3]["role"], "tool");
+        assert_eq!(m.last().unwrap()["content"], finisher::COMPOSE_NUDGE);
+
+        // A tool-calling assistant tail is NEVER treated as a draft.
+        let mut m2 = history_with_draft();
+        m2.pop(); // drop the prose; tail is the tool result
+        let none = finisher::begin(&mut m2);
+        assert!(none.is_none());
+        assert_eq!(m2.len(), 5); // nothing popped, nudge pushed
+    }
+
+    #[test]
+    fn success_replaces_draft_with_strong_prose() {
+        let mut m = history_with_draft();
+        let _ = finisher::begin(&mut m);
+        finisher::succeed(&mut m, "the definitive answer [1]");
+        assert_eq!(m.len(), 5, "same shape as before the handoff");
+        let tail = m.last().unwrap();
+        assert_eq!(tail["role"], "assistant");
+        assert_eq!(tail["content"], "the definitive answer [1]");
+        // The nudge never survives into history.
+        assert!(m.iter().all(|x| x["content"] != finisher::COMPOSE_NUDGE));
+    }
+
+    #[test]
+    fn failure_restores_the_draft_verbatim() {
+        let mut m = history_with_draft();
+        let before = m.clone();
+        let draft = finisher::begin(&mut m);
+        finisher::fail(&mut m, draft);
+        assert_eq!(m, before, "history byte-identical after a failed handoff");
     }
 }

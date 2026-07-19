@@ -369,11 +369,39 @@ function renderFinancials(card) {
   const src = card.source
     ? `<div class="card-sources"><a href="#" class="md-link" data-url="${escapeHtml(card.source)}">SEC EDGAR</a></div>`
     : "";
+  // Basis toggle: Annual / Quarterly / LTM re-fetch this ticker's card in
+  // place — the three real bases an analyst flips between.
+  const basisNow = String(card.basis || "annual").toLowerCase();
+  const basisChips = card.ticker
+    ? `<div class="basis-toggle" role="group" aria-label="Reporting basis">${[
+        ["annual", "Annual"],
+        ["quarterly", "Quarterly"],
+        ["ltm", "LTM"],
+      ]
+        .map(
+          ([b, label]) =>
+            `<button type="button" class="basis-chip${b === basisNow ? " active" : ""}" data-basis="${b}" data-basis-ticker="${escapeHtml(card.ticker)}" aria-pressed="${b === basisNow}">${label}</button>`,
+        )
+        .join("")}</div>`
+    : "";
+  // Business segments (annual only; from the filing XBRL instance).
+  const segRows = Array.isArray(card.segments)
+    ? card.segments
+        .map(
+          (g) =>
+            `<tr${g.eliminations ? ' class="fin-derived"' : ""}><td>${escapeHtml(g.segment)}${g.eliminations ? " (eliminations)" : ""}</td><td class="num">${escapeHtml(Number(g.value / 1e6).toLocaleString("en-US", { maximumFractionDigits: 0 }))}</td></tr>`,
+        )
+        .join("")
+    : "";
+  const segments = segRows
+    ? `<div class="fin-segments"><div class="dock-section-head">Segment revenue · ${escapeHtml(card.currency || "USD")} millions</div><table class="card-table"><tbody>${segRows}</tbody></table></div>`
+    : "";
   const inner = `
     <div class="card-head">
       <span class="card-title">${escapeHtml(card.entity || card.ticker || "Financials")}</span>
       ${sub ? `<span class="card-sub">${sub}</span>` : ""}
     </div>
+    ${basisChips}
     <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Line item</th>${
       periods
         ? periods
@@ -383,6 +411,7 @@ function renderFinancials(card) {
     }</tr></thead><tbody>${
       rows || '<tr><td colspan="2" class="card-note">No figures to show yet.</td></tr>'
     }</tbody></table></div>
+    ${segments}
     ${src}`;
   return cardShell("financials", inner);
 }
@@ -721,6 +750,28 @@ function wireCard(el) {
     if (analyst) {
       e.stopPropagation();
       openAnalyst();
+      return;
+    }
+    // Financials basis toggle: re-fetch the card on the chosen basis and
+    // swap it in place (no agent round, no scroll jump).
+    const basisBtn = e.target.closest("[data-basis]");
+    if (basisBtn) {
+      e.stopPropagation();
+      const shell = basisBtn.closest(".card");
+      if (!shell || basisBtn.classList.contains("active")) return;
+      const chips = shell.querySelectorAll(".basis-chip");
+      chips.forEach((c) => (c.disabled = true));
+      call("financials_card", {
+        ticker: basisBtn.dataset.basisTicker,
+        basis: basisBtn.dataset.basis,
+      })
+        .then((card) => {
+          const next = renderCard(typeof card === "string" ? JSON.parse(card) : card);
+          shell.replaceWith(next);
+        })
+        .catch(() => {
+          chips.forEach((c) => (c.disabled = false));
+        });
       return;
     }
     // External link/button (checked before reader row so the Open button wins).

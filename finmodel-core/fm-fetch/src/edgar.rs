@@ -444,6 +444,28 @@ const MAX_FILING_BYTES: u64 = 25 * 1024 * 1024;
 /// which drops `<div>/<span>/<table>` content and caps output at 20 KB — a real
 /// 10-K lays its items out in divs/tables and Item 7/8 sit megabytes deep).
 /// Uses the required EDGAR User-Agent and caps the response body at 25 MB.
+/// Fetch an EDGAR archive file VERBATIM (no HTML stripping) — the XBRL
+/// instance XML parser needs raw markup. Same UA/size discipline as filings.
+pub fn fetch_url_text(url: &str) -> Result<String, crate::market::FetchError> {
+    let resp = edgar_get(url).map_err(|e| crate::market::FetchError::Network(e.to_string()))?;
+    if let Some(len) = resp.content_length()
+        && len > MAX_FILING_BYTES
+    {
+        return Err(crate::market::FetchError::Network(format!(
+            "instance too large ({len} bytes) for {url}"
+        )));
+    }
+    let body = resp
+        .text()
+        .map_err(|e| crate::market::FetchError::Network(e.to_string()))?;
+    if body.len() as u64 > MAX_FILING_BYTES {
+        return Err(crate::market::FetchError::Network(format!(
+            "instance too large for {url}"
+        )));
+    }
+    Ok(body)
+}
+
 pub fn fetch_filing_doc(url: &str) -> Result<String, EdgarError> {
     let resp = edgar_get(url)?;
     if let Some(len) = resp.content_length()

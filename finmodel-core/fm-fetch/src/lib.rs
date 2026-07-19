@@ -11,6 +11,7 @@ pub mod market;
 pub mod news;
 pub mod pdf;
 pub mod retry;
+pub mod segments;
 pub mod websearch;
 
 pub use discovery::{DiscoveryError, find_annual_report_pdf_url};

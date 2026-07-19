@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.9.19 — 2026-07-19 — The strong pen writes every answer, and segments become real data
+
+- **True model tiering.** With a synthesis model configured, your fast model
+  now only orchestrates the tools — its working notes never paint the screen —
+  and the strong model writes EVERY final answer you read, streaming live,
+  with citation markers preserved exactly. If the strong model is ever
+  unreachable, the fast draft still answers; a turn never ends empty.
+- **finmodel finally looks like finmodel.** New app icon across Windows,
+  taskbar, and installer — the placeholder branding is gone.
+- **Segment revenue is structured data now.** The annual financials spread
+  extracts business-segment revenue (Automotive vs Energy, …) from the
+  filing's XBRL instance — single-dimension contexts only so nothing is
+  double-counted, eliminations labeled, verified live against Tesla's real
+  10-K. Rendered as its own table on the financials card.
+- **Flip bases on the card.** Annual · Quarterly · LTM chips on the
+  financials card re-fetch the spread in place — no new question needed.
+- **"Remember that" is one click.** A standing preference ("always show
+  figures in USD millions") triggers a quiet offer to remember it — saved
+  only on your explicit yes, managed in Settings → Memory.
+
 ## v0.9.18 — 2026-07-19 — Nothing gets lost: resume after restart, a schedules panel, a heavier pen
 
 - **A run survives an app restart.** Close or crash mid-mission and the work

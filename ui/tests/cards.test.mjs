@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, importModule } from "./harness.mjs";
+import { setupDom, importModule, tick } from "./harness.mjs";
 
 test("renderCard renders a verified verification card", async () => {
   setupDom();
@@ -273,4 +273,54 @@ test("filing_doc: whole-document open lists named contents", async () => {
     "Item 2 · Financial information",
     "Item 9 · Financial statements and exhibits",
   ]);
+});
+
+test("financials card: basis chips render and swap the card in place", async () => {
+  const ctx = setupDom();
+  const cards = await importModule("cards.mjs");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  let asked = null;
+  ctx.invokeHandlers.financials_card = async (args) => {
+    asked = args;
+    return { type: "financials", ticker: "TSLA", basis: "quarterly", rows: [{ label: "Revenue", display: "25,000" }] };
+  };
+  const el = cards.renderCard({
+    type: "financials", ticker: "TSLA", basis: "annual",
+    rows: [{ label: "Revenue", display: "97,690" }],
+  });
+  host.appendChild(el);
+  const chips = [...el.querySelectorAll(".basis-chip")].map((c) => c.textContent);
+  assert.deepEqual(chips, ["Annual", "Quarterly", "LTM"]);
+  assert.ok(el.querySelector('.basis-chip[data-basis="annual"]').classList.contains("active"));
+  el.querySelector('[data-basis="quarterly"]').click();
+  await tick();
+  await tick();
+  assert.deepEqual(asked, { ticker: "TSLA", basis: "quarterly" });
+  const swapped = host.querySelector(".card-financials");
+  assert.match(swapped.textContent, /25,000/);
+  assert.ok(swapped.querySelector('.basis-chip[data-basis="quarterly"]').classList.contains("active"));
+});
+
+test("financials card renders the segment revenue section with eliminations labeled", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "financials", ticker: "TSLA", basis: "annual", currency: "USD",
+    rows: [{ label: "Revenue", display: "97,690" }],
+    segments: [
+      { segment: "Automotive", member: "tsla:AutomotiveSegmentMember", value: 82056000000, period_end: "2025-12-31", eliminations: false },
+      { segment: "Energy Generation And Storage", member: "tsla:EnergySegmentMember", value: 12771000000, period_end: "2025-12-31", eliminations: false },
+      { segment: "Intersegment Elimination", member: "us-gaap:IntersegmentEliminationMember", value: -500000000, period_end: "2025-12-31", eliminations: true },
+    ],
+  });
+  const seg = el.querySelector(".fin-segments");
+  assert.ok(seg, "segments section rendered");
+  assert.match(seg.textContent, /Segment revenue · USD millions/);
+  assert.match(seg.textContent, /Automotive/);
+  assert.match(seg.textContent, /82,056/);
+  assert.match(seg.textContent, /Intersegment Elimination \(eliminations\)/);
+  // No segments -> no section.
+  const plain = cards.renderCard({ type: "financials", ticker: "AAPL", rows: [] });
+  assert.ok(!plain.querySelector(".fin-segments"));
 });

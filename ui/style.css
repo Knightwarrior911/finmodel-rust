@@ -3369,3 +3369,32 @@ body {
   font-size: 12.5px;
   color: var(--muted);
 }
+
+/* Financials basis toggle */
+.basis-toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin: 8px 0 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  background: var(--element);
+}
+.basis-chip {
+  font-size: 12.5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.basis-chip.active {
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.basis-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

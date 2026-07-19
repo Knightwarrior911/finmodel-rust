@@ -206,3 +206,34 @@ test("an interrupted run survives reload as a Resume affordance", async () => {
   await tick();
   await tick();
 });
+
+test("a standing preference surfaces an approval-gated memory offer", async () => {
+  const { ctx } = await bootChat();
+  let saved = null;
+  ctx.invokeHandlers.agent_send = async () => ({
+    conversation_id: "c8",
+    run_id: "run-8",
+    memory_candidate: { text: "Always show figures in USD millions." },
+  });
+  ctx.invokeHandlers.memory_add = async (args) => {
+    saved = args;
+    return { id: 7 };
+  };
+  document.getElementById("chatInput").value = "Always show figures in USD millions.";
+  document.getElementById("chatSend").click();
+  await tick();
+  await tick();
+  const offer = document.querySelector(".memory-offer");
+  assert.ok(offer, "memory offer rendered");
+  assert.equal(saved, null, "nothing saved without a yes");
+  offer.querySelector(".memory-yes").click();
+  await tick();
+  assert.ok(saved);
+  assert.equal(saved.content, "Always show figures in USD millions.");
+  assert.match(offer.textContent, /Remembered/);
+  ctx.emit("agent_event", {
+    run_id: "run-8", conversation_id: "c8",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+});

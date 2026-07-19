@@ -1236,6 +1236,18 @@ fn tool_get_quote(args: &Value) -> Result<(String, Value), String> {
 /// annual spread (income statement, balance sheet, cash flow, share counts)
 /// plus derived analyst metrics (growth, margins, FCF, net cash) computed HERE
 /// from the reported inputs, so the model never does the arithmetic.
+/// Direct card fetch for the financials basis toggle (Annual / Quarterly /
+/// LTM chips re-render the card in place without an agent round).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn financials_card(ticker: String, basis: String) -> AppResult<String> {
+    let args = json!({ "ticker": ticker, "basis": basis });
+    let (_text, card) = tauri::async_runtime::spawn_blocking(move || tool_get_financials(&args))
+        .await
+        .map_err(|e| AppError::Engine(e.to_string()))?
+        .map_err(AppError::Engine)?;
+    Ok(card.to_string())
+}
+
 fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     let ticker = args["ticker"].as_str().unwrap_or("").trim().to_uppercase();
     if ticker.is_empty() {
@@ -1252,11 +1264,31 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
         .to_lowercase();
     let cik = fm_fetch::cik_from_ticker(&ticker).map_err(|e| e.to_string())?;
     let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).map_err(|e| e.to_string())?;
-    match basis.as_str() {
+    let result = match basis.as_str() {
         "ltm" => financials_ltm(&ticker, &cik, &raw),
         "quarterly" => financials_quarterly(&ticker, &cik, &raw),
         _ => financials_from_facts(&ticker, &cik, &raw, want_year, years),
+    };
+    // Annual spread: attach business-segment revenue from the 10-K/20-F XBRL
+    // instance (companyfacts carries no dimensional facts). Best-effort — a
+    // filer without segment tagging simply gets no section.
+    if basis == "annual" {
+        if let Ok((mut text, mut card)) = result {
+            if let Ok(segs) = fm_fetch::segments::fetch_segment_revenue(&cik) {
+                if !segs.is_empty() {
+                    text.push_str("\nSegment revenue (latest annual, from the filing's XBRL instance):\n");
+                    for f in &segs {
+                        text.push_str(&format!("  {}: {:.1}M{}\n", f.segment, f.value / 1.0e6,
+                            if f.eliminations { " (eliminations)" } else { "" }));
+                    }
+                    card["segments"] = serde_json::to_value(&segs).unwrap_or(Value::Null);
+                }
+            }
+            return Ok((text, card));
+        }
+        return result;
     }
+    result
 }
 
 /// One annual observation: (value, period end YYYY-MM-DD, filed date).
