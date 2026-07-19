@@ -107,6 +107,24 @@ fn projected_periods_are_live_formulas_not_value_dumps() {
     let path = dir.join("audit_model.xlsx");
     fm_excel::render::render(&out.workbook, path.to_str().unwrap()).expect("render");
 
+    // Presentation gate: the units declaration must reach the rendered file
+    // (shared statement header, sheets/mod.rs) — an analyst never guesses units.
+    {
+        let bytes = std::fs::read(&path).expect("read xlsx");
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip");
+        let mut strings = String::new();
+        archive
+            .by_name("xl/sharedStrings.xml")
+            .expect("sharedStrings")
+            .read_to_string(&mut strings)
+            .unwrap();
+        assert!(
+            strings.contains("in millions"),
+            "rendered workbook carries no units declaration"
+        );
+    }
+
     let sheets = census(&path);
     let mut total_f = 0usize;
     let mut total_n = 0usize;
