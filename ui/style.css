@@ -3230,3 +3230,80 @@ body {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* Evidence dock — populated panels (Task 2.3) */
+.dock-section-head {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  margin: 2px 0 8px;
+}
+.dock-src-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dock-src-list .src-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+.dock-artifact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dock-artifact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-fast),
+    border-color var(--dur-fast) var(--ease-fast);
+}
+.dock-artifact:hover {
+  background: var(--element);
+  border-color: var(--accent-soft);
+}
+.dock-artifact-kind {
+  font-size: 12px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  flex: none;
+}
+.dock-artifact-label {
+  font-size: 13.5px;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-artifact-open {
+  font-size: 12.5px;
+  color: var(--muted);
+  flex: none;
+}
+.dock-val {
+  margin-bottom: 14px;
+}
+.dock-verify {
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--hairline);
+  padding-top: 10px;
+  margin: 6px 0 0;
+}

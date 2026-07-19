@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.15 — 2026-07-19 — The Evidence dock becomes a real deal binder
+
+- **Sources tab is live.** Every source the analyst reads or cites — research
+  answers, deal reads, filings, visited pages — collects into one deduped,
+  numbered ledger docked beside the conversation. Click any source to open it
+  in the Reader. Numbers match the inline citation pills.
+- **Valuation tab is live.** The latest model valuation per ticker (implied vs
+  current, upside, EV, WACC) plus the last verification verdict — the state of
+  the deal at a glance, without scrolling the chat.
+- **Artifacts tab is live.** Workbooks and decks collect newest-first; a
+  rebuilt model floats to the top instead of duplicating. Click to open the
+  file.
+- The dock ledger survives conversation switches — it rebuilds from history
+  when you reopen a chat.
+
 ## v0.9.14 — 2026-07-19 — Research works the evidence hierarchy like an analyst
 
 - **The company's own words come first.** Research now hunts investor-relations

@@ -26,6 +26,7 @@ import {
   approvalNewVersionLabel,
 } from "./labels.mjs";
 import { closeReader } from "./reader.mjs";
+import { evidenceIngest, evidenceReset } from "./evidence.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
 
 let currentId = null;
@@ -130,6 +131,8 @@ function appendAssistant(text, live) {
 }
 
 function appendCard(card) {
+  // Every card — live or replayed — also feeds the Evidence dock ledger.
+  evidenceIngest(card);
   const div = document.createElement("div");
   div.className = "msg msg-card";
   if (activeRunId) div.dataset.runId = activeRunId;
@@ -550,6 +553,7 @@ export async function loadConversation(id) {
     currentId = conv.id;
     pendingProjectId = null;
     clearMessages();
+    evidenceReset(); // dock ledger rebuilds from the replayed cards below
     hideMission();
     showEmpty(false);
     // Build history off-DOM then commit once (Phase 3.5).
@@ -615,6 +619,7 @@ export function newChat() {
   currentId = null;
   pendingProjectId = null;
   clearMessages();
+  evidenceReset();
   hideMission();
   clearAlert();
   closeReader(); // new chat resets the reader (Phase 4.3)
