@@ -16,10 +16,13 @@
 //! `parameters` (inline JSON Schema) so a skill can later be exposed as a typed
 //! tool. The body is natural-language instructions the model follows.
 //!
-//! Discovery uses progressive disclosure: the catalog (name + description) is
-//! injected into the system prompt so the model knows what exists; the full body
-//! is small enough here that [`catalog_block`] includes it, capped, so no extra
-//! round-trip is needed for a handful of user skills.
+//! Discovery uses progressive disclosure: [`catalog_block`] injects only the
+//! catalog (name + description) into the system prompt so the model knows what
+//! exists; the full body is loaded on demand via the `use_skill` tool.
+//!
+//! A set of built-in investment-banking / financial-analysis skills ships with
+//! the app and is seeded once into `<config_dir>/skills/` at startup (see
+//! [`seed_builtin_skills`]); after that they are ordinary user-editable files.
 
 use std::path::{Path, PathBuf};
 
@@ -170,6 +173,78 @@ pub fn delete_skill(config_dir: &Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Built-in skills bundled into the binary: (name, full SKILL.md content).
+/// Each file lives in `src-tauri/skills/` and must parse (enforced by tests).
+const BUILTIN_SKILLS: &[(&str, &str)] = &[
+    (
+        "company-profile",
+        include_str!("../../skills/company-profile.md"),
+    ),
+    (
+        "comparable-companies",
+        include_str!("../../skills/comparable-companies.md"),
+    ),
+    (
+        "credit-analysis",
+        include_str!("../../skills/credit-analysis.md"),
+    ),
+    (
+        "dcf-valuation",
+        include_str!("../../skills/dcf-valuation.md"),
+    ),
+    (
+        "earnings-analysis",
+        include_str!("../../skills/earnings-analysis.md"),
+    ),
+    ("lbo-screen", include_str!("../../skills/lbo-screen.md")),
+    (
+        "ma-accretion-dilution",
+        include_str!("../../skills/ma-accretion-dilution.md"),
+    ),
+    ("orchestrator", include_str!("../../skills/orchestrator.md")),
+    ("planner", include_str!("../../skills/planner.md")),
+    (
+        "precedent-transactions",
+        include_str!("../../skills/precedent-transactions.md"),
+    ),
+    ("reviewer", include_str!("../../skills/reviewer.md")),
+    (
+        "task-executor",
+        include_str!("../../skills/task-executor.md"),
+    ),
+    (
+        "verification-loop",
+        include_str!("../../skills/verification-loop.md"),
+    ),
+];
+
+/// Marker file that makes seeding one-shot per version: a user's later delete
+/// of a built-in skill is sticky across restarts.
+const SEED_MARKER: &str = ".seeded_v1";
+
+/// Seed the built-in skill set into `<config_dir>/skills/` exactly once.
+/// Existing files are never overwritten (user edits win) and the marker keeps
+/// deletions sticky. Best-effort: IO failures skip, never abort startup.
+/// Returns how many files were written.
+pub fn seed_builtin_skills(config_dir: &Path) -> usize {
+    let dir = skills_dir(config_dir);
+    if dir.join(SEED_MARKER).exists() {
+        return 0;
+    }
+    if std::fs::create_dir_all(&dir).is_err() {
+        return 0;
+    }
+    let mut written = 0;
+    for (name, content) in BUILTIN_SKILLS {
+        let path = dir.join(format!("{name}.md"));
+        if !path.exists() && std::fs::write(&path, content).is_ok() {
+            written += 1;
+        }
+    }
+    let _ = std::fs::write(dir.join(SEED_MARKER), "v1\n");
+    written
+}
+
 /// Render the skills catalog for system-prompt injection, capped at
 /// [`CATALOG_BUDGET`]. Returns `None` when there are no skills.
 pub fn catalog_block(skills: &[Skill]) -> Option<String> {
@@ -258,5 +333,44 @@ mod tests {
         assert!(block.contains("use_skill"));
         // Bodies are NOT injected (progressive disclosure via use_skill).
         assert!(!block.contains("Report revenue and net income"));
+    }
+
+    /// Every bundled skill parses, its frontmatter name matches its key (the
+    /// filename stem), and names are valid + unique — so a bad SKILL.md can
+    /// never ship silently.
+    #[test]
+    fn builtin_skills_parse_and_names_match() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, content) in BUILTIN_SKILLS {
+            let s = parse_skill(content)
+                .unwrap_or_else(|| panic!("builtin skill `{name}` does not parse"));
+            assert_eq!(&s.name, name, "frontmatter name != filename for `{name}`");
+            assert!(is_valid_name(name), "invalid builtin name `{name}`");
+            assert!(!s.body.is_empty(), "empty body for `{name}`");
+            assert!(seen.insert(*name), "duplicate builtin name `{name}`");
+        }
+        assert_eq!(BUILTIN_SKILLS.len(), 13);
+    }
+
+    /// Seeding is one-shot: first run writes every file, a delete afterwards is
+    /// sticky (marker), and user files are never overwritten.
+    #[test]
+    fn seed_builtin_skills_is_one_shot_and_never_clobbers() {
+        let d = tmp();
+        // Pre-existing user file with the same name must survive seeding.
+        let user = "---\nname: dcf-valuation\ndescription: My custom DCF.\n---\nCustom body.";
+        save_skill(&d, "dcf-valuation", user).unwrap();
+        let written = seed_builtin_skills(&d);
+        assert_eq!(written, BUILTIN_SKILLS.len() - 1);
+        assert_eq!(list_skills(&d).len(), BUILTIN_SKILLS.len());
+        assert_eq!(
+            get_skill(&d, "dcf-valuation").unwrap().description,
+            "My custom DCF."
+        );
+        // Delete one seeded skill; a second seed run must not resurrect it.
+        delete_skill(&d, "lbo-screen").unwrap();
+        assert_eq!(seed_builtin_skills(&d), 0);
+        assert!(get_skill(&d, "lbo-screen").is_none());
+        std::fs::remove_dir_all(&d).ok();
     }
 }

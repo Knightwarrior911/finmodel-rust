@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.2 — 2026-07-19 — The analyst ships with a skill library
+
+- **13 built-in skills.** The skill library is no longer empty: the app now
+  bundles eight investment-banking / financial-analysis playbooks
+  (`dcf-valuation`, `comparable-companies`, `precedent-transactions`,
+  `earnings-analysis`, `ma-accretion-dilution`, `lbo-screen`,
+  `company-profile`, `credit-analysis`) and five workflow skills
+  (`planner`, `orchestrator`, `task-executor`, `reviewer`,
+  `verification-loop`). Each is grounded in the analyst's real tools and
+  demands cited, recomputed numbers. They seed into the skills folder once at
+  first launch — your edits are never overwritten and deleting one is sticky.
+- **Skill usage now actually counts.** Using a skill via `use_skill` records
+  the use (use count + last-used), so skills you rely on no longer age out to
+  stale/archived after 30/90 days, and the Settings list shows real use counts.
+  Hand-dropped skill files are auto-registered on first use.
+
 ## v0.9.1 — 2026-07-19 — The Evidence dock replaces the analyst pop-up
 
 - **Evidence dock.** The right-side reader is now a tabbed deal binder —

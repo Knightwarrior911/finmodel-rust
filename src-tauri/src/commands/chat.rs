@@ -763,6 +763,25 @@ fn tool_use_skill(app: &tauri::AppHandle, args: &Value) -> Result<(String, Value
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let skill = crate::agent::skills::get_skill(&dir, name)
         .ok_or_else(|| format!("skill `{name}` not found"))?;
+    // Record the use (Task 7.3) so actively-used skills never age out. A skill
+    // with no lifecycle row yet (hand-dropped or seeded file) is registered
+    // first. Best-effort and async: a store failure never blocks the skill.
+    if let Some(store) = app.try_state::<crate::store::AppStore>() {
+        let handle = store.handle.clone();
+        let n = skill.name.clone();
+        tauri::async_runtime::spawn(async move {
+            let now = crate::store::now_iso();
+            let _ = handle
+                .call(move |db| -> crate::store::StoreResult<()> {
+                    if !db.record_skill_use(&n, &now)? {
+                        db.upsert_skill(&n, 1, &now)?;
+                        db.record_skill_use(&n, &now)?;
+                    }
+                    Ok(())
+                })
+                .await;
+        });
+    }
     let summary = format!(
         "Skill `{}` — {}\n\n{}",
         skill.name, skill.description, skill.body
