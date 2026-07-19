@@ -2724,6 +2724,14 @@ body {
   gap: 14px;
 }
 
+/* Financials spread: derived rows are computed figures, visually set apart */
+.card-table tr.fin-derived td {
+  color: var(--muted);
+}
+.card-table tr.fin-derived td:first-child {
+  font-style: italic;
+}
+
 /* ── Skills (self-evolution action + editor) ────────────────────── */
 .msg-skill {
   position: absolute;

@@ -299,14 +299,26 @@ function renderFilings(card) {
 }
 
 // ── financials (exact reported figures from SEC EDGAR XBRL) ──────────
+// Multi-year spread (card.periods + rows[].values) with a legacy fallback
+// for single-year cards persisted in older conversations.
 function renderFinancials(card) {
+  const periods = Array.isArray(card.periods) ? card.periods : null;
   const rows = (card.rows || [])
-    .map(
-      (r) =>
-        `<tr><td>${escapeHtml(r.label || "")}</td><td class="num">${escapeHtml(
-          r.display != null ? String(r.display) : String(r.value ?? ""),
-        )}</td></tr>`,
-    )
+    .map((r) => {
+      if (periods && Array.isArray(r.values)) {
+        const cells = periods
+          .map(
+            (_, i) =>
+              `<td class="num">${escapeHtml(r.values[i] != null ? String(r.values[i]) : "—")}</td>`,
+          )
+          .join("");
+        const cls = r.kind === "derived" ? ' class="fin-derived"' : "";
+        return `<tr${cls}><td>${escapeHtml(r.label || "")}</td>${cells}</tr>`;
+      }
+      return `<tr><td>${escapeHtml(r.label || "")}</td><td class="num">${escapeHtml(
+        r.display != null ? String(r.display) : String(r.value ?? ""),
+      )}</td></tr>`;
+    })
     .join("");
   const fy = card.fiscal_year
     ? `FY${escapeHtml(String(card.fiscal_year))}`
@@ -325,9 +337,13 @@ function renderFinancials(card) {
       <span class="card-title">${escapeHtml(card.entity || card.ticker || "Financials")}</span>
       ${sub ? `<span class="card-sub">${sub}</span>` : ""}
     </div>
-    <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Line item</th><th scope="col">${escapeHtml(
-      card.currency || "Value",
-    )}</th></tr></thead><tbody>${
+    <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Line item</th>${
+      periods
+        ? periods
+            .map((p) => `<th scope="col" class="num">${escapeHtml(p.label || "")}</th>`)
+            .join("")
+        : `<th scope="col">${escapeHtml(card.currency || "Value")}</th>`
+    }</tr></thead><tbody>${
       rows || '<tr><td colspan="2" class="card-note">No figures.</td></tr>'
     }</tbody></table></div>
     ${src}`;

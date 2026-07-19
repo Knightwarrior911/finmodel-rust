@@ -1188,30 +1188,11 @@ fn tool_get_quote(args: &Value) -> Result<(String, Value), String> {
     Ok((text, card))
 }
 
-/// Label the fiscal year a set of annual figures covers. Company-facts tags a
-/// datapoint with the *reporting* filing's fiscal year, so a comparative figure
-/// (e.g. FY2024 shown inside a later 10-K) carries the later `fy` and would
-/// mislabel the card and its verified `claim_key`. Trust the issuer's `fy` only
-/// when it agrees with the period-end year (±1, to honour off-calendar fiscal
-/// names like a January-ending year labelled by the prior year); otherwise fall
-/// back to the period-end year, which is authoritative for the period covered.
-fn fiscal_year_label(fy: i64, period_end: &str) -> String {
-    let pe_year: i64 = period_end
-        .get(0..4)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    if fy > 0 && pe_year > 0 && (fy - pe_year).abs() <= 1 {
-        fy.to_string()
-    } else if pe_year > 0 {
-        pe_year.to_string()
-    } else {
-        period_end.get(0..4).unwrap_or("").to_string()
-    }
-}
-
 /// Fetch exact reported financials for a ticker straight from SEC EDGAR XBRL
-/// company facts — the deterministic, citable source for a reported figure
-/// (revenue/net income/EPS), instead of scraping narrative filing prose.
+/// company facts — the deterministic, citable source. Returns a multi-year
+/// annual spread (income statement, balance sheet, cash flow, share counts)
+/// plus derived analyst metrics (growth, margins, FCF, net cash) computed HERE
+/// from the reported inputs, so the model never does the arithmetic.
 fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     let ticker = args["ticker"].as_str().unwrap_or("").trim().to_uppercase();
     if ticker.is_empty() {
@@ -1220,78 +1201,217 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
     let want_year: Option<i64> = args["year"]
         .as_i64()
         .or_else(|| args["year"].as_str().and_then(|s| s.trim().parse().ok()));
+    let years = args["years"].as_i64().unwrap_or(3).clamp(1, 6) as usize;
     let cik = fm_fetch::cik_from_ticker(&ticker).map_err(|e| e.to_string())?;
     let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).map_err(|e| e.to_string())?;
-    let entity = raw["entityName"].as_str().unwrap_or(&ticker).to_string();
+    financials_from_facts(&ticker, &cik, &raw, want_year, years)
+}
+
+/// One annual observation: (value, period end YYYY-MM-DD, filed date).
+type AnnualFact = (f64, String, String);
+
+/// All annual (10-K, fp=FY) observations for the FIRST tag with data, one per
+/// period end, latest filing winning (restatement-correct), newest first.
+/// Single-tag series keep one accounting definition across years.
+fn annual_series(
+    map: &serde_json::Map<String, Value>,
+    tags: &[&str],
+    unit: &str,
+) -> Vec<AnnualFact> {
+    for &tag in tags {
+        let Some(vals) = map.get(tag).and_then(|e| e["units"][unit].as_array()) else {
+            continue;
+        };
+        let mut by_end: std::collections::BTreeMap<String, (f64, String)> =
+            std::collections::BTreeMap::new();
+        for v in vals {
+            let (Some(val), Some(end)) = (v["val"].as_f64(), v["end"].as_str()) else {
+                continue;
+            };
+            if v["fp"].as_str() != Some("FY")
+                || !v["form"].as_str().map_or(false, |f| f.contains("10-K"))
+            {
+                continue;
+            }
+            let filed = v["filed"].as_str().unwrap_or("").to_string();
+            match by_end.get(end) {
+                Some((_, f)) if *f >= filed => {}
+                _ => {
+                    by_end.insert(end.to_string(), (val, filed));
+                }
+            }
+        }
+        if !by_end.is_empty() {
+            return by_end
+                .into_iter()
+                .rev()
+                .map(|(end, (val, filed))| (val, end, filed))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// Days-scale ordinal for a YYYY-MM-DD string (windowing only, not calendar math).
+fn date_ord(d: &str) -> i64 {
+    let mut it = d.split('-').filter_map(|p| p.parse::<i64>().ok());
+    let (y, m, dd) = (
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+    );
+    y * 372 + m * 31 + dd
+}
+
+/// Build the multi-year financials answer from a companyfacts JSON (pure; unit
+/// tested against captured EDGAR data, live-smoked via the ignored test below).
+fn financials_from_facts(
+    ticker: &str,
+    cik: &str,
+    raw: &Value,
+    want_year: Option<i64>,
+    years: usize,
+) -> Result<(String, Value), String> {
+    let entity = raw["entityName"].as_str().unwrap_or(ticker).to_string();
     let us = raw["facts"]["us-gaap"].as_object().ok_or_else(|| {
         format!("{ticker} has no US-GAAP XBRL facts (likely a foreign filer) — try build_model")
     })?;
+    let dei = raw["facts"]["dei"].as_object();
 
-    // First candidate tag with an annual (10-K, fp=FY) value: the requested
-    // fiscal year, else the latest; latest filing wins for a period (restatement).
-    let pick_in = |map: &serde_json::Map<String, Value>,
-                   tags: &[&str],
-                   unit: &str|
-     -> Option<(f64, i64, String, String)> {
-        let endof = |v: &Value| {
-            v.get("end")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
-        let filedof = |v: &Value| {
-            v.get("filed")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
-        for &tag in tags {
-            let Some(vals) = map.get(tag).and_then(|e| e["units"][unit].as_array()) else {
-                continue;
-            };
-            let mut ann: Vec<&Value> = vals
-                .iter()
-                .filter(|v| {
-                    v.get("val").and_then(|x| x.as_f64()).is_some()
-                        && v.get("fp").and_then(|x| x.as_str()) == Some("FY")
-                        && v.get("form")
-                            .and_then(|x| x.as_str())
-                            .map_or(false, |f| f.contains("10-K"))
-                })
-                .collect();
-            if ann.is_empty() {
-                continue;
-            }
-            ann.sort_by(|a, b| {
-                endof(a)
-                    .cmp(&endof(b))
-                    .then_with(|| filedof(a).cmp(&filedof(b)))
-            });
-            let chosen = match want_year {
-                Some(y) => ann
-                    .iter()
-                    .rev()
-                    .find(|v| {
-                        v.get("fy").and_then(|x| x.as_i64()) == Some(y)
-                            || endof(v).starts_with(&y.to_string())
-                    })
-                    .copied(),
-                None => ann.last().copied(),
-            };
-            if let Some(v) = chosen {
-                return Some((
-                    v["val"].as_f64().unwrap(),
-                    v.get("fy").and_then(|x| x.as_i64()).unwrap_or(0),
-                    endof(v),
-                    filedof(v),
-                ));
-            }
-        }
-        None
+    // ---- Reported series ------------------------------------------------
+    // (label, series, kind). kind: money | eps | count.
+    let is_metrics: &[(&str, &[&str])] = &[
+        (
+            "Revenue",
+            &[
+                "RevenueFromContractWithCustomerExcludingAssessedTax",
+                "Revenues",
+                "SalesRevenueNet",
+                "RevenueFromContractWithCustomerIncludingAssessedTax",
+            ],
+        ),
+        (
+            "Cost of revenue",
+            &["CostOfRevenue", "CostOfGoodsAndServicesSold"],
+        ),
+        ("Gross profit", &["GrossProfit"]),
+        ("Operating income", &["OperatingIncomeLoss"]),
+        ("Net income", &["NetIncomeLoss", "ProfitLoss"]),
+    ];
+    let bs_metrics: &[(&str, &[&str])] = &[
+        (
+            "Cash & equivalents",
+            &[
+                "CashAndCashEquivalentsAtCarryingValue",
+                "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            ],
+        ),
+        ("Total assets", &["Assets"]),
+        (
+            "Long-term debt",
+            &["LongTermDebt", "LongTermDebtNoncurrent"],
+        ),
+        (
+            "Stockholders' equity",
+            &[
+                "StockholdersEquity",
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            ],
+        ),
+    ];
+    let cf_metrics: &[(&str, &[&str])] = &[
+        (
+            "Operating cash flow",
+            &[
+                "NetCashProvidedByUsedInOperatingActivities",
+                "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+            ],
+        ),
+        (
+            "Capital expenditure",
+            &[
+                "PaymentsToAcquirePropertyPlantAndEquipment",
+                "PaymentsToAcquireProductiveAssets",
+            ],
+        ),
+    ];
+
+    let mut series: std::collections::BTreeMap<&str, Vec<AnnualFact>> =
+        std::collections::BTreeMap::new();
+    for &(label, tags) in is_metrics.iter().chain(bs_metrics).chain(cf_metrics) {
+        series.insert(label, annual_series(us, tags, "USD"));
+    }
+    series.insert(
+        "Diluted EPS",
+        annual_series(us, &["EarningsPerShareDiluted"], "USD/shares"),
+    );
+    series.insert(
+        "Diluted shares (weighted average)",
+        annual_series(
+            us,
+            &["WeightedAverageNumberOfDilutedSharesOutstanding"],
+            "shares",
+        ),
+    );
+
+    // ---- Period axis: revenue's fiscal ends (fallback net income) -------
+    let axis_src = if !series["Revenue"].is_empty() {
+        "Revenue"
+    } else {
+        "Net income"
     };
-    let pick = |tags: &[&str], unit: &str| pick_in(us, tags, unit);
+    let mut axis: Vec<String> = series[axis_src].iter().map(|(_, e, _)| e.clone()).collect();
+    if let Some(y) = want_year {
+        axis.retain(|end| {
+            end.get(..4)
+                .and_then(|p| p.parse::<i64>().ok())
+                .map_or(true, |ey| ey <= y)
+        });
+    }
+    axis.truncate(years);
+    if axis.is_empty() {
+        return Err(format!(
+            "No annual XBRL figures found for {ticker}{}. Try list_filings or build_model.",
+            want_year.map(|y| format!(" FY{y}")).unwrap_or_default()
+        ));
+    }
+    fn fy_label(end: &str) -> String {
+        format!("FY{}", end.get(..4).unwrap_or("?"))
+    }
+    let filed_latest = series[axis_src]
+        .iter()
+        .find(|(_, e, _)| *e == axis[0])
+        .map(|(_, _, f)| f.clone())
+        .unwrap_or_default();
 
-    // Share counts read as integers with thousands separators, not $ figures.
+    // ---- Cover-page shares: align each axis end to the cover dated within
+    // ~130 days AFTER it (the 10-K cover count is stamped weeks after FY end).
+    let cover: Vec<AnnualFact> = dei
+        .map(|d| annual_series(d, &["EntityCommonStockSharesOutstanding"], "shares"))
+        .unwrap_or_default();
+    let cover_for = |end: &str| -> Option<f64> {
+        let e0 = date_ord(end);
+        cover
+            .iter()
+            .filter(|(_, ce, _)| {
+                let c = date_ord(ce);
+                c >= e0 && c - e0 <= 130
+            })
+            .min_by_key(|(_, ce, _)| date_ord(ce) - e0)
+            .map(|(v, _, _)| *v)
+    };
+
+    // ---- Formatting ------------------------------------------------------
+    let money = |v: f64| -> String {
+        let a = v.abs();
+        if a >= 1e9 {
+            format!("${:.2}B", v / 1e9)
+        } else if a >= 1e6 {
+            format!("${:.1}M", v / 1e6)
+        } else {
+            format!("${v:.0}")
+        }
+    };
     let count = |v: f64| -> String {
         let n = v.round() as i64;
         let mut out = String::new();
@@ -1306,123 +1426,212 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
         }
         out.chars().rev().collect()
     };
-
-    let money = |v: f64| -> String {
-        let a = v.abs();
-        if a >= 1e9 {
-            format!("${:.2}B", v / 1e9)
-        } else if a >= 1e6 {
-            format!("${:.1}M", v / 1e6)
-        } else {
-            format!("${v:.0}")
-        }
+    let pct = |v: f64| format!("{:+.1}%", v * 100.0);
+    let val_at = |label: &str, end: &str| -> Option<f64> {
+        series
+            .get(label)
+            .and_then(|s| s.iter().find(|(_, e, _)| e == end))
+            .map(|(v, _, _)| *v)
     };
 
-    // Explicit us-gaap tag candidates per line (confirmed against real filings);
-    // first tag with an annual value wins. Broader than the model builder's map.
-    let metrics: &[(&str, &[&str], &str)] = &[
-        (
-            "Revenue",
-            &[
-                "RevenueFromContractWithCustomerExcludingAssessedTax",
-                "Revenues",
-                "SalesRevenueNet",
-                "RevenueFromContractWithCustomerIncludingAssessedTax",
-            ],
-            "USD",
-        ),
-        (
-            "Cost of revenue",
-            &["CostOfRevenue", "CostOfGoodsAndServicesSold"],
-            "USD",
-        ),
-        ("Gross profit", &["GrossProfit"], "USD"),
-        ("Operating income", &["OperatingIncomeLoss"], "USD"),
-        ("Net income", &["NetIncomeLoss", "ProfitLoss"], "USD"),
-        ("Diluted EPS", &["EarningsPerShareDiluted"], "USD/shares"),
-    ];
-
-    let mut rows: Vec<Value> = Vec::new();
+    // ---- Assemble rows ---------------------------------------------------
     let mut lines: Vec<String> = Vec::new();
-    let mut period_end = String::new();
-    let mut fy: i64 = 0;
-    let mut filed = String::new();
-    for &(label, tags, unit) in metrics {
-        if let Some((val, vfy, end, vfiled)) = pick(tags, unit) {
-            if period_end.is_empty() {
-                period_end = end;
-                fy = vfy;
-                filed = vfiled;
-            }
-            let disp = if unit == "USD/shares" {
-                format!("${val:.2}")
-            } else {
-                money(val)
-            };
-            lines.push(format!("- {label}: {disp}"));
-            rows.push(json!({ "label": label, "value": val, "display": disp }));
+    let mut rows: Vec<Value> = Vec::new();
+    fn push_row(
+        axis: &[String],
+        lines: &mut Vec<String>,
+        rows: &mut Vec<Value>,
+        label: &str,
+        kind: &str,
+        vals: Vec<Option<String>>,
+    ) {
+        if vals.iter().all(|v| v.is_none()) {
+            return;
         }
+        let line = axis
+            .iter()
+            .zip(&vals)
+            .filter_map(|(end, v)| v.as_ref().map(|d| format!("{} {d}", fy_label(end))))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        lines.push(format!("- {label}: {line}"));
+        rows.push(json!({
+            "label": label,
+            "kind": kind,
+            "values": vals,
+        }));
     }
-    // Shares outstanding: the 10-K cover-page count (dei taxonomy) is the
-    // exact disclosed number; us-gaap CommonStockSharesOutstanding is the
-    // balance-sheet fallback. Distinct from weighted-average shares, which is
-    // reported separately so the two are never conflated.
-    let shares: &[(&str, Option<&serde_json::Map<String, Value>>, &[&str])] = &[
-        (
-            "Shares outstanding (cover page)",
-            raw["facts"]["dei"].as_object(),
-            &["EntityCommonStockSharesOutstanding"],
-        ),
-        (
-            "Shares outstanding (balance sheet)",
-            Some(us),
-            &["CommonStockSharesOutstanding"],
-        ),
-        (
-            "Diluted shares (weighted average)",
-            Some(us),
-            &["WeightedAverageNumberOfDilutedSharesOutstanding"],
-        ),
-    ];
-    let mut cover_done = false;
-    for &(label, map, tags) in shares {
-        // Only one "outstanding" row: cover page wins, balance sheet is fallback.
-        if label.starts_with("Shares outstanding") && cover_done {
-            continue;
-        }
-        let Some(map) = map else { continue };
-        if let Some((val, _vfy, end, _vfiled)) = pick_in(map, tags, "shares") {
-            if label.starts_with("Shares outstanding") {
-                cover_done = true;
-            }
-            let disp = count(val);
-            lines.push(format!("- {label}: {disp} (as of {end})"));
-            rows.push(json!({ "label": label, "value": val, "display": disp, "as_of": end }));
-        }
+
+    for &(label, _) in is_metrics {
+        push_row(
+            &axis,
+            &mut lines,
+            &mut rows,
+            label,
+            "reported",
+            axis.iter().map(|e| val_at(label, e).map(money)).collect(),
+        );
     }
-    if rows.is_empty() {
-        return Err(format!(
-            "No annual XBRL figures found for {ticker}{}. Try list_filings or build_model.",
-            want_year.map(|y| format!(" FY{y}")).unwrap_or_default()
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Diluted EPS",
+        "reported",
+        axis.iter()
+            .map(|e| val_at("Diluted EPS", e).map(|v| format!("${v:.2}")))
+            .collect(),
+    );
+    for &(label, _) in bs_metrics {
+        push_row(
+            &axis,
+            &mut lines,
+            &mut rows,
+            label,
+            "reported",
+            axis.iter().map(|e| val_at(label, e).map(money)).collect(),
+        );
+    }
+    for &(label, _) in cf_metrics {
+        push_row(
+            &axis,
+            &mut lines,
+            &mut rows,
+            label,
+            "reported",
+            axis.iter().map(|e| val_at(label, e).map(money)).collect(),
+        );
+    }
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Shares outstanding (10-K cover)",
+        "reported",
+        axis.iter().map(|e| cover_for(e).map(count)).collect(),
+    );
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Diluted shares (weighted average)",
+        "reported",
+        axis.iter()
+            .map(|e| val_at("Diluted shares (weighted average)", e).map(count))
+            .collect(),
+    );
+
+    // Derived — computed here so the model never does the arithmetic.
+    let n_reported = lines.len();
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Revenue growth YoY",
+        "derived",
+        axis.iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let prev = axis.get(i + 1)?;
+                let (cur, prv) = (val_at("Revenue", e)?, val_at("Revenue", prev)?);
+                (prv != 0.0).then(|| pct((cur - prv) / prv.abs()))
+            })
+            .collect(),
+    );
+    for (dl, num) in [
+        ("Gross margin", "Gross profit"),
+        ("Operating margin", "Operating income"),
+        ("Net margin", "Net income"),
+    ] {
+        push_row(
+            &axis,
+            &mut lines,
+            &mut rows,
+            dl,
+            "derived",
+            axis.iter()
+                .map(|e| {
+                    let (n, r) = (val_at(num, e)?, val_at("Revenue", e)?);
+                    (r != 0.0).then(|| format!("{:.1}%", n / r * 100.0))
+                })
+                .collect(),
+        );
+    }
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Free cash flow (CFO − capex)",
+        "derived",
+        axis.iter()
+            .map(|e| {
+                Some(money(
+                    val_at("Operating cash flow", e)? - val_at("Capital expenditure", e)?,
+                ))
+            })
+            .collect(),
+    );
+    push_row(
+        &axis,
+        &mut lines,
+        &mut rows,
+        "Net cash (debt) (cash − LT debt)",
+        "derived",
+        axis.iter()
+            .map(|e| {
+                Some(money(
+                    val_at("Cash & equivalents", e)? - val_at("Long-term debt", e)?,
+                ))
+            })
+            .collect(),
+    );
+
+    let periods: Vec<Value> = axis
+        .iter()
+        .map(|e| json!({ "label": fy_label(e), "end": e }))
+        .collect();
+    let header = format!(
+        "{} ({}) — annual (10-K), {} fiscal year{} (latest filed {}):",
+        entity,
+        ticker,
+        axis.len(),
+        if axis.len() == 1 { "" } else { "s" },
+        filed_latest
+    );
+    let (reported, derived) = lines.split_at(n_reported.min(lines.len()));
+    let mut text = format!(
+        "{header}
+Reported (SEC EDGAR XBRL):
+{}",
+        reported.join(
+            "
+"
+        )
+    );
+    if !derived.is_empty() {
+        text.push_str(&format!(
+            "
+Derived (computed deterministically from the reported figures — do not recompute):
+{}",
+            derived.join(
+                "
+"
+            )
         ));
     }
-    let fy_label = fiscal_year_label(fy, &period_end);
-    let header = format!(
-        "{} ({}) — FY{} (period ended {}, per 10-K filed {}):",
-        entity, ticker, fy_label, period_end, filed
-    );
-    let text = format!(
-        "{header}\n{}\nSource: SEC EDGAR XBRL company facts (10-K).",
-        lines.join("\n")
+    text.push_str(
+        "
+Source: SEC EDGAR XBRL company facts (10-K; latest filing wins per period).",
     );
     let card = json!({
         "type": "financials",
         "ticker": ticker,
         "entity": entity,
-        "fiscal_year": fy_label,
-        "period_end": period_end,
-        "filed": filed,
+        "fiscal_year": axis.first().and_then(|e| e.get(..4)).unwrap_or(""),
+        "period_end": axis.first().cloned().unwrap_or_default(),
+        "filed": filed_latest,
         "currency": "USD",
+        "periods": periods,
         "rows": rows,
         "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K"),
     });
@@ -1643,20 +1852,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fiscal_year_label_prefers_period_over_stale_reporting_fy() {
-        // A comparative figure carries the *reporting* filing's fy (2026) but its
-        // period ended 2024-01-28 → label by the period year, not the stale fy.
-        assert_eq!(fiscal_year_label(2026, "2024-01-28"), "2024");
-        // Issuer fy that agrees with the period (±1) is trusted, honouring an
-        // off-calendar January-ending year labelled by the prior year.
-        assert_eq!(fiscal_year_label(2023, "2024-01-28"), "2023");
-        assert_eq!(fiscal_year_label(2024, "2024-12-31"), "2024");
-        // Missing/zero fy falls back to the period-end year.
-        assert_eq!(fiscal_year_label(0, "2025-06-30"), "2025");
-        assert_eq!(fiscal_year_label(0, ""), "");
-    }
-
-    #[test]
     #[ignore] // live: hits SEC EDGAR XBRL
     fn get_financials_tsla_fy2025_revenue_live() {
         let (text, card) = tool_get_financials(&json!({ "ticker": "TSLA", "year": 2025 })).unwrap();
@@ -1797,5 +1992,75 @@ mod tests {
         let t = title_from(&long);
         assert_eq!(t.chars().count(), 49); // 48 + ellipsis
         assert!(t.ends_with('…'));
+    }
+}
+
+#[cfg(test)]
+mod financials_tests {
+    use super::*;
+
+    /// Live EDGAR smoke (network): the TSLA spread must contain the exact
+    /// FY2025 cover-page share count and multi-year revenue with derived
+    /// margins. Run explicitly: cargo test --lib financials_live -- --ignored
+    #[test]
+    #[ignore]
+    fn financials_live_tsla_spread() {
+        let cik = fm_fetch::cik_from_ticker("TSLA").unwrap();
+        let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).unwrap();
+        let (text, card) = financials_from_facts("TSLA", &cik, &raw, None, 3).unwrap();
+        // Exact disclosed cover-page count (FY2025 10-K/A).
+        assert!(
+            text.contains("3,752,431,984"),
+            "cover shares missing:\n{text}"
+        );
+        // Three fiscal years on the axis.
+        assert_eq!(card["periods"].as_array().unwrap().len(), 3);
+        // Reported + derived sections both present.
+        assert!(text.contains("Reported (SEC EDGAR XBRL):"));
+        assert!(text.contains("Derived (computed deterministically"));
+        assert!(text.contains("Revenue growth YoY"));
+        assert!(text.contains("Net margin"));
+        assert!(text.contains("Free cash flow"));
+        // Rows carry per-period values arrays for the UI table.
+        let rows = card["rows"].as_array().unwrap();
+        assert!(rows.iter().any(|r| r["kind"] == "derived"));
+        assert!(rows
+            .iter()
+            .all(|r| r["values"].as_array().unwrap().len() == 3));
+    }
+
+    /// Pure-parser test on a synthetic companyfacts document: restatement
+    /// (later filed) wins, derived margins compute, missing series omitted.
+    #[test]
+    fn financials_from_facts_restatement_and_derived() {
+        let raw = serde_json::json!({
+            "entityName": "TestCo",
+            "facts": { "us-gaap": {
+                "Revenues": { "units": { "USD": [
+                    { "val": 100.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K", "filed": "2025-01-30" },
+                    { "val": 101.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K/A", "filed": "2025-06-01" },
+                    { "val": 80.0e9,  "end": "2023-12-31", "fp": "FY", "form": "10-K", "filed": "2024-01-30" }
+                ]}},
+                "NetIncomeLoss": { "units": { "USD": [
+                    { "val": 10.1e9, "end": "2024-12-31", "fp": "FY", "form": "10-K", "filed": "2025-01-30" },
+                    { "val": 8.0e9,  "end": "2023-12-31", "fp": "FY", "form": "10-K", "filed": "2024-01-30" }
+                ]}}
+            }}
+        });
+        let (text, card) = financials_from_facts("TC", "1", &raw, None, 3).unwrap();
+        // Restated revenue (later filed) wins over the original.
+        assert!(
+            text.contains("FY2024 $101.00B"),
+            "restatement lost:\n{text}"
+        );
+        // Growth computed from restated figure: (101-80)/80 = 26.25% -> +26.2%
+        // (Rust {:+.1} rounds half-to-even).
+        assert!(text.contains("+26.2%"), "growth wrong:\n{text}");
+        // Net margin 10.1/101 = 10.0%.
+        assert!(text.contains("10.0%"), "margin wrong:\n{text}");
+        // Absent series (gross profit, cash flow) are omitted, not zeroed.
+        assert!(!text.contains("Gross margin"));
+        assert!(!text.contains("Free cash flow"));
+        assert_eq!(card["periods"].as_array().unwrap().len(), 2);
     }
 }

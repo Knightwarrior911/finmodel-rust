@@ -64,3 +64,50 @@ test("renderCard renders a financials card with figures", async () => {
   // Not the unknown-card fallback (which would show only the type string).
   assert.doesNotMatch(el.className, /card-unknown/);
 });
+
+test("renderCard renders a multi-year financials spread with derived rows", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "financials",
+    ticker: "TSLA",
+    entity: "Tesla, Inc.",
+    currency: "USD",
+    periods: [
+      { label: "FY2025", end: "2025-12-31" },
+      { label: "FY2024", end: "2024-12-31" },
+      { label: "FY2023", end: "2023-12-31" },
+    ],
+    rows: [
+      { label: "Revenue", kind: "reported", values: ["$94.83B", "$97.69B", "$96.77B"] },
+      { label: "Revenue growth YoY", kind: "derived", values: ["-2.9%", "+1.0%", null] },
+    ],
+  });
+  const heads = [...el.querySelectorAll("thead th")].map((h) => h.textContent);
+  assert.deepEqual(heads, ["Line item", "FY2025", "FY2024", "FY2023"]);
+  const rows = [...el.querySelectorAll("tbody tr")];
+  assert.equal(rows.length, 2);
+  // Reported row: three value cells.
+  assert.deepEqual(
+    [...rows[0].querySelectorAll("td")].map((t) => t.textContent),
+    ["Revenue", "$94.83B", "$97.69B", "$96.77B"],
+  );
+  // Derived row is visually distinguished; a missing value renders an em dash.
+  assert.match(rows[1].className, /fin-derived/);
+  assert.equal([...rows[1].querySelectorAll("td")].pop().textContent, "—");
+});
+
+test("renderCard legacy single-year financials card still renders", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "financials",
+    ticker: "NVDA",
+    currency: "USD",
+    fiscal_year: "2025",
+    rows: [{ label: "Revenue", value: 130.5e9, display: "$130.50B" }],
+  });
+  const heads = [...el.querySelectorAll("thead th")].map((h) => h.textContent);
+  assert.deepEqual(heads, ["Line item", "USD"]);
+  assert.match(el.textContent, /\$130\.50B/);
+});

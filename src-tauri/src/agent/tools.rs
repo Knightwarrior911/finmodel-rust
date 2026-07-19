@@ -131,7 +131,8 @@ fn schema_get_financials() -> Value {
         "type": "object",
         "properties": {
             "ticker": { "type": "string", "description": "US-listed ticker, e.g. TSLA" },
-            "year": { "type": "integer", "description": "Fiscal year, e.g. 2025 (default: latest reported)" }
+            "year": { "type": "integer", "description": "Anchor fiscal year, e.g. 2025 (default: latest reported); the spread covers this year and earlier" },
+            "years": { "type": "integer", "description": "How many fiscal years to return (default 3, max 6)" }
         },
         "required": ["ticker"]
     })
@@ -244,7 +245,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "get_financials",
                 label: "Get financials",
-                description: "Get a company's EXACT reported annual financials (revenue/sales, gross profit, operating income, net income, diluted EPS, shares outstanding from the 10-K cover page, weighted-average diluted shares) straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
+                description: "Get a company's EXACT reported annual financials as a multi-year spread (default 3 FYs): income statement, balance sheet (cash, assets, LT debt, equity), cash flow (CFO, capex), shares outstanding from the 10-K cover page, weighted-average diluted shares — plus growth, margins, FCF, and net cash PRE-COMPUTED deterministically (use those numbers as-is; never recompute). Straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
                 risk: Risk::ReadOnly,
                 capabilities: &["market", "filings", "financials"],
                 required_args: &["ticker"],

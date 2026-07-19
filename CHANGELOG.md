@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.5 — 2026-07-19 — get_financials becomes a real analyst spread
+
+- **Multi-year spread in one call.** `get_financials` now returns up to 6
+  fiscal years (default 3) of annual data: income statement, balance sheet
+  (cash, total assets, long-term debt, equity), cash flow (CFO, capex), diluted
+  EPS, 10-K cover-page shares outstanding, and weighted-average diluted shares.
+  Restatements are handled correctly — the latest filing wins per period.
+- **Derived metrics computed by the app, not the model.** Revenue growth YoY,
+  gross/operating/net margins, free cash flow, and net cash/(debt) are
+  calculated deterministically from the reported figures and handed to the
+  analyst pre-computed — eliminating LLM arithmetic as an error source and
+  cutting a 3-question tool hunt to a single call within the round budget.
+- **Spread card.** The financials card renders the full multi-year table with
+  per-year columns; derived rows are visually set apart. Older single-year
+  cards in past conversations still render.
+
 ## v0.9.4 — 2026-07-19 — Budget stops end with an answer, and shares outstanding is a first-class figure
 
 - **A budget-limited turn now wraps up instead of dying.** When a run exhausts
