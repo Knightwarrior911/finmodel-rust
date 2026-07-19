@@ -140,7 +140,11 @@ function renderRows(items) {
   const list = $("convList");
   const active = getCurrentId();
   if (!items.length && !projects.length) {
-    list.innerHTML = `<p class="conv-empty">${allItems.length ? "No matches." : "No conversations yet."}</p>`;
+    list.innerHTML = `<p class="conv-empty">${
+      allItems.length
+        ? "Nothing matches that search. Try another company or keyword."
+        : "No chats yet. Ask about a company to start one."
+    }</p>`;
     return;
   }
   const byProject = new Map();
@@ -170,12 +174,12 @@ function renderRows(items) {
       </div>
       <div class="proj-chats">${
         chats.map((c) => rowHtml(c, active)).join("") ||
-        '<p class="conv-empty proj-empty">Empty folder.</p>'
+        '<p class="conv-empty proj-empty">Nothing in this folder yet. Move a chat here or start a new one.</p>'
       }</div>
     </div>`;
   }
   if (loose.length) html += loose.map((c) => rowHtml(c, active)).join("");
-  list.innerHTML = html || `<p class="conv-empty">No conversations yet.</p>`;
+  list.innerHTML = html || `<p class="conv-empty">No chats yet. Ask about a company to start one.</p>`;
 }
 
 export function setActive(id) {
@@ -319,7 +323,7 @@ export function initSidebar(opts = {}) {
       if (projects.length === 0) {
         // No folders exist yet — a picker would be a dead-end. Guide instead.
         actions.innerHTML =
-          '<span style="font-size:12px;color:var(--faint);white-space:nowrap">No projects yet</span>';
+          '<span class="proj-empty-hint">No projects yet — create one to group related chats.</span>';
         setTimeout(() => refresh(), 1400);
         return;
       }

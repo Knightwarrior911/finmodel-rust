@@ -14,6 +14,12 @@
 //   const patches = reduce(state, event);
 //   render(container, state, patches);
 
+import {
+  toolShortName,
+  approvalApproveLabel,
+  approvalDenyLabel,
+} from "./labels.mjs";
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 /** @typedef {"queued"|"running"|"awaiting_approval"|"success"|"warning"|"error"|"cancelled"|"interrupted"} ToolStatus */
@@ -233,7 +239,7 @@ function upsert(state, id) {
 const STATUS_LABEL = {
   queued: "Queued",
   running: "Running",
-  awaiting_approval: "Approval needed",
+  awaiting_approval: "Needs your OK",
   success: "Done",
   warning: "Warning",
   error: "Error",
@@ -350,7 +356,7 @@ function renderActivity(act) {
 
   const nameSpan = document.createElement("span");
   nameSpan.className = "act-name";
-  nameSpan.textContent = act.label || act.name;
+  nameSpan.textContent = toolShortName(act.name, act.label);
   header.appendChild(nameSpan);
 
   if (act.query) {
@@ -378,14 +384,14 @@ function renderActivity(act) {
   if (act.status === "awaiting_approval") {
     const approve = document.createElement("button");
     approve.type = "button";
-    approve.className = "act-btn act-btn-approve";
-    approve.textContent = "Approve once";
+    approve.className = "act-btn act-btn-approve btn-primary";
+    approve.textContent = approvalApproveLabel();
     header.appendChild(approve);
 
     const deny = document.createElement("button");
     deny.type = "button";
-    deny.className = "act-btn act-btn-deny";
-    deny.textContent = "Deny";
+    deny.className = "act-btn act-btn-deny btn-ghost";
+    deny.textContent = approvalDenyLabel();
     header.appendChild(deny);
   }
 

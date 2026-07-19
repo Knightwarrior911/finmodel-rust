@@ -11,6 +11,20 @@ import {
   flashBtn,
 } from "./core.mjs";
 import { renderCard } from "./cards.mjs";
+import {
+  toolRunningLabel,
+  toolDoneLabel,
+  toolFailedLabel,
+  fanoutRunningLabel,
+  fanoutDoneLabel,
+  agentPhaseLabel as phaseProgressLabel,
+  verifyStatusLabel,
+  missionMetaLine,
+  approvalHead,
+  approvalApproveLabel,
+  approvalDenyLabel,
+  approvalNewVersionLabel,
+} from "./labels.mjs";
 import { closeReader } from "./reader.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
 
@@ -179,7 +193,7 @@ function thinkIcon(name) {
   }
 }
 
-// Lazily create the collapsible "Thinking process" panel for the active turn.
+// Lazily create the collapsible "Working through this" story for the active turn.
 function ensureThinking() {
   if (!activeTurn) return null;
   if (activeTurn.thinkingNode) return activeTurn.thinkingNode;
@@ -190,9 +204,14 @@ function ensureThinking() {
   toggle.className = "thinking-toggle";
   toggle.setAttribute("aria-expanded", "true");
   toggle.innerHTML =
+    `<span class="thinking-live" aria-hidden="true"><span class="thinking-pulse"></span></span>` +
     `<span class="thinking-caret" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>` +
-    `<span class="thinking-title">Thinking process</span>` +
+    `<span class="thinking-title">Working through this</span>` +
+    `<span class="thinking-meta" hidden></span>` +
     `<span class="thinking-count"></span>`;
+  const status = document.createElement("div");
+  status.className = "thinking-status";
+  status.hidden = true;
   const steps = document.createElement("div");
   steps.className = "thinking-steps";
   toggle.addEventListener("click", () => {
@@ -200,20 +219,62 @@ function ensureThinking() {
     toggle.setAttribute("aria-expanded", String(!collapsed));
   });
   panel.appendChild(toggle);
+  panel.appendChild(status);
   panel.appendChild(steps);
   scrollEl().appendChild(panel);
   activeTurn.thinkingNode = panel;
   activeTurn.thinkingStepsEl = steps;
   activeTurn.stepCount = 0;
+  activeTurn.mission = activeTurn.mission || {};
+  renderThinkingMeta();
+  const pendingStatus = activeTurn.pendingStatus || "";
+  if (pendingStatus) setThinkingStatus(pendingStatus);
   scrollToBottom();
   return panel;
+}
+
+function setThinkingStatus(text) {
+  if (!activeTurn) return;
+  activeTurn.pendingStatus = text || "";
+  if (!activeTurn.thinkingNode) {
+    if (text) ensureThinking();
+    return;
+  }
+  const el = activeTurn.thinkingNode.querySelector(".thinking-status");
+  if (!el) return;
+  if (text) {
+    el.textContent = text;
+    el.hidden = false;
+  } else {
+    el.textContent = "";
+    el.hidden = true;
+  }
+}
+
+function renderThinkingMeta() {
+  if (!activeTurn || !activeTurn.thinkingNode) return;
+  const meta = activeTurn.thinkingNode.querySelector(".thinking-meta");
+  if (!meta) return;
+  const line = missionMetaLine(activeTurn.mission || {});
+  meta.textContent = line ? "· " + line : "";
+  meta.hidden = !line;
+}
+
+function syncThinkingMission(patch) {
+  if (!activeTurn) return;
+  activeTurn.mission = { ...(activeTurn.mission || {}), ...patch };
+  // Ensure the single status story exists once mission context arrives.
+  if (patch.workflow || patch.planTotal || patch.verify || patch.phase) {
+    ensureThinking();
+  }
+  renderThinkingMeta();
 }
 
 function updateThinkCount() {
   if (!activeTurn || !activeTurn.thinkingNode) return;
   const c = activeTurn.thinkingNode.querySelector(".thinking-count");
   const n = activeTurn.stepCount || 0;
-  if (c) c.textContent = n ? `· ${n} step${n > 1 ? "s" : ""}` : "";
+  if (c) c.textContent = n ? `· ${n} check${n > 1 ? "s" : ""}` : "";
 }
 
 // Append a running tool step to the thinking panel; returns the step node.
@@ -222,9 +283,11 @@ function addThinkStep(name, detail) {
   const step = document.createElement("div");
   step.className = "think-step running";
   step.dataset.t0 = String(performance.now());
+  step.dataset.tool = String(name || "");
+  step.dataset.detail = detail ? String(detail) : "";
   step.innerHTML =
     `<span class="think-icon" aria-hidden="true">${thinkIcon(name)}</span>` +
-    `<span class="think-label">${escapeHtml(phaseLabel(name, detail))}</span>` +
+    `<span class="think-label">${escapeHtml(toolRunningLabel(name, detail))}</span>` +
     `<span class="think-status" role="status"><span class="think-dot" aria-hidden="true"></span><span class="sr-only">In progress</span></span>`;
   activeTurn.thinkingStepsEl.appendChild(step);
   activeTurn.stepCount = (activeTurn.stepCount || 0) + 1;
@@ -237,15 +300,23 @@ function finishThinkStep(step, ok) {
   if (!step) return;
   step.classList.remove("running");
   step.classList.add(ok ? "success" : "failed");
+  const name = step.dataset.tool || "";
+  const detail = step.dataset.detail || "";
+  const lab = step.querySelector(".think-label");
+  if (lab) {
+    lab.textContent = ok
+      ? toolDoneLabel(name, detail)
+      : toolFailedLabel(name);
+  }
   const st = step.querySelector(".think-status");
   if (!st) return;
-  // Measured duration, mono + tabular: precision is the aesthetic.
+  // Soft outcome mark; keep duration quiet and secondary.
   const t0 = Number(step.dataset.t0 || 0);
   const secs = t0 ? (performance.now() - t0) / 1000 : 0;
-  const dur = secs >= 0.05 ? `${secs.toFixed(1)}s` : "";
+  const dur = secs >= 1 ? `${secs.toFixed(0)}s` : "";
   st.innerHTML = ok
-    ? `<span class="think-tick" aria-hidden="true">✓</span><span class="sr-only">Done</span>${dur ? `<span class="think-dur">${dur}</span>` : ""}`
-    : `<span class="think-x" aria-hidden="true">✗</span>failed${dur ? `<span class="think-dur">${dur}</span>` : ""}`;
+    ? `<span class="think-tick" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span><span class="sr-only">Done</span>${dur ? `<span class="think-dur">${dur}</span>` : ""}`
+    : `<span class="think-x" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span><span class="sr-only">Couldn't finish</span>`;
 }
 
 // Render the mission plan (Task 2.3): the whole plan rides each `plan_updated`
@@ -262,7 +333,7 @@ function renderPlan(plan) {
     head.className = "plan-head";
     const title = document.createElement("span");
     title.className = "plan-title";
-    title.textContent = "Plan";
+    title.textContent = "What I'll do";
     const obj = document.createElement("span");
     obj.className = "plan-obj";
     head.append(title, obj);
@@ -358,50 +429,13 @@ function handleDelta(payload) {
 
 /// Human phase label for the polite progress region.
 function phaseLabel(name, detail) {
-  if (detail && detail.trim()) return detail.trim();
-  switch (name) {
-    case "research":
-      return "Researching…";
-    case "analyze_pdf":
-      return "Analyzing PDF…";
-    case "build_model":
-      return "Building model…";
-    case "benchmark_peers":
-      return "Benchmarking peers…";
-    case "get_financials":
-      return "Fetching financials…";
-    case "get_quote":
-      return "Fetching quote…";
-    case "list_filings":
-      return "Listing filings…";
-    case "read_filing":
-      return "Reading filing…";
-    case "web_search":
-      return "Searching the web…";
-    case "read_page":
-      return "Reading page…";
-    case "research_deal":
-      return "Researching deal…";
-    case "get_news":
-      return "Fetching news…";
-    default:
-      return `Running ${name}…`;
-  }
+  return toolRunningLabel(name, detail);
 }
 
 /// Friendly progress label for an agent phase. Returns null for `executing`
 /// (tool events drive the specific label there) and phases with no live status.
 function agentPhaseLabel(phase) {
-  switch (phase) {
-    case "planning":
-      return "Planning…";
-    case "synthesizing":
-      return "Writing the answer…";
-    case "verifying":
-      return "Checking the figures…";
-    default:
-      return null;
-  }
+  return phaseProgressLabel(phase);
 }
 
 function handleTool(payload) {
@@ -414,7 +448,7 @@ function handleTool(payload) {
     note.className = "think-step note running";
     note.innerHTML =
       `<span class="think-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h11"/></svg></span>` +
-      `<span class="think-label">Running ${n} tasks in parallel…</span>`;
+      `<span class="think-label">${escapeHtml(fanoutRunningLabel(n))}</span>`;
     activeTurn.thinkingStepsEl.appendChild(note);
     activeTurn.fanoutNode = note;
     scrollToBottom();
@@ -426,7 +460,7 @@ function handleTool(payload) {
       activeTurn.fanoutNode.classList.remove("running");
       activeTurn.fanoutNode.innerHTML =
         `<span class="think-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h11"/></svg></span>` +
-        `<span class="think-label">${n} tasks ran in parallel</span>`;
+        `<span class="think-label">${escapeHtml(fanoutDoneLabel(n))}</span>`;
       activeTurn.fanoutNode = null;
     }
     return;
@@ -457,7 +491,7 @@ function addSkillAction(node, question, answer, tools) {
   btn.type = "button";
   btn.className = "msg-skill icon-btn";
   btn.textContent = "Save as skill";
-  btn.title = "Abstract this into a reusable skill";
+  btn.title = "Turn this into a reusable playbook";
   btn.addEventListener("click", async () => {
     btn.disabled = true;
     const prev = btn.textContent;
@@ -497,9 +531,13 @@ function finalizeLive() {
     }
   }
   if (activeTurn && activeTurn.thinkingNode) {
-    activeTurn.thinkingNode.classList.add("collapsed");
+    activeTurn.thinkingNode.classList.add("collapsed", "thinking-done");
     const tgl = activeTurn.thinkingNode.querySelector(".thinking-toggle");
     if (tgl) tgl.setAttribute("aria-expanded", "false");
+    const title = activeTurn.thinkingNode.querySelector(".thinking-title");
+    if (title) title.textContent = "How I checked this";
+    const live = activeTurn.thinkingNode.querySelector(".thinking-live");
+    if (live) live.remove();
   }
   activeTurn = null;
 }
@@ -595,13 +633,17 @@ let lastQuestion = "";
 function setProgress(text) {
   const p = $("chatProgress");
   if (!p) return;
+  // Keep the polite live region for assistive tech, but fold the visible
+  // status into the thinking story so mission/progress/thinking aren't stacked.
+  p.classList.add("sr-only");
   if (text) {
-    // Update only when the phase text actually changes (no duplicate announce).
     if (p.textContent !== text) p.textContent = text;
     p.hidden = false;
+    if (activeTurn) setThinkingStatus(text);
   } else {
     p.textContent = "";
     p.hidden = true;
+    if (activeTurn) setThinkingStatus("");
   }
 }
 
@@ -610,44 +652,50 @@ function setProgress(text) {
 // { workflow, phase, planDone, planTotal, verify }.
 function updateMission(patch) {
   const el = $("missionHeader");
-  if (!el) return;
-  el.hidden = false;
+  // Mission chrome stays in the DOM for compatibility, but is visually
+  // collapsed — the thinking panel is the single calm status story.
+  if (el) el.hidden = true;
+  const thinkPatch = { ...patch };
   if ("workflow" in patch) {
-    const w = el.querySelector(".mission-workflow");
-    if (w) {
-      const name = missionWorkflowLabel(patch.workflow);
-      w.textContent = name;
-      w.hidden = !name;
+    thinkPatch.workflow = missionWorkflowLabel(patch.workflow);
+    if (el) {
+      const w = el.querySelector(".mission-workflow");
+      if (w) {
+        w.textContent = thinkPatch.workflow || "";
+        w.hidden = !thinkPatch.workflow;
+      }
     }
   }
-  if ("phase" in patch) {
+  if ("phase" in patch && el) {
     const p = el.querySelector(".mission-phase");
     if (p) {
       p.textContent = patch.phase || "";
       p.hidden = !patch.phase;
     }
   }
-  if ("planDone" in patch || "planTotal" in patch) {
+  if (("planDone" in patch || "planTotal" in patch) && el) {
     const pl = el.querySelector(".mission-plan");
     if (pl) {
       const total = patch.planTotal || 0;
-      pl.textContent = total ? `${patch.planDone || 0}/${total} steps` : "";
+      pl.textContent = total
+        ? `${patch.planDone || 0} of ${total} done`
+        : "";
       pl.hidden = !total;
     }
   }
-  if ("verify" in patch) {
+  if ("verify" in patch && el) {
     const v = el.querySelector(".mission-verify");
     if (v) {
-      const map = {
-        verified: "✓ Verified",
-        verified_with_warnings: "✓ Verified (warnings)",
-        partial_unverified: "⚠ Partial — unverified",
-      };
-      v.textContent = map[patch.verify] || "";
+      const label = verifyStatusLabel(patch.verify);
+      v.textContent = label
+        ? `${patch.verify === "partial_unverified" ? "⚠" : "✓"} ${label}`
+        : "";
       v.className = `mission-verify status-${patch.verify || ""}`;
       v.hidden = !patch.verify;
     }
   }
+  syncThinkingMission(thinkPatch);
+  if (patch.phase) setThinkingStatus(patch.phase);
 }
 
 function missionWorkflowLabel(id) {
@@ -665,16 +713,23 @@ function missionWorkflowLabel(id) {
 
 function hideMission() {
   const el = $("missionHeader");
-  if (!el) return;
-  el.hidden = true;
-  for (const s of el.querySelectorAll("span")) {
-    s.textContent = "";
-    s.hidden = true;
+  if (el) {
+    el.hidden = true;
+    for (const span of el.querySelectorAll("span")) {
+      span.textContent = "";
+      span.hidden = true;
+    }
+    // Reset the verify span's status class too, so a prior run's badge colour never
+    // lingers as a stale className after the text is cleared.
+    const v = el.querySelector(".mission-verify");
+    if (v) v.className = "mission-verify";
   }
-  // Reset the verify span's status class too, so a prior run's badge colour never
-  // lingers as a stale className after the text is cleared.
-  const v = el.querySelector(".mission-verify");
-  if (v) v.className = "mission-verify";
+  if (activeTurn) {
+    activeTurn.mission = {};
+    activeTurn.pendingStatus = "";
+    renderThinkingMeta();
+    setThinkingStatus("");
+  }
 }
 
 function clearAlert() {
@@ -763,7 +818,7 @@ function setStreaming(on) {
     if (pause) {
       pause.disabled = false;
       pause.setAttribute("aria-label", "Pause");
-      pause.title = "Pause (resumable)";
+      pause.title = "Pause — you can resume later";
     }
   } else {
     // Terminal: clear aria-busy exactly once and hide progress.
@@ -777,19 +832,28 @@ function renderApproval(env) {
   const runId = env.run_id;
   const payload = (env.event && env.event.payload) || {};
   const tcid = payload.tool_call_id || null;
+  const risk = payload.risk || "";
   const box = document.createElement("div");
   box.className = "part-approval";
   box.setAttribute("role", "group");
   box.dataset.toolCallId = tcid || "";
-  const label = document.createElement("span");
-  label.className = "part-approval-text";
-  label.textContent =
-    "This action modifies or exports a file and needs your approval.";
-  box.appendChild(label);
+  const head = document.createElement("div");
+  head.className = "part-approval-head";
+  head.textContent = approvalHead(risk);
+  box.appendChild(head);
+  if (payload.query || payload.target) {
+    const target = document.createElement("div");
+    target.className = "part-approval-target";
+    target.textContent = payload.query || payload.target;
+    box.appendChild(target);
+  }
+  const btns = document.createElement("div");
+  btns.className = "part-approval-btns";
   const mk = (text, resp, cls) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = cls;
+    b.className = cls + " part-approval-btn";
+    b.dataset.response = resp;
     b.textContent = text;
     b.addEventListener("click", () => {
       call("agent_approve", {
@@ -801,9 +865,14 @@ function renderApproval(env) {
     });
     return b;
   };
-  box.appendChild(mk("Approve once", "approve_once", "btn-primary"));
-  box.appendChild(mk("Create new version", "create_new_version", "btn-ghost"));
-  box.appendChild(mk("Deny", "deny", "btn-ghost"));
+  btns.appendChild(mk(approvalApproveLabel(), "approve_once", "btn-primary"));
+  btns.appendChild(mk(approvalDenyLabel(), "deny", "btn-ghost"));
+  if (risk === "local_overwrite" || risk === "export") {
+    btns.appendChild(
+      mk(approvalNewVersionLabel(), "create_new_version", "btn-ghost"),
+    );
+  }
+  box.appendChild(btns);
   scrollEl().appendChild(box);
   scrollToBottom();
 }
@@ -815,7 +884,10 @@ function renderMemorySaved(count) {
   box.className = "part-memory";
   const span = document.createElement("span");
   span.className = "part-memory-text";
-  span.textContent = `Memory saved · ${count}`;
+  span.textContent =
+    count === 1
+      ? "Got it — I'll remember that."
+      : `Got it — remembered ${count} notes.`;
   box.appendChild(span);
   scrollEl().appendChild(box);
   scrollToBottom();
@@ -1157,14 +1229,14 @@ export function initChat(opts = {}) {
       const res = await call("claim_dropped_pdf", { conversation_id: convId });
       if (!res || !res.artifact_id) {
         const orig = ta.placeholder;
-        ta.placeholder = "Drop not claimed — try again";
+        ta.placeholder = "Couldn't attach that PDF — try dropping it again";
         setTimeout(() => {
           ta.placeholder = orig;
         }, 2500);
         return;
       }
       const label = res.label || "PDF";
-      ta.value = `Analyze PDF [${res.artifact_id}] for ${label}`;
+      ta.value = `Analyze the PDF “${label}”`;
       autoGrow();
       ta.focus();
     } catch (err) {
@@ -1227,7 +1299,7 @@ export function initChat(opts = {}) {
 // Reflect the current model in the composer pill.
 export function setModelPill(model) {
   const pill = $("modelPillText");
-  if (pill) pill.textContent = model || "no model";
+  if (pill) pill.textContent = model || "Choose a model";
 }
 
 // Honest onboarding (Phase 4.6): distinguish capability states with the exact

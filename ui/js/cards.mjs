@@ -16,6 +16,21 @@ import {
 } from "./core.mjs";
 import { openReader } from "./reader.mjs";
 import { openAnalyst } from "./analyst.mjs";
+import {
+  confidenceLabel,
+  verifyStatusLabel,
+  pageStatusLabel,
+  sourceStatusLabel,
+  dealSufficiencyLabel,
+  factKeyLabel,
+  formatFactValue,
+  citeChipLabel,
+  sourcePublisherLabel,
+  sourceCardTitle,
+  sourceAvatarLetter,
+  sourceRowMeta,
+  softErrorMessage,
+} from "./labels.mjs";
 
 function parentDir(p) {
   return String(p || "").replace(/[\\/][^\\/]+$/, "");
@@ -33,22 +48,21 @@ function cardShell(kind, inner) {
 // checked against their primary source and the rolled-up run badge.
 function renderVerification(card) {
   const status = card.status || "partial_unverified";
-  const label =
-    status === "verified"
-      ? "Verified"
-      : status === "verified_with_warnings"
-        ? "Verified (warnings)"
-        : "Partial — unverified";
+  const label = verifyStatusLabel(status);
   const verified = Number(card.verified || 0);
   const total = Number(card.total || 0);
   const src = card.source ? ` against ${escapeHtml(card.source)}` : "";
+  const note =
+    total > 0
+      ? `${verified} of ${total} key figures checked${card.source ? " against " + card.source : ""}.`
+      : "No figures to check yet.";
   return cardShell(
     `verify status-${escapeHtml(status)}`,
     `<div class="card-head">
        <span class="card-title">${escapeHtml(label)}</span>
        <span class="verify-badge status-${escapeHtml(status)}">${escapeHtml(String(verified))}/${escapeHtml(String(total))}</span>
      </div>
-     <p class="card-note">${escapeHtml(String(verified))} of ${escapeHtml(String(total))} material figures verified${src}.</p>`,
+     <p class="card-note">${escapeHtml(note)}</p>`,
   );
 }
 
@@ -75,9 +89,9 @@ function renderModel(card) {
   const comps = card.comps;
   const compsNote =
     comps && comps.count != null
-      ? `<p class="card-note">Comps: ${comps.count} peer${comps.count === 1 ? "" : "s"}${
+      ? `<p class="card-note">Compared with ${comps.count} peer${comps.count === 1 ? "" : "s"}${
           comps.excluded && comps.excluded.length
-            ? ` (${comps.excluded.length} excluded)`
+            ? ` (${comps.excluded.length} set aside)`
             : ""
         }</p>`
       : "";
@@ -88,7 +102,7 @@ function renderModel(card) {
   const inner = `
     <div class="card-head">
       <span class="card-title num">${escapeHtml(card.ticker || "")}</span>
-      <span class="card-sub">${escapeHtml(card.currency || "")} · model</span>
+      <span class="card-sub">${escapeHtml(card.currency || "")}${card.currency ? " · " : ""}Workbook ready</span>
       ${caseTag}
     </div>
     ${valuationStrip(v)}
@@ -97,7 +111,7 @@ function renderModel(card) {
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.xlsx_path || "")}">Open in Excel</button>
       ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
       <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.xlsx_path || "")}">Show in folder</button>
-      <button type="button" class="btn-ghost" data-analyst="1">Analyst tools</button>
+      <button type="button" class="btn-ghost" data-analyst="1">More model tools</button>
     </div>`;
   return cardShell("model", inner);
 }
@@ -192,22 +206,28 @@ function renderSearch(card) {
       </li>`,
     )
     .join("");
+  const title = card.query
+    ? `Web results for ${escapeHtml(card.query)}`
+    : "Web results";
   const inner = `
-    <div class="card-head"><span class="card-title">Search · ${escapeHtml(card.query || "")}</span></div>
-    <ul class="hit-list">${rows || '<li class="card-note">No results.</li>'}</ul>`;
+    <div class="card-head"><span class="card-title">${title}</span></div>
+    <ul class="hit-list">${rows || '<li class="card-note">No matching results.</li>'}</ul>`;
   return cardShell("search", inner);
 }
 
 // ── page ────────────────────────────────────────────────────────────
 function renderPage(card) {
+  const statusText = pageStatusLabel(card.status);
+  const domain = domainOf(card.url);
+  const sub = [domain, statusText].filter(Boolean).join(" · ");
   const inner = `
     <div class="card-head">
-      <span class="card-title">${escapeHtml(card.title || domainOf(card.url))}</span>
-      <span class="card-sub num">${escapeHtml(domainOf(card.url))} · ${escapeHtml(card.status || "ok")}</span>
+      <span class="card-title">${escapeHtml(card.title || domain)}</span>
+      <span class="card-sub">${escapeHtml(sub)}</span>
     </div>
     <div class="card-actions">
       <button type="button" class="btn-primary" data-reader-url="${escapeHtml(card.url)}" data-reader-title="${escapeHtml(card.title || "")}">Open in reader</button>
-      <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url)}">Open ↗</button>
+      <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url)}">Open in browser ↗</button>
     </div>`;
   return cardShell("page", inner);
 }
@@ -225,54 +245,69 @@ function renderNews(card) {
       </li>`,
     )
     .join("");
+  const title = card.query
+    ? `Headlines for ${escapeHtml(card.query)}`
+    : "Headlines";
   const inner = `
-    <div class="card-head"><span class="card-title">News · ${escapeHtml(card.query || "")}</span></div>
-    <ul class="news-list">${rows || '<li class="card-note">No headlines.</li>'}</ul>`;
+    <div class="card-head"><span class="card-title">${title}</span></div>
+    <ul class="news-list">${rows || '<li class="card-note">No recent headlines.</li>'}</ul>`;
   return cardShell("news", inner);
 }
 
 // ── deal ────────────────────────────────────────────────────────────
 function renderDeal(card) {
-  const s = card.summary || {};
-  const facts = Object.entries(s)
+  const summary = card.summary || {};
+  const facts = Object.entries(summary)
     .filter(([, v]) => v != null && v !== "")
-    .map(
-      ([k, v]) =>
-        `<div class="fact"><span class="fact-k">${escapeHtml(k.replace(/_/g, " "))}</span><span class="fact-v">${escapeHtml(
-          typeof v === "object" ? JSON.stringify(v) : String(v),
-        )}</span></div>`,
-    )
+    .map(([k, v]) => {
+      const pretty = formatFactValue(v);
+      if (!pretty) return "";
+      return `<div class="fact"><span class="fact-k">${escapeHtml(factKeyLabel(k))}</span><span class="fact-v">${escapeHtml(pretty)}</span></div>`;
+    })
+    .filter(Boolean)
     .join("");
   const sources = (card.sources_read || [])
-    .map(
-      (u) =>
-        `<li><a href="#" class="md-link" data-url="${escapeHtml(u)}">${escapeHtml(domainOf(u))}</a></li>`,
-    )
+    .map((u, i) => {
+      const domain = domainOf(u) || "Source";
+      const letter = sourceAvatarLetter(domain);
+      return `<li class="src-card" data-url="${escapeHtml(u)}" role="button" tabindex="0">
+        <span class="src-card-num num" aria-hidden="true">${i + 1}</span>
+        <span class="src-card-avatar" aria-hidden="true">${escapeHtml(letter)}</span>
+        <span class="src-card-body">
+          <span class="src-card-title">${escapeHtml(domain)}</span>
+          <span class="src-card-meta">${escapeHtml(domain)}</span>
+        </span>
+      </li>`;
+    })
     .join("");
   const head =
     [card.acquirer, card.target].filter(Boolean).join(" / ") || "Deal research";
+  const nSrc = (card.sources_read || []).length;
   const inner = `
     <div class="card-head">
       <span class="card-title">${escapeHtml(head)}</span>
-      <span class="card-sub">${card.sufficient ? "sufficient" : "partial"}</span>
+      <span class="card-sub">${escapeHtml(dealSufficiencyLabel(card.sufficient))}</span>
     </div>
-    <div class="fact-grid">${facts || '<p class="card-note">No deal facts extracted.</p>'}</div>
-    ${sources ? `<div class="card-sources"><span class="card-sub">Sources read</span><ul>${sources}</ul></div>` : ""}`;
+    <div class="fact-grid">${facts || '<p class="card-note">No deal facts pulled yet.</p>'}</div>
+    ${sources ? `<div class="source-strip"><div class="source-strip-head">Sources${nSrc ? ` · ${nSrc}` : ""}</div><ul class="src-cards">${sources}</ul></div>` : ""}`;
   return cardShell("deal", inner);
 }
 
 // ── quote ───────────────────────────────────────────────────────────
 function renderQuote(card) {
+  const range =
+    card.week52_low != null && card.week52_high != null
+      ? `<span class="quote-range num">52-week ${escapeHtml(fmtPrice(card.week52_low))} – ${escapeHtml(fmtPrice(card.week52_high))}</span>`
+      : "";
   const inner = `
-    <div class="card-head"><span class="card-title num">${escapeHtml(card.ticker || "")}</span></div>
+    <div class="card-head">
+      <span class="card-title num">${escapeHtml(card.ticker || "")}</span>
+      <span class="card-sub">Last price</span>
+    </div>
     <div class="quote-line">
       <span class="quote-price num">${escapeHtml(fmtPrice(card.price))}</span>
       <span class="quote-ccy">${escapeHtml(card.currency || "")}</span>
-      ${
-        card.week52_low != null && card.week52_high != null
-          ? `<span class="quote-range num">52w ${escapeHtml(fmtPrice(card.week52_low))} – ${escapeHtml(fmtPrice(card.week52_high))}</span>`
-          : ""
-      }
+      ${range}
     </div>`;
   return cardShell("quote", inner);
 }
@@ -293,7 +328,7 @@ function renderFilings(card) {
   const inner = `
     <div class="card-head"><span class="card-title num">${escapeHtml(card.ticker || "")}</span><span class="card-sub">filings</span></div>
     <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Form</th><th scope="col">Filed</th><th scope="col">Period end</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="3" class="card-note">No filings.</td></tr>'
+      rows || '<tr><td colspan="3" class="card-note">No filings found yet.</td></tr>'
     }</tbody></table></div>`;
   return cardShell("filings", inner);
 }
@@ -344,7 +379,7 @@ function renderFinancials(card) {
             .join("")
         : `<th scope="col">${escapeHtml(card.currency || "Value")}</th>`
     }</tr></thead><tbody>${
-      rows || '<tr><td colspan="2" class="card-note">No figures.</td></tr>'
+      rows || '<tr><td colspan="2" class="card-note">No figures to show yet.</td></tr>'
     }</tbody></table></div>
     ${src}`;
   return cardShell("financials", inner);
@@ -372,7 +407,7 @@ function renderFilingDoc(card) {
       <span class="card-sub">${sub}</span>
     </div>
     ${chips ? `<div class="filing-items">${chips}</div>` : ""}
-    ${card.chars ? `<p class="card-note">${escapeHtml(String(card.chars))} characters extracted.</p>` : ""}
+    ${card.chars ? `<p class="card-note">Excerpt ready · ${escapeHtml(String(card.chars))} characters</p>` : ""}
     <div class="card-actions">
       <button type="button" class="btn-ghost" data-url="${escapeHtml(card.url || "")}">Open in browser ↗</button>
     </div>`;
@@ -447,71 +482,101 @@ function safeHttpUrl(u) {
   return /^https?:\/\//i.test(s) ? s : "";
 }
 
-function citeRefs(citations, srcById) {
+function citeRefs(citations, srcById, idOrder) {
+  const order = Array.isArray(idOrder) ? idOrder : [];
   return (citations || [])
     .map((c) => {
       const src = srcById[c.source_id] || {};
       const url = safeHttpUrl(src.final_url || src.requested_url || "");
       const attrs = url ? ` data-url="${escapeHtml(url)}"` : "";
+      const ord = order.indexOf(c.source_id);
+      const chip = citeChipLabel(src, c.source_id, ord >= 0 ? ord : 0);
+      const publisher =
+        sourcePublisherLabel(src, url) || c.source_id || "source";
       return `<button type="button" class="cite-ref"${attrs} title="${escapeHtml(
-        c.quote || "",
-      )}" aria-label="Source ${escapeHtml(c.source_id || "")}: ${escapeHtml(
-        c.quote || "",
-      )}">[${escapeHtml(c.source_id || "")}]</button>`;
+        c.quote || publisher,
+      )}" aria-label="Source ${escapeHtml(chip)}, ${escapeHtml(
+        publisher,
+      )}: ${escapeHtml(c.quote || "")}">${escapeHtml(chip)}</button>`;
     })
     .join("");
 }
 
-function citedPara(p, srcById) {
-  return `<p class="cited-para">${escapeHtml(p.text || "")} ${citeRefs(p.citations, srcById)}</p>`;
+function citedPara(p, srcById, idOrder) {
+  return `<p class="cited-para">${escapeHtml(p.text || "")} ${citeRefs(
+    p.citations,
+    srcById,
+    idOrder,
+  )}</p>`;
 }
 
 function renderResearchAnswer(card) {
   const a = card.answer || {};
   const srcById = {};
-  for (const s of a.sources || []) srcById[s.id] = s;
+  const idOrder = [];
+  for (const src of a.sources || []) {
+    srcById[src.id] = src;
+    idOrder.push(src.id);
+  }
+  const conf = confidenceLabel(a.confidence);
   const sections = (a.sections || [])
     .map(
-      (s) =>
+      (sec) =>
         `<section class="answer-section"><h4 class="answer-heading">${escapeHtml(
-          s.heading || "",
-        )}</h4>${(s.paragraphs || []).map((p) => citedPara(p, srcById)).join("")}</section>`,
+          sec.heading || "",
+        )}</h4>${(sec.paragraphs || [])
+          .map((p) => citedPara(p, srcById, idOrder))
+          .join("")}</section>`,
     )
     .join("");
-  const srcRows = (a.sources || [])
-    .map((s) => {
-      const url = safeHttpUrl(s.final_url || s.requested_url || "");
-      const openBtn = url
-        ? `<button type="button" class="btn-ghost src-open" data-url="${escapeHtml(url)}">Open ↗</button>`
+  const srcCards = (a.sources || [])
+    .map((src, i) => {
+      const url = safeHttpUrl(src.final_url || src.requested_url || "");
+      const domain = sourcePublisherLabel(src, url) || "Source";
+      const title = sourceCardTitle(src, url);
+      const letter = sourceAvatarLetter(domain);
+      const meta = sourceRowMeta(src.status, src.kind);
+      const clickable = url
+        ? ` data-url="${escapeHtml(url)}" role="button" tabindex="0"`
         : "";
-      return `<li class="src-row">
-        <span class="src-id num">${escapeHtml(s.id || "")}</span>
-        <span class="src-domain">${escapeHtml(s.domain || domainOf(url))}</span>
-        <span class="src-status src-status-${escapeHtml(String(s.status || ""))}">${escapeHtml(
-          String(s.status || ""),
-        )} · ${escapeHtml(String(s.kind || ""))}</span>
-        ${openBtn}
+      return `<li class="src-card"${clickable}>
+        <span class="src-card-num num" aria-hidden="true">${escapeHtml(
+          citeChipLabel(src, src.id, i),
+        )}</span>
+        <span class="src-card-avatar" aria-hidden="true">${escapeHtml(letter)}</span>
+        <span class="src-card-body">
+          <span class="src-card-title">${escapeHtml(title)}</span>
+          <span class="src-card-meta">${escapeHtml(domain)}${
+            meta ? ` · ${escapeHtml(meta)}` : ""
+          }</span>
+        </span>
       </li>`;
     })
     .join("");
   const lims = (a.limitations || [])
     .map((l) => `<li>${escapeHtml(l)}</li>`)
     .join("");
+  const n = (a.sources || []).length;
   const inner = `
     <div class="card-head">
-      <span class="card-title">Research</span>
-      <span class="card-sub">confidence: ${escapeHtml(String(a.confidence || ""))}</span>
+      <span class="card-title">Research notes</span>
+      ${conf ? `<span class="card-sub">${escapeHtml(conf)}</span>` : ""}
     </div>
     <p class="answer-summary">${escapeHtml(a.summary?.text || "")} ${citeRefs(
       a.summary?.citations,
       srcById,
+      idOrder,
     )}</p>
     ${sections}
-    ${lims ? `<div class="answer-limitations"><span class="card-note">Limitations</span><ul>${lims}</ul></div>` : ""}
-    <details class="source-tray">
-      <summary>Consulted sources (${(a.sources || []).length})</summary>
-      <ul class="src-list">${srcRows}</ul>
-    </details>`;
+    ${lims ? `<div class="answer-limitations"><span class="card-note">Worth keeping in mind</span><ul>${lims}</ul></div>` : ""}
+    ${
+      n
+        ? `<div class="source-strip">
+      <div class="source-strip-head">Sources · ${n}</div>
+      <ul class="src-cards">${srcCards}</ul>
+    </div>`
+        : ""
+    }`;
   return cardShell("research_answer", inner);
 }
 
@@ -523,12 +588,11 @@ function renderResearchDigest(card) {
       const openBtn = url
         ? `<button type="button" class="btn-ghost src-open" data-url="${escapeHtml(url)}">Open ↗</button>`
         : "";
+      const st = sourceStatusLabel(it.status);
       return `<li class="hit-row">
         <div class="hit-main">
           <span class="hit-title">${escapeHtml(it.title || domainOf(url))}</span>
-          <span class="src-status src-status-${escapeHtml(String(it.status || ""))}">${escapeHtml(
-            String(it.status || ""),
-          )}</span>
+          ${st ? `<span class="src-status src-status-${escapeHtml(String(it.status || ""))}">${escapeHtml(st)}</span>` : ""}
         </div>
         ${it.snippet ? `<p class="hit-snippet">${escapeHtml(it.snippet)}</p>` : ""}
         ${openBtn}
@@ -539,8 +603,8 @@ function renderResearchDigest(card) {
     .map((l) => `<li>${escapeHtml(l)}</li>`)
     .join("");
   const inner = `
-    <div class="card-head"><span class="card-title">Source digest — no synthesis</span></div>
-    <ul class="hit-list">${rows || '<li class="card-note">No sources.</li>'}</ul>
+    <div class="card-head"><span class="card-title">Sources I found</span><span class="card-sub">Not summarized yet</span></div>
+    <ul class="hit-list">${rows || '<li class="card-note">No sources yet.</li>'}</ul>
     ${lims ? `<div class="answer-limitations"><ul>${lims}</ul></div>` : ""}`;
   return cardShell("research_digest", inner);
 }
@@ -596,19 +660,19 @@ export function renderCard(card) {
     case "error":
       el = cardShell(
         "error",
-        `<p class="card-note err">${escapeHtml(card.message || "Tool failed.")}</p>`,
+        `<p class="card-note err">${escapeHtml(card.message || softErrorMessage())}</p>`,
       );
       break;
     case "tool_contract":
       el = cardShell(
         "error",
-        `<p class="card-note err">${escapeHtml(card.message || "Invalid tool arguments.")}</p>`,
+        `<p class="card-note err">${escapeHtml(card.message || "I need a bit more detail to run that.")}</p>`,
       );
       break;
     default:
       el = cardShell(
         "unknown",
-        `<p class="card-note">${escapeHtml(card.type || "result")}</p>`,
+        `<p class="card-note">Result ready.</p>`,
       );
   }
   wireCard(el);

@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.9.10 — 2026-07-19 — The analyst talks like a colleague, not a debugger
+
+- **Tool activity as a story.** Live checks read as calm colleague narration —
+  “Working through this” / “How I checked this” — instead of snake_case tool ids
+  or schema-speak. Shared warm approval vocabulary (“Go ahead”, “Not this time”,
+  “Save as a new version”) across chat, parts, and activity.
+- **Mission chrome folds into the trail.** Phase/plan/verify no longer compete
+  as a second status strip; progress stays polite for screen readers while the
+  thinking panel carries the only visible status story.
+- **Result cards demote schema.** Research, deal, quote, page, and verification
+  cards use soft human status language and readable facts — no JSON dumps or raw
+  enum labels.
+- **Sources feel like cites, not ids.** Numbered inline citation pills plus an
+  always-visible Sources strip (number · letter avatar · title · publisher). No
+  external favicon fetches (CSP stays `img-src 'self' data:`).
+- **One indigo voice + light motion.** Activity badges retire traffic-light
+  green/red chrome for accent/neutral tokens. CSS-only entrances and micro-
+  feedback (~120–220ms), compositor-friendly, with `prefers-reduced-motion`
+  honored — no animation runtime.
+
 ## v0.9.9 — 2026-07-19 — The thinking trail becomes an instrument trace
 
 - **Activity ledger redesign.** The boxed grey "Thinking process" panel is now

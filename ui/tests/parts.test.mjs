@@ -86,7 +86,7 @@ test("artifact renders label/version and fires open hook", async () => {
   assert.equal(opened, "art-9");
 });
 
-test("approval shows Approve once / Deny; overwrite adds new version", async () => {
+test("approval shows Go ahead / Not this time; overwrite adds new version", async () => {
   const { parts, container } = await boot();
   const responses = [];
   parts.renderParts(
@@ -98,6 +98,9 @@ test("approval shows Approve once / Deny; overwrite adds new version", async () 
   assert.equal(btns.length, 3); // approve_once, deny, create_new_version (export)
   const labels = [...btns].map((b) => b.dataset.response);
   assert.deepEqual(labels, ["approve_once", "deny", "create_new_version"]);
+  assert.equal(btns[0].textContent, "Go ahead");
+  assert.equal(btns[1].textContent, "Not this time");
+  assert.equal(btns[2].textContent, "Save as a new version");
   btns[0].click();
   assert.deepEqual(responses, [["w1", "approve_once"]]);
 });

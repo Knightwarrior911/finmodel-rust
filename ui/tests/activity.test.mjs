@@ -186,8 +186,12 @@ test("render creates approval buttons for awaiting_approval", async () => {
   await tick();
 
   const row = container.firstChild;
-  assert.ok(row.querySelector(".act-btn-approve"));
-  assert.ok(row.querySelector(".act-btn-deny"));
+  const approve = row.querySelector(".act-btn-approve");
+  const deny = row.querySelector(".act-btn-deny");
+  assert.ok(approve);
+  assert.ok(deny);
+  assert.equal(approve.textContent, "Go ahead");
+  assert.equal(deny.textContent, "Not this time");
 });
 
 test("render shows duration for completed activities", async () => {

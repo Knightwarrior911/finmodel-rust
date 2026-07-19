@@ -1,3 +1,9 @@
+import {
+  approvalHead,
+  approvalApproveLabel,
+  approvalDenyLabel,
+  approvalNewVersionLabel,
+} from "./labels.mjs";
 // parts.mjs — ordered structured message-part renderer (Phase D).
 //
 // One assistant turn is a backend-ordered list of typed parts. This module
@@ -80,18 +86,30 @@ function renderAttachment(p) {
 
 function renderSources(sources, hooks) {
   const list = Array.isArray(sources) ? sources : [];
-  const wrap = el("div", "part-sources");
+  const wrap = el("div", "part-sources source-strip");
   wrap.setAttribute("role", "list");
-  const head = el("div", "part-sources-head", `Sources · ${list.length}`);
+  const head = el(
+    "div",
+    "source-strip-head part-sources-head",
+    list.length === 1 ? "Sources · 1" : `Sources · ${list.length}`,
+  );
   wrap.appendChild(head);
+  const cards = el("ul", "src-cards");
   list.forEach((s, i) => {
-    const row = el("div", "part-source");
+    const row = el("li", "src-card part-source");
     row.setAttribute("role", "listitem");
-    row.appendChild(el("span", "part-source-ref", `${i + 1}`));
+    const num = el("span", "src-card-num part-source-ref num", String(i + 1));
+    row.appendChild(num);
     const uri = safeHttpUrl(s.canonical_uri || s.url);
-    const title = s.title || s.publisher || domainOf(uri || "") || "source";
+    const domain = domainOf(uri || "") || s.publisher || "";
+    const title = s.title || s.publisher || domain || "source";
+    const letter = (domain || title || "S").charAt(0).toUpperCase();
+    const av = el("span", "src-card-avatar", letter);
+    av.setAttribute("aria-hidden", "true");
+    row.appendChild(av);
+    const body = el("span", "src-card-body");
     if (uri) {
-      const a = el("a", "part-source-link", title);
+      const a = el("a", "src-card-title part-source-link", title);
       a.href = uri;
       a.dataset.sourceId = s.id || "";
       a.addEventListener("click", (e) => {
@@ -100,15 +118,17 @@ function renderSources(sources, hooks) {
           hooks.onOpenSource(s);
         }
       });
-      row.appendChild(a);
-      row.appendChild(el("span", "part-source-domain", domainOf(uri)));
+      body.appendChild(a);
+      if (domain) body.appendChild(el("span", "src-card-meta part-source-domain", domain));
+      if (s.published_at) body.appendChild(el("span", "src-card-meta part-source-date", s.published_at));
     } else {
-      // Non-http source (filing/local): show title, never a live link.
-      row.appendChild(el("span", "part-source-title", title));
+      body.appendChild(el("span", "src-card-title part-source-title", title));
+      if (s.published_at) body.appendChild(el("span", "src-card-meta part-source-date", s.published_at));
     }
-    if (s.published_at) row.appendChild(el("span", "part-source-date", s.published_at));
-    wrap.appendChild(row);
+    row.appendChild(body);
+    cards.appendChild(row);
   });
+  wrap.appendChild(cards);
   return wrap;
 }
 
@@ -130,9 +150,7 @@ function renderApproval(p, hooks) {
   node.dataset.toolCallId = p.tool_call_id || "";
   node.setAttribute("role", "group");
   const risk = p.risk || "";
-  node.appendChild(
-    el("div", "part-approval-head", `Approval needed: ${p.name || "action"}${risk ? ` · ${risk}` : ""}`),
-  );
+  node.appendChild(el("div", "part-approval-head", approvalHead(risk)));
   if (p.query || p.target) {
     node.appendChild(el("div", "part-approval-target", p.query || p.target));
   }
@@ -144,11 +162,13 @@ function renderApproval(p, hooks) {
     b.addEventListener("click", () => hooks.onApprove && hooks.onApprove(p.tool_call_id, response));
     return b;
   };
-  btns.appendChild(mk("Approve once", "approve_once", "btn-primary"));
-  btns.appendChild(mk("Deny", "deny", "btn-ghost"));
+  btns.appendChild(mk(approvalApproveLabel(), "approve_once", "btn-primary"));
+  btns.appendChild(mk(approvalDenyLabel(), "deny", "btn-ghost"));
   // Overwrite/export additionally offer a new immutable version.
   if (risk === "local_overwrite" || risk === "export") {
-    btns.appendChild(mk("Create new version", "create_new_version", "btn-ghost"));
+    btns.appendChild(
+      mk(approvalNewVersionLabel(), "create_new_version", "btn-ghost"),
+    );
   }
   node.appendChild(btns);
   return node;
