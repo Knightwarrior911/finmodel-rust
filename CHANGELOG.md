@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.20 — 2026-07-19 — Careers pages are not evidence
+
+- **Jobs boards and employer-review sites are banned as sources.** A live
+  research run on the 2021 Magna/Veoneer deal cited the company's Teamtailor
+  jobs board, LinkedIn, and AmbitionBox employee reviews — an analyst would
+  be laughed out of the room. Teamtailor, Greenhouse, Lever, Workday,
+  Glassdoor, Indeed, AmbitionBox, Comparably, Zippia, and LinkedIn never
+  enter the source ledger again, and /careers//jobs pages are excluded even
+  on the company's own domain.
+- **Historical events stop wasting filing reads.** read_filing reaches only a
+  company's most recent filings — the analyst no longer burns calls trying to
+  read a delisted target's 2021 8-K, and routes M&A history through deal
+  research instead.
+
 ## v0.9.19 — 2026-07-19 — The strong pen writes every answer, and segments become real data
 
 - **True model tiering.** With a synthesis model configured, your fast model

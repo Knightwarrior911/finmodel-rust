@@ -74,19 +74,42 @@ const BANNED_DOMAINS: &[&str] = &[
     "fandom.com",
     "reddit.com",
     "quora.com",
+    // Careers boards and employer-review sites: never financial evidence. A
+    // live user run researching the 2021 Magna/Veoneer deal cited the
+    // company's Teamtailor JOBS BOARD and AmbitionBox employee reviews as
+    // sources — an analyst would be laughed out of the room.
+    "teamtailor.com",
+    "greenhouse.io",
+    "lever.co",
+    "myworkdayjobs.com",
+    "ambitionbox.com",
+    "glassdoor.com",
+    "indeed.com",
+    "comparably.com",
+    "zippia.com",
+    "linkedin.com",
 ];
+
+/// Path fragments that mark a page as careers/HR content even on the
+/// company's own domain (tesla.com/careers is not deal evidence).
+const BANNED_PATHS: &[&str] = &["/jobs", "/careers", "/career/", "/vacancies"];
 
 /// True when the URL's host is (or is under) a banned domain.
 fn is_banned(url: &str) -> bool {
-    let host = url::Url::parse(url.trim())
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()));
-    match host {
-        Some(h) => BANNED_DOMAINS
-            .iter()
-            .any(|d| h == *d || h.ends_with(&format!(".{d}"))),
-        None => false,
+    let Ok(u) = url::Url::parse(url.trim()) else {
+        return false;
+    };
+    let host = u.host_str().map(|h| h.to_ascii_lowercase()).unwrap_or_default();
+    if BANNED_DOMAINS
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+    {
+        return true;
     }
+    let path = u.path().to_ascii_lowercase();
+    BANNED_PATHS
+        .iter()
+        .any(|p| path.contains(p) || path.ends_with(p.trim_end_matches('/')))
 }
 
 /// Upgrade Secondary candidates whose HOST names the company itself to the
@@ -283,6 +306,13 @@ mod tests {
         let cands = vec![
             cand("https://en.wikipedia.org/wiki/Tesla,_Inc.", SourceKind::Secondary),
             cand("https://www.reddit.com/r/teslainvestorsclub", SourceKind::Secondary),
+            // The live Veoneer/Magna failure set: jobs boards, employer
+            // reviews, LinkedIn — banned even when the host names the company
+            // or the page lives on the company's own domain.
+            cand("https://veoneerin.teamtailor.com/jobs", SourceKind::Company),
+            cand("https://www.ambitionbox.com/overview/veoneer-india-overview", SourceKind::Secondary),
+            cand("https://www.linkedin.com/company/veoneer", SourceKind::Secondary),
+            cand("https://www.tesla.com/careers/search", SourceKind::Company),
             cand("https://ir.tesla.com/press-release/q1", SourceKind::Company),
         ];
         let led = assemble_ledger(cands, 10, 10);
