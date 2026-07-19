@@ -475,6 +475,7 @@ function renderMemo(card) {
     ${note}
     <div class="card-actions">
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.memo_path || "")}">Open memo</button>
+      ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
       <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.memo_path || "")}">Show in folder</button>
     </div>`;
   return cardShell("memo", inner);

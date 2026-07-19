@@ -345,3 +345,20 @@ test("memo card renders kind, sections, sources, and validation note", async () 
   });
   assert.doesNotMatch(clean.textContent, /composed directly/);
 });
+
+test("memo card offers the deck when a pptx was produced", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "memo", kind: "comps_note", company: "NVDA",
+    sections: 3, sources: 2, memo_path: "C:/x/n.md", pptx_path: "C:/x/n.pptx",
+  });
+  const html = el.innerHTML;
+  assert.match(html, /Open deck/);
+  assert.match(html, /n.pptx/);
+  const plain = cards.renderCard({
+    type: "memo", kind: "earnings_note", company: "TSLA",
+    sections: 3, sources: 1, memo_path: "C:/x/t.md",
+  });
+  assert.ok(!/Open deck/.test(plain.innerHTML), "no deck button without pptx");
+});

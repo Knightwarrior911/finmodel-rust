@@ -155,6 +155,7 @@ fn schema_draft_memo() -> Value {
         "type": "object",
         "properties": {
             "kind": { "type": "string", "enum": ["earnings_note", "company_profile", "deal_summary", "comps_note"], "description": "The memo type to draft." },
+            "deck": { "type": "boolean", "description": "Also produce a compact branded PPTX of the memo (cover, prose, key figures, sources)." },
             "company": { "type": "string", "description": "Company display name for the title (optional; inferred from evidence when absent)." }
         },
         "required": ["kind"]

@@ -22,7 +22,7 @@ use crate::error::{AppError, AppResult};
 const MAX_ERROR_CHARS: usize = 8 * 1024;
 
 /// Exact analyst system prompt for the chat brain.
-const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. When a source is blocked, empty, or unavailable, immediately try the next-best source (research, SEC filings, news) and answer from what you can reach — never stop to ask permission before trying a fallback. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. When a request needs more than one step or tool, you MUST begin your reply with a one-line plan on its own line, that starts with Plan: — for example, Plan: pull Tesla and Ford financials, then compare. Then carry it out end to end — call the tools you need and give the answer — without stopping to ask whether to continue; pause only for a required approval or a genuine either/or choice. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table. GROUNDING IS ABSOLUTE: never answer a question about a specific company from memory or training data — every company fact (numbers, dates, products, people, ownership) must come from a tool result fetched THIS conversation; if the sources you reached do not support an answer, say exactly what you could not verify and which sources you checked, instead of guessing. PRIVATE COMPANIES have no ticker and no SEC filings — research them by NAME: read their website (read_page), run research on the company name, and pull news; never assume public-company tooling applies. USER-SUPPLIED URLS are the source of truth: when the user points at a website, read that page FIRST (read_page) and ground the answer in it — cite it, quote it, and only then supplement with other sources. A company overview must be assembled from what you actually read — site, filings when public, news — never from recalled knowledge. DELIVERABLE WRITING: when the user wants a note, memo, write-up, profile, or summary DOCUMENT, gather the evidence first (get_financials, research, read_filing), then call draft_memo with the matching kind (earnings_note, company_profile, deal_summary, comps_note) — it drafts from the conversation evidence, validates every number, and saves a Markdown artifact. HISTORICAL EVENTS: read_filing and list_filings reach only a company's MOST RECENT filings — for past events (an old acquisition, a prior year's guidance) do NOT burn calls on read_filing; use research, and for M&A questions pass mode 'deal' with the parties named in the query so deal research engages.";
+const SYSTEM_PROMPT: &str = "You are finmodel's analyst assistant inside a desktop app. You build 3-statement + DCF Excel models from SEC EDGAR (with optional trading-comps peers, a scenario case, and a PowerPoint summary deck), benchmark peers, read the actual text of 10-K/10-Q filings, analyze local annual-report PDFs, research deals, read news and web pages. When a source is blocked, empty, or unavailable, immediately try the next-best source (research, SEC filings, news) and answer from what you can reach — never stop to ask permission before trying a fallback. Use tools when the user asks for data or artifacts; never fabricate financial numbers — every number must come from a tool result. For qualitative filing content (risk factors, MD&A, business description) use read_filing, never web_search. For a specific reported financial figure (revenue/sales, net income, gross profit, operating income, EPS) for a US company, call get_financials — it returns the exact number from SEC XBRL; do NOT read narrative filing items or say the figure is undisclosed when get_financials can fetch it. 'Sales for year N' means reported revenue for fiscal year N. Answer the number directly and concisely; do not punt to building a model unless the user asks. Use build_model for a full model or foreign filers, research for qualitative/current context. When a request needs more than one step or tool, you MUST begin your reply with a one-line plan on its own line, that starts with Plan: — for example, Plan: pull Tesla and Ford financials, then compare. Then carry it out end to end — call the tools you need and give the answer — without stopping to ask whether to continue; pause only for a required approval or a genuine either/or choice. Be concise. Format with markdown. When a tool returns a card, refer to it instead of repeating its table. GROUNDING IS ABSOLUTE: never answer a question about a specific company from memory or training data — every company fact (numbers, dates, products, people, ownership) must come from a tool result fetched THIS conversation; if the sources you reached do not support an answer, say exactly what you could not verify and which sources you checked, instead of guessing. PRIVATE COMPANIES have no ticker and no SEC filings — research them by NAME: read their website (read_page), run research on the company name, and pull news; never assume public-company tooling applies. USER-SUPPLIED URLS are the source of truth: when the user points at a website, read that page FIRST (read_page) and ground the answer in it — cite it, quote it, and only then supplement with other sources. A company overview must be assembled from what you actually read — site, filings when public, news — never from recalled knowledge. DELIVERABLE WRITING: when the user wants a note, memo, write-up, profile, or summary DOCUMENT, gather the evidence first (get_financials, research, read_filing), then call draft_memo with the matching kind (earnings_note, company_profile, deal_summary, comps_note) — it drafts from the conversation evidence, validates every number, and saves a Markdown artifact; pass deck:true when the user also wants slides. HISTORICAL EVENTS: read_filing and list_filings reach only a company's MOST RECENT filings — for past events (an old acquisition, a prior year's guidance) do NOT burn calls on read_filing; use research, and for M&A questions pass mode 'deal' with the parties named in the query so deal research engages.";
 
 /// Convert unix seconds to an ISO-8601 UTC timestamp (civil date via Hinnant's
 /// algorithm). Lexicographically sortable == chronological.
@@ -847,8 +847,36 @@ fn tool_draft_memo(
     let path = dir.join(format!("{stem}_{kind}_{today}.md"));
     std::fs::write(&path, &md).map_err(|e| format!("write memo: {e}"))?;
 
+    // Optional deck: the same validated sections and evidence, as a compact
+    // branded PPTX (cover, prose, key figures, sources).
+    let mut pptx_path: Option<String> = None;
+    if args["deck"].as_bool().unwrap_or(false) {
+        let prose: Vec<(String, String)> = sections
+            .iter()
+            .map(|(h, t, _)| (h.clone(), t.clone()))
+            .collect();
+        let fig_rows = memo::deck_fig_rows(&ev);
+        let src_titles: Vec<String> =
+            ev.sources.iter().map(|(t, _)| t.clone()).collect();
+        let deck = fm_pptx::writer::deck::write_memo_deck(
+            &company,
+            memo::kind_label(&kind),
+            today,
+            &prose,
+            &fig_rows,
+            &src_titles,
+        )
+        .map_err(|e| format!("memo deck: {e}"))?;
+        let dp = dir.join(format!("{stem}_{kind}_{today}.pptx"));
+        let saved = deck
+            .save(&dp.to_string_lossy())
+            .map_err(|e| format!("save memo deck: {e}"))?;
+        pptx_path = Some(saved);
+    }
+
     let card = json!({
         "type": "memo",
+        "pptx_path": pptx_path,
         "kind": kind,
         "company": company,
         "memo_path": path.to_string_lossy(),

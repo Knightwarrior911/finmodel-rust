@@ -446,6 +446,19 @@ Your previous draft was REJECTED: {reason}. Fix exactly that and rewrite."
     (sections, fallbacks)
 }
 
+/// Key-figure rows for the deck table, mirroring the markdown table's
+/// label/value split (same facts, same order, deck row cap).
+pub fn deck_fig_rows(ev: &Evidence) -> Vec<Vec<String>> {
+    ev.facts
+        .iter()
+        .take(14)
+        .map(|f| {
+            let (k, v) = f.split_once([':', '—']).unwrap_or((f.as_str(), ""));
+            vec![k.trim().to_string(), v.trim().to_string()]
+        })
+        .collect()
+}
+
 /// Prose slots per memo kind: (heading, writing instruction, max sentences).
 pub fn section_specs(kind: &str) -> Vec<(&'static str, &'static str, usize)> {
     match kind {

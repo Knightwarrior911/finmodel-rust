@@ -1244,6 +1244,56 @@ impl PptxDeckWriter {
         Ok(())
     }
 
+    /// `add_prose` — labeled paragraph blocks for memo-style slides: each
+    /// block is (lead, body); the lead renders as a small brand-color label,
+    /// the body as calm 11pt paragraphs. Height is estimated from length so
+    /// blocks stack without overlap; content that cannot fit errors rather
+    /// than silently clipping.
+    pub fn add_prose(
+        &mut self,
+        action_title: &str,
+        blocks: &[(String, String)],
+        source: &str,
+    ) -> Result<(), String> {
+        let at = self.validate_action_title(action_title)?;
+        if blocks.is_empty() {
+            return Err("prose slide requires blocks".into());
+        }
+        self.content_slide_with_title(&at);
+        let body_w = self.slide_w_in - 2.0 * MARGIN_IN;
+        // ~13 chars/inch at 11pt body text.
+        let chars_per_line = (body_w * 13.0) as usize;
+        let mut y = 1.15;
+        let bottom = self.slide_h_in - 0.75;
+        for (lead, body) in blocks {
+            let lines = (body.chars().count() / chars_per_line.max(1)) + 1;
+            let body_h = lines as f64 * 0.24 + 0.06;
+            if y + 0.3 + body_h > bottom {
+                return Err(format!(
+                    "prose overflows the slide at block '{lead}' - split across slides"
+                ));
+            }
+            let bp = self.brand_primary.clone();
+            let fh = self.font_headline.clone();
+            self.add_text(
+                MARGIN_IN, y, body_w, 0.28, lead, 12, true, false,
+                Some(&bp), "l", Some(&fh), None,
+            );
+            y += 0.32;
+            let bd = self.brand_dark.clone();
+            let fb = self.font_body.clone();
+            self.add_text(
+                MARGIN_IN, y, body_w, body_h, body, 11, false, false,
+                Some(&bd), "l", Some(&fb), Some("t"),
+            );
+            y += body_h + 0.18;
+        }
+        self.add_source_line(source, "");
+        self.page += 1;
+        self.add_footer();
+        Ok(())
+    }
+
     // ── package assembly ────────────────────────────────────────────────────────
 
     /// Build the deck into an in-memory OOXML package.
@@ -1797,6 +1847,61 @@ pub fn write_benchmark_deck(
                 "",
             );
         }
+    }
+    Ok(deck)
+}
+
+/// `write_memo_deck` — a compact memo one-pager-plus: cover, prose sections
+/// (the memo's validated slots), an optional key-figures table, and a
+/// numbered sources slide. Sections that overflow one prose slide spill onto
+/// continuation slides rather than clipping.
+pub fn write_memo_deck(
+    company: &str,
+    kind_label: &str,
+    deck_date: &str,
+    sections: &[(String, String)],
+    fig_rows: &[Vec<String>],
+    sources: &[String],
+) -> Result<PptxDeckWriter, String> {
+    let mut deck = PptxDeckWriter::new(&BrandProfile::default(), "CONFIDENTIAL", deck_date);
+    deck.add_cover(&format!("{company} — {kind_label}"), "Drafted from cited evidence");
+    let title = format!("{kind_label}: what the evidence supports");
+    let mut pending: Vec<(String, String)> = sections.to_vec();
+    while !pending.is_empty() {
+        // Try the largest prefix that fits; add_prose errors on overflow.
+        let mut n = pending.len();
+        loop {
+            match deck.add_prose(&title, &pending[..n], "finmodel — drafted from conversation evidence") {
+                Ok(()) => break,
+                Err(_) if n > 1 => n -= 1,
+                Err(e) => return Err(e),
+            }
+        }
+        pending.drain(..n);
+    }
+    if !fig_rows.is_empty() {
+        let headers = vec!["Metric".to_string(), "Value".to_string()];
+        let rows: Vec<Vec<String>> = fig_rows.iter().take(14).cloned().collect();
+        deck.add_table(
+            &format!("{company}: key figures from the evidence"),
+            &headers,
+            &rows,
+            "finmodel — conversation evidence",
+        )?;
+    }
+    if !sources.is_empty() {
+        let rows: Vec<Vec<String>> = sources
+            .iter()
+            .take(14)
+            .enumerate()
+            .map(|(i, t)| vec![format!("S{}", i + 1), t.clone()])
+            .collect();
+        deck.add_table(
+            "Sources: every figure traces to one of these",
+            &["#".to_string(), "Source".to_string()],
+            &rows,
+            "finmodel — source ledger",
+        )?;
     }
     Ok(deck)
 }

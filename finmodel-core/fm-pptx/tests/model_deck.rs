@@ -4,7 +4,7 @@
 //! slide count and the presence of cover/tile/table text runs.
 
 use fm_pptx::writer::deck::{
-    ModelDeckInput, PptxDeckWriter, write_benchmark_deck, write_model_deck,
+    ModelDeckInput, PptxDeckWriter, write_benchmark_deck, write_memo_deck, write_model_deck,
 };
 use serde_json::Value;
 
@@ -138,4 +138,56 @@ fn add_table_rejects_oversized_grids() {
         deck.add_table("Too many columns here now", &headers, &[], "src")
             .is_err()
     );
+}
+
+#[test]
+fn memo_deck_covers_prose_figures_and_sources() {
+    let sections = vec![
+        (
+            "Headline".to_string(),
+            "Revenue reached $97.7 billion with net income of $7.1 billion [S1].".to_string(),
+        ),
+        (
+            "Results".to_string(),
+            "Automotive generated $82.1 billion despite tariff pressure on margins [S1].".to_string(),
+        ),
+    ];
+    let figs = vec![
+        vec!["Revenue".to_string(), "97,690M".to_string()],
+        vec!["Net income".to_string(), "7,091M".to_string()],
+    ];
+    let sources = vec!["SEC EDGAR company facts".to_string()];
+    let deck = write_memo_deck(
+        "Tesla, Inc.",
+        "Earnings note",
+        PINNED_DATE,
+        &sections,
+        &figs,
+        &sources,
+    )
+    .expect("memo deck");
+    let got = inspect_saved("memo", deck);
+    // Cover + prose + key figures + sources.
+    let n = got["slides"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(n, 4, "expected 4 slides, got {n}");
+    let texts = all_text(&got).join("
+");
+    assert!(texts.contains("Tesla, Inc. — Earnings note"));
+    assert!(texts.contains("Drafted from cited evidence"));
+    assert!(texts.contains("Revenue reached"));
+    assert!(texts.contains("97,690M"));
+    assert!(texts.contains("S1"));
+}
+
+#[test]
+fn memo_deck_spills_long_prose_across_slides() {
+    let long = "Every material figure in this section traces to the numbered source ledger. ".repeat(30);
+    let sections: Vec<(String, String)> = (1..=4)
+        .map(|i| (format!("Section {i}"), long.clone()))
+        .collect();
+    let deck = write_memo_deck("Acme", "Company profile", PINNED_DATE, &sections, &[], &[])
+        .expect("long memo deck");
+    let got = inspect_saved("memo_long", deck);
+    let n = got["slides"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(n >= 3, "long prose should spill: cover + 2+ prose slides, got {n}");
 }

@@ -2,6 +2,10 @@
 
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
+- **Memo → deck.** Ask for slides and the memo becomes a compact branded
+  PPTX too: cover, the validated prose sections (spilling across slides
+  rather than clipping), a key-figures table, and the numbered source
+  ledger. New fm-pptx prose-slide archetype; "Open deck" on the memo card.
 - **Comps notes.** A fourth memo kind: after benchmark_peers, "draft the
   comps note" writes peer set, relative positioning, and an honest
   valuation read. The engine pre-computes scale ratios ("NVDA is 5.1x
