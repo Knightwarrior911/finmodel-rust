@@ -896,6 +896,18 @@ Tie-out: check a finished model against a trusted answer key, cell by cell.
             type="button"
             class="dock-tab"
             role="tab"
+            id="settingsTab-agents"
+            aria-controls="settingsPanel-agents"
+            aria-selected="false"
+            tabindex="-1"
+            data-settings-tab="agents"
+          >
+            Agents
+          </button>
+          <button
+            type="button"
+            class="dock-tab"
+            role="tab"
             id="settingsTab-scheduled"
             aria-controls="settingsPanel-scheduled"
             aria-selected="false"
@@ -1225,6 +1237,36 @@ Tie-out: check a finished model against a trusted answer key, cell by cell.
               >Reusable playbooks the analyst follows (SKILL.md: name +
               description + steps). The agent can also propose one from a solved
               task.</span
+            >
+          </div>
+          </div>
+          <div
+            class="settings-panel"
+            id="settingsPanel-agents"
+            role="tabpanel"
+            aria-labelledby="settingsTab-agents"
+            hidden
+          >
+          <div class="field">
+            <div id="agentsList" class="memory-list"></div>
+            <details class="skill-add">
+              <summary>New agent</summary>
+              <textarea
+                id="newAgentContent"
+                rows="8"
+                placeholder="---&#10;name: dd-reviewer&#10;description: Red-teams deal documents for diligence gaps.&#10;skills: earnings-snapshot&#10;---&#10;You are the diligence reviewer. For every claim in the task, find the primary evidence, re-derive the key figures, and lead your brief with what does NOT hold up."
+              ></textarea>
+              <button type="button" id="agentSaveBtn" class="btn-ghost">
+                Save agent
+              </button>
+              <span id="agentStatus" class="field-hint"></span>
+            </details>
+            <span class="field-hint"
+              >Your own specialists (AGENT.md: name + description + optional
+              skills + doctrine). The analyst dispatches them as subagents -
+              independent agents run in parallel - and each returns a findings
+              brief. Listed skills are preloaded; the agent can also open the
+              rest of the skill library.</span
             >
           </div>
           </div>

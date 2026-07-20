@@ -760,7 +760,15 @@ impl LiveDriver {
             .collect();
         let mut skills = crate::agent::skills::list_skills(&dir);
         skills.retain(|s| !inactive.contains(&s.name));
-        let catalog = crate::agent::skills::catalog_block(&skills);
+        let skill_cat = crate::agent::skills::catalog_block(&skills);
+        // The orchestrator's bench: user-defined agents it can dispatch in
+        // parallel via run_agent (OMP-style subagent fan-out).
+        let agent_cat =
+            crate::agent::agents::catalog_block(&crate::agent::agents::list_agents(&dir));
+        let catalog = match (skill_cat, agent_cat) {
+            (Some(s), Some(a)) => Some(format!("{s}\n{a}")),
+            (s, a) => s.or(a),
+        };
         let instructions = [global, project]
             .into_iter()
             .flatten()
@@ -844,7 +852,7 @@ impl LiveDriver {
     /// Human-readable subagent label: tool name plus its primary argument
     /// (ticker / company / query / url / cik) when present.
     fn subagent_label(name: &str, args: &Value) -> String {
-        let key = ["ticker", "company", "query", "task", "url", "cik"]
+        let key = ["agent", "ticker", "company", "query", "task", "url", "cik"]
             .iter()
             .find_map(|k| args.get(*k).and_then(|v| v.as_str()))
             .map(|s| s.trim())

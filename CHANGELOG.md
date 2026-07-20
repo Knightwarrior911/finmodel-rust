@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.9.31 - 2026-07-20 - Your own agents, dispatched in parallel
+
+- **Build your own bench.** Settings -> Agents: define named specialists
+  the same way you define skills (AGENT.md: name + description + optional
+  skills + doctrine). Example: a dd-reviewer that red-teams documents, a
+  sector specialist with your comparables playbook preloaded.
+- **The analyst becomes an orchestrator.** Your agents appear in its
+  catalog and it dispatches them with run_agent as true subagents - own
+  context, read-only tool belt, a findings brief back. Independent agents
+  dispatched in one turn run IN PARALLEL (the proven child-loop
+  machinery), each visible in the task tray by name.
+- **Agents use your skills.** Skills listed on the agent are preloaded
+  verbatim into its briefing (a missing skill is flagged, never silently
+  dropped), and the agent carries use_skill for the rest of the library.
+- **No infinite org charts.** Agents and delegates never dispatch further
+  agents; spend rides home on the card and counts against your ceiling;
+  cancel aborts them mid-stream.
+
 ## v0.9.30 - 2026-07-20 - The data room review: answers with receipts
 
 - **Point the analyst at a deal folder.** New analyze_data_room tool: give

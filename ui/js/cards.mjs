@@ -117,6 +117,7 @@ function renderDataRoom(card) {
 // as the card title so parallel dives stay tellable-apart.
 function renderDelegate(card) {
   const task = String(card.task || "Deep dive");
+  const who = card.agent ? `Agent ${String(card.agent)}` : "Deep dive";
   const findings = String(card.findings || "");
   if (!findings) return null;
   const tools = Array.isArray(card.tools_used) && card.tools_used.length
@@ -141,7 +142,7 @@ function renderDelegate(card) {
   return cardShell(
     "research",
     `<div class="card-head">
-       <span class="card-title">Deep dive · ${escapeHtml(task.length > 80 ? task.slice(0, 80) + "…" : task)}</span>
+       <span class="card-title">${escapeHtml(who)} · ${escapeHtml(task.length > 80 ? task.slice(0, 80) + "…" : task)}</span>
      </div>
      ${paras}
      ${trailHtml}

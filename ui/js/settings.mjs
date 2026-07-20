@@ -141,7 +141,7 @@ export function readModelProfiles() {
 
 // Settings sections: roving tablist mirroring the evidence dock (one
 // vocabulary — same classes, same keyboard map: ←/→/Home/End).
-const SETTINGS_TABS = ["general", "connections", "memory", "skills", "scheduled"];
+const SETTINGS_TABS = ["general", "connections", "memory", "skills", "agents", "scheduled"];
 
 export function selectSettingsTab(tab) {
   if (!SETTINGS_TABS.includes(tab)) return;
@@ -193,6 +193,7 @@ export async function openSettings() {
     fillRoleProfile("verifier", mp.verifier);
     loadMemoryList();
     loadSkillsList();
+    loadAgentsList();
     loadSchedulesList();
   } catch (_) {
     /* offline / first launch */
@@ -317,6 +318,108 @@ async function loadMemoryList() {
     row.appendChild(pin);
     row.appendChild(del);
     el.appendChild(row);
+  }
+}
+
+async function loadAgentsList() {
+  const el = $("agentsList");
+  if (!el) return;
+  el.innerHTML = '<span class="field-hint">Loading…</span>';
+  try {
+    const agents = await call("agents_list");
+    if (!agents.length) {
+      el.innerHTML =
+        '<span class="field-hint">No agents yet. Describe one below - a name, what it specializes in, and its working doctrine.</span>';
+      return;
+    }
+    el.innerHTML = "";
+    for (const a of agents) {
+      const row = document.createElement("div");
+      row.className = "memory-row";
+      const txt = document.createElement("span");
+      txt.className = "memory-row-text";
+      const skills = a.skills && a.skills.length
+        ? ` <span class="skill-uses">· skills: ${escapeHtml(a.skills.join(", "))}</span>`
+        : "";
+      txt.innerHTML = `<b>${escapeHtml(a.name)}</b>${skills} — ${escapeHtml(a.description)}`;
+      row.appendChild(txt);
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "btn-ghost";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", async () => {
+        const existing = row.nextElementSibling;
+        if (existing && existing.classList.contains("skill-editor")) {
+          existing.remove();
+          return;
+        }
+        let content = "";
+        try {
+          content = await call("agents_get", { name: a.name });
+        } catch (_) {
+          return;
+        }
+        const box = document.createElement("div");
+        box.className = "skill-editor";
+        const ta = document.createElement("textarea");
+        ta.rows = 14;
+        ta.value = content;
+        ta.setAttribute("aria-label", `Edit agent ${a.name}`);
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "btn-ghost";
+        save.textContent = "Save";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "btn-ghost";
+        cancel.textContent = "Cancel";
+        const st = document.createElement("span");
+        st.className = "field-hint";
+        cancel.addEventListener("click", () => box.remove());
+        save.addEventListener("click", async () => {
+          const v = ta.value;
+          const m = v.match(/^\s*name:\s*(.+)$/m);
+          const newName = m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+          if (!newName) {
+            st.textContent = "Frontmatter needs a `name:` line.";
+            return;
+          }
+          try {
+            await call("agents_save", { name: newName, content: v });
+            if (newName !== a.name) {
+              await call("agents_delete", { name: a.name });
+            }
+            loadAgentsList();
+          } catch (e) {
+            st.textContent = (e && e.message) || "Save failed.";
+          }
+        });
+        const btns = document.createElement("div");
+        btns.className = "skill-editor-btns";
+        btns.appendChild(save);
+        btns.appendChild(cancel);
+        btns.appendChild(st);
+        box.appendChild(ta);
+        box.appendChild(btns);
+        row.after(box);
+        ta.focus();
+      });
+      row.appendChild(edit);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn-ghost";
+      del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        try {
+          await call("agents_delete", { name: a.name });
+          loadAgentsList();
+        } catch (_) {}
+      });
+      row.appendChild(del);
+      el.appendChild(row);
+    }
+  } catch (_) {
+    el.innerHTML = '<span class="field-hint">Couldn\u2019t load agents.</span>';
   }
 }
 
@@ -580,6 +683,24 @@ export function initSettings(opts = {}) {
       $("newSkillContent").value = "";
       if (st) st.textContent = "Saved.";
       loadSkillsList();
+    } catch (e) {
+      if (st) st.textContent = (e && e.message) || "Save failed.";
+    }
+  });
+  $("agentSaveBtn")?.addEventListener("click", async () => {
+    const content = $("newAgentContent").value;
+    const m = content.match(/^\s*name:\s*(.+)$/m);
+    const name = m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+    const st = $("agentStatus");
+    if (!name) {
+      if (st) st.textContent = "Give the agent a name first — a name: line at the very top.";
+      return;
+    }
+    try {
+      await call("agents_save", { name, content });
+      $("newAgentContent").value = "";
+      if (st) st.textContent = "Saved.";
+      loadAgentsList();
     } catch (e) {
       if (st) st.textContent = (e && e.message) || "Save failed.";
     }

@@ -836,6 +836,53 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Dispatch a user-defined agent (run_agent) as a subagent: its doctrine +
+/// preloaded skills as the system prompt, the agent belt (read-only +
+/// use_skill), and the shared child loop. Parallel when the orchestrator
+/// dispatches several in one turn.
+fn tool_run_agent(
+    app: &tauri::AppHandle,
+    args: &Value,
+    conversation_id: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(String, Value), String> {
+    use tauri::Manager;
+    let name = args["agent"].as_str().unwrap_or("").trim().to_string();
+    let task = args["task"].as_str().unwrap_or("").trim().to_string();
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("config dir unavailable: {e}"))?;
+    let Some(def) = crate::agent::agents::get_agent(&dir, &name) else {
+        let bench: Vec<String> = crate::agent::agents::list_agents(&dir)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        return Err(if bench.is_empty() {
+            "no agents defined yet - the user can create them in Settings -> Agents".to_string()
+        } else {
+            format!("no agent named `{name}`. Available agents: {}", bench.join(", "))
+        });
+    };
+    const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only tools. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
+    let system = crate::agent::agents::agent_system_prompt(&dir, &def, GROUND_RULES);
+    let settings = crate::commands::settings::read_settings(app);
+    let cfg = fm_extract::LlmConfig {
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model: settings.model.trim().to_string(),
+    };
+    tauri::async_runtime::block_on(crate::agent::delegate::run_child_loop(
+        app,
+        &cfg,
+        &system,
+        crate::agent::delegate::agent_tool_belt(),
+        Some(&def.name),
+        &task,
+        conversation_id,
+        cancel,
+    ))
+}
+
 /// Data room review (analyze_data_room): local folder -> grounded answers
 /// with verified file/page/quote citations. Approval-gated (Risk::LocalRead).
 fn tool_data_room(
@@ -922,6 +969,7 @@ pub(crate) fn run_tool(
         "read_filing" => tool_read_filing(app, args),
         "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
         "analyze_data_room" => tool_data_room(app, args, conversation_id, cancel),
+        "run_agent" => tool_run_agent(app, args, conversation_id, cancel),
         "delegate_analysis" => tool_delegate(app, args, conversation_id, cancel),
         "research" => tool_research(app, args, user_msg),
         "use_skill" => tool_use_skill(app, args),

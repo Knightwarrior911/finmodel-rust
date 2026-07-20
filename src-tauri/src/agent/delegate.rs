@@ -34,7 +34,7 @@ pub(crate) fn child_tool_belt() -> Vec<Value> {
     // Excluded even though read-only: recursion (delegate_analysis) and
     // deliverable/meta tools (draft_memo, use_skill) — a child returns a
     // findings brief, never artifacts or behavior changes.
-    const EXCLUDED: [&str; 3] = ["delegate_analysis", "draft_memo", "use_skill"];
+    const EXCLUDED: [&str; 4] = ["delegate_analysis", "run_agent", "draft_memo", "use_skill"];
     crate::agent::tools::ToolRegistry::shared()
         .agent_schemas_read_only()
         .into_iter()
@@ -42,6 +42,22 @@ pub(crate) fn child_tool_belt() -> Vec<Value> {
             v.pointer("/function/name")
                 .and_then(|n| n.as_str())
                 .map_or(false, |n| !EXCLUDED.contains(&n))
+        })
+        .collect()
+}
+
+/// A dispatched agent's belt: read-only minus nesting and deliverable
+/// tools, but WITH `use_skill` - user agents are built to use the skill
+/// library (their listed skills are also preloaded into the prompt).
+pub(crate) fn agent_tool_belt() -> Vec<Value> {
+    const EXCLUDED: [&str; 3] = ["delegate_analysis", "run_agent", "draft_memo"];
+    crate::agent::tools::ToolRegistry::shared()
+        .agent_schemas_read_only()
+        .into_iter()
+        .filter(|v| {
+            v.pointer("/function/name")
+                .and_then(|nm| nm.as_str())
+                .map_or(false, |nm| !EXCLUDED.contains(&nm))
         })
         .collect()
 }
@@ -105,9 +121,7 @@ pub(crate) fn usage_value(total: &(u64, u64, f64, bool)) -> Value {
     u
 }
 
-/// Run one delegated subtask to completion. Returns `(parent_summary, card)`.
-/// The parent summary is the compact brief; the card carries the full brief
-/// plus provenance (work trail, tools used, usage).
+/// Run one delegated subtask with the DEFAULT junior-analyst doctrine.
 pub(crate) async fn run_delegate_loop(
     app: &tauri::AppHandle,
     cfg: &fm_extract::LlmConfig,
@@ -115,12 +129,29 @@ pub(crate) async fn run_delegate_loop(
     conversation_id: &str,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(String, Value), String> {
+    run_child_loop(app, cfg, CHILD_PROMPT, child_tool_belt(), None, task, conversation_id, cancel)
+        .await
+}
+
+/// The shared child-agent loop (delegate_analysis + run_agent). Returns
+/// `(parent_summary, card)`: the parent gets the compact brief; the card
+/// carries the full brief plus provenance (work trail, tools used, usage).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_child_loop(
+    app: &tauri::AppHandle,
+    cfg: &fm_extract::LlmConfig,
+    system: &str,
+    tools: Vec<Value>,
+    agent_name: Option<&str>,
+    task: &str,
+    conversation_id: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(String, Value), String> {
     if cfg.api_key.trim().is_empty() {
         return Err("delegation needs the OpenRouter key configured in Settings".into());
     }
-    let tools = child_tool_belt();
     let mut messages = vec![
-        json!({ "role": "system", "content": CHILD_PROMPT }),
+        json!({ "role": "system", "content": system }),
         json!({ "role": "user", "content": task }),
     ];
     // Synthetic run id: the UI filters stream deltas by run id, so the
@@ -229,7 +260,7 @@ pub(crate) async fn run_delegate_loop(
     tools_used.sort_unstable();
     tools_used.dedup();
     let brief = cap_brief(&last_prose, BRIEF_CAP);
-    let card = json!({
+    let mut card = json!({
         "type": "delegate",
         "task": task,
         "findings": last_prose,
@@ -237,7 +268,14 @@ pub(crate) async fn run_delegate_loop(
         "trail": trail,
         "usage": usage_value(&usage_total),
     });
-    let summary = format!("Delegated analysis finished. Findings brief:\n{brief}");
+    let who = match agent_name {
+        Some(a) => {
+            card["agent"] = json!(a);
+            format!("Agent `{a}`")
+        }
+        None => "Delegated analysis".to_string(),
+    };
+    let summary = format!("{who} finished. Findings brief:\n{brief}");
     Ok((summary, card))
 }
 
@@ -263,6 +301,7 @@ mod tests {
             .collect();
         assert!(!names.contains(&"delegate_analysis"), "no recursion: {names:?}");
         assert!(!names.contains(&"use_skill"), "meta tools stay out");
+        assert!(!names.contains(&"run_agent"), "no nesting from delegates");
         // Write-risk tools must be absent from the child belt entirely.
         for banned in ["build_model", "draft_memo"] {
             assert!(!names.contains(&banned), "{banned} leaked into the child belt");
@@ -270,6 +309,20 @@ mod tests {
         // The research surface is present (the point of delegation).
         assert!(names.contains(&"research"));
         assert!(names.contains(&"get_financials"));
+    }
+
+    #[test]
+    fn agent_belt_keeps_skills_but_never_nests() {
+        let names: Vec<String> = agent_tool_belt()
+            .iter()
+            .filter_map(|v| v.pointer("/function/name").and_then(|x| x.as_str()).map(String::from))
+            .collect();
+        // Agents are BUILT to use the skill library.
+        assert!(names.iter().any(|x| x == "use_skill"), "{names:?}");
+        // But never dispatch further agents or delegates, and never draft.
+        for banned in ["run_agent", "delegate_analysis", "draft_memo", "build_model"] {
+            assert!(!names.iter().any(|x| x == banned), "{banned} leaked");
+        }
     }
 
     #[test]

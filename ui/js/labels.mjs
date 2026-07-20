@@ -23,6 +23,12 @@ export const TOOL_STORY = {
     failed: "Couldn't finish the data room review",
     verb: "Reading",
   },
+  run_agent: {
+    running: "Dispatching your agent\u2026",
+    done: "Your agent reported back",
+    failed: "The agent couldn't finish",
+    verb: "Dispatching",
+  },
   delegate_analysis: {
     running: "Handing a deep dive to a second analyst…",
     done: "Deep dive came back",

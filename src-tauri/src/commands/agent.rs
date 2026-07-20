@@ -1284,6 +1284,38 @@ pub async fn skills_save(app: tauri::AppHandle, name: String, content: String) -
 
 /// Delete a skill by name.
 #[tauri::command(rename_all = "snake_case")]
+pub async fn agents_list(app: tauri::AppHandle) -> AppResult<String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    let agents = crate::agent::agents::list_agents(&dir);
+    serde_json::to_string(&agents).map_err(|e| AppError::Config(e.to_string()))
+}
+
+#[tauri::command]
+pub fn agents_get(app: tauri::AppHandle, name: String) -> AppResult<String> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    crate::agent::agents::get_agent_md(&dir, &name)
+        .ok_or_else(|| AppError::Config(format!("agent `{name}` not found")))
+}
+
+#[tauri::command]
+pub async fn agents_save(app: tauri::AppHandle, name: String, content: String) -> AppResult<()> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    crate::agent::agents::save_agent(&dir, &name, &content)
+        .map(|_| ())
+        .map_err(AppError::Config)
+}
+
+#[tauri::command]
+pub fn agents_delete(app: tauri::AppHandle, name: String) -> AppResult<()> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    crate::agent::agents::delete_agent(&dir, &name).map_err(AppError::Config)
+}
+
+#[tauri::command]
 pub fn skills_delete(app: tauri::AppHandle, name: String) -> AppResult<()> {
     let dir = config_dir(&app)?;
     crate::agent::skills::delete_skill(&dir, &name).map_err(AppError::Config)?;

@@ -123,6 +123,11 @@ fn validate_task(args: &Value) -> Result<(), String> {
     require_nonempty(args, "task")
 }
 
+fn validate_run_agent(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "agent")?;
+    require_nonempty(args, "task")
+}
+
 fn validate_data_room(args: &Value) -> Result<(), String> {
     require_nonempty(args, "path")?;
     match args.get("questions").and_then(|v| v.as_array()) {
@@ -227,6 +232,17 @@ fn schema_research() -> Value {
         "required": ["query"]
     })
 }
+fn schema_run_agent() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "agent": { "type": "string", "description": "Agent name exactly as listed in the Agents catalog." },
+            "task": { "type": "string", "description": "The complete, self-contained task for the agent." }
+        },
+        "required": ["agent", "task"]
+    })
+}
+
 fn schema_data_room() -> Value {
     json!({
         "type": "object",
@@ -470,6 +486,20 @@ impl ToolRegistry {
                 trust: TrustPolicy::Untrusted,
                 validate: validate_task,
                 params_schema: schema_delegate,
+                model_visible: true,
+            },
+            ToolSpec {
+                name: "run_agent",
+                label: "Run agent",
+                description: "Dispatch one of the USER'S OWN agents (see the Agents catalog in the system prompt) as a subagent: it works the task in its own context with read-only tools and its configured skills, then reports back a findings brief. Args: agent (catalog name), task (complete and self-contained). Dispatch INDEPENDENT agents in the SAME turn - they run in parallel. Only for agents in the catalog; never invent names.",
+                risk: Risk::ReadOnly,
+                capabilities: &["research", "delegate"],
+                required_args: &["agent", "task"],
+                interruptible: true,
+                idempotent: false,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_run_agent,
+                params_schema: schema_run_agent,
                 model_visible: true,
             },
             ToolSpec {
@@ -718,7 +748,7 @@ mod tests {
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 16);
+        assert_eq!(r.names().len(), 17);
     }
 
     #[test]
@@ -829,7 +859,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 16);
+        assert_eq!(cat.lines().count(), 17);
         assert!(cat.contains("build_model"));
     }
 
@@ -871,6 +901,6 @@ mod tests {
         assert_eq!(ranked[0], "build_model");
         // Deterministic: identical query → identical order.
         assert_eq!(ranked, r.rank_for_query("build a dcf excel model"));
-        assert_eq!(ranked.len(), 16);
+        assert_eq!(ranked.len(), 17);
     }
 }
