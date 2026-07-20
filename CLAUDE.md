@@ -1,5 +1,31 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.29-31 SHIPPED + LIVE (2026-07-20) — auditability, data room, user agents
+**Three releases, all tagged + published + endpoint-verified (Latest =
+v0.9.31, sig 420, installer HTTP 200). CI green on every tag.**
+
+v0.9.29 — source auditability: text-fragment deep links (core.mjs
+deepSourceUrl/fragmentQuote; cite pills + src-cards anchor on quotes/
+snippets), financials card per-period filing URLs (AnnualFact grew accn;
+filing_index_url strips dashes/zeros in path, keeps dashes in filename).
+v0.9.30 — data room review: commands/dataroom.rs (walk_room symlink-safe
+depth<=8, extract via fm_extract::pdf_pages [now pub], chunk_room, bm25,
+resolve_findings PURE: excerpt-number resolution + verbatim quote
+verification), Risk::LocalRead (pauses for approval), room card with
+per-finding chips (file/p.N/verified badge, click opens file).
+v0.9.31 — user agents: agent/agents.rs (AGENT.md mirror of skills; parse/
+CRUD/catalog_block/agent_system_prompt with skill preload), run_agent on
+generalized delegate::run_child_loop, agent_tool_belt (read-only +
+use_skill, no nesting), agents catalog in grounding_layers, Settings ->
+Agents tab, agents_* commands.
+
+OPEN: data_room_live_smoke (--ignored) still network-blocked —
+openrouter.ai unreachable from this box all session (curl gets nothing);
+run at first window. run_agent live path likewise unexercised (same
+adapter as production turns). Human click-through wanted: Settings ->
+Agents (create dd-reviewer), ask a question that dispatches it; data
+room approval prompt on a real folder.
+
 ## HANDOVER — v0.9.28 SHIPPED + LIVE (2026-07-20) — JARVIS persona + cost honesty + delegation polish
 **Tagged v0.9.28 (abf0149); released to public finmodel-releases (Latest).
 CI green (run 29768979254); signed NSIS published; endpoint VERIFIED:
