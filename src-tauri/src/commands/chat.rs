@@ -795,13 +795,6 @@ pub(crate) fn seed_agent_messages(user_text: &str) -> Vec<Value> {
     seed_agent_messages_for_model(user_text, &[], "")
 }
 
-/// Seed with optional vision inputs. When images are present the user content
-/// becomes the OpenAI-style multimodal parts array; text-only turns keep the
-/// plain string (maximum provider compatibility).
-pub(crate) fn seed_agent_messages_with_images(user_text: &str, images: &[String]) -> Vec<Value> {
-    seed_agent_messages_for_model(user_text, images, "")
-}
-
 /// Seed with the per-model prompt profile: base system prompt, then the
 /// scaffolding layer for model families that need explicit steps, then the
 /// user turn. The scaffold rides INSIDE the leading system block so the
