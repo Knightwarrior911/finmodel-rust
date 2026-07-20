@@ -1,7 +1,10 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.9.23 SHIPPING (2026-07-20) — international research + composer polish
-**Shipping both passes as v0.9.23 (lockstep bumped; CHANGELOG dated).
+## HANDOVER — v0.9.23 SHIPPED + LIVE (2026-07-20) — international research + composer polish
+**Tagged v0.9.23 on 7be5c36; released to public finmodel-releases (Latest).
+CI green all 5 jobs (run 29742579672). Signed NSIS published; endpoint
+VERIFIED: latest.json serves 0.9.23 (sig 420), installer HTTP 200
+(6,673,057 bytes = the signed local bundle).
 Gates all green: app-lib 351 · fm-fetch 59 · fm-research 126 · UI 194.
 Live-verified: SAP EUR spread (20-F/IFRS via EDGAR), Fiskars EUR spread
 end-to-end via ESEF with NO US listing. EDINET leg is key-gated and
