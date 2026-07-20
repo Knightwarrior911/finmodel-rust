@@ -1,5 +1,22 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.25 SHIPPED + LIVE (2026-07-20) — working modes (autonomy dial) + composer model chip
+**Tagged v0.9.25 on c707cad; released to public finmodel-releases (Latest).
+CI green (run 29757213942); signed NSIS published; endpoint VERIFIED:
+latest.json serves 0.9.25 (sig 420), installer HTTP 200 (6,679,794 bytes).
+Gates: app-lib 353, UI 195.**
+
+Five working modes picked from a composer chip — Analyst (default), Plan
+first (read-only belt via ToolRegistry::agent_schemas_read_only, numbered
+plan, one-shot flip back to Analyst after delivery), Goal run + Loop &
+refine (Policy::WORKFLOW), Skeptic (adversarial doctrine). Mode module:
+src-tauri/src/agent/modes.rs; doctrine layer inserted before the user turn
+in LiveDriver::new; mode name recorded on the run row's policy column and
+revived by agent_resume (interrupted Goal runs resume as Goal; Plan resumes
+read-only). UI: mode chip + menu in ui/js/composer.mjs (getMode/setMode),
+send payload in chat.mjs sendViaAgent; Plan is one-shot in the UI too.
+Model picker moved inside the input box (short-name chip, full id tooltip).
+
 ## HANDOVER — v0.9.24 SHIPPED + LIVE (2026-07-20) — two-face theme + bug hunt
 **Tagged v0.9.24 on e823f7e; released to public finmodel-releases (Latest).
 CI green (run 29754078854). Signed NSIS published; endpoint VERIFIED:
