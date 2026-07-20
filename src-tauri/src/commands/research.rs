@@ -416,6 +416,25 @@ fn render_quote(q: &fm_fetch::Quote, as_of: &str) -> String {
     )
 }
 
+/// Quote a multi-word company name so the engine treats it as one phrase
+/// ("Moët Hennessy" ranks the company, not the words). Single tokens and
+/// already-quoted text pass through. Works on DuckDuckGo and every MCP
+/// backend — quotes are the one universally-portable operator.
+fn quote_if_phrase(name: &str) -> String {
+    let t = name.trim();
+    if t.contains(' ') && !t.starts_with('"') {
+        format!("\"{t}\"")
+    } else {
+        t.to_string()
+    }
+}
+
+/// Search-operator suffix dropping the HR/noise domains that used to waste
+/// result slots (the ledger bans them anyway — better they never arrive).
+/// -site: is portable across DuckDuckGo and the MCP engines; date operators
+/// (before:/after:) are NOT and never appear here.
+const NOISE_EXCLUSIONS: &str = "-site:linkedin.com -site:glassdoor.com -site:indeed.com";
+
 impl HttpBackend {
     /// Company/earnings acquisition: fuse recent filings, web (IR/earnings +
     /// independent), and a market-quote synthetic source into one ranked ledger.
@@ -464,7 +483,8 @@ impl HttpBackend {
                         // The raw dotted ticker inside the question is noise
                         // too — swap it for the name everywhere.
                         question = question.replace(t.as_str(), &name);
-                        subject_parts.push(name);
+                        // Multi-word names travel as one quoted phrase.
+                        subject_parts.push(quote_if_phrase(&name));
                         continue;
                     }
                 }
@@ -519,6 +539,12 @@ impl HttpBackend {
             } else {
                 with_q("").trim().to_string()
             });
+            // Operator hygiene on every query: HR noise never reaches the
+            // result slots (the ledger would ban it anyway — later is waste).
+            let web_queries: Vec<String> = web_queries
+                .iter()
+                .map(|q| format!("{} {NOISE_EXCLUSIONS}", q.trim()))
+                .collect();
             for wq in &web_queries {
                 if let Ok(hits) = fm_fetch::websearch::web_search(wq, per_query) {
                     candidates.extend(hits.iter().map(|h| {
@@ -646,6 +672,10 @@ impl ResearchBackend for HttpBackend {
             queries.push(with_subject("SEC filing"));
             queries.push(with_subject("annual report"));
         }
+        let queries = queries
+            .into_iter()
+            .map(|q| format!("{} {NOISE_EXCLUSIONS}", q.trim()))
+            .collect();
         Some(ResearchPlan {
             queries,
             required_source_types: vec![],
@@ -1291,9 +1321,10 @@ mod tests {
         .await;
         match terminal {
             Action::Done(ResearchOutput::Digest(d)) => {
+                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
                 assert_eq!(
-                    d.limitations,
-                    vec!["The selected model could not produce a validated synthesis".to_string()]
+                    d.limitations[1],
+                    "The selected model could not produce a validated synthesis".to_string()
                 );
             }
             other => panic!("expected Done(Digest), got {other:?}"),
@@ -1505,6 +1536,11 @@ mod plan_tests {
         assert!(plan.queries[0].contains("investor relations"));
         assert!(plan.queries[1].contains("press release"));
         assert!(plan.queries.iter().all(|q| q.contains("tariff")||q.contains("TSLA")));
+
+        // Operator hygiene: every planned query drops the HR-noise domains,
+        // and date operators (unsupported on the DDG fallback) never appear.
+        assert!(plan.queries.iter().all(|q| q.contains("-site:linkedin.com")), "{:?}", plan.queries);
+        assert!(plan.queries.iter().all(|q| !q.contains("before:") && !q.contains("after:")));
         // Deep widens into presentations, transcripts, and filings.
         let deep = tauri::async_runtime::block_on(
             backend(&["TSLA"]).plan(&req(ResearchDepth::Deep)),
@@ -1777,5 +1813,12 @@ mod pdf_tests {
         println!("title: {} · excerpt {} chars", page.title, page.text.len());
         assert!(page.text.len() > 500);
         assert!(page.title.ends_with(".pdf"));
+    }
+
+    #[test]
+    fn quote_if_phrase_wraps_multiword_names() {
+        assert_eq!(quote_if_phrase("Toyota Motor Corporation"), "\"Toyota Motor Corporation\"");
+        assert_eq!(quote_if_phrase("SAP"), "SAP");
+        assert_eq!(quote_if_phrase("\"Already Quoted\""), "\"Already Quoted\"");
     }
 }

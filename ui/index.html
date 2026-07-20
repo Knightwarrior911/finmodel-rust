@@ -243,6 +243,16 @@
         <div id="composer" class="composer">
           <div id="composerAttachments" class="composer-attachments" hidden></div>
           <div id="composerHint" class="composer-hint" role="status" hidden></div>
+          <div id="refineMenu" class="refine-menu" role="menu" aria-label="Improve my question" hidden>
+            <button type="button" class="refine-opt" data-mode="tidy" role="menuitem">
+              <strong>Quick tidy</strong>
+              <span>Fix the wording, keep it short</span>
+            </button>
+            <button type="button" class="refine-opt" data-mode="power" role="menuitem">
+              <strong>Power prompt</strong>
+              <span>Rewrite as a detailed, well-structured request</span>
+            </button>
+          </div>
           <div class="composer-box">
             <textarea
               id="chatInput"
@@ -255,8 +265,8 @@
                 type="button"
                 id="refineBtn"
                 class="icon-btn"
-                aria-label="Tidy up my question"
-                title="Tidy up my question — I'll rewrite it clearly; you decide whether to send"
+                aria-label="Improve my question"
+                title="Improve my question — quick tidy or a full power prompt; you decide whether to send"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z" />
@@ -632,8 +642,7 @@
             hidden
           >
             <p class="field-hint">
-              Tie-out: score a model JSON against an immutable ground-truth
-              JSON.
+Tie-out: check a finished model against a trusted answer key, cell by cell.
             </p>
             <label class="field"
               ><span class="field-label">Ground-truth JSON</span
@@ -1004,7 +1013,8 @@
             <input
               id="synthesisModel"
               type="text"
-              placeholder="e.g. anthropic/claude-sonnet-4 — blank uses your main model"
+              list="modelCatalogList"
+              placeholder="Start typing to pick a model — blank uses your main model"
             />
             <span class="field-hint"
               >A stronger model just for the heavy writing: research syntheses
@@ -1012,15 +1022,17 @@
             >
           </label>
           <label class="field">
-            <span class="field-label">SEC filings contact email</span>
+            <span class="field-label">Contact email for SEC downloads (optional)</span>
             <input
               id="edgarContact"
               type="email"
               placeholder="you@example.com"
             />
             <span class="field-hint"
-              >The SEC asks apps to identify themselves with a contact email
-              when downloading filings. Yours is only sent to sec.gov.</span
+              >Only used when the analyst downloads filings: sec.gov asks
+              automated downloaders to identify themselves with a contact
+              email. Leave it blank and a generic app identity is sent —
+              nothing else changes.</span
             >
           </label>
           <label class="field">
@@ -1031,6 +1043,20 @@
                 Choose…
               </button>
             </span>
+          </label>
+          <label class="field">
+            <span class="field-label">Japanese filings key (optional)</span>
+            <input
+              id="edinetKey"
+              type="password"
+              autocomplete="off"
+              placeholder="EDINET API key"
+            />
+            <span class="field-hint"
+              >Unlocks structured numbers for companies listed only in Japan
+              (Toyota-style local names work too). Free key from the EDINET
+              site; leave blank to skip Japan.</span
+            >
           </label>
           <label class="field">
             <span class="field-label">Web browsing helper (optional)</span>
@@ -1057,19 +1083,21 @@
                 <input
                   id="workerProviderBase"
                   type="text"
-                  placeholder="https://api.deepseek.com/v1"
+                  list="providerBaseList"
+                  placeholder="Pick a provider address"
                   aria-label="Worker provider base URL"
                 />
                 <input
                   id="workerModel"
                   type="text"
-                  placeholder="deepseek-chat"
+                  list="modelCatalogList"
+                  placeholder="Start typing to pick a model"
                   aria-label="Worker model"
                 />
                 <input
                   id="workerCredentialRef"
                   type="text"
-                  placeholder="credential account name"
+                  placeholder="saved key name (advanced — usually blank)"
                   aria-label="Worker credential account"
                 />
               </div>
@@ -1078,19 +1106,21 @@
                 <input
                   id="verifierProviderBase"
                   type="text"
-                  placeholder="https://api.openai.com/v1"
+                  list="providerBaseList"
+                  placeholder="Pick a provider address"
                   aria-label="Verifier provider base URL"
                 />
                 <input
                   id="verifierModel"
                   type="text"
-                  placeholder="gpt-4o-mini"
+                  list="modelCatalogList"
+                  placeholder="Start typing to pick a model"
                   aria-label="Verifier model"
                 />
                 <input
                   id="verifierCredentialRef"
                   type="text"
-                  placeholder="credential account name"
+                  placeholder="saved key name (advanced — usually blank)"
                   aria-label="Verifier credential account"
                 />
               </div>
@@ -1221,9 +1251,6 @@
               rules.</span
             >
           </label>
-          <p class="field-hint">
-            Attached baseline files (PDF/CSV) — coming soon.
-          </p>
         </div>
         <div class="modal-foot">
           <button type="button" id="projectDelete" class="btn-ghost danger">
@@ -1239,5 +1266,7 @@
     </div>
 
     <script type="module" src="js/main.mjs"></script>
-  </body>
+    <datalist id="modelCatalogList"></datalist>
+  <datalist id="providerBaseList"></datalist>
+</body>
 </html>

@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.9.23 - 2026-07-20 - The analyst goes international
+
+- **Non-US numbers, same rigor.** The financials spread now reads IFRS
+  filers: foreign 20-F companies on EDGAR (SAP in EUR, Toyota in JPY —
+  live-verified), Europe-only companies by legal name or LEI through the
+  ESEF filings index (Fiskars live-verified end to end), and Japan-only
+  companies via EDINET once a free key is saved in Settings. Native
+  reporting currency everywhere — €31.8B and ¥45.10T format correctly,
+  nothing is silently converted.
+- **Honest calendars.** basis=semi serves half-year reporters (most
+  EU/UK/JP companies); quarterly on a foreign filer explains itself
+  instead of erroring in schema-speak; March fiscal years label correctly.
+- **Research knows the local venues.** Nikkei, Handelsblatt, Les Échos,
+  Economic Times, Caixin and friends rank as the press of record they
+  are; queries quote multi-word company names, pin disclosure archives
+  with site:, and exclude HR noise with -site: operators (the agent is
+  taught the same operators for its own searches).
+- **Every research answer says what grounded it.** A new first line
+  counts the evidence — "Grounding: 2 primary sources, 3 news reports" —
+  and says plainly when no primary source could be reached.
+- **More arithmetic that checks itself.** Diluted EPS (net income ÷
+  shares) and EBITDA (EBIT + D&A) now recompute independently during
+  verification, so a restated or mistyped figure fails instead of
+  certifying itself.
+
+### Also in this release: previews, power prompts, and settings that pick for you
+
+- **See what you pasted.** Attached pictures show a real 40px thumbnail in
+  their chip (data-URL previews — the old blob previews were silently
+  blocked by the app's security policy). Paste several screenshots at
+  once; each gets its own chip and a distinct name.
+- **Power prompt.** The sparkle button now offers two choices: Quick tidy
+  (fix the wording) and Power prompt (rewrite your rough ask as a
+  detailed, well-structured request — goal, companies, periods, grounding,
+  output shape — inventing nothing you didn't imply). Undo either way.
+- **Settings pick for you.** The writing model and the advanced
+  worker/verifier fields now suggest live catalog models and provider
+  addresses as you type — no more hand-typing model ids.
+- **Small honesty pass.** Checkbox rows sit flush left (the tick was
+  stranded mid-row); the SEC contact email says plainly when it matters
+  and that blank is fine; the unshipped "baseline files — coming soon"
+  line is gone; capability lines read like a person ("can use tools ✓,
+  reliable tables ✓") instead of tools=true; busy/overflow chat errors
+  say what to actually do next.
+
 ## v0.9.22 - 2026-07-20 - The composer grows up: files, vision, budgets, polish
 
 - **Copy button stays out of the answer.** The hover Copy action now

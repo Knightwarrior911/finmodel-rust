@@ -117,6 +117,10 @@ pub struct Settings {
     /// steps). 0 = no limit. Guards runaway loops from surprise bills.
     #[serde(default)]
     pub conversation_budget_usd: f64,
+    /// EDINET (Japan disclosure) API key — free registration; enables
+    /// structured Japanese filings. Plaintext like other non-billing config.
+    #[serde(default)]
+    pub edinet_api_key: String,
 }
 
 fn default_true() -> bool {
@@ -196,6 +200,7 @@ pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
         "auto_route_vision": s.auto_route_vision,
         "route_price_cap_usd": s.route_price_cap_usd,
         "conversation_budget_usd": s.conversation_budget_usd,
+        "has_edinet_key": !s.edinet_api_key.trim().is_empty(),
     })
 }
 
@@ -235,6 +240,7 @@ pub fn save_settings(
     route_price_cap_usd: Option<f64>,
     conversation_budget_usd: Option<f64>,
     global_instructions: Option<String>,
+    edinet_api_key: Option<String>,
 ) -> AppResult<String> {
     let mut s = read_settings(&app);
     if !api_key.trim().is_empty() {
@@ -295,6 +301,11 @@ pub fn save_settings(
             ));
         }
         s.conversation_budget_usd = b;
+    }
+    if let Some(k) = edinet_api_key {
+        // Blank clears; whitespace trimmed. Not a billing credential — kept
+        // with the rest of the plain config.
+        s.edinet_api_key = k.trim().to_string();
     }
     if let Some(g) = global_instructions {
         // One source of truth: the grounding file the agent already chains
@@ -792,8 +803,8 @@ pub(crate) fn cached_openrouter_catalog(
     Ok(fresh)
 }
 
-/// System prompt for the composer's "polish my question" button. The reply
-/// must be ONLY the rewritten prompt — no preamble, no quotes, no options.
+/// System prompt for the composer's "quick tidy" mode. The reply must be
+/// ONLY the rewritten prompt — no preamble, no quotes, no options.
 const REFINE_SYSTEM: &str = "You tidy up a draft question for a financial-analysis assistant. \
 Rewrite the draft so it is clear, specific, and complete: keep the user's language, intent, \
 tickers, figures, and constraints exactly; fix grammar; spell out vague references; add the \
@@ -801,17 +812,36 @@ obvious missing specifics (time period, metric, company) ONLY when the draft cle
 them. Never invent facts, never answer the question, never add commentary. \
 Reply with the rewritten prompt text and nothing else.";
 
-/// One-shot draft polish for the composer (never auto-sends). Uses the
-/// configured model with a tight output cap so a click costs at most a few
-/// hundred output tokens.
+/// System prompt for the composer's "power prompt" mode: expands a rough
+/// draft into the structured, unambiguous request an LLM executes best —
+/// while inventing nothing the user didn't imply.
+const POWER_SYSTEM: &str = "You are a prompt engineer rewriting a rough draft into a powerful, \
+unambiguous prompt for a financial-analysis assistant that has tools for SEC filings, live \
+quotes, peer benchmarks, research, and Excel model building. Rewrite the draft as a complete \
+request with, where relevant: the precise goal; the companies/tickers and time periods; the \
+specific metrics or comparisons wanted; how to ground the work (filings, live data, cited \
+sources); and the desired output shape (table, memo, model, brief answer). Keep every fact, \
+ticker, figure, and constraint from the draft exactly; sharpen vague wording; NEVER invent \
+companies, numbers, periods, or requirements the draft doesn't imply. Write it as the user \
+speaking (\"Build...\", \"Compare...\"). Plain prose or short bullet lines, no headings, no \
+meta-commentary. Reply with the rewritten prompt text and nothing else.";
+
+/// One-shot draft polish for the composer (never auto-sends). `mode` is
+/// `tidy` (default — light cleanup) or `power` (structured expansion).
+/// Tight output caps keep a click at a few hundred output tokens.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn refine_prompt(app: tauri::AppHandle, draft: String) -> AppResult<String> {
+pub async fn refine_prompt(
+    app: tauri::AppHandle,
+    draft: String,
+    mode: Option<String>,
+) -> AppResult<String> {
     let draft = draft.trim().to_string();
     if draft.is_empty() {
         return Err(AppError::Config("Type a question first, then I can tidy it up.".into()));
     }
     // Bounded input: a pasted document isn't a prompt to rewrite.
     let draft: String = draft.chars().take(8_000).collect();
+    let power = mode.as_deref() == Some("power");
     tauri::async_runtime::spawn_blocking(move || {
         let s = read_settings(&app);
         let key = s.openrouter_api_key.trim().to_string();
@@ -819,7 +849,12 @@ pub async fn refine_prompt(app: tauri::AppHandle, draft: String) -> AppResult<St
             return Err(AppError::Config("Add your API key in Settings first.".into()));
         }
         let url = format!("{}/chat/completions", provider_base(&s));
-        let out = complete_once(&key, &s.model, &url, REFINE_SYSTEM, &draft, 600)
+        let (system, cap) = if power {
+            (POWER_SYSTEM, 900)
+        } else {
+            (REFINE_SYSTEM, 600)
+        };
+        let out = complete_once(&key, &s.model, &url, system, &draft, cap)
             .map_err(|e| AppError::Engine(format!("couldn't polish the prompt: {e}")))?;
         let text = out.trim();
         if text.is_empty() {

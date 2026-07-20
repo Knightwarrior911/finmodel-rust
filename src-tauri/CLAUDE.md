@@ -1,3 +1,38 @@
+## Session (2026-07-20 later) — international financials pipeline
+- chat.rs financials_from_facts/quarterly/ltm now taxonomy-aware via
+  fm_extract::xbrl::select_taxonomy: us-gaap OR ifrs-full (IFRS candidates
+  from ifrs_tag_map — single source of truth). annual_series accepts
+  10-K/20-F/40-F/ESEF/EDINET forms (was 10-K only — excluded ALL foreign
+  filers). detect_reporting_currency: unit with most distinct FY ends wins
+  (SAP files 1 convenience-USD fact vs 11 EUR years). fmt_money_cur/
+  fmt_eps_cur: €/¥/£/₹ symbols, T tier for JPY, code prefix for unknowns.
+  basis=semi via fm_extract::period (half-year reporters). Live-verified:
+  SAP EUR spread, Fiskars via ESEF end-to-end (ignored tests
+  financials_live_sap_eur_spread / financials_live_esef_fallback_spread).
+- fm-fetch/esef.rs (new): filings.xbrl.org — /api/entities index (~7.3k,
+  cached 24h, resolve by name/LEI; GLEIF too noisy — funds rank above
+  issuers), /api/entities/{id}/filings, xBRL-JSON (OIM) → companyfacts
+  shape. OIM period ends are EXCLUSIVE midnights → prev_day normalize.
+  Dimensional facts skipped (segment slices). DE doesn't feed the index.
+- fm-fetch/edinet.rs (new): key-gated (Subscription-Key query param, 401
+  observed keyless). Day-index scan (weekends skipped, per-day cache 6h),
+  有価証券報告書 = ordinance 010 form 030000, type=5 CSV zip (UTF-16LE),
+  header-name-matched TSV parser (要素ID/コンテキストID/値), Current
+  YearDuration/Instant contexts only. FIXTURE-ONLY: constructed from spec
+  memory, live test needs EDINET_API_KEY (live_edinet_toyota, ignored).
+  Settings: edinet_api_key field + Connections UI input.
+- get_financials routing: EDGAR → ESEF → EDINET(key). validate_company_query
+  (80 chars, printable) replaces validate_ticker on THIS tool only.
+- Verification identities (driver.rs recompute_authoritative): diluted_eps
+  = NI/shares (RoundedCurrency; >10% deviation = IFRS NCI numerator-basis
+  mismatch → stands down to source — KNOWN HOLE, provenance-gating is the
+  real fix), ebitda = operating_income + depreciation_&_amortization.
+- Research: coverage_line (fm-research synth.rs) leads every answer/digest
+  limitations vec; local newswires in scoring/adapter tiers; research.rs
+  quote_if_phrase + NOISE_EXCLUSIONS (-site:) on all queries (DDG fallback
+  does NOT support before:/after: — never emit).
+- Gates: app-lib 351 · fm-fetch 59 · fm-research 126 · UI 194.
+
 ## Session (2026-07-20) v0.9.22 — attachments backend, vision routing, spend guards
 - **commands/attachments.rs** (new): stage_attachment (base64 over IPC → app-data
   staging dir, classify by extension, ArtifactKind::UserImage/UserFile), read-only

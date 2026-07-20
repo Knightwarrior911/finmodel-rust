@@ -517,9 +517,11 @@ mod engine_gate {
         };
         match s.run() {
             Action::Done(ResearchOutput::Digest(d)) => {
+                // Grounding line leads every digest; the exact reason follows.
+                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
                 assert_eq!(
-                    d.limitations,
-                    vec!["The selected model could not produce a validated synthesis".to_string()]
+                    d.limitations[1],
+                    "The selected model could not produce a validated synthesis".to_string()
                 );
             }
             other => panic!("expected digest after two failures, got {other:?}"),

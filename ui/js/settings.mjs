@@ -59,6 +59,37 @@ function populateProviders() {
     (p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`,
   ).join("");
 }
+/// Fill the shared datalists so every model/provider field offers picks as
+/// you type (no more hand-typing model ids). Provider addresses are static;
+/// the model list comes from the live catalog when a key is saved.
+function populateProviderBaseList() {
+  const dl = document.getElementById("providerBaseList");
+  if (!dl || dl.children.length) return;
+  dl.innerHTML = PROVIDERS.filter((p) => p.base)
+    .map(
+      (p) =>
+        `<option value="${escapeHtml(p.base)}">${escapeHtml(p.name)}</option>`,
+    )
+    .join("");
+}
+
+async function populateModelCatalogList() {
+  const dl = document.getElementById("modelCatalogList");
+  if (!dl) return;
+  try {
+    const models = await call("list_models");
+    dl.innerHTML = models
+      .map(
+        (m) =>
+          `<option value="${escapeHtml(m.id)}">${escapeHtml(
+            [m.name, m.vision ? "sees images" : ""].filter(Boolean).join(" · "),
+          )}</option>`,
+      )
+      .join("");
+  } catch (_) {
+    /* no key yet / offline — fields still accept typing */
+  }
+}
 
 function setProviderFromBase(base) {
   const b = (base || "").replace(/\/+$/, "");
@@ -137,6 +168,8 @@ export async function openSettings() {
     if (s.model)
       sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
     populateProviders();
+    populateProviderBaseList();
+    if (s.has_key) populateModelCatalogList(); // fire-and-forget pick list
     setProviderFromBase(s.base_url);
     $("edgarContact").value = s.edgar_contact || "";
     $("outDir").value = s.out_dir || "";
@@ -148,6 +181,9 @@ export async function openSettings() {
     $("conversationBudget").value =
       s.conversation_budget_usd > 0 ? s.conversation_budget_usd : "";
     $("globalInstructions").value = s.global_instructions || "";
+    $("edinetKey").placeholder = s.has_edinet_key
+      ? "A key is saved — leave blank to keep it"
+      : "EDINET API key";
     if ($("appVersion") && s.version)
       $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
@@ -174,13 +210,13 @@ function renderCaps(cap) {
   if (!el) return;
   if (!cap || !cap.model_id) {
     el.textContent =
-      "Capabilities untested — app routing + plain JSON until you run Test model.";
+      "Not checked yet — click Test model and I'll find out what this model can do.";
     return;
   }
-  const tools = cap.native_tools ? "tools ✓" : "tools ✗";
-  const json = cap.strict_json ? "strict JSON ✓" : "strict JSON ✗";
-  const when = cap.tested_at ? ` · tested ${cap.tested_at}` : "";
-  el.textContent = `${cap.model_id}: ${tools}, ${json}${when}`;
+  const tools = cap.native_tools ? "can use tools ✓" : "can't use tools ✗";
+  const json = cap.strict_json ? "reliable tables ✓" : "loose tables";
+  const when = cap.tested_at ? ` · checked ${cap.tested_at.slice(0, 10)}` : "";
+  el.textContent = `${cap.model_id} — ${tools}, ${json}${when}`;
 }
 
 async function loadMemoryList() {
@@ -535,7 +571,7 @@ export function initSettings(opts = {}) {
     const name = m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
     const st = $("skillStatus");
     if (!name) {
-      if (st) st.textContent = "Add a `name:` line to the frontmatter.";
+      if (st) st.textContent = "Give the skill a name first — a name: line at the very top.";
       return;
     }
     try {
@@ -606,7 +642,11 @@ export function initSettings(opts = {}) {
         ...(cap !== undefined ? { route_price_cap_usd: cap } : {}),
         ...(budget !== undefined ? { conversation_budget_usd: budget } : {}),
         global_instructions: $("globalInstructions").value,
+        ...($("edinetKey").value.trim()
+          ? { edinet_api_key: $("edinetKey").value.trim() }
+          : {}),
       });
+      $("edinetKey").value = "";
       $("apiKey").value = "";
       // Auto-detect what the model can do so the home screen is accurate
       // without the user running a manual check. Best-effort: a failed probe
@@ -654,7 +694,7 @@ export function initSettings(opts = {}) {
     const el = $("mcpStatus");
     const cmd = ($("mcpCommand").value || "").trim();
     if (!cmd) {
-      el.textContent = "Enter the Roam MCP command first.";
+      el.textContent = "Enter the helper command first (for example: roam mcp serve).";
       return;
     }
     el.textContent = "Testing…";
@@ -686,13 +726,12 @@ export function initSettings(opts = {}) {
       sel.innerHTML = models
         .map((m) => {
           const badges = [
-            m.native_tools ? "tools" : null,
-            m.strict_json ? "json" : null,
+            m.native_tools ? "uses tools" : null,
             m.vision ? "sees images" : null,
           ]
             .filter(Boolean)
-            .join(",");
-          const label = badges ? `${m.id} [${badges}]` : m.id;
+            .join(" · ");
+          const label = badges ? `${m.id} — ${badges}` : m.id;
           return `<option value="${escapeHtml(m.id)}">${escapeHtml(label)}</option>`;
         })
         .join("");
@@ -721,7 +760,7 @@ export function initSettings(opts = {}) {
       });
       renderCaps(cap);
       setStatus(
-        `Tested ${cap.model_id}: tools=${cap.native_tools}, strict JSON=${cap.strict_json}`,
+        cap.native_tools ? `${cap.model_id} looks good — it can use the analyst's tools.` : `${cap.model_id} can't use tools — research and models won't work well with it.`,
         "ok",
       );
     } catch (e) {

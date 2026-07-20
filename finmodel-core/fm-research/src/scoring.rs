@@ -52,6 +52,16 @@ pub const PRIORITY_DOMAINS: &[&str] = &[
     // Earnings-call transcript carriers (management's words, free full text).
     "fool.com",
     "investing.com",
+    // Major local newswires — the strongest independent press for non-US
+    // issuers (a Nikkei or Handelsblatt story is the FT of its market).
+    "nikkei.com",
+    "asia.nikkei.com",
+    "handelsblatt.com",
+    "lesechos.fr",
+    "economictimes.indiatimes.com",
+    "caixinglobal.com",
+    "koreaherald.com",
+    "globes.co.il",
     // International disclosure venues (non-US issuers file here, not EDGAR).
     "hkexnews.hk",
     "londonstockexchange.com",

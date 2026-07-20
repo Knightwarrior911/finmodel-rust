@@ -174,7 +174,7 @@ test("Ctrl+V with an image on the clipboard becomes an image attachment", async 
   await tick();
   await tick();
   assert.equal(staged.length, 1);
-  assert.match(staged[0], /^screenshot-\d{6}\.png$/, "pasted image gets a timestamped name");
+  assert.match(staged[0], /^screenshot-\d{6}-\d+\.png$/, "pasted image gets a timestamped name");
   assert.ok(document.querySelector(".attach-chip"), "chip appears");
   assert.equal(ev.defaultPrevented, true, "image paste never dumps into the textarea");
 });
@@ -251,6 +251,7 @@ test("polish rewrites the draft in place; undo restores the original", async () 
   const ta = document.getElementById("chatInput");
   ta.value = "tesla revenue?";
   document.getElementById("refineBtn").click();
+  document.querySelector('#refineMenu .refine-opt[data-mode="tidy"]').click();
   await tick();
   await tick();
   assert.equal(sentDraft, "tesla revenue?");
@@ -271,6 +272,7 @@ test("polish with an empty box never calls the model", async () => {
   };
   await bootComposer(ctx);
   document.getElementById("refineBtn").click();
+  document.querySelector('#refineMenu .refine-opt[data-mode="tidy"]').click();
   await tick();
   assert.equal(called, 0, "no billable call for an empty draft");
   assert.match(document.getElementById("composerHint").textContent, /Type a question/);
@@ -290,4 +292,64 @@ test("vision-capable models get a 'sees images' badge in the picker", async () =
   const rows = document.querySelectorAll(".mp-row");
   assert.match(rows[0].innerHTML, /sees images/);
   assert.ok(!/sees images/.test(rows[1].innerHTML));
+});
+
+test("power prompt mode sends mode=power and swaps the draft", async () => {
+  const ctx = setupDom();
+  let gotMode = null;
+  ctx.invokeHandlers.refine_prompt = async (args) => {
+    gotMode = args.mode;
+    return JSON.stringify({ text: "Build a 3-statement model for TSLA using the FY2025 10-K; output an Excel workbook." });
+  };
+  await bootComposer(ctx);
+  const ta = document.getElementById("chatInput");
+  ta.value = "tesla model pls";
+  document.getElementById("refineBtn").click();
+  const menu = document.getElementById("refineMenu");
+  assert.equal(menu.hidden, false, "wand opens the two-choice menu");
+  menu.querySelector('.refine-opt[data-mode="power"]').click();
+  await tick();
+  await tick();
+  assert.equal(gotMode, "power");
+  assert.match(ta.value, /3-statement model/);
+  assert.equal(menu.hidden, true, "menu closes after choosing");
+});
+
+test("image chips carry a data-URL thumbnail (CSP-safe preview)", async () => {
+  const ctx = setupDom();
+  ctx.invokeHandlers.stage_attachment = async (args) =>
+    JSON.stringify({ artifact_id: "art-t", label: args.name, class: "image", size: 8 });
+  const composer = await bootComposer(ctx);
+  await composer.stageFile(fakePng("pic.png"));
+  await tick();
+  const img = document.querySelector(".attach-chip img.attach-thumb");
+  assert.ok(img, "thumbnail <img> rendered");
+  assert.match(img.getAttribute("src"), /^data:image\/png;base64,/);
+});
+
+test("pasting two screenshots stages both with distinct names", async () => {
+  const ctx = setupDom();
+  const staged = [];
+  ctx.invokeHandlers.stage_attachment = async (args) => {
+    staged.push(args.name);
+    return JSON.stringify({ artifact_id: "a-" + staged.length, label: args.name, class: "image", size: 4 });
+  };
+  await bootComposer(ctx);
+  const ta = document.getElementById("chatInput");
+  const mkItem = () => ({
+    kind: "file",
+    type: "image/png",
+    getAsFile: () => fakePng("x.png"),
+  });
+  const ev = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", {
+    value: { items: [mkItem(), mkItem()], getData: () => "" },
+  });
+  ta.dispatchEvent(ev);
+  await tick();
+  await tick();
+  assert.equal(staged.length, 2, "both images staged");
+  assert.notEqual(staged[0], staged[1], "names never collide");
+  assert.equal(document.querySelectorAll(".attach-chip").length, 2);
+  assert.match(document.getElementById("composerHint").textContent, /2 screenshots/);
 });

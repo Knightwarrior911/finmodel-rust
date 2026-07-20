@@ -465,24 +465,77 @@ fn claim_authoritative(
 }
 
 /// Independent authoritative value for a claim (Task 4.2/4.4). For a derivable
-/// metric it recomputes from sibling claims via an accounting identity — today
-/// `gross_profit == revenue - cost_of_revenue` — so a restated/inconsistent
-/// figure fails verification instead of certifying itself. `values` maps each
-/// run claim_key (`{ticker}.{metric}.{period}`) to its numeric value. Falls back
-/// to the direct source-recorded value when no identity applies.
+/// metric it recomputes from sibling claims via an accounting identity —
+/// gross profit, diluted EPS, EBITDA — so a restated/inconsistent figure
+/// fails verification instead of certifying itself. `values` maps each run
+/// claim_key (`{ticker}.{metric}.{period}`) to its numeric value. Falls back
+/// to the direct source-recorded value when no identity applies or a sibling
+/// is missing.
 fn recompute_authoritative(
     claim: &fm_agent::types::Claim,
     values: &std::collections::HashMap<String, f64>,
 ) -> Option<(f64, crate::agent::verification::MetricClass, u32)> {
     use crate::agent::verification::MetricClass;
     let parts: Vec<&str> = claim.claim_key.splitn(3, '.').collect();
-    if parts.len() == 3 && parts[1] == "gross_profit" {
-        let (ticker, period) = (parts[0], parts[2]);
-        let rev = values.get(&format!("{ticker}.revenue.{period}"));
-        let cost = values.get(&format!("{ticker}.cost_of_revenue.{period}"));
-        if let (Some(r), Some(c)) = (rev, cost) {
-            // Exact accounting identity over source-recorded quantities.
-            return Some((r - c, MetricClass::ExactQuantity, 0));
+    if parts.len() == 3 {
+        let (ticker, metric, period) = (parts[0], parts[1], parts[2]);
+        // Sibling lookup with label-derived aliases (claim metrics come from
+        // card row labels, lowercased with underscores — see
+        // executors::extract_claims).
+        let get = |names: &[&str]| -> Option<f64> {
+            names
+                .iter()
+                .find_map(|m| values.get(&format!("{ticker}.{m}.{period}")).copied())
+        };
+        match metric {
+            // gross profit == revenue − cost of revenue
+            "gross_profit" => {
+                if let (Some(r), Some(c)) = (get(&["revenue"]), get(&["cost_of_revenue"])) {
+                    return Some((r - c, MetricClass::ExactQuantity, 0));
+                }
+            }
+            // diluted EPS == net income / diluted weighted-average shares
+            // (rounded-currency tolerance: filings round EPS to cents while
+            // the division rarely lands exactly on one).
+            //
+            // IFRS caveat: consolidated ProfitLoss includes non-controlling
+            // interests while EPS uses profit attributable to owners of the
+            // parent. The tag map prefers the attributable concept, but when
+            // only consolidated NI backed this card, the recompute can be off
+            // by the whole NCI share. A deviation that large (>10%) means
+            // numerator-basis mismatch, not a wrong claim — stand down to the
+            // source value instead of failing correct EPS. KNOWN HOLE: a
+            // grossly wrong EPS (>10% off) also stands down; the precise fix
+            // is carrying the numerator's provenance tag on the card
+            // (attributable vs consolidated) and gating on it.
+            "diluted_eps" => {
+                let shares = get(&[
+                    "diluted_shares_(weighted_average)",
+                    "diluted_shares",
+                    "weighted_average_diluted_shares",
+                ]);
+                if let (Some(n), Some(s)) = (get(&["net_income"]), shares) {
+                    if s != 0.0 {
+                        let recomputed = n / s;
+                        let claimed: Option<f64> = claim.normalized_value.parse().ok();
+                        let basis_mismatch = claimed.map_or(false, |c| {
+                            c != 0.0 && ((recomputed - c) / c).abs() > 0.10
+                        });
+                        if !basis_mismatch {
+                            return Some((recomputed, MetricClass::RoundedCurrency, 2));
+                        }
+                    }
+                }
+            }
+            // EBITDA == operating income (EBIT) + depreciation & amortization
+            m if m.starts_with("ebitda") => {
+                let ebit = get(&["operating_income", "ebit"]);
+                let da = get(&["depreciation_&_amortization", "depreciation_and_amortization"]);
+                if let (Some(e), Some(d)) = (ebit, da) {
+                    return Some((e + d, MetricClass::ExactQuantity, 0));
+                }
+            }
+            _ => {}
         }
     }
     claim_authoritative(claim)
@@ -1364,7 +1417,7 @@ impl Driver for LiveDriver {
                     Ok(acc) => self.accept_stream(&acc),
                     Err(err) => {
                         self.last_content = format!(
-                            "⚠ the request exceeded the model's context window even after compaction. ({err})"
+                            "⚠ this conversation has grown too long for the model to read in one go, even after trimming older turns. Start a fresh chat and I'll pick up from there. ({err})"
                         );
                         ModelOut {
                             calls: vec![],
@@ -1401,7 +1454,7 @@ impl Driver for LiveDriver {
                     Ok(acc) => self.accept_stream(&acc),
                     Err(err) => {
                         self.last_content = format!(
-                            "⚠ the model request failed after a retry — the provider is rate-limited or unavailable. ({err})"
+                            "⚠ the model service is busy right now — I tried twice. Give it a moment and send again. ({err})"
                         );
                         ModelOut {
                             calls: vec![],
@@ -1996,6 +2049,104 @@ mod tests {
             .find(|c| c.claim_key == "nvda.gross_profit.fy2024")
             .unwrap();
         assert_eq!(gp.status, ClaimStatus::Unverified);
+    }
+    #[test]
+    fn eps_identity_recomputes_and_catches_restatement() {
+        use crate::agent::executors::envelope_from_card;
+        use crate::agent::verification::{verify_run, ClaimStatus};
+        let card = |eps: f64| {
+            serde_json::json!({
+                "type": "financials", "ticker": "NVDA", "entity": "NVIDIA Corp",
+                "fiscal_year": "2024", "period_end": "2024-01-28", "currency": "USD",
+                "source": "https://sec.gov/x",
+                "rows": [
+                    { "label": "Net income", "value": 29760000000i64, "display": "$29.76B" },
+                    { "label": "Diluted shares (weighted average)", "value": 2494000000i64, "display": "2,494M" },
+                    { "label": "Diluted EPS", "value": eps, "display": "EPS" }
+                ]
+            })
+        };
+        // 29.76B / 2.494B = 11.93… — the filed 11.93 verifies under the
+        // rounded-currency tolerance.
+        let env = envelope_from_card("s".into(), card(11.93), fm_agent::types::Trust::Trusted, "ws-a");
+        let values: HashMap<String, f64> = env
+            .claims
+            .iter()
+            .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+            .collect();
+        let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
+        assert_eq!(report.status, ClaimStatus::Verified, "{:?}", report.claims);
+
+        // A subtly wrong EPS (within the 10% basis band, outside the cents
+        // tolerance) must fail — that's the restatement/typo the identity exists
+        // to catch.
+        let env = envelope_from_card("s".into(), card(12.50), fm_agent::types::Trust::Trusted, "ws-a");
+        let values: HashMap<String, f64> = env
+            .claims
+            .iter()
+            .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+            .collect();
+        let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
+        assert_eq!(report.status, ClaimStatus::Unverified);
+        let eps = report
+            .claims
+            .iter()
+            .find(|c| c.claim_key == "nvda.diluted_eps.fy2024")
+            .unwrap();
+        assert_eq!(eps.status, ClaimStatus::Unverified);
+
+        // A WILDLY different EPS (>10% off the NI/shares division) signals a
+        // numerator-basis mismatch (IFRS consolidated vs owners-of-parent),
+        // not a wrong claim — the identity stands down and the claim verifies
+        // against its own source value.
+        let env = envelope_from_card("s".into(), card(14.50), fm_agent::types::Trust::Trusted, "ws-a");
+        let values: HashMap<String, f64> = env
+            .claims
+            .iter()
+            .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+            .collect();
+        let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
+        assert_eq!(report.status, ClaimStatus::Verified, "NCI stand-down: {:?}", report.claims);
+    }
+
+    #[test]
+    fn ebitda_identity_and_missing_sibling_fallback() {
+        use crate::agent::executors::envelope_from_card;
+        use crate::agent::verification::{verify_run, ClaimStatus};
+        // EBITDA = EBIT + D&A catches an inconsistent derived figure.
+        let card = |ebitda: f64| {
+            serde_json::json!({
+                "type": "financials", "ticker": "TC", "entity": "TestCo",
+                "fiscal_year": "2025", "period_end": "2025-12-31", "currency": "USD",
+                "source": "https://sec.gov/x",
+                "rows": [
+                    { "label": "Operating income", "value": 10000000000i64, "display": "$10.0B" },
+                    { "label": "Depreciation & amortization", "value": 3000000000i64, "display": "$3.0B" },
+                    { "label": "EBITDA", "value": ebitda, "display": "$" }
+                ]
+            })
+        };
+        let run = |c: serde_json::Value| {
+            let env = envelope_from_card("s".into(), c, fm_agent::types::Trust::Trusted, "ws-a");
+            let values: HashMap<String, f64> = env
+                .claims
+                .iter()
+                .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
+                .collect();
+            verify_run(&env.claims, |c| recompute_authoritative(c, &values))
+        };
+        assert_eq!(run(card(13000000000.0)).status, ClaimStatus::Verified);
+        assert_eq!(run(card(15000000000.0)).status, ClaimStatus::Unverified);
+
+        // Missing siblings: the identity stands down and the claim verifies
+        // against its own source value (fallback, exactly as before).
+        let lonely = serde_json::json!({
+            "type": "financials", "ticker": "TC", "entity": "TestCo",
+            "fiscal_year": "2025", "period_end": "2025-12-31", "currency": "USD",
+            "source": "https://sec.gov/x",
+            "rows": [ { "label": "EBITDA", "value": 13000000000i64, "display": "$13.0B" } ]
+        });
+        assert_eq!(run(lonely).status, ClaimStatus::Verified);
     }
 
     #[test]

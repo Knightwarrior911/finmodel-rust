@@ -82,6 +82,18 @@ fn require_nonempty(args: &Value, key: &str) -> Result<(), String> {
     }
 }
 
+/// get_financials accepts more than tickers: European legal names
+/// ("Fiskars Oyj Abp"), LEIs, and Japanese company names. Sane length,
+/// printable characters — routing decides which venue it is.
+fn validate_company_query(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "ticker")?;
+    let t = args.get("ticker").and_then(|v| v.as_str()).unwrap_or("");
+    if t.chars().count() > 80 || t.chars().any(|c| c.is_control()) {
+        return Err("company name or ticker looks malformed".into());
+    }
+    Ok(())
+}
+
 fn validate_ticker(args: &Value) -> Result<(), String> {
     require_nonempty(args, "ticker")?;
     let t = args.get("ticker").and_then(|v| v.as_str()).unwrap_or("");
@@ -142,10 +154,10 @@ fn schema_get_financials() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "ticker": { "type": "string", "description": "US-listed ticker, e.g. TSLA" },
+            "ticker": { "type": "string", "description": "US-listed ticker (TSLA), a European company legal name or LEI (Fiskars Oyj Abp — filings.xbrl.org coverage), or a Japanese company name when an EDINET key is saved in Settings" },
             "year": { "type": "integer", "description": "Anchor fiscal year, e.g. 2025 (default: latest reported); the spread covers this year and earlier" },
             "years": { "type": "integer", "description": "How many fiscal years to return (default 3, max 6; annual basis only)" },
-            "basis": { "type": "string", "enum": ["annual", "quarterly", "ltm"], "description": "annual (default): multi-year FY spread; quarterly: last 8 fiscal quarters (Q4 derived); ltm: trailing twelve months — use for comps and current-run-rate questions" }
+            "basis": { "type": "string", "enum": ["annual", "quarterly", "ltm", "semi"], "description": "annual (default): multi-year FY spread; quarterly: last 8 fiscal quarters (Q4 derived, US filers); ltm: trailing twelve months — comps and run-rate questions; semi: latest half-year — how most EU/UK/JP companies report between annuals" }
         },
         "required": ["ticker"]
     })
@@ -269,14 +281,14 @@ impl ToolRegistry {
             ToolSpec {
                 name: "get_financials",
                 label: "Get financials",
-                description: "Get a company's EXACT reported financials from SEC EDGAR XBRL on three bases: annual (default; multi-year FY spread with income statement, balance sheet incl. debt, cash flow, interest, D&A, share counts), quarterly (last 8 fiscal quarters), or ltm (trailing twelve months — the comps basis). Growth, margins, EBITDA, FCF, leverage, interest coverage, and net cash are PRE-COMPUTED deterministically (use those numbers as-is; never recompute). Straight from SEC EDGAR XBRL — the right tool for a specific reported figure like 'what were Tesla's 2025 sales'. Returns precise, citable numbers from the 10-K. US filers only; for foreign filers use build_model.",
+                description: "Get a company's EXACT reported financials on four bases: annual (default; multi-year FY spread with income statement, balance sheet incl. debt, cash flow, interest, D&A, share counts), quarterly (last 8 fiscal quarters, US filers), ltm (trailing twelve months — the comps basis), or semi (latest half-year, EU/UK/JP reporters). Growth, margins, EBITDA, FCF, leverage, interest coverage, and net cash are PRE-COMPUTED deterministically (use those numbers as-is; never recompute). Coverage: US tickers and foreign 20-F filers via SEC EDGAR (native reporting currency preserved — SAP in EUR, Toyota in JPY); Europe-only companies by legal name or LEI via the ESEF filings index; Japan-only companies when an EDINET key is saved in Settings. The right tool for a specific reported figure like 'what were Tesla's 2025 sales' or 'LVMH revenue'.",
                 risk: Risk::ReadOnly,
                 capabilities: &["market", "filings", "financials"],
                 required_args: &["ticker"],
                 interruptible: true,
                 idempotent: true,
                 trust: TrustPolicy::Untrusted,
-                validate: validate_ticker,
+                validate: validate_company_query,
                 params_schema: schema_get_financials,
                 model_visible: true,
             },
@@ -353,7 +365,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "web_search",
                 label: "Web search",
-                description: "Search the web and return ranked results with canonical URL, source, and date. Prefer `research` for a full cited answer; use this for a quick link lookup.",
+                description: "Search the web and return ranked results with canonical URL, source, and date. Prefer `research` for a full cited answer; use this for a quick link lookup. Sharpen queries with operators: \"exact phrase\" quotes for company names, site:hkexnews.hk (or any domain) to pin a disclosure venue, and -site:linkedin.com style exclusions to drop noise. For non-US companies, search the local exchange archive (site:edinet-fsa.go.jp, site:hkexnews.hk, site:londonstockexchange.com) and the English IR mirror before generic news.",
                 risk: Risk::ReadOnly,
                 capabilities: &["web", "search"],
                 required_args: &["query"],

@@ -55,6 +55,14 @@ pub fn classify_source_kind(url: &str) -> SourceKind {
         "ft.com",
         "wsj.com",
         "cnbc.com",
+        // Local flagships: independent press of record in their markets.
+        "nikkei.com",
+        "handelsblatt.com",
+        "lesechos.fr",
+        "economictimes.indiatimes.com",
+        "caixinglobal.com",
+        "koreaherald.com",
+        "globes.co.il",
     ];
     // Paid press-release distribution: the text is WRITTEN BY THE COMPANY
     // (earnings releases, deal announcements) — issuer-primary evidence, not

@@ -141,6 +141,59 @@ pub fn derive_limitations(records: &[SourceRecord]) -> Vec<String> {
     out
 }
 
+/// One warm plain-English line stating what actually grounded the run:
+/// counts of READ sources by evidence tier. When nothing primary was
+/// reached, it says so outright — silent gaps are the failure mode this
+/// exists to kill.
+pub fn coverage_line(records: &[SourceRecord]) -> String {
+    let read: Vec<&SourceRecord> = records
+        .iter()
+        .filter(|r| r.status == SourceStatus::Read)
+        .collect();
+    if read.is_empty() {
+        return "Grounding: no source could be read this run — treat everything below as unverified.".to_string();
+    }
+    let primary = read
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.kind,
+                SourceKind::Regulatory | SourceKind::Company | SourceKind::Primary
+            )
+        })
+        .count();
+    let news = read
+        .iter()
+        .filter(|r| matches!(r.kind, SourceKind::Newswire))
+        .count();
+    let other = read.len() - primary - news;
+    let mut parts: Vec<String> = Vec::new();
+    if primary > 0 {
+        parts.push(format!(
+            "{primary} primary source{} (filings, regulators, the company itself)",
+            if primary == 1 { "" } else { "s" }
+        ));
+    }
+    if news > 0 {
+        parts.push(format!(
+            "{news} news report{}",
+            if news == 1 { "" } else { "s" }
+        ));
+    }
+    if other > 0 {
+        parts.push(format!(
+            "{other} other source{}",
+            if other == 1 { "" } else { "s" }
+        ));
+    }
+    let tail = if primary == 0 {
+        " — no primary source could be reached; treat figures as press-reported"
+    } else {
+        ""
+    };
+    format!("Grounding: {}{tail}.", parts.join(", "))
+}
+
 /// Assemble a validated draft into a full [`ResearchAnswer`]. The application
 /// owns the question, source records, confidence, limitations, timestamp, and
 /// model id; the draft contributes ONLY the cited summary and sections.
@@ -152,7 +205,15 @@ pub fn build_answer(
     generated_at: impl Into<String>,
 ) -> ResearchAnswer {
     let confidence = derive_confidence(&records);
-    let limitations = derive_limitations(&records);
+    // The grounding line leads: what actually backed this answer. The
+    // zero-primary warning it carries supersedes derive_limitations' version
+    // of the same fact (one voice, not an echo).
+    let mut limitations = vec![coverage_line(&records)];
+    limitations.extend(
+        derive_limitations(&records)
+            .into_iter()
+            .filter(|l| !l.starts_with("No primary")),
+    );
     ResearchAnswer {
         question: request.question.clone(),
         summary: draft.summary.clone(),
@@ -370,7 +431,9 @@ mod tests {
         assert!(validate_synthesis(&draft, &records).is_ok());
         let answer = build_answer(&draft, &req(), records, "m", "t");
         assert_eq!(answer.confidence, ResearchConfidence::High);
-        assert!(answer.limitations.is_empty());
+        // Exactly the grounding line — no gap warnings on a healthy mix.
+        assert_eq!(answer.limitations.len(), 1, "{:?}", answer.limitations);
+        assert!(answer.limitations[0].starts_with("Grounding:"));
     }
 
     #[test]
@@ -608,5 +671,27 @@ mod tests {
         assert!(parse_draft(prosey).is_some());
         // No JSON object at all → None.
         assert!(parse_draft("sorry, I cannot help with that").is_none());
+    }
+
+    #[test]
+    fn coverage_line_counts_tiers_and_flags_gaps() {
+        // Healthy mix: primary + news counted, in one warm line.
+        let mix = vec![
+            rec("S1", SourceKind::Regulatory, SourceStatus::Read, None),
+            rec("S2", SourceKind::Company, SourceStatus::Read, None),
+            rec("S3", SourceKind::Newswire, SourceStatus::Read, None),
+            rec("S4", SourceKind::Secondary, SourceStatus::Failed, None), // unread: not counted
+        ];
+        let line = coverage_line(&mix);
+        assert!(line.contains("2 primary sources"), "{line}");
+        assert!(line.contains("1 news report"), "{line}");
+        assert!(!line.contains("press-reported"), "{line}");
+        // No primary read: the gap is stated outright.
+        let none = vec![rec("S1", SourceKind::Newswire, SourceStatus::Read, None)];
+        let line = coverage_line(&none);
+        assert!(line.contains("no primary source could be reached"), "{line}");
+        // Nothing read at all.
+        let empty: Vec<SourceRecord> = vec![];
+        assert!(coverage_line(&empty).contains("no source could be read"));
     }
 }

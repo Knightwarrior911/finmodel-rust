@@ -263,7 +263,8 @@ impl ResearchMachine {
         Action::Done(ResearchOutput::Digest(ResearchDigest {
             question: self.request.question.clone(),
             items,
-            limitations: vec![reason.to_string()],
+            // Grounding first, then the specific reason the run fell short.
+            limitations: vec![crate::synth::coverage_line(&self.ledger), reason.to_string()],
             generated_at: self.generated_at.clone(),
         }))
     }
@@ -450,9 +451,11 @@ mod tests {
             code: "uncited".into(),
         }))) {
             Action::Done(ResearchOutput::Digest(d)) => {
+                // Grounding line leads; the reason follows.
+                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
                 assert_eq!(
-                    d.limitations,
-                    vec!["The selected model could not produce a validated synthesis".to_string()]
+                    d.limitations[1],
+                    "The selected model could not produce a validated synthesis".to_string()
                 );
             }
             a => panic!("expected Done(Digest), got {a:?}"),
@@ -475,7 +478,8 @@ mod tests {
         match m.next(Input::ReadDone(recs)) {
             Action::Done(ResearchOutput::Digest(d)) => {
                 assert_eq!(d.items.len(), 2);
-                assert!(d.limitations[0].contains("all blocked"));
+                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
+                assert!(d.limitations[1].contains("all blocked"));
             }
             a => panic!("expected Done(Digest), got {a:?}"),
         }
@@ -506,7 +510,7 @@ mod tests {
         m.next(Input::Searched(vec![source("S1", SourceStatus::Read)]));
         match m.next(Input::Deadline) {
             Action::Done(ResearchOutput::Digest(d)) => {
-                assert!(d.limitations[0].contains("ran out of research time"))
+                assert!(d.limitations[1].contains("ran out of research time"), "{:?}", d.limitations)
             }
             a => panic!("expected Done(Digest) on deadline, got {a:?}"),
         }

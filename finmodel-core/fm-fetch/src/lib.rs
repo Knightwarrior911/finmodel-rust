@@ -6,6 +6,8 @@ pub mod cache;
 
 pub mod discovery;
 pub mod edgar;
+pub mod edinet;
+pub mod esef;
 pub mod jurisdiction;
 pub mod market;
 pub mod news;

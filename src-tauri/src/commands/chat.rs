@@ -784,7 +784,7 @@ pub(crate) fn run_tool(
         "get_news" => tool_get_news(args),
         "research_deal" => tool_research_deal(app, args),
         "get_quote" => tool_get_quote(args),
-        "get_financials" => tool_get_financials(args),
+        "get_financials" => tool_get_financials_with_key(args, &read_settings(app).edinet_api_key),
         "list_filings" => tool_list_filings(args),
         "read_filing" => tool_read_filing(app, args),
         "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
@@ -1420,6 +1420,13 @@ pub async fn financials_card(ticker: String, basis: String) -> AppResult<String>
 }
 
 fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
+    tool_get_financials_with_key(args, "")
+}
+
+/// get_financials with the optional EDINET key threaded from settings (the
+/// agent dispatch path). Routing: EDGAR (US + 20-F) → ESEF (Europe) →
+/// EDINET (Japan, key required).
+fn tool_get_financials_with_key(args: &Value, edinet_key: &str) -> Result<(String, Value), String> {
     let ticker = args["ticker"].as_str().unwrap_or("").trim().to_uppercase();
     if ticker.is_empty() {
         return Err("get_financials requires a ticker".into());
@@ -1433,11 +1440,37 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
         .unwrap_or("annual")
         .trim()
         .to_lowercase();
-    let cik = fm_fetch::cik_from_ticker(&ticker).map_err(|e| e.to_string())?;
-    let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).map_err(|e| e.to_string())?;
+    // US/EDGAR first (covers 20-F foreign filers too); a name or LEI that
+    // EDGAR doesn't know falls through to the European filings index (ESEF).
+    let (cik, raw) = match fm_fetch::cik_from_ticker(&ticker) {
+        Ok(cik) => {
+            let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).map_err(|e| e.to_string())?;
+            (cik, raw)
+        }
+        Err(us_err) => match fm_fetch::esef::fetch_esef_companyfacts(&ticker) {
+            Ok(raw) => (String::new(), raw),
+            Err(esef_err) => {
+                if !edinet_key.trim().is_empty() {
+                    match fm_fetch::edinet::fetch_edinet_companyfacts(&ticker, edinet_key) {
+                        Ok(raw) => (String::new(), raw),
+                        Err(jp_err) => {
+                            return Err(format!(
+                                "Couldn't find {ticker} on SEC EDGAR ({us_err}), in the European filings index ({esef_err}), or on EDINET ({jp_err})"
+                            ))
+                        }
+                    }
+                } else {
+                    return Err(format!(
+                        "Couldn't find {ticker} on SEC EDGAR ({us_err}) or in the European filings index ({esef_err})"
+                    ))
+                }
+            }
+        },
+    };
     let result = match basis.as_str() {
         "ltm" => financials_ltm(&ticker, &cik, &raw),
         "quarterly" => financials_quarterly(&ticker, &cik, &raw),
+        "semi" | "half" | "semiannual" => financials_semi(&ticker, &cik, &raw),
         _ => financials_from_facts(&ticker, &cik, &raw, want_year, years),
     };
     // Annual spread: attach business-segment revenue from the 10-K/20-F XBRL
@@ -1460,6 +1493,127 @@ fn tool_get_financials(args: &Value) -> Result<(String, Value), String> {
         return result;
     }
     result
+}
+
+/// Annual-report forms across every structured source this app reads:
+/// US 10-K (and amendments), foreign private issuer 20-F/40-F on EDGAR,
+/// and the app's own companyfacts-shaped foreign fetchers (ESEF, EDINET).
+fn is_annual_form(form: &str) -> bool {
+    form.contains("10-K")
+        || form.contains("20-F")
+        || form.contains("40-F")
+        || form.contains("ESEF")
+        || form.contains("EDINET")
+}
+
+/// The reporting currency for a facts map: among the candidate revenue tags,
+/// the money unit with the most distinct annual period-ends wins. (SAP files
+/// one convenience-USD revenue fact next to eleven EUR years — the fuller
+/// series is the reporting one.) Ties break to the most recent filing.
+fn detect_reporting_currency(map: &serde_json::Map<String, Value>, tags: &[&str]) -> String {
+    let mut best: Option<(usize, String, String)> = None; // (ends, latest_filed, currency)
+    for &tag in tags {
+        let Some(units) = map.get(tag).and_then(|e| e["units"].as_object()) else {
+            continue;
+        };
+        for (unit, vals) in units {
+            // Money units are plain ISO codes; skip shares and per-share units.
+            if unit.contains("shares") || !unit.chars().all(|c| c.is_ascii_uppercase()) {
+                continue;
+            }
+            let Some(arr) = vals.as_array() else { continue };
+            let mut ends = std::collections::BTreeSet::new();
+            let mut latest_filed = String::new();
+            for v in arr {
+                if v["fp"].as_str() == Some("FY")
+                    && v["form"].as_str().map_or(false, is_annual_form)
+                {
+                    if let Some(e) = v["end"].as_str() {
+                        ends.insert(e.to_string());
+                    }
+                    if let Some(f) = v["filed"].as_str() {
+                        if f > latest_filed.as_str() {
+                            latest_filed = f.to_string();
+                        }
+                    }
+                }
+            }
+            if ends.is_empty() {
+                continue;
+            }
+            let cand = (ends.len(), latest_filed, unit.clone());
+            if best
+                .as_ref()
+                .map_or(true, |b| (cand.0, &cand.1) > (b.0, &b.1))
+            {
+                best = Some(cand);
+            }
+        }
+    }
+    best.map(|(_, _, c)| c).unwrap_or_else(|| "USD".into())
+}
+
+/// Reporting currency straight from a companyfacts JSON (taxonomy-aware);
+/// the LTM and quarterly bases share this with the annual spread.
+fn reporting_currency(raw: &Value) -> String {
+    let Some((map, tm, tax)) = fm_extract::xbrl::select_taxonomy(raw) else {
+        return "USD".into();
+    };
+    let us_rev: &[&str] = &[
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+    ];
+    if tax == "us-gaap" {
+        detect_reporting_currency(map, us_rev)
+    } else {
+        detect_reporting_currency(map, tm.get("revenue").copied().unwrap_or(us_rev))
+    }
+}
+
+/// Money with the right symbol and scale — "$94.83B", "€31.8B", "¥45.10T".
+/// Unknown codes print as a prefix ("CHF 1.2B") rather than a wrong symbol.
+fn fmt_money_cur(v: f64, cur: &str) -> String {
+    let sym = match cur {
+        "USD" => "$",
+        "EUR" => "€",
+        "JPY" => "¥",
+        "GBP" => "£",
+        "INR" => "₹",
+        _ => "",
+    };
+    let prefix = if sym.is_empty() {
+        format!("{cur} ")
+    } else {
+        sym.to_string()
+    };
+    let a = v.abs();
+    if a >= 1e12 {
+        format!("{prefix}{:.2}T", v / 1e12)
+    } else if a >= 1e9 {
+        format!("{prefix}{:.2}B", v / 1e9)
+    } else if a >= 1e6 {
+        format!("{prefix}{:.1}M", v / 1e6)
+    } else {
+        format!("{prefix}{v:.0}")
+    }
+}
+
+/// Per-share money (EPS): two decimals, except zero-decimal currencies (JPY).
+fn fmt_eps_cur(v: f64, cur: &str) -> String {
+    let prefix = match cur {
+        "USD" => "$".to_string(),
+        "EUR" => "€".to_string(),
+        "JPY" => "¥".to_string(),
+        "GBP" => "£".to_string(),
+        "INR" => "₹".to_string(),
+        c => format!("{c} "),
+    };
+    if cur == "JPY" {
+        format!("{prefix}{v:.0}")
+    } else {
+        format!("{prefix}{v:.2}")
+    }
 }
 
 /// One annual observation: (value, period end YYYY-MM-DD, filed date).
@@ -1489,7 +1643,7 @@ fn annual_series(
                 continue;
             };
             if v["fp"].as_str() != Some("FY")
-                || !v["form"].as_str().map_or(false, |f| f.contains("10-K"))
+                || !v["form"].as_str().map_or(false, is_annual_form)
             {
                 continue;
             }
@@ -1537,14 +1691,20 @@ fn financials_from_facts(
     years: usize,
 ) -> Result<(String, Value), String> {
     let entity = raw["entityName"].as_str().unwrap_or(ticker).to_string();
-    let us = raw["facts"]["us-gaap"].as_object().ok_or_else(|| {
-        format!("{ticker} has no US-GAAP XBRL facts (likely a foreign filer) — try build_model")
+    // Taxonomy-aware: US filers report us-gaap; foreign private issuers file
+    // 20-F in ifrs-full (and our ESEF/EDINET fetchers emit the same shape).
+    let (us, ifrs_tm, tax) = fm_extract::xbrl::select_taxonomy(raw).ok_or_else(|| {
+        format!("{ticker} has no structured XBRL facts — try list_filings or build_model")
     })?;
+    let is_ifrs = tax == "ifrs-full";
     let dei = raw["facts"]["dei"].as_object();
 
     // ---- Reported series ------------------------------------------------
     // (label, series, kind). kind: money | eps | count.
-    let is_metrics: &[(&str, &[&str])] = &[
+    // (label, us-gaap candidates, canonical fm-extract key for the IFRS map).
+    // IFRS candidates come from fm_extract::xbrl::ifrs_tag_map — one researched
+    // source of truth, shared with build_model and the LTM extractor.
+    let is_metrics: &[(&str, &[&str], &str)] = &[
         (
             "Revenue",
             &[
@@ -1553,14 +1713,16 @@ fn financials_from_facts(
                 "SalesRevenueNet",
                 "RevenueFromContractWithCustomerIncludingAssessedTax",
             ],
+            "revenue",
         ),
         (
             "Cost of revenue",
             &["CostOfRevenue", "CostOfGoodsAndServicesSold"],
+            "cogs",
         ),
-        ("Gross profit", &["GrossProfit"]),
-        ("Operating income", &["OperatingIncomeLoss"]),
-        ("Net income", &["NetIncomeLoss", "ProfitLoss"]),
+        ("Gross profit", &["GrossProfit"], "gross_profit"),
+        ("Operating income", &["OperatingIncomeLoss"], "ebit"),
+        ("Net income", &["NetIncomeLoss", "ProfitLoss"], "net_income"),
         (
             "Interest expense",
             &[
@@ -1569,6 +1731,7 @@ fn financials_from_facts(
                 "InterestExpenseDebt",
                 "InterestExpenseBorrowings",
             ],
+            "interest_expense",
         ),
         (
             "Depreciation & amortization",
@@ -1578,20 +1741,23 @@ fn financials_from_facts(
                 "DepreciationAmortizationAndAccretionNet",
                 "Depreciation",
             ],
+            "da",
         ),
     ];
-    let bs_metrics: &[(&str, &[&str])] = &[
+    let bs_metrics: &[(&str, &[&str], &str)] = &[
         (
             "Cash & equivalents",
             &[
                 "CashAndCashEquivalentsAtCarryingValue",
                 "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
             ],
+            "cash",
         ),
-        ("Total assets", &["Assets"]),
+        ("Total assets", &["Assets"], "total_assets"),
         (
             "Long-term debt",
             &["LongTermDebt", "LongTermDebtNoncurrent"],
+            "long_term_debt",
         ),
         (
             "Short-term debt",
@@ -1601,6 +1767,7 @@ fn financials_from_facts(
                 "ShortTermBorrowings",
                 "CommercialPaper",
             ],
+            "short_term_debt",
         ),
         (
             "Stockholders' equity",
@@ -1608,15 +1775,17 @@ fn financials_from_facts(
                 "StockholdersEquity",
                 "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
             ],
+            "total_equity",
         ),
     ];
-    let cf_metrics: &[(&str, &[&str])] = &[
+    let cf_metrics: &[(&str, &[&str], &str)] = &[
         (
             "Operating cash flow",
             &[
                 "NetCashProvidedByUsedInOperatingActivities",
                 "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
             ],
+            "cfo",
         ),
         (
             "Capital expenditure",
@@ -1624,23 +1793,41 @@ fn financials_from_facts(
                 "PaymentsToAcquirePropertyPlantAndEquipment",
                 "PaymentsToAcquireProductiveAssets",
             ],
+            "capex",
         ),
     ];
 
+    // Per-taxonomy tag choice + the issuer's own reporting currency.
+    let pick = |us_tags: &'static [&'static str], key: &str| -> &'static [&'static str] {
+        if is_ifrs {
+            ifrs_tm.get(key).copied().unwrap_or(&[])
+        } else {
+            us_tags
+        }
+    };
+    let cur = detect_reporting_currency(us, pick(is_metrics[0].1, "revenue"));
     let mut series: std::collections::BTreeMap<&str, Vec<AnnualFact>> =
         std::collections::BTreeMap::new();
-    for &(label, tags) in is_metrics.iter().chain(bs_metrics).chain(cf_metrics) {
-        series.insert(label, annual_series(us, tags, "USD"));
+    for &(label, us_tags, key) in is_metrics.iter().chain(bs_metrics).chain(cf_metrics) {
+        series.insert(label, annual_series(us, pick(us_tags, key), &cur));
     }
+    let eps_unit = format!("{cur}/shares");
     series.insert(
         "Diluted EPS",
-        annual_series(us, &["EarningsPerShareDiluted"], "USD/shares"),
+        annual_series(
+            us,
+            pick(&["EarningsPerShareDiluted"], "eps_diluted"),
+            &eps_unit,
+        ),
     );
     series.insert(
         "Diluted shares (weighted average)",
         annual_series(
             us,
-            &["WeightedAverageNumberOfDilutedSharesOutstanding"],
+            pick(
+                &["WeightedAverageNumberOfDilutedSharesOutstanding"],
+                "shares_diluted",
+            ),
             "shares",
         ),
     );
@@ -1693,16 +1880,7 @@ fn financials_from_facts(
     };
 
     // ---- Formatting ------------------------------------------------------
-    let money = |v: f64| -> String {
-        let a = v.abs();
-        if a >= 1e9 {
-            format!("${:.2}B", v / 1e9)
-        } else if a >= 1e6 {
-            format!("${:.1}M", v / 1e6)
-        } else {
-            format!("${v:.0}")
-        }
-    };
+    let money = |v: f64| -> String { fmt_money_cur(v, &cur) };
     let count = |v: f64| -> String {
         let n = v.round() as i64;
         let mut out = String::new();
@@ -1753,7 +1931,7 @@ fn financials_from_facts(
         }));
     }
 
-    for &(label, _) in is_metrics {
+    for &(label, _, _) in is_metrics {
         push_row(
             &axis,
             &mut lines,
@@ -1770,10 +1948,10 @@ fn financials_from_facts(
         "Diluted EPS",
         "reported",
         axis.iter()
-            .map(|e| val_at("Diluted EPS", e).map(|v| format!("${v:.2}")))
+            .map(|e| val_at("Diluted EPS", e).map(|v| fmt_eps_cur(v, &cur)))
             .collect(),
     );
-    for &(label, _) in bs_metrics {
+    for &(label, _, _) in bs_metrics {
         push_row(
             &axis,
             &mut lines,
@@ -1783,7 +1961,7 @@ fn financials_from_facts(
             axis.iter().map(|e| val_at(label, e).map(money)).collect(),
         );
     }
-    for &(label, _) in cf_metrics {
+    for &(label, _, _) in cf_metrics {
         push_row(
             &axis,
             &mut lines,
@@ -1938,8 +2116,22 @@ fn financials_from_facts(
         .iter()
         .map(|e| json!({ "label": fy_label(e), "end": e }))
         .collect();
+    let form_word = if is_ifrs {
+        if cik.is_empty() {
+            "annual report (ESEF/IFRS)"
+        } else {
+            "annual report (20-F/IFRS)"
+        }
+    } else {
+        "annual (10-K)"
+    };
+    let cur_note = if cur == "USD" {
+        String::new()
+    } else {
+        format!(" — figures in {cur}")
+    };
     let header = format!(
-        "{} ({}) — annual (10-K), {} fiscal year{} (latest filed {}):",
+        "{} ({}) — {form_word}, {} fiscal year{} (latest filed {}){cur_note}:",
         entity,
         ticker,
         axis.len(),
@@ -1967,10 +2159,13 @@ Derived (computed deterministically from the reported figures — do not recompu
             )
         ));
     }
-    text.push_str(
+    text.push_str(if cik.is_empty() {
         "
-Source: SEC EDGAR XBRL company facts (10-K; latest filing wins per period).",
-    );
+Source: ESEF annual reports via filings.xbrl.org (latest filing wins per period)."
+    } else {
+        "
+Source: SEC EDGAR XBRL company facts (latest filing wins per period)."
+    });
     let card = json!({
         "type": "financials",
         "ticker": ticker,
@@ -1978,10 +2173,14 @@ Source: SEC EDGAR XBRL company facts (10-K; latest filing wins per period).",
         "fiscal_year": axis.first().and_then(|e| e.get(..4)).unwrap_or(""),
         "period_end": axis.first().cloned().unwrap_or_default(),
         "filed": filed_latest,
-        "currency": "USD",
+        "currency": cur,
         "periods": periods,
         "rows": rows,
-        "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K"),
+        "source": if cik.is_empty() {
+            "https://filings.xbrl.org".to_string()
+        } else {
+            format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K")
+        },
     });
     Ok((text, card))
 }
@@ -2395,18 +2594,50 @@ mod tests {
 /// with the same deterministic derived metrics as the annual spread.
 fn financials_ltm(ticker: &str, cik: &str, raw: &Value) -> Result<(String, Value), String> {
     let entity = raw["entityName"].as_str().unwrap_or(ticker).to_string();
-    let d = fm_extract::ltm::extract_ltm(raw, "USD")
+    let cur = reporting_currency(raw);
+    let d = fm_extract::ltm::extract_ltm(raw, &cur)
         .ok_or_else(|| format!("No LTM-usable XBRL data for {ticker} — try basis=annual"))?;
-    let money = |v: f64| -> String {
-        let a = v.abs();
-        if a >= 1e9 {
-            format!("${:.2}B", v / 1e9)
-        } else if a >= 1e6 {
-            format!("${:.1}M", v / 1e6)
-        } else {
-            format!("${v:.0}")
-        }
+    let genuine = if d.is_ltm {
+        "stitched FY + latest interim − prior-year interim"
+    } else {
+        "no usable interim — annual figures as fallback"
     };
+    let heading = format!("LTM as of {} ({genuine})", d.as_of);
+    render_period_spread(ticker, cik, &entity, &d, &cur, "LTM", &heading)
+}
+
+/// Half-year basis (basis=semi): the latest discrete H1/H2 flows + latest
+/// balance-sheet instants — how most EU/UK/JP companies actually report
+/// between annual filings.
+fn financials_semi(ticker: &str, cik: &str, raw: &Value) -> Result<(String, Value), String> {
+    let entity = raw["entityName"].as_str().unwrap_or(ticker).to_string();
+    let cur = reporting_currency(raw);
+    let pd = fm_extract::period::extract_period(
+        raw,
+        &cur,
+        fm_extract::PeriodBasis::SemiAnnual,
+    )
+    .ok_or_else(|| {
+        format!(
+            "Half-year figures aren't available for {ticker} — its filings don't carry discrete six-month data. The annual spread works: try basis=annual (or basis=ltm)."
+        )
+    })?;
+    let heading = format!("half-year, {} (latest reported six months)", pd.label);
+    render_period_spread(ticker, cik, &entity, &pd.data, &cur, &pd.label, &heading)
+}
+
+/// One-period spread renderer shared by the LTM and half-year bases: reported
+/// rows, deterministic derived rows, warm text + card.
+fn render_period_spread(
+    ticker: &str,
+    cik: &str,
+    entity: &str,
+    d: &fm_extract::ltm::LtmData,
+    cur: &str,
+    period_label: &str,
+    heading: &str,
+) -> Result<(String, Value), String> {
+    let money = |v: f64| -> String { fmt_money_cur(v, cur) };
     let mut lines: Vec<String> = Vec::new();
     let mut rows: Vec<Value> = Vec::new();
     let mut push = |label: &str, kind: &str, v: Option<String>| {
@@ -2476,26 +2707,25 @@ fn financials_ltm(ticker: &str, cik: &str, raw: &Value) -> Result<(String, Value
             _ => None,
         },
     );
-    let genuine = if d.is_ltm {
-        "stitched FY + latest interim − prior-year interim"
+    let cur_note = if cur == "USD" {
+        String::new()
     } else {
-        "no usable interim — annual figures as fallback"
+        format!(" — figures in {cur}")
     };
     let text = format!(
-        "{entity} ({ticker}) — LTM as of {} ({genuine}):\n{}\nDerived rows are computed deterministically from the reported figures — do not recompute.\nSource: SEC EDGAR XBRL company facts (10-K + 10-Q).",
-        d.as_of,
+        "{entity} ({ticker}) — {heading}{cur_note}:\n{}\nDerived rows are computed deterministically from the reported figures — do not recompute.\nSource: SEC EDGAR XBRL company facts.",
         lines.join("\n")
     );
     let card = json!({
         "type": "financials",
         "ticker": ticker,
         "entity": entity,
-        "fiscal_year": "LTM",
+        "fiscal_year": period_label,
         "period_end": d.as_of,
-        "currency": "USD",
-        "periods": [{ "label": format!("LTM {}", d.as_of), "end": d.as_of }],
+        "currency": cur,
+        "periods": [{ "label": format!("{period_label} {}", d.as_of), "end": d.as_of }],
         "rows": rows,
-        "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-Q"),
+        "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"),
     });
     Ok((text, card))
 }
@@ -2571,10 +2801,11 @@ fn duration_facts(
 /// share-count changes).
 fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String, Value), String> {
     let entity = raw["entityName"].as_str().unwrap_or(ticker).to_string();
-    let us = raw["facts"]["us-gaap"].as_object().ok_or_else(|| {
-        format!("{ticker} has no US-GAAP XBRL facts (likely a foreign filer) — try build_model")
+    let (us, ifrs_tm, tax) = fm_extract::xbrl::select_taxonomy(raw).ok_or_else(|| {
+        format!("{ticker} has no structured XBRL facts — try list_filings or build_model")
     })?;
-    let metrics: &[(&str, &[&str], bool)] = &[
+    let is_ifrs = tax == "ifrs-full";
+    let metrics: &[(&str, &[&str], &str, bool)] = &[
         (
             "Revenue",
             &[
@@ -2582,22 +2813,28 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
                 "Revenues",
                 "SalesRevenueNet",
             ],
+            "revenue",
             true,
         ),
-        ("Operating income", &["OperatingIncomeLoss"], true),
-        ("Net income", &["NetIncomeLoss", "ProfitLoss"], true),
-        ("Diluted EPS", &["EarningsPerShareDiluted"], false),
+        ("Operating income", &["OperatingIncomeLoss"], "ebit", true),
+        ("Net income", &["NetIncomeLoss", "ProfitLoss"], "net_income", true),
+        ("Diluted EPS", &["EarningsPerShareDiluted"], "eps_diluted", false),
     ];
+    let pick = |us_tags: &'static [&'static str], key: &str| -> &'static [&'static str] {
+        if is_ifrs {
+            ifrs_tm.get(key).copied().unwrap_or(&[])
+        } else {
+            us_tags
+        }
+    };
+    let cur = detect_reporting_currency(us, pick(metrics[0].1, "revenue"));
     // Per metric: quarter end -> (val, derived?). Q4 derived from FY − ΣQ1..3.
     let mut per: std::collections::BTreeMap<&str, std::collections::BTreeMap<String, (f64, bool)>> =
         std::collections::BTreeMap::new();
-    for &(label, tags, derivable) in metrics {
-        let unit = if label == "Diluted EPS" {
-            "USD/shares"
-        } else {
-            "USD"
-        };
-        let (quarters, annuals) = duration_facts(us, tags, unit);
+    let eps_unit = format!("{cur}/shares");
+    for &(label, us_tags, key, derivable) in metrics {
+        let unit: &str = if label == "Diluted EPS" { &eps_unit } else { &cur };
+        let (quarters, annuals) = duration_facts(us, pick(us_tags, key), unit);
         let mut m: std::collections::BTreeMap<String, (f64, bool)> = quarters
             .iter()
             .map(|(v, _, e, _)| (e.clone(), (*v, false)))
@@ -2628,29 +2865,24 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
         .unwrap_or_default();
     axis.truncate(8);
     if axis.is_empty() {
-        return Err(format!(
-            "No quarterly XBRL figures found for {ticker}. Try basis=annual."
-        ));
-    }
-    let money = |v: f64| -> String {
-        let a = v.abs();
-        if a >= 1e9 {
-            format!("${:.2}B", v / 1e9)
-        } else if a >= 1e6 {
-            format!("${:.1}M", v / 1e6)
+        return Err(if is_ifrs {
+            format!(
+                "Quarterly figures aren't available for {ticker} — foreign filers' interim reports don't carry structured data. The annual spread works: try basis=annual (or basis=ltm for the latest full year)."
+            )
         } else {
-            format!("${v:.0}")
-        }
-    };
+            format!("No quarterly XBRL figures found for {ticker}. Try basis=annual.")
+        });
+    }
+    let money = |v: f64| -> String { fmt_money_cur(v, &cur) };
     let mut lines: Vec<String> = Vec::new();
     let mut rows: Vec<Value> = Vec::new();
-    for &(label, _, _) in metrics {
+    for &(label, _, _, _) in metrics {
         let vals: Vec<Option<String>> = axis
             .iter()
             .map(|e| {
                 per[label].get(e).map(|(v, derived)| {
                     let disp = if label == "Diluted EPS" {
-                        format!("${v:.2}")
+                        fmt_eps_cur(*v, &cur)
                     } else {
                         money(*v)
                     };
@@ -2701,7 +2933,7 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
         "entity": entity,
         "fiscal_year": "quarterly",
         "period_end": axis.first().cloned().unwrap_or_default(),
-        "currency": "USD",
+        "currency": cur,
         "periods": periods,
         "rows": rows,
         "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-Q"),
@@ -2812,5 +3044,121 @@ mod financials_tests {
         assert!(!text.contains("Gross margin"));
         assert!(!text.contains("Free cash flow"));
         assert_eq!(card["periods"].as_array().unwrap().len(), 2);
+    }
+
+    /// IFRS filer (synthetic SAP-shape): ifrs-full taxonomy, 20-F forms, EUR
+    /// reporting currency beating a single convenience-USD fact, € formatting,
+    /// and the honest 20-F header.
+    #[test]
+    fn financials_ifrs_eur_20f_spread() {
+        let fy = |v: f64, end: &str, filed: &str| {
+            serde_json::json!({ "val": v, "end": end, "fp": "FY", "form": "20-F", "filed": filed,
+                    "start": format!("{}-01-01", &end[..4]) })
+        };
+        let raw = serde_json::json!({
+            "entityName": "EuroCo SE",
+            "facts": { "ifrs-full": {
+                "Revenue": { "units": {
+                    "EUR": [ fy(31.8e9, "2025-12-31", "2026-02-27"), fy(29.5e9, "2024-12-31", "2025-02-27") ],
+                    // One convenience translation must NOT hijack the currency.
+                    "USD": [ fy(34.3e9, "2025-12-31", "2026-02-27") ]
+                }},
+                "CostOfSales": { "units": { "EUR": [ fy(8.6e9, "2025-12-31", "2026-02-27"), fy(8.1e9, "2024-12-31", "2025-02-27") ] }},
+                "ProfitLoss": { "units": { "EUR": [ fy(6.0e9, "2025-12-31", "2026-02-27"), fy(3.1e9, "2024-12-31", "2025-02-27") ] }},
+                "Assets": { "units": { "EUR": [ fy(73.0e9, "2025-12-31", "2026-02-27") ] }},
+                "DilutedEarningsLossPerShare": { "units": { "EUR/shares": [ fy(5.12, "2025-12-31", "2026-02-27") ] }}
+            }}
+        });
+        let (text, card) = financials_from_facts("EURC", "0", &raw, None, 3).unwrap();
+        assert_eq!(card["currency"], "EUR", "card currency:\n{text}");
+        assert!(text.contains("figures in EUR"), "currency note missing:\n{text}");
+        assert!(text.contains("annual report (20-F/IFRS)"), "form word missing:\n{text}");
+        assert!(text.contains("€31.80B"), "euro formatting missing:\n{text}");
+        assert!(text.contains("€5.12"), "euro EPS missing:\n{text}");
+        // Derived rows still compute off the IFRS series.
+        assert!(text.contains("Net margin"), "derived missing:\n{text}");
+        assert_eq!(card["periods"].as_array().unwrap().len(), 2);
+    }
+
+    /// JPY filer with a March fiscal year: trillion-scale ¥ formatting and
+    /// FY labels from the period end (Toyota's FY2025 ends 2025-03-31).
+    #[test]
+    fn financials_ifrs_jpy_march_fy() {
+        let fy = |v: f64, end: &str, filed: &str| {
+            serde_json::json!({ "val": v, "end": end, "fp": "FY", "form": "20-F", "filed": filed })
+        };
+        let raw = serde_json::json!({
+            "entityName": "Nihon KK",
+            "facts": { "ifrs-full": {
+                "Revenue": { "units": { "JPY": [ fy(45.1e12, "2025-03-31", "2025-06-18"), fy(43.3e12, "2024-03-31", "2024-06-18") ] }},
+                "ProfitLoss": { "units": { "JPY": [ fy(4.9e12, "2025-03-31", "2025-06-18") ] }}
+            }}
+        });
+        let (text, card) = financials_from_facts("NKK", "0", &raw, None, 2).unwrap();
+        assert_eq!(card["currency"], "JPY");
+        assert!(text.contains("¥45.10T"), "trillions missing:\n{text}");
+        assert!(text.contains("FY2025"), "march FY label:\n{text}");
+    }
+
+    /// Quarterly for an IFRS filer with no interim facts: a plain-language
+    /// pointer to the annual basis, never a schema-flavored error.
+    #[test]
+    fn quarterly_ifrs_no_interims_is_honest() {
+        let raw = serde_json::json!({
+            "entityName": "EuroCo SE",
+            "facts": { "ifrs-full": {
+                "Revenue": { "units": { "EUR": [
+                    { "val": 3.0e9, "end": "2025-12-31", "start": "2025-01-01", "fp": "FY", "form": "20-F", "filed": "2026-02-27" }
+                ]}}
+            }}
+        });
+        let err = financials_quarterly("EURC", "0", &raw).unwrap_err();
+        assert!(err.contains("aren't available"), "got: {err}");
+        assert!(err.contains("basis=annual"), "got: {err}");
+    }
+
+    /// Currency + money formatting primitives.
+    #[test]
+    fn currency_detection_and_formatting() {
+        assert_eq!(fmt_money_cur(94.83e9, "USD"), "$94.83B");
+        assert_eq!(fmt_money_cur(45.1e12, "JPY"), "¥45.10T");
+        assert_eq!(fmt_money_cur(1.2e9, "CHF"), "CHF 1.20B");
+        assert_eq!(fmt_eps_cur(5.12, "EUR"), "€5.12");
+        assert_eq!(fmt_eps_cur(231.0, "JPY"), "¥231");
+        assert!(is_annual_form("10-K/A"));
+        assert!(is_annual_form("20-F"));
+        assert!(is_annual_form("ESEF"));
+        assert!(!is_annual_form("10-Q"));
+    }
+
+    /// Live EDGAR smoke for a foreign private issuer: SAP's 20-F IFRS facts
+    /// produce an EUR annual spread through the same pipeline as US filers.
+    /// Run: cargo test --lib financials_live_sap -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn financials_live_sap_eur_spread() {
+        let cik = fm_fetch::cik_from_ticker("SAP").unwrap();
+        let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).unwrap();
+        let (text, card) = financials_from_facts("SAP", &cik, &raw, None, 3).unwrap();
+        println!("{text}");
+        assert_eq!(card["currency"], "EUR", "{text}");
+        assert!(text.contains("€"), "{text}");
+        assert!(text.contains("figures in EUR"), "{text}");
+    }
+
+
+    /// LIVE (network): a European company with NO US listing routes to the
+    /// ESEF filings index and yields a EUR spread through the SAME pipeline.
+    /// Run: cargo test --lib financials_live_esef -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn financials_live_esef_fallback_spread() {
+        let args = serde_json::json!({ "ticker": "Fiskars Oyj Abp", "basis": "annual" });
+        let (text, card) = tool_get_financials(&args).unwrap();
+        println!("{text}");
+        assert_eq!(card["currency"], "EUR", "{text}");
+        assert!(text.contains("figures in EUR"), "{text}");
+        assert!(text.contains("filings.xbrl.org"), "{text}");
+        assert!(text.contains("Revenue"), "{text}");
     }
 }

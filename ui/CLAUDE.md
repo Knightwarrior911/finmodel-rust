@@ -1,3 +1,23 @@
+## Session (2026-07-20 later) v0.9.23 — previews, power prompt, settings pickers, copy sweep
+- composer.mjs: image chips carry data-URL thumbnails (blob: URLs are
+  CSP-blocked — img-src 'self' data:); 40px .attach-thumb. Multi-image
+  paste: per-paste screenshotSeq suffix (same-second collisions), plural
+  hint. refineDraft(mode) — #refineBtn opens #refineMenu (Quick tidy /
+  Power prompt → refine_prompt mode param); Escape/click-away close;
+  hint-action undo restores the draft.
+- settings.mjs: modelCatalogList/providerBaseList datalists (populated from
+  list_models when has_key + static PROVIDERS) attached to synthesisModel,
+  worker/verifier model + provider-base inputs; edinetKey field (blank
+  keeps saved). Capability copy humanized ('can use tools ✓, reliable
+  tables ✓'); model options '· uses tools · sees images'.
+- index.html: refineMenu markup; SEC email → 'Contact email for SEC
+  downloads (optional)' + honest hint; 'baseline files — coming soon'
+  removed; roles placeholders 'saved key name (advanced — usually blank)'.
+- style.css: .refine-menu/.refine-opt, .field-check flex fix (the
+  .field-row input{flex:1} rule stretched checkboxes), reduced-motion.
+- Tests: 194 jsdom (power-prompt mode, data-URL thumb, two-screenshot
+  paste).
+
 ## Session (2026-07-20) v0.9.22 — composer multimodal, prompt polish, spending settings
 - **composer.mjs** (new module): model picker popover on the pill (filterModels
   multi-term, arrow/Enter/Escape, list_models 5-min cache), attachment chips

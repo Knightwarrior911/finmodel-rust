@@ -1,5 +1,30 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.23 SHIPPING (2026-07-20) — international research + composer polish
+**Shipping both passes as v0.9.23 (lockstep bumped; CHANGELOG dated).
+Gates all green: app-lib 351 · fm-fetch 59 · fm-research 126 · UI 194.
+Live-verified: SAP EUR spread (20-F/IFRS via EDGAR), Fiskars EUR spread
+end-to-end via ESEF with NO US listing. EDINET leg is key-gated and
+fixture-only (needs a free EDINET key → Settings → Connections; run
+live_edinet_toyota with EDINET_API_KEY to verify first time).
+Subagent infra note: two 5-agent parallel batches died at ~3m45s with
+socket errors (same session had openrouter.ai TLS resets); everything was
+executed serially instead.**
+
+What landed (details in src-tauri/CLAUDE.md session block):
+1) IFRS + currency through the whole numbers pipeline (spread/LTM/
+   quarterly/semi/comps), 20-F/40-F/ESEF/EDINET form acceptance, native
+   currency formatting, basis=semi, honest foreign-quarterly message.
+2) fm-fetch esef.rs (live-verified) + edinet.rs (key-gated) emitting
+   EDGAR-companyfacts-shaped JSON — the one interchange contract.
+3) get_financials routing EDGAR→ESEF→EDINET + validate_company_query +
+   updated tool description (names/LEI accepted).
+4) Verification identities: EPS + EBITDA recompute (NCI stand-down band
+   documented as known hole).
+5) Research: grounding coverage line on every answer/digest; local
+   newswires tiered; operator-smart queries (quotes, site:, -site:;
+   NEVER before:/after: — DDG fallback breaks on them).
+
 ## HANDOVER — v0.9.22 SHIPPED + LIVE (2026-07-20) — composer multimodal + billing safety
 **Tagged v0.9.22 on fd25e15; released to public finmodel-releases (Latest).
 CI green all 5 jobs (run 29729750562). Signed NSIS published; endpoint

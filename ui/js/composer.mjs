@@ -96,10 +96,10 @@ export function attachmentPayload() {
   }));
 }
 
+/// Monotonic suffix so two screenshots pasted in the same second never
+/// collide on name.
+let screenshotSeq = 0;
 export function clearAttachments() {
-  for (const a of state.attachments) {
-    if (a.thumbUrl) URL.revokeObjectURL(a.thumbUrl);
-  }
   state.attachments = [];
   state.scope = null;
   renderChips();
@@ -108,7 +108,6 @@ export function clearAttachments() {
 function removeAttachment(id) {
   const i = state.attachments.findIndex((a) => a.artifact_id === id);
   if (i >= 0) {
-    if (state.attachments[i].thumbUrl) URL.revokeObjectURL(state.attachments[i].thumbUrl);
     state.attachments.splice(i, 1);
     renderChips();
   }
@@ -179,9 +178,12 @@ function composerHint(text, ms = 2600, action = null) {
 
 let refineBusy = false;
 
-/// One-click tidy of the draft in the input box. The rewrite lands back in
-/// the box for the user to edit or undo — sending stays a human decision.
-export async function refineDraft() {
+/// Rewrite the draft in the input box. `mode`:
+/// - "tidy"  — light cleanup (grammar, specifics the draft implies)
+/// - "power" — full prompt-engineering pass: goal, grounding, output shape
+/// The rewrite lands back in the box for the user to edit or undo —
+/// sending stays a human decision.
+export async function refineDraft(mode = "tidy") {
   const ta = document.getElementById("chatInput");
   const btn = document.getElementById("refineBtn");
   const draft = ((ta && ta.value) || "").trim();
@@ -195,9 +197,14 @@ export async function refineDraft() {
     btn.disabled = true;
     btn.classList.add("refining");
   }
-  composerHint("Tidying your question…", 60_000);
+  composerHint(
+    mode === "power"
+      ? "Building the strongest version of your request…"
+      : "Tidying your question…",
+    60_000,
+  );
   try {
-    const res = await call("refine_prompt", { draft });
+    const res = await call("refine_prompt", { draft, mode });
     const text = ((res && res.text) || "").trim();
     if (!text) throw new Error("Nothing came back — your draft is unchanged.");
     const original = ta.value;
@@ -205,7 +212,10 @@ export async function refineDraft() {
     ta.value = text;
     ta.dispatchEvent(new Ev("input", { bubbles: true }));
     ta.focus();
-    composerHint("Tidied up — send it, edit it, or", 8_000, {
+    composerHint(
+      mode === "power" ? "Power prompt ready — send it, edit it, or" : "Tidied up — send it, edit it, or",
+      8_000,
+      {
       label: "put my version back",
       onClick: () => {
         ta.value = original;
@@ -256,11 +266,10 @@ export async function stageFile(file, nameOverride) {
       size: res.size ?? file.size,
     };
     if (att.class === "image") {
-      try {
-        att.thumbUrl = URL.createObjectURL(file);
-      } catch {
-        /* jsdom */
-      }
+      // Preview via data URL — the webview CSP is `img-src 'self' data:`,
+      // so blob: object URLs never render. We already hold the base64.
+      const mime = file.type || "image/png";
+      att.thumbUrl = `data:${mime};base64,${b64}`;
     }
     state.attachments.push(att);
     renderChips();
@@ -422,9 +431,37 @@ export function initComposer({ getConversationId, currentModel } = {}) {
       if (ta) ta.focus();
     });
   }
-  // Wand → one-click prompt polish (result lands back in the box).
+  // Wand → a two-choice menu: quick tidy, or a full power-prompt rewrite.
   const refineBtn = document.getElementById("refineBtn");
-  if (refineBtn) refineBtn.addEventListener("click", refineDraft);
+  const refineMenu = document.getElementById("refineMenu");
+  const closeRefineMenu = () => {
+    if (refineMenu) refineMenu.hidden = true;
+  };
+  if (refineBtn && refineMenu) {
+    refineBtn.addEventListener("click", () => {
+      refineMenu.hidden = !refineMenu.hidden;
+      if (!refineMenu.hidden) refineMenu.querySelector(".refine-opt")?.focus();
+    });
+    refineMenu.addEventListener("click", (e) => {
+      const opt = e.target.closest(".refine-opt");
+      if (!opt) return;
+      closeRefineMenu();
+      refineDraft(opt.dataset.mode || "tidy");
+    });
+    refineMenu.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeRefineMenu();
+        refineBtn.focus();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (refineMenu.hidden) return;
+      if (refineMenu.contains(e.target) || refineBtn.contains(e.target)) return;
+      closeRefineMenu();
+    });
+  } else if (refineBtn) {
+    refineBtn.addEventListener("click", () => refineDraft("tidy"));
+  }
 
   // Chip removal (delegated).
   if (chipsRow) {
@@ -447,13 +484,21 @@ export function initComposer({ getConversationId, currentModel } = {}) {
       const imgs = items.filter((it) => it.kind === "file" && /^image\//.test(it.type));
       if (imgs.length) {
         e.preventDefault();
+        const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, "");
+        let staged = 0;
         for (const it of imgs) {
           const f = it.getAsFile();
           if (!f) continue;
           const ext = (it.type.split("/")[1] || "png").replace("jpeg", "jpg");
-          await stageFile(f, `screenshot-${new Date().toISOString().slice(11, 19).replace(/:/g, "")}.${ext}`);
+          screenshotSeq += 1;
+          const ok = await stageFile(f, `screenshot-${stamp}-${screenshotSeq}.${ext}`);
+          if (ok) staged += 1;
         }
-        composerHint("Screenshot attached — I'll look at it with your message");
+        composerHint(
+          staged > 1
+            ? `${staged} screenshots attached — I'll look at them with your message`
+            : "Screenshot attached — I'll look at it with your message",
+        );
         return;
       }
       const text = cd.getData("text/plain");
