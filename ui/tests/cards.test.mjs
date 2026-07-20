@@ -434,3 +434,81 @@ test("turn cost renders tokens always, dollars only when billed", async () => {
   // Zero tokens declines (comment node).
   assert.equal(cards.renderCard({ type: "turn_cost" }).nodeType, 8);
 });
+
+test("deepSourceUrl builds Chrome text-fragment links with clean quotes", async () => {
+  setupDom();
+  const core = await importModule("core.mjs");
+  // Plain quote → #:~:text= with encoding; '-' is directive syntax.
+  assert.equal(
+    core.deepSourceUrl("https://ex.com/a", "revenue rose 8%"),
+    "https://ex.com/a#:~:text=revenue%20rose%208%25",
+  );
+  assert.ok(
+    core.deepSourceUrl("https://ex.com/a", "год-over-год").includes("%2D"),
+    "dashes are percent-encoded",
+  );
+  // Search-snippet hygiene: anchor on the LONGEST run between ellipses.
+  assert.equal(
+    core.fragmentQuote("intro … the exact passage we want to anchor on … tail"),
+    "the exact passage we want to anchor on",
+  );
+  // 10-word cap.
+  assert.equal(
+    core.fragmentQuote("one two three four five six seven eight nine ten eleven twelve"),
+    "one two three four five six seven eight nine ten",
+  );
+  // Existing fragment → the directive appends after it.
+  assert.equal(
+    core.deepSourceUrl("https://ex.com/a#sec2", "net income"),
+    "https://ex.com/a#sec2:~:text=net%20income",
+  );
+  // Junk in, plain URL out — never a broken directive, never non-http.
+  assert.equal(core.deepSourceUrl("https://ex.com/a", "  …  "), "https://ex.com/a");
+  assert.equal(core.deepSourceUrl("javascript:alert(1)", "x"), "");
+});
+
+test("financials columns click through to the exact SEC filing", async () => {
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "financials",
+    entity: "TestCo",
+    currency: "USD",
+    periods: [{ label: "FY2024", end: "2024-12-31" }, { label: "FY2023", end: "2023-12-31" }],
+    filings: ["https://www.sec.gov/Archives/edgar/data/1/x/a-index.htm", null],
+    rows: [{ label: "Revenue", values: ["101,000", "80,000"] }],
+  });
+  const html = el.innerHTML;
+  // FY2024 header + its value are clickable; FY2023 (no filing) is not.
+  const links = el.querySelectorAll(".num-link");
+  assert.equal(links.length, 2, "header + one value cell");
+  for (const l of links) {
+    assert.equal(l.dataset.url, "https://www.sec.gov/Archives/edgar/data/1/x/a-index.htm");
+  }
+  assert.match(html, /opens it on SEC EDGAR/);
+  // The un-linked year renders as plain text.
+  assert.match(html, /FY2023<\/th>/);
+});
+
+test("cite pills deep-link to the quoted passage", async () => {
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "research_answer",
+    answer: {
+      confidence: "high",
+      summary: { text: "Revenue rose.", citations: [{ source_id: "s1", quote: "revenue rose 8% to $4.2 billion" }] },
+      sections: [],
+      sources: [{ id: "s1", final_url: "https://reuters.com/x", domain: "reuters.com", status: "read", snippet: "revenue rose 8% to $4.2 billion in the quarter" }],
+      limitations: [],
+    },
+  });
+  const pill = el.querySelector(".cite-ref");
+  assert.ok(pill, "cite pill renders");
+  assert.ok(
+    pill.dataset.url.startsWith("https://reuters.com/x#:~:text="),
+    `deep link built: ${pill.dataset.url}`,
+  );
+  assert.match(pill.title, /Opens the source at:/);
+  // The source card anchors on its own snippet.
+  const srcCard = el.querySelector(".src-card");
+  assert.ok(srcCard.dataset.url.includes("#:~:text="), "src card deep links");
+});

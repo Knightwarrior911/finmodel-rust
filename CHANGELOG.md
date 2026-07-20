@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.29 - 2026-07-20 - Click a number, land on its source
+
+- **Citations deep-link to the exact passage.** Cited answers use the
+  Text Fragments standard (the Chrome "copy link to highlight" feature):
+  click a numbered cite pill or a source card and the browser opens the
+  page SCROLLED TO the quoted sentence, highlighted - not just the page
+  top. Snippets are cleaned before anchoring (ellipses split, longest
+  clean run, 10-word cap, syntax characters encoded) so fragments
+  actually match; anything unclean falls back to the plain URL.
+- **Every financial figure is one click from its filing.** Fiscal-year
+  columns on the financials card now carry the EXACT SEC filing their
+  numbers were reported in (per-year accession numbers from the XBRL
+  facts - a restated year links to the 10-K/A, not the original). Hover
+  any figure: a quiet dotted underline and "Reported in the FY2024
+  filing - opens it on SEC EDGAR"; click the year or the number to open
+  it.
+- Cite pill tooltips now say where the click goes ("Opens the source
+  at: ...") instead of just echoing the quote.
+
 ## v0.9.28 - 2026-07-20 - Harness pass 3: JARVIS bearing, honest costs, visible juniors
 
 - **A personality worthy of the work.** The analyst now carries itself like

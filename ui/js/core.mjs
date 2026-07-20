@@ -170,6 +170,47 @@ export function domainOf(url) {
   }
 }
 
+/// Deep source link via the Text Fragments standard (#:~:text=...): a
+/// Chromium/Safari/recent-Firefox browser opens the page SCROLLED TO the
+/// quoted passage and highlights it - click a cited figure, land on the
+/// exact sentence it came from. Unsupported browsers simply ignore the
+/// fragment and open the page (the plain URL is always the fallback).
+///
+/// Quote hygiene, because fragments fail silently on any mismatch:
+/// - search snippets carry ellipses and normalized whitespace, so we split
+///   on ellipses and anchor on the LONGEST clean run;
+/// - the run is capped at 10 words (long quotes over-constrain matching);
+/// - '-', ',' and '&' are directive syntax and get percent-encoded.
+export function deepSourceUrl(url, quote) {
+  const base = String(url || "");
+  if (!/^https?:\/\//i.test(base)) return "";
+  const text = fragmentQuote(quote);
+  if (!text) return base;
+  const enc = encodeURIComponent(text).replace(/-/g, "%2D");
+  return base.includes("#") ? `${base}:~:text=${enc}` : `${base}#:~:text=${enc}`;
+}
+
+/// The anchorable part of a quote (see deepSourceUrl). Empty when nothing
+/// clean enough survives.
+export function fragmentQuote(quote) {
+  const raw = String(quote || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  // Longest run between ellipses (search snippets stitch fragments).
+  const runs = raw
+    .split(/\u2026|\.\.\./)
+    .map((r) => r.trim())
+    .filter(Boolean);
+  if (!runs.length) return "";
+  let best = runs[0];
+  for (const r of runs) if (r.length > best.length) best = r;
+  // Strip wrapping quotes/brackets, cap at 10 words.
+  const cleaned = best.replace(/^["'\u201c\u2018([{\s]+|["'\u201d\u2019)\]}.,;:\s]+$/g, "");
+  const words = cleaned.split(" ").filter(Boolean).slice(0, 10);
+  const out = words.join(" ");
+  // Too short anchors match everywhere or nowhere - not worth a directive.
+  return out.length >= 4 ? out : "";
+}
+
 /// Open a URL in the OS browser. Returns a promise resolving to `true` on
 /// success, `false` on failure (callers may surface an opener-failure state).
 export function openExternal(url) {

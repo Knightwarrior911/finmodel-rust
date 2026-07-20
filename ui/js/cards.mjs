@@ -5,6 +5,7 @@ import {
   call,
   escapeHtml,
   openExternal,
+  deepSourceUrl,
   openPath,
   domainOf,
   fmtNum,
@@ -413,14 +414,24 @@ function renderFilings(card) {
 // for single-year cards persisted in older conversations.
 function renderFinancials(card) {
   const periods = Array.isArray(card.periods) ? card.periods : null;
+  // Auditability: filings[i] is the SEC filing the i-th column's figures
+  // were reported in — every number in that column is one click from its
+  // primary source.
+  const filings = Array.isArray(card.filings) ? card.filings : [];
+  const colLink = (i) => {
+    const u = typeof filings[i] === "string" ? filings[i] : "";
+    return /^https?:\/\//i.test(u) ? u : "";
+  };
   const rows = (card.rows || [])
     .map((r) => {
       if (periods && Array.isArray(r.values)) {
         const cells = periods
-          .map(
-            (_, i) =>
-              `<td class="num">${escapeHtml(r.values[i] != null ? String(r.values[i]) : "—")}</td>`,
-          )
+          .map((p, i) => {
+            const v = r.values[i] != null ? String(r.values[i]) : "—";
+            const u = colLink(i);
+            if (!u || v === "—") return `<td class="num">${escapeHtml(v)}</td>`;
+            return `<td class="num"><span class="num-link" data-url="${escapeHtml(u)}" role="link" tabindex="0" title="Reported in the ${escapeHtml(p.label || "")} filing — opens it on SEC EDGAR">${escapeHtml(v)}</span></td>`;
+          })
           .join("");
         const cls = r.kind === "derived" ? ' class="fin-derived"' : "";
         return `<tr${cls}><td>${escapeHtml(r.label || "")}</td>${cells}</tr>`;
@@ -490,7 +501,12 @@ function renderFinancials(card) {
     <div class="card-table-wrap"><table class="card-table"><thead><tr><th scope="col">Line item</th>${
       periods
         ? periods
-            .map((p) => `<th scope="col" class="num">${escapeHtml(p.label || "")}</th>`)
+            .map((p, i) => {
+              const u = colLink(i);
+              const label = escapeHtml(p.label || "");
+              if (!u) return `<th scope="col" class="num">${label}</th>`;
+              return `<th scope="col" class="num"><span class="num-link fy-link" data-url="${escapeHtml(u)}" role="link" tabindex="0" title="Open this fiscal year's filing on SEC EDGAR">${label}</span></th>`;
+            })
             .join("")
         : `<th scope="col">${escapeHtml(card.currency || "Value")}</th>`
     }</tr></thead><tbody>${
@@ -638,13 +654,16 @@ function citeRefs(citations, srcById, idOrder) {
     .map((c) => {
       const src = srcById[c.source_id] || {};
       const url = safeHttpUrl(src.final_url || src.requested_url || "");
-      const attrs = url ? ` data-url="${escapeHtml(url)}"` : "";
+      // Text-fragment deep link: the browser opens the source scrolled to
+      // and highlighting this citation's quote (plain URL when no quote).
+      const deep = url ? deepSourceUrl(url, c.quote) || url : "";
+      const attrs = deep ? ` data-url="${escapeHtml(deep)}"` : "";
       const ord = order.indexOf(c.source_id);
       const chip = citeChipLabel(src, c.source_id, ord >= 0 ? ord : 0);
       const publisher =
         sourcePublisherLabel(src, url) || c.source_id || "source";
       return `<button type="button" class="cite-ref"${attrs} title="${escapeHtml(
-        c.quote || publisher,
+        c.quote ? `Opens the source at: \u201c${c.quote}\u201d` : publisher,
       )}" aria-label="Source ${escapeHtml(chip)}, ${escapeHtml(
         publisher,
       )}: ${escapeHtml(c.quote || "")}">${escapeHtml(chip)}</button>`;
@@ -686,8 +705,11 @@ function renderResearchAnswer(card) {
       const title = sourceCardTitle(src, url);
       const letter = sourceAvatarLetter(domain);
       const meta = sourceRowMeta(src.status, src.kind);
-      const clickable = url
-        ? ` data-url="${escapeHtml(url)}" role="button" tabindex="0"`
+      // Anchor on the source's own verbatim snippet/excerpt so the click
+      // lands at the cited passage, not just the page top.
+      const deep = url ? deepSourceUrl(url, src.excerpt || src.snippet) || url : "";
+      const clickable = deep
+        ? ` data-url="${escapeHtml(deep)}" role="button" tabindex="0" title="Opens the source at the cited passage"`
         : "";
       return `<li class="src-card"${clickable}>
         <span class="src-card-num num" aria-hidden="true">${escapeHtml(

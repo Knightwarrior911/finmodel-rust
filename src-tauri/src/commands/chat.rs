@@ -1722,7 +1722,7 @@ fn fmt_eps_cur(v: f64, cur: &str) -> String {
 }
 
 /// One annual observation: (value, period end YYYY-MM-DD, filed date).
-type AnnualFact = (f64, String, String);
+type AnnualFact = (f64, String, String, String);
 
 /// All annual (10-K, fp=FY) observations for the FIRST tag with data, one per
 /// period end, latest filing winning (restatement-correct), newest first.
@@ -1741,12 +1741,13 @@ fn annual_series(
         let Some(vals) = map.get(tag).and_then(|e| e["units"][unit].as_array()) else {
             continue;
         };
-        let mut by_end: std::collections::BTreeMap<String, (f64, String)> =
+        let mut by_end: std::collections::BTreeMap<String, (f64, String, String)> =
             std::collections::BTreeMap::new();
         for v in vals {
             let (Some(val), Some(end)) = (v["val"].as_f64(), v["end"].as_str()) else {
                 continue;
             };
+            let accn = v["accn"].as_str().unwrap_or("").to_string();
             if v["fp"].as_str() != Some("FY")
                 || !v["form"].as_str().map_or(false, is_annual_form)
             {
@@ -1754,9 +1755,9 @@ fn annual_series(
             }
             let filed = v["filed"].as_str().unwrap_or("").to_string();
             match by_end.get(end) {
-                Some((_, f)) if *f >= filed => {}
+                Some((_, f, _)) if *f >= filed => {}
                 _ => {
-                    by_end.insert(end.to_string(), (val, filed));
+                    by_end.insert(end.to_string(), (val, filed, accn));
                 }
             }
         }
@@ -1764,7 +1765,7 @@ fn annual_series(
             let series: Vec<AnnualFact> = by_end
                 .into_iter()
                 .rev()
-                .map(|(end, (val, filed))| (val, end, filed))
+                .map(|(end, (val, filed, accn))| (val, end, filed, accn))
                 .collect();
             let newest = series[0].1.clone();
             if best.as_ref().map_or(true, |(b, _)| newest > *b) {
@@ -1773,6 +1774,19 @@ fn annual_series(
         }
     }
     best.map(|(_, s)| s).unwrap_or_default()
+}
+
+/// EDGAR filing index URL from a CIK and accession number. The archive
+/// directory needs the accession WITHOUT dashes and the CIK WITHOUT leading
+/// zeros, while the index filename keeps the dashes - mixing formats 404s.
+/// Empty when either part is missing (the UI then simply renders no link).
+fn filing_index_url(cik: &str, accn: &str) -> String {
+    let cik_nz = cik.trim_start_matches('0');
+    if cik_nz.is_empty() || accn.is_empty() {
+        return String::new();
+    }
+    let accn_nodash: String = accn.chars().filter(|c| *c != '-').collect();
+    format!("https://www.sec.gov/Archives/edgar/data/{cik_nz}/{accn_nodash}/{accn}-index.htm")
 }
 
 /// Days-scale ordinal for a YYYY-MM-DD string (windowing only, not calendar math).
@@ -1943,7 +1957,7 @@ fn financials_from_facts(
     } else {
         "Net income"
     };
-    let mut axis: Vec<String> = series[axis_src].iter().map(|(_, e, _)| e.clone()).collect();
+    let mut axis: Vec<String> = series[axis_src].iter().map(|(_, e, _, _)| e.clone()).collect();
     if let Some(y) = want_year {
         axis.retain(|end| {
             end.get(..4)
@@ -1963,8 +1977,8 @@ fn financials_from_facts(
     }
     let filed_latest = series[axis_src]
         .iter()
-        .find(|(_, e, _)| *e == axis[0])
-        .map(|(_, _, f)| f.clone())
+        .find(|(_, e, _, _)| *e == axis[0])
+        .map(|(_, _, f, _)| f.clone())
         .unwrap_or_default();
 
     // ---- Cover-page shares: align each axis end to the cover dated within
@@ -1976,12 +1990,12 @@ fn financials_from_facts(
         let e0 = date_ord(end);
         cover
             .iter()
-            .filter(|(_, ce, _)| {
+            .filter(|(_, ce, _, _)| {
                 let c = date_ord(ce);
                 c >= e0 && c - e0 <= 130
             })
-            .min_by_key(|(_, ce, _)| date_ord(ce) - e0)
-            .map(|(v, _, _)| *v)
+            .min_by_key(|(_, ce, _, _)| date_ord(ce) - e0)
+            .map(|(v, _, _, _)| *v)
     };
 
     // ---- Formatting ------------------------------------------------------
@@ -2004,8 +2018,8 @@ fn financials_from_facts(
     let val_at = |label: &str, end: &str| -> Option<f64> {
         series
             .get(label)
-            .and_then(|s| s.iter().find(|(_, e, _)| e == end))
-            .map(|(v, _, _)| *v)
+            .and_then(|s| s.iter().find(|(_, e, _, _)| e == end))
+            .map(|(v, _, _, _)| *v)
     };
 
     // ---- Assemble rows ---------------------------------------------------
@@ -2221,6 +2235,19 @@ fn financials_from_facts(
         .iter()
         .map(|e| json!({ "label": fy_label(e), "end": e }))
         .collect();
+    // Auditability: each fiscal-year column links to the EXACT filing its
+    // figures were reported in (accession number from the winning fact).
+    let filings: Vec<Value> = axis
+        .iter()
+        .map(|end| {
+            let url = series[axis_src]
+                .iter()
+                .find(|(_, e, _, _)| e == end)
+                .map(|(_, _, _, a)| filing_index_url(cik, a))
+                .unwrap_or_default();
+            if url.is_empty() { json!(null) } else { json!(url) }
+        })
+        .collect();
     let form_word = if is_ifrs {
         if cik.is_empty() {
             "annual report (ESEF/IFRS)"
@@ -2281,6 +2308,7 @@ Source: SEC EDGAR XBRL company facts (latest filing wins per period)."
         "currency": cur,
         "basis": "annual",
         "periods": periods,
+        "filings": filings,
         "rows": rows,
         "source": if cik.is_empty() {
             "https://filings.xbrl.org".to_string()
@@ -3210,9 +3238,9 @@ mod financials_tests {
             "entityName": "TestCo",
             "facts": { "us-gaap": {
                 "Revenues": { "units": { "USD": [
-                    { "val": 100.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K", "filed": "2025-01-30" },
-                    { "val": 101.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K/A", "filed": "2025-06-01" },
-                    { "val": 80.0e9,  "end": "2023-12-31", "fp": "FY", "form": "10-K", "filed": "2024-01-30" }
+                    { "val": 100.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K", "filed": "2025-01-30", "accn": "0000320193-25-000001" },
+                    { "val": 101.0e9, "end": "2024-12-31", "fp": "FY", "form": "10-K/A", "filed": "2025-06-01", "accn": "0000320193-25-000079" },
+                    { "val": 80.0e9,  "end": "2023-12-31", "fp": "FY", "form": "10-K", "filed": "2024-01-30", "accn": "0000320193-24-000006" }
                 ]}},
                 "NetIncomeLoss": { "units": { "USD": [
                     { "val": 10.1e9, "end": "2024-12-31", "fp": "FY", "form": "10-K", "filed": "2025-01-30" },
@@ -3235,6 +3263,17 @@ mod financials_tests {
         assert!(!text.contains("Gross margin"));
         assert!(!text.contains("Free cash flow"));
         assert_eq!(card["periods"].as_array().unwrap().len(), 2);
+        // Auditability: each fiscal-year column carries the URL of the EXACT
+        // filing it came from — restated FY2024 links to the 10-K/A's
+        // accession, and the archive path strips dashes + leading zeros
+        // while the index filename keeps the dashes (mixing formats 404s).
+        let filings = card["filings"].as_array().unwrap();
+        assert_eq!(filings.len(), 2);
+        assert_eq!(
+            filings[0].as_str().unwrap(),
+            "https://www.sec.gov/Archives/edgar/data/1/000032019325000079/0000320193-25-000079-index.htm"
+        );
+        assert!(filings[1].as_str().unwrap().contains("000032019324000006"));
     }
 
     /// IFRS filer (synthetic SAP-shape): ifrs-full taxonomy, 20-F forms, EUR
