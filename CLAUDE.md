@@ -1,5 +1,33 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.27 SHIPPED + LIVE (2026-07-20) — harness pass 2: drift rule, advisor, delegation, prompt profiles
+**Tagged v0.9.27 (release commit 2cdae82 + chore); released to public
+finmodel-releases (Latest). CI green (run 29766978150); signed NSIS
+published; endpoint VERIFIED: latest.json serves 0.9.27 (sig 420),
+installer HTTP 200 (6,738,342 bytes). Gates: app-lib 365, UI 199.**
+
+OMP-gap roadmap items 3-6, all live: (3) drift rule — driver.rs
+uncited_figures/contains_number (pure, tested) + drift_detected wrapper
+(whitelists the WHOLE visible history); one corrective round inline in
+request_model, self_check card in the trail. (4) advisor — settings
+advisor_model (blank=off), driver::advisor_note at synthesize start,
+streams under <run>:advisor (never paints), parse_advisor_notes strict
+JSON, "Second look" card + renderer. (5) prompt profiles —
+chat::model_scaffolding (segment match; gemini!=mini) woven via
+driver::agent_system_prompt. (6) delegation — agent/delegate.rs:
+delegate_analysis tool, child loop (4 rounds max, read-only belt minus
+delegate/draft_memo/use_skill, last round tool-less), compact brief
+yield, wave concurrency PROVEN by executors test. CRITICAL FIX: prepare()
+rebuilds messages and had silently dropped BOTH the v0.9.25 mode doctrine
+and any seed layers — all prompt layers now compose in
+agent_system_prompt at the live seam (test pins Plan/Skeptic + scaffold
+stacking). Escaping lesson (3 incidents): never route Rust through JS
+template literals / String.replace — use write/edit tools or
+split/join.
+
+Still deferred: sliding cache breakpoint on role:tool content (needs live
+Anthropic verify); advisor cost not in CostGuard (parity with research).
+
 ## HANDOVER — v0.9.26 SHIPPED + LIVE (2026-07-20) — harness pass 1: prompt caching + self-repair tool errors
 **Tagged v0.9.26 on 6edf3af; released to public finmodel-releases (Latest).
 CI green (run 29763540825); signed NSIS published; endpoint VERIFIED:
