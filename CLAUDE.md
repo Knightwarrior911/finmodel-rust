@@ -1,6 +1,14 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.9.21 STAGED (2026-07-19) — draft_memo shipped to master; CI BILLING-BLOCKED
+## HANDOVER — v0.9.21 SHIPPED + LIVE (2026-07-20) — the analyst writes the memo
+**Tagged v0.9.21 on 7759f09 (docs atop RC 4171a1b); released to public
+finmodel-releases (Latest). CI green all 5 jobs after the user fixed the
+GitHub Actions billing block. Endpoint VERIFIED: latest.json serves 0.9.21
+(sig 420), installer HTTP 200 (6,360,226 bytes = the signed RC bundle).**
+
+(Original staged-state notes below, kept for history.)
+
+## HANDOVER — v0.9.21 was STAGED (2026-07-19) — draft_memo on master; CI was BILLING-BLOCKED
 **v0.9.21 NOT TAGGED YET: GitHub Actions is rejecting ALL jobs with
 "account payments have failed or your spending limit needs to be increased"
 (0 steps, instant failure, rerun identical). User must fix GitHub billing;
