@@ -1183,6 +1183,11 @@ pub(crate) fn contains_number(haystack: &str, core: &str) -> bool {
 pub(crate) fn parse_advisor_notes(content: &str) -> Option<Vec<String>> {
     let start = content.find('{')?;
     let end = content.rfind('}')?;
+    // A reply with `}` before `{` (malformed) would panic `content[start..=end]`
+    // — guard the range before slicing so the advisor never crashes a turn.
+    if end < start {
+        return None;
+    }
     let v: serde_json::Value = serde_json::from_str(&content[start..=end]).ok()?;
     if v["ok"].as_bool() == Some(true) {
         return Some(Vec::new());
@@ -2377,6 +2382,9 @@ mod tests {
         // Malformed → None (the advisor never breaks a turn).
         assert_eq!(parse_advisor_notes("I think it looks fine!"), None);
         assert_eq!(parse_advisor_notes(r#"{"ok": false}"#), None);
+        // `}` before `{` must NOT panic the slice — just None.
+        assert_eq!(parse_advisor_notes("all good} but then {broken"), None);
+        assert_eq!(parse_advisor_notes("}{"), None);
     }
     #[test]
     fn live_system_prompt_weaves_scaffold_and_mode_doctrine() {

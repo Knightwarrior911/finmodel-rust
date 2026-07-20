@@ -328,26 +328,35 @@ pub(crate) fn build_chat_request(
 }
 
 /// Prompt-cache breakpoint (OpenRouter/Anthropic `cache_control`): mark the
-/// LAST message of the leading system block as an ephemeral cache anchor, so
-/// the static prefix — tool schemas + system prompt + mode doctrine — is
-/// cached across the many rounds of a tool loop instead of re-billed each
-/// round. Only applied where explicit breakpoints pay (Anthropic, Gemini);
-/// OpenAI-style providers cache automatically and are left untouched.
-/// String content becomes one multipart text block carrying the marker —
+/// FIRST leading system message as an ephemeral cache anchor, so the large
+/// stable prefix — tool schemas + system prompt + scaffold + mode doctrine +
+/// skill/agent catalog — is cached across the many rounds of a tool loop
+/// instead of re-billed each round.
+///
+/// Why the FIRST, not the last: on the live path `build_context` appends
+/// VOLATILE leading system layers after the main prompt — the rolling
+/// summary and the per-turn FTS-recalled memories, which change every turn.
+/// Anthropic caches the prefix up to and including the marked block, so
+/// anchoring the last leading block would move the breakpoint onto volatile
+/// content and miss the cache every turn (while still paying the write
+/// premium). Anchoring the first block caches the bulk (system + tools) on
+/// stable content; the small volatile tail is simply re-sent uncached.
+///
+/// Only applied where explicit breakpoints pay (Anthropic, Gemini); OpenAI-
+/// style providers cache automatically and are left untouched. String
+/// content becomes one multipart text block carrying the marker —
 /// semantically identical for the model.
 fn mark_cache_prefix(model: &str, msgs: &[Value]) -> Vec<Value> {
     let explicit = model.starts_with("anthropic/") || model.starts_with("google/");
     if !explicit {
         return msgs.to_vec();
     }
-    // End of the LEADING system block (history may hold later system layers
-    // - e.g. the finisher nudge - which are not part of the stable prefix).
-    let lead = msgs.iter().take_while(|m| m["role"] == "system").count();
-    if lead == 0 {
+    // Must actually have a leading system block to anchor.
+    if msgs.first().map(|m| m["role"] != "system").unwrap_or(true) {
         return msgs.to_vec();
     }
     let mut out = msgs.to_vec();
-    let anchor = &mut out[lead - 1];
+    let anchor = &mut out[0];
     if let Some(text) = anchor["content"].as_str() {
         anchor["content"] = json!([{
             "type": "text",
@@ -864,7 +873,7 @@ fn tool_run_agent(
             format!("no agent named `{name}`. Available agents: {}", bench.join(", "))
         });
     };
-    const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only tools. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
+    const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only research tools only. You CANNOT open local files or folders - if the task refers to documents or a data room you were not handed in the task text, say so plainly rather than guessing. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
     let system = crate::agent::agents::agent_system_prompt(&dir, &def, GROUND_RULES);
     let settings = crate::commands::settings::read_settings(app);
     let cfg = fm_extract::LlmConfig {
@@ -2687,25 +2696,25 @@ mod tests {
         assert!(bare.get("tool_choice").is_none());
     }
     #[test]
-    fn cache_breakpoint_marks_last_leading_system_for_anthropic() {
+    fn cache_breakpoint_anchors_the_stable_first_system_layer() {
+        // Live-path shape: [big stable system, VOLATILE recalled-memories
+        // system, user]. The anchor MUST be the first (stable) layer — never
+        // the memories block, which the FTS recall rebuilds every turn.
         let msgs = vec![
-            json!({ "role": "system", "content": "base prompt" }),
-            json!({ "role": "system", "content": "mode doctrine" }),
+            json!({ "role": "system", "content": "base prompt + tools + mode" }),
+            json!({ "role": "system", "content": "Recalled context:\n- turn-specific memory" }),
             json!({ "role": "user", "content": "hi" }),
-            json!({ "role": "system", "content": "late nudge" }),
         ];
         let req = build_chat_request("anthropic/claude-sonnet-4", &msgs, &[], true, false);
         let out = req["messages"].as_array().unwrap();
-        // First system layer untouched (only the LAST leading one anchors).
-        assert_eq!(out[0]["content"], json!("base prompt"));
-        // The anchor: multipart text block carrying cache_control.
-        assert_eq!(out[1]["content"][0]["type"], json!("text"));
-        assert_eq!(out[1]["content"][0]["text"], json!("mode doctrine"));
-        assert_eq!(out[1]["content"][0]["cache_control"]["type"], json!("ephemeral"));
-        // User turn and the LATE system layer (finisher nudge) untouched —
-        // they are not part of the stable prefix.
+        // The stable first layer carries the marker.
+        assert_eq!(out[0]["content"][0]["type"], json!("text"));
+        assert_eq!(out[0]["content"][0]["text"], json!("base prompt + tools + mode"));
+        assert_eq!(out[0]["content"][0]["cache_control"]["type"], json!("ephemeral"));
+        // The volatile memories layer is left a plain string — NOT the anchor
+        // (anchoring it would move the breakpoint every turn and miss cache).
+        assert_eq!(out[1]["content"], json!("Recalled context:\n- turn-specific memory"));
         assert_eq!(out[2]["content"], json!("hi"));
-        assert_eq!(out[3]["content"], json!("late nudge"));
     }
 
     #[test]

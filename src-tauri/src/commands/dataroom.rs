@@ -312,6 +312,7 @@ async fn answer_question(
     files: &[RoomFile],
     chunks: &[Chunk],
     question: &str,
+    usage_total: &mut (u64, u64, f64, bool),
 ) -> Value {
     let top = bm25_top_k(chunks, question, TOP_K);
     if top.is_empty() {
@@ -347,6 +348,7 @@ async fn answer_question(
             });
         }
     };
+    crate::agent::delegate::add_usage(usage_total, acc.meta.usage.as_ref());
     let (answer, findings) = resolve_findings(&acc.content, &top, chunks, files);
     json!({
         "question": question,
@@ -386,7 +388,9 @@ pub(crate) fn resolve_findings(
 ) -> (String, Vec<Value>) {
     let parsed: Option<Value> = content
         .find('{')
-        .and_then(|s| content.rfind('}').map(|e| (s, e)))
+        // `.filter(|e| *e >= s)` guards against `}` before `{` (malformed
+        // reply) — without it `content[s..=e]` panics and kills the room loop.
+        .and_then(|s| content.rfind('}').filter(|e| *e >= s).map(|e| (s, e)))
         .and_then(|(s, e)| serde_json::from_str(&content[s..=e]).ok());
     let Some(v) = parsed else {
         return (content.trim().to_string(), Vec::new());
@@ -462,12 +466,19 @@ pub(crate) async fn run_data_room(
     let chunks = chunk_room(&files);
     let run = format!("dataroom:{}", uuid_ish());
     let mut q_cards: Vec<Value> = Vec::new();
+    // Accumulate every question's LLM spend so the parent charges it to the
+    // conversation ceiling (the driver's generic card `usage` hook) — a data
+    // room review is not free of the budget.
+    let mut usage_total: (u64, u64, f64, bool) = (0, 0, 0.0, false);
     for q in &questions {
         if cancel.is_cancelled() {
             return Err("data room review cancelled".into());
         }
         q_cards.push(
-            answer_question(app, cfg, conversation_id, &run, cancel, &files, &chunks, q).await,
+            answer_question(
+                app, cfg, conversation_id, &run, cancel, &files, &chunks, q, &mut usage_total,
+            )
+            .await,
         );
     }
     let verified: usize = q_cards
@@ -487,6 +498,7 @@ pub(crate) async fn run_data_room(
         "questions": q_cards,
         "verified": verified,
         "findings": total_findings,
+        "usage": crate::agent::delegate::usage_value(&usage_total),
     });
     // The model's view: answers + provenance lines, compact.
     let mut text = format!(
@@ -617,6 +629,10 @@ mod tests {
         // Non-JSON reply degrades to prose with zero findings.
         let (answer, findings) = resolve_findings("I could not find it.", &top, &chunks, &files);
         assert_eq!(answer, "I could not find it.");
+        assert!(findings.is_empty());
+        // `}` before `{` (malformed) must NOT panic the slice — prose fallback.
+        let (answer, findings) = resolve_findings("done} then {oops", &top, &chunks, &files);
+        assert_eq!(answer, "done} then {oops");
         assert!(findings.is_empty());
     }
 

@@ -491,7 +491,7 @@ impl ToolRegistry {
             ToolSpec {
                 name: "run_agent",
                 label: "Run agent",
-                description: "Dispatch one of the USER'S OWN agents (see the Agents catalog in the system prompt) as a subagent: it works the task in its own context with read-only tools and its configured skills, then reports back a findings brief. Args: agent (catalog name), task (complete and self-contained). Dispatch INDEPENDENT agents in the SAME turn - they run in parallel. Only for agents in the catalog; never invent names.",
+                description: "Dispatch one of the USER'S OWN agents (see the Agents catalog in the system prompt) as a subagent: it works the task in its own context with read-only research tools (financials, quotes, filings, research, news, web) and its configured skills, then reports back a findings brief. Args: agent (catalog name), task (complete and self-contained). Dispatch INDEPENDENT agents in the SAME turn - they run in parallel. The agent CANNOT open local files or folders - to have an agent review a data room, call analyze_data_room YOURSELF first, then pass its findings into this tool's task. Only for agents in the catalog; never invent names.",
                 risk: Risk::ReadOnly,
                 capabilities: &["research", "delegate"],
                 required_args: &["agent", "task"],
