@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.9.22 - 2026-07-20 - The composer grows up: files, vision, budgets, polish
+
+- **Copy button stays out of the answer.** The hover Copy action now
+  sits under the message instead of floating over its first line.
+- **Pictures just work — affordably.** If your model can't see images, the
+  message is quietly read by the cheapest image-capable model (tools +
+  32k context required, no rate-limited free variants) and your usual
+  model returns next message. A price limit in Settings (default $5 per
+  1M output tokens) is never crossed; if nothing fits, the send stops
+  BEFORE any provider call with plain guidance — attachments stay staged.
+- **A real spending safety net.** Settings → Spending adds a
+  per-conversation dollar limit (0 = off). Every model round is metered —
+  OpenRouter's billed cost when available (usage accounting is now
+  requested on every agent stream), tokens × catalog prices otherwise,
+  deliberately overestimating when only totals are known — persisted per
+  run, and the loop refuses to start a round past the ceiling.
+- **Polish my question.** A sparkle button in the composer rewrites your
+  draft clearly (tight 600-token cap), drops it back in the box, and one
+  click restores your original. Sending stays your decision.
+- **Personal instructions, now visible.** The global personalization layer
+  (config.json) that every chat already obeys gets a Settings field —
+  same file, no second source of truth.
+- **Settings speak human.** "EDGAR contact" → "SEC filings contact email",
+  "Roam MCP command" → "Web browsing helper", model list badges say
+  "sees images", and money fields refuse junk instead of guessing.
+- **Type the model, don't hunt for it.** The model pill under the composer
+  opens a type-ahead picker fed by the live OpenRouter catalog (5-minute
+  cache, in-flight dedupe): filter across id and name, arrow keys + Enter to
+  choose, Escape to dismiss. The choice persists through the same
+  set_model path Settings uses.
+- **Attachments, every way you'd reach for them.** A paperclip button, OS
+  drag-and-drop, and Ctrl+V all stage files as chips above the input -
+  images (PNG/JPEG/WebP/GIF, 5MB cap, 4 max), PDFs, PPTX, XLSX, DOCX, and
+  plain text. Pasting a screenshot becomes an image chip; pasting a wall of
+  text becomes a text attachment; pasting a bare URL just hints that the
+  page will be read as a source.
+- **Vision-ready pipeline.** Images ride the message content array as data
+  URLs through the driver to any vision-capable model; documents stage
+  through the artifact registry and extract via the existing PDF/PPTX/XLSX
+  paths. Backend attachment staging is covered by unit tests; a live
+  red-PNG smoke test (`live_vision_red_png_mini`) ships ignored for
+  networked runs.
+- Tests: 188 UI (10 new composer) + 332 Rust, all green.
+
 ## v0.9.21 — 2026-07-19 — The analyst writes the memo
 
 - **Off-company facts stay out.** A stray quote for a different ticker in

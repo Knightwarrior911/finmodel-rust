@@ -1,3 +1,25 @@
+## Session (2026-07-20) v0.9.22 — composer multimodal, prompt polish, spending settings
+- **composer.mjs** (new module): model picker popover on the pill (filterModels
+  multi-term, arrow/Enter/Escape, list_models 5-min cache), attachment chips
+  (paperclip, OS drag-drop via pdf_drop_ready generalization, Ctrl+V screenshot
+  paste, long-paste→text attachment, bare-URL hint), stageFile → stage_attachment
+  (arrayBuffer→base64 — FileReader rejects Node/jsdom Blobs), attachmentPayload()
+  consumed by chat.mjs sendViaAgent. refineDraft: sparkle #refineBtn → refine_prompt,
+  rewrite lands in the box, hint-action button restores the original (undo). Use
+  ta.ownerDocument.defaultView.Event for dispatched events (jsdom rejects Node's).
+- **chat.mjs**: renderModelNote — one quiet .model-note line when agent_send returns
+  model_note (vision auto-route); .msg-copy overlap fixed (absolute → in-flow footer
+  under the message, style.css).
+- **settings.mjs**: Spending section (autoRouteVision checkbox, routePriceCap,
+  conversationBudget — blank keeps saved value, junk blocked client-side too) +
+  Personal touch (globalInstructions textarea → grounding config.json via
+  save_settings). Consumer relabels: SEC filings contact email, Web browsing helper,
+  Writing model. 'sees images' badges in both model lists (m.vision).
+- style.css: .settings-section-title, .field-money, .field-check, .hint-action,
+  .model-note, #refineBtn.refining pulse — all reduced-motion covered.
+- Tests: 191 jsdom (composer.test.mjs: picker, chips, paste, drop, polish+undo,
+  vision badge).
+
 ## Session (2026-07-19) v0.9.2–9.9 — Skill editor, settings tabs, visual refinement
 - **Settings restructured** (settings.mjs): General / Connections / Memory / Skills
   tabs, roving tablist with arrow keys. Dialog widened to modal-card--wide (780px).

@@ -637,11 +637,44 @@ impl Db {
         usage_json: Option<&str>,
         now: &str,
     ) -> StoreResult<()> {
+        // COALESCE keeps the driver's incrementally-written usage when the
+        // terminal path has nothing newer to report (it passes None).
         self.conn.execute(
-            "UPDATE agent_runs SET status=?1, phase=?2, stop_reason=?3, usage_json=?4, finished_at=?5 WHERE id=?6",
+            "UPDATE agent_runs SET status=?1, phase=?2, stop_reason=?3, usage_json=COALESCE(?4, usage_json), finished_at=?5 WHERE id=?6",
             params![status, phase, stop_reason, usage_json, now, run_id],
         )?;
         Ok(())
+    }
+    /// Overwrite a run's usage snapshot (tokens + estimated cost). Written by
+    /// the driver after each model round so a kill/crash never loses spend.
+    pub fn set_run_usage(&self, run_id: &str, usage_json: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE agent_runs SET usage_json=?1 WHERE id=?2",
+            params![usage_json, run_id],
+        )?;
+        Ok(())
+    }
+
+    /// Total estimated USD spend recorded across a conversation's runs.
+    /// Sums the `cost_usd` field of each run's usage snapshot; runs without
+    /// one (older rows, non-OpenRouter providers) contribute 0.
+    pub fn conversation_spend_usd(&self, conversation_id: &str) -> StoreResult<f64> {
+        let mut stmt = self.conn.prepare(
+            "SELECT usage_json FROM agent_runs WHERE conversation_id=?1 AND usage_json IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([conversation_id], |r| r.get::<_, String>(0))?;
+        let mut total = 0.0f64;
+        for row in rows {
+            let Ok(j) = row else { continue };
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&j) {
+                if let Some(c) = v.get("cost_usd").and_then(|c| c.as_f64()) {
+                    if c.is_finite() && c > 0.0 {
+                        total += c;
+                    }
+                }
+            }
+        }
+        Ok(total)
     }
 
     pub fn get_run(&self, run_id: &str) -> StoreResult<Option<AgentRun>> {

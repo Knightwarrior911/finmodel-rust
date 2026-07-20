@@ -1,6 +1,6 @@
 [package]
 name = "finmodel-app"
-version = "0.9.21"
+version = "0.9.22"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"
@@ -48,6 +48,9 @@ fm-extract = { path = "../finmodel-core/fm-extract" }
 fm-engine = { path = "../finmodel-core/fm-engine" }
 fm-value = { path = "../finmodel-core/fm-value" }
 fm-excel = { path = "../finmodel-core/fm-excel" }
+base64 = "0.22"
+calamine = "0.26"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 fm-build = { path = "../finmodel-core/fm-build" }
 fm-research = { path = "../finmodel-core/fm-research" }
 fm-fetch = { path = "../finmodel-core/fm-fetch" }

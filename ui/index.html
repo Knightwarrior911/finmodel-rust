@@ -241,6 +241,8 @@
         ></div>
 
         <div id="composer" class="composer">
+          <div id="composerAttachments" class="composer-attachments" hidden></div>
+          <div id="composerHint" class="composer-hint" role="status" hidden></div>
           <div class="composer-box">
             <textarea
               id="chatInput"
@@ -249,6 +251,37 @@
               aria-label="Message"
             ></textarea>
             <div class="composer-btns">
+              <button
+                type="button"
+                id="refineBtn"
+                class="icon-btn"
+                aria-label="Tidy up my question"
+                title="Tidy up my question — I'll rewrite it clearly; you decide whether to send"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z" />
+                  <path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14z" />
+                  <path d="M5.5 15.5l.7 1.6 1.7.7-1.7.7-.7 1.6-.7-1.6-1.7-.7 1.7-.7.7-1.6z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="attachBtn"
+                class="icon-btn"
+                aria-label="Attach files"
+                title="Attach files — PDF, images, decks, workbooks (or just paste / drop)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <input
+                type="file"
+                id="attachInput"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.pptx,.xlsx,.docx,.csv,.txt,.md,.json"
+                hidden
+              />
               <button
                 type="button"
                 id="chatPause"
@@ -308,10 +341,22 @@
             type="button"
             id="modelPill"
             class="model-pill"
-            title="Change model in Settings"
+            title="Change model — type to filter the live catalog"
+            aria-haspopup="listbox"
           >
             <span id="modelPillText">model</span>
           </button>
+          <div id="modelPicker" class="model-picker" hidden>
+            <input
+              type="text"
+              id="modelPickerInput"
+              placeholder="Type to filter models…"
+              aria-label="Filter models"
+              autocomplete="off"
+            />
+            <ul id="modelPickerList" role="listbox" aria-label="Models"></ul>
+            <div id="modelPickerStatus" class="mp-status" role="status"></div>
+          </div>
         </div>
       </main>
 
@@ -872,6 +917,72 @@
             </span>
             <span id="modelCaps" class="field-hint"></span>
           </label>
+          <h3 class="settings-section-title">Spending</h3>
+          <label class="field field-check">
+            <span class="field-row">
+              <input id="autoRouteVision" type="checkbox" checked />
+              <span class="field-label">Switch models for pictures automatically</span>
+            </span>
+            <span class="field-hint"
+              >If you attach a picture and your usual model can't see images,
+              I'll quietly use the most affordable one that can — for that one
+              message only, then switch straight back.</span
+            >
+          </label>
+          <label class="field">
+            <span class="field-label">Price limit for automatic switching</span>
+            <span class="field-row field-money">
+              <span class="money-prefix" aria-hidden="true">$</span>
+              <input
+                id="routePriceCap"
+                type="number"
+                min="0"
+                step="0.5"
+                inputmode="decimal"
+                placeholder="5"
+              />
+              <span class="field-suffix">per million tokens it writes</span>
+            </span>
+            <span class="field-hint"
+              >I'll never auto-switch to a model priced above this. A token is
+              about three-quarters of a word; capable image models start
+              around $0.40. Set 0 to turn switching off.</span
+            >
+          </label>
+          <label class="field">
+            <span class="field-label">Spending limit per conversation</span>
+            <span class="field-row field-money">
+              <span class="money-prefix" aria-hidden="true">$</span>
+              <input
+                id="conversationBudget"
+                type="number"
+                min="0"
+                step="0.5"
+                inputmode="decimal"
+                placeholder="0 — no limit"
+              />
+              <span class="field-suffix">per conversation</span>
+            </span>
+            <span class="field-hint"
+              >A safety net for long research sessions: once a conversation's
+              work reaches this amount I stop and check in before spending
+              more. Approximate, checked between steps; works with
+              OpenRouter. 0 means no limit.</span
+            >
+          </label>
+          <h3 class="settings-section-title">Personal touch</h3>
+          <label class="field">
+            <span class="field-label">Standing instructions</span>
+            <textarea
+              id="globalInstructions"
+              rows="4"
+              placeholder="e.g. Keep answers brief. Always show figures in USD millions. I care most about margins and cash flow."
+            ></textarea>
+            <span class="field-hint"
+              >How you like me to work — applies to every conversation.
+              Project folders can add their own instructions on top.</span
+            >
+          </label>
           <label class="field">
             <span class="field-label">Theme</span>
             <select id="themeSelect">
@@ -889,7 +1000,7 @@
             hidden
           >
           <label class="field">
-            <span class="field-label">Research synthesis model (optional)</span>
+            <span class="field-label">Writing model (optional)</span>
             <input
               id="synthesisModel"
               type="text"
@@ -901,12 +1012,16 @@
             >
           </label>
           <label class="field">
-            <span class="field-label">EDGAR contact email</span>
+            <span class="field-label">SEC filings contact email</span>
             <input
               id="edgarContact"
               type="email"
               placeholder="you@example.com"
             />
+            <span class="field-hint"
+              >The SEC asks apps to identify themselves with a contact email
+              when downloading filings. Yours is only sent to sec.gov.</span
+            >
           </label>
           <label class="field">
             <span class="field-label">Output folder</span>
@@ -918,7 +1033,7 @@
             </span>
           </label>
           <label class="field">
-            <span class="field-label">Roam MCP command (optional)</span>
+            <span class="field-label">Web browsing helper (optional)</span>
             <span class="field-row">
               <input id="mcpCommand" type="text" placeholder="roam mcp serve" />
               <button type="button" id="testMcp" class="btn-ghost">

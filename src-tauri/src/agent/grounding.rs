@@ -28,6 +28,35 @@ pub fn read_global(config_dir: &Path) -> Option<String> {
     let trimmed = text.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
+/// Write the global personalization block to `<config_dir>/config.json`,
+/// preserving every other key in the file (read-modify-write). An empty
+/// `text` removes the layer (both the `instructions` key and the legacy
+/// `personalization` alias) so [`read_global`] returns `None` again.
+pub fn write_global(config_dir: &Path, text: &str) -> std::io::Result<()> {
+    let path = config_dir.join("config.json");
+    let mut v: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !v.is_object() {
+        v = serde_json::json!({});
+    }
+    let obj = v.as_object_mut().expect("object ensured above");
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        obj.remove("instructions");
+        obj.remove("personalization");
+    } else {
+        obj.insert("instructions".into(), serde_json::json!(trimmed));
+        // One canonical key: the alias would otherwise shadow the new text
+        // (read_global prefers `instructions`, but stale aliases confuse
+        // hand-editors).
+        obj.remove("personalization");
+    }
+    std::fs::create_dir_all(config_dir)?;
+    let pretty = serde_json::to_string_pretty(&v).map_err(std::io::Error::other)?;
+    std::fs::write(&path, pretty)
+}
 
 /// Read a project's grounding from `<config_dir>/projects/<project_id>/finmodel.md`
 /// (falling back to `claude.md`). Returns `None` when the id is blank/unsafe or
@@ -206,5 +235,32 @@ mod tests {
         assert!(!only_global.contains("Project workspace grounding"));
         // whitespace-only layers are treated as absent
         assert_eq!(chain("BASE", Some("  "), Some("\n")), "BASE");
+    }
+
+    #[test]
+    fn write_global_round_trips_and_preserves_other_keys() {
+        let dir = std::env::temp_dir().join(format!("fm-ground-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Existing config with an unrelated key AND a legacy alias.
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{ "theme": "dark", "personalization": "old text" }"#,
+        )
+        .unwrap();
+        write_global(&dir, "Always answer in USD millions.").unwrap();
+        assert_eq!(
+            read_global(&dir).as_deref(),
+            Some("Always answer in USD millions.")
+        );
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).unwrap())
+                .unwrap();
+        assert_eq!(raw.get("theme").and_then(|t| t.as_str()), Some("dark"));
+        assert!(raw.get("personalization").is_none(), "legacy alias removed");
+        // Blank clears the layer entirely.
+        write_global(&dir, "  ").unwrap();
+        assert_eq!(read_global(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

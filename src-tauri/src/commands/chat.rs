@@ -50,7 +50,7 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-fn iso_now() -> String {
+pub(crate) fn iso_now() -> String {
     iso_utc(now_secs())
 }
 
@@ -410,13 +410,21 @@ fn apply_delta(
         }
     }
     if v.get("usage").map(|u| u.is_object()).unwrap_or(false) {
-        // Keep only numeric token fields — never any content-bearing keys.
+        // Keep only numeric fields — never any content-bearing keys. `cost`
+        // is OpenRouter's billed USD for the round (usage accounting); the
+        // driver's spend guard prefers it over catalog estimates.
         let u = &v["usage"];
-        meta.usage = Some(json!({
+        let mut usage = json!({
             "prompt_tokens": u.get("prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
             "completion_tokens": u.get("completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
             "total_tokens": u.get("total_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
-        }));
+        });
+        if let Some(c) = u.get("cost").and_then(|x| x.as_f64()) {
+            if c.is_finite() && c >= 0.0 {
+                usage["cost"] = json!(c);
+            }
+        }
+        meta.usage = Some(usage);
     }
     chunk
 }
@@ -684,6 +692,22 @@ pub(crate) async fn stream_completion_for_agent(
     cancel: &tokio_util::sync::CancellationToken,
     timeout: std::time::Duration,
 ) -> Result<crate::agent::provider::StreamAccumulator, String> {
+    // OpenRouter usage accounting: the final stream chunk then carries exact
+    // token counts AND the billed USD `cost`, which the driver's spend guard
+    // prefers over catalog estimates. Injected here — the one adapter every
+    // agent round passes through — and only for OpenRouter, because strict
+    // OpenAI-compatible providers can reject unknown request fields.
+    let mut req_with_usage;
+    let req = {
+        let s = crate::commands::settings::read_settings(app);
+        if crate::commands::settings::is_openrouter(&s) && req.get("usage").is_none() {
+            req_with_usage = req.clone();
+            req_with_usage["usage"] = serde_json::json!({ "include": true });
+            &req_with_usage
+        } else {
+            req
+        }
+    };
     match openrouter_stream_async(app, conv_id, run_id, cfg, req, cancel, timeout).await {
         StreamOutcome::Ok {
             content,
@@ -704,13 +728,30 @@ pub(crate) async fn stream_completion_for_agent(
 
 /// Seed messages for a fresh agent turn (system policy + current user text).
 pub(crate) fn seed_agent_messages(user_text: &str) -> Vec<Value> {
+    seed_agent_messages_with_images(user_text, &[])
+}
+
+/// Seed with optional vision inputs. When images are present the user content
+/// becomes the OpenAI-style multimodal parts array; text-only turns keep the
+/// plain string (maximum provider compatibility).
+pub(crate) fn seed_agent_messages_with_images(user_text: &str, images: &[String]) -> Vec<Value> {
     let today = &iso_now()[..10];
     let system = format!(
         "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory.\n\nNever compute material percentages, growth rates, ratios, or multiples in prose — call a deterministic tool (get_financials, benchmark_peers, build_model) and cite its source. The structured tool result, not your own arithmetic, is the authority for every material number."
     );
+    let user_content: Value = if images.is_empty() {
+        json!(user_text)
+    } else {
+        let mut parts: Vec<Value> =
+            vec![json!({ "type": "text", "text": user_text })];
+        for url in images {
+            parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
+        }
+        json!(parts)
+    };
     vec![
         json!({ "role": "system", "content": system }),
-        json!({ "role": "user", "content": user_text }),
+        json!({ "role": "user", "content": user_content }),
     ]
 }
 
@@ -2304,6 +2345,24 @@ mod tests {
         // Non-token usage fields are stripped — never retained.
         assert!(meta.usage.as_ref().unwrap().get("ignored_body").is_none());
         assert_eq!(meta.sse_parse_errors, 1);
+    }
+    #[test]
+    fn sse_usage_keeps_billed_cost_drops_junk() {
+        // OpenRouter usage accounting adds a USD `cost` — the spend guard's
+        // preferred number. Numeric cost survives; junk cost never does.
+        let events = [
+            r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"cost":0.0123}}"#,
+            "[DONE]",
+        ];
+        let (_c, _t, meta) = sse_accumulate(&events);
+        assert_eq!(meta.usage.as_ref().unwrap()["cost"], json!(0.0123));
+
+        let bad = [
+            r#"{"choices":[],"usage":{"total_tokens":15,"cost":"free!"}}"#,
+            "[DONE]",
+        ];
+        let (_c, _t, meta) = sse_accumulate(&bad);
+        assert!(meta.usage.as_ref().unwrap().get("cost").is_none());
     }
 
     #[test]

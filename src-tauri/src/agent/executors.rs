@@ -22,6 +22,9 @@ pub struct SessionContext {
     pub conversation_id: String,
     pub run_id: String,
     pub user_msg: String,
+    /// Vision inputs for THIS turn's seed message (data URLs). Empty for
+    /// text-only turns; never persisted to the conversation store.
+    pub images: Vec<String>,
     pub confidentiality: Confidentiality,
     pub cancel: CancellationToken,
     /// Resumable pause signal, distinct from `cancel` (terminal stop).
@@ -35,6 +38,7 @@ impl SessionContext {
             conversation_id: conversation_id.into(),
             run_id: "r".into(),
             user_msg: user_msg.into(),
+            images: Vec::new(),
             confidentiality: Confidentiality::Standard,
             cancel: CancellationToken::new(),
             interrupt: CancellationToken::new(),

@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::agent::{actor, registry::ActorRegistry};
 use crate::error::{AppError, AppResult};
 use crate::store::AppStore;
+use tauri::Manager as _;
 
 fn store<'a>(app: &'a tauri::AppHandle) -> AppResult<tauri::State<'a, AppStore>> {
     use tauri::Manager;
@@ -176,7 +177,7 @@ pub async fn agent_resume(
         .as_ref()
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
-    launch_run(LaunchSpec {
+    let _ = launch_run(LaunchSpec {
         app: app.clone(),
         registry: (*registry).clone(),
         handle: handle.clone(),
@@ -184,6 +185,7 @@ pub async fn agent_resume(
         run_id: new_id.clone(),
         workspace_id: workspace,
         user_msg,
+        attachments: Vec::new(),
         api_key: settings.openrouter_api_key.trim().to_string(),
         model,
         tools_ok,
@@ -208,6 +210,8 @@ struct LaunchSpec {
     run_id: String,
     workspace_id: String,
     user_msg: String,
+    /// (artifact_id, owner_scope) pairs staged by the composer for THIS turn.
+    attachments: Vec<(String, String)>,
     api_key: String,
     model: String,
     tools_ok: bool,
@@ -218,14 +222,18 @@ struct LaunchSpec {
 /// the [`ActorRegistry`], build the driver/context/machine, and spawn `run_turn`
 /// on a RunHandle-guarded task. On registration failure the inserted run row is
 /// marked failed so boot repair never sees an orphan stuck in running/preparing.
-async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
-    use crate::agent::driver::LiveDriver;
+///
+/// Returns an optional `model_note` for the UI when the turn was auto-routed
+/// to a vision-capable model (`{ using, using_id, usual }`).
+async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
+    use crate::agent::driver::{CostGuard, LiveDriver};
     use crate::agent::events::TauriEventSink;
     use crate::agent::executors::SessionContext;
     use fm_agent::machine::AgentMachine;
     use fm_agent::types::Confidentiality;
 
     let LaunchSpec {
+        attachments,
         app,
         registry,
         handle,
@@ -234,10 +242,93 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
         workspace_id,
         user_msg,
         api_key,
-        model,
+        mut model,
         tools_ok,
         policy,
     } = spec;
+
+    // ── Pre-flight: vision auto-routing + spend guard ──────────────────
+    // Decided BEFORE the run registers and BEFORE attachment staging is
+    // consumed, so a refused send leaves the user's chips resendable and
+    // never reaches a provider (zero cost).
+    let mut model_note: Option<serde_json::Value> = None;
+    let mut guard = CostGuard::default();
+    {
+        let s = crate::commands::settings::read_settings(&app);
+        guard.budget_usd = s.conversation_budget_usd;
+        let openrouter =
+            crate::commands::settings::is_openrouter(&s) && !api_key.trim().is_empty();
+        let has_images = app
+            .try_state::<crate::commands::artifacts::ArtifactRegistry>()
+            .map(|reg| crate::commands::attachments::has_image_attachments(&reg, &attachments))
+            .unwrap_or(false);
+        let route_wanted = openrouter && has_images && s.auto_route_vision;
+        // One cached catalog serves both the router and the price snapshot.
+        let catalog = if route_wanted || (openrouter && guard.budget_usd > 0.0) {
+            let key = api_key.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::commands::settings::cached_openrouter_catalog(&key)
+            })
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+        } else {
+            None
+        };
+        if route_wanted {
+            if let Some(cat) = &catalog {
+                use crate::agent::model_router::{route_for_vision, VisionRoute};
+                match route_for_vision(cat, &model, s.route_price_cap_usd) {
+                    VisionRoute::Route(id, name, _) => {
+                        model_note = Some(serde_json::json!({
+                            "using": name,
+                            "using_id": id,
+                            "usual": model,
+                        }));
+                        model = id;
+                    }
+                    VisionRoute::NoneAffordable => {
+                        let rid = run_id.clone();
+                        let now = crate::store::now_iso();
+                        handle
+                            .call(move |db| {
+                                let _ = db.finish_run(
+                                    &rid,
+                                    "failed",
+                                    "failed",
+                                    Some("vision_unroutable"),
+                                    None,
+                                    &now,
+                                );
+                            })
+                            .await;
+                        return Err(AppError::Config(format!(
+                            "This message has a picture, but your current model can't see images — and no image-capable model fits under your ${:.2} limit (per million tokens it writes). Raise the limit in Settings → Spending, turn off automatic switching, or pick an image-capable model from the model list.",
+                            s.route_price_cap_usd
+                        )));
+                    }
+                    // Already sees, or unknown to the catalog (custom model —
+                    // never switched away from): leave the turn untouched.
+                    VisionRoute::KeepCurrent | VisionRoute::CurrentUnknown => {}
+                }
+            }
+            // Catalog unavailable (offline / provider hiccup): proceed with
+            // the user's model — the provider's own error stays visible and
+            // costs nothing extra; routing silently guessing would be worse.
+        }
+        if let Some(cat) = &catalog {
+            if let Some(m) = cat.iter().find(|m| m.id == model) {
+                guard.price_in_per_mtok = m.prompt_per_mtok();
+                guard.price_out_per_mtok = m.completion_per_mtok();
+            }
+        }
+        if guard.budget_usd > 0.0 {
+            let conv = conversation_id.clone();
+            guard.prior_spend_usd = handle
+                .call(move |db| db.conversation_spend_usd(&conv).unwrap_or(0.0))
+                .await;
+        }
+    }
 
     let run_handle = match registry.start_run(&conversation_id, &run_id) {
         Ok(h) => h,
@@ -257,11 +348,35 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
     let cancel = run_handle.cancellation_token();
     let interrupt = run_handle.interrupt_token();
     let cfg = fm_extract::LlmConfig { api_key, model };
+    // Attachments: extract text into the seed message, collect vision inputs,
+    // and move PDF handles to the live conversation for analyze_pdf.
+    let (user_msg, images) = if attachments.is_empty() {
+        (user_msg, Vec::new())
+    } else if let Some(reg) = app.try_state::<crate::commands::artifacts::ArtifactRegistry>() {
+        let (blocks, images) = crate::commands::attachments::build_attachment_context(
+            &reg,
+            &conversation_id,
+            &attachments,
+        );
+        let msg = if blocks.is_empty() {
+            user_msg
+        } else {
+            format!("{user_msg}
+
+{}", blocks.join("
+
+"))
+        };
+        (msg, images)
+    } else {
+        (user_msg, Vec::new())
+    };
     let ctx = SessionContext {
         workspace_id,
         conversation_id: conversation_id.clone(),
         run_id: run_id.clone(),
         user_msg,
+        images,
         confidentiality: Confidentiality::Standard,
         cancel,
         interrupt,
@@ -273,7 +388,8 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
         ctx,
         tools_ok,
         registry.clone(),
-    );
+    )
+    .with_cost_guard(guard);
     let sink = TauriEventSink::new(app.clone());
     let machine = AgentMachine::new(policy);
     let handle_bg = handle.clone();
@@ -290,7 +406,7 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<()> {
         )
         .await;
     });
-    Ok(())
+    Ok(model_note)
 }
 
 /// Start a unified agent turn. Creates (or appends to) a SQLite conversation,
@@ -309,6 +425,7 @@ pub async fn agent_send(
     workspace_id: Option<String>,
     project_id: Option<String>,
     text: String,
+    attachments: Option<Vec<serde_json::Value>>,
 ) -> AppResult<String> {
     use serde_json::json;
     // A follow-up promise in the user's text becomes a PROPOSED schedule —
@@ -316,16 +433,31 @@ pub async fn agent_send(
     // (Task 8.2 precision doctrine).
     let commitment = crate::agent::commitments::extract_commitment(&text);
     let text_probe = text.clone();
-    let (conv_id, run_id) = send_message_inner(
+    let att_pairs: Vec<(String, String)> = attachments
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|a| {
+            let id = a.get("artifact_id").and_then(|v| v.as_str())?;
+            let scope = a.get("scope").and_then(|v| v.as_str())?;
+            Some((id.to_string(), scope.to_string()))
+        })
+        .collect();
+    let (conv_id, run_id, model_note) = send_message_inner(
         app,
         (*registry).clone(),
         conversation_id,
         workspace_id,
         project_id,
         text,
+        att_pairs,
     )
     .await?;
     let mut out = json!({ "conversation_id": conv_id, "run_id": run_id });
+    if let Some(note) = model_note {
+        // The composer shows a quiet "reading this with X, back to Y after"
+        // line — the switch is per-message, never persisted.
+        out["model_note"] = note;
+    }
     if let Some(c) = commitment {
         out["commitment"] = json!({ "text": c.text, "due": c.due_semantics });
     } else if crate::agent::memory::is_durable_preference(&text_probe) {
@@ -348,7 +480,8 @@ pub(crate) async fn send_message_inner(
     workspace_id: Option<String>,
     project_id: Option<String>,
     text: String,
-) -> AppResult<(String, String)> {
+    attachments: Vec<(String, String)>,
+) -> AppResult<(String, String, Option<serde_json::Value>)> {
     use crate::commands::settings::read_settings;
     use fm_agent::budget::Policy;
     use serde_json::json;
@@ -450,7 +583,7 @@ pub(crate) async fn send_message_inner(
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
 
-    launch_run(LaunchSpec {
+    let model_note = launch_run(LaunchSpec {
         app: app.clone(),
         registry,
         handle: handle.clone(),
@@ -458,6 +591,7 @@ pub(crate) async fn send_message_inner(
         run_id: run_id.clone(),
         workspace_id: workspace,
         user_msg: text,
+        attachments,
         api_key: settings.openrouter_api_key.trim().to_string(),
         model,
         tools_ok,
@@ -465,7 +599,7 @@ pub(crate) async fn send_message_inner(
     })
     .await?;
 
-    Ok((conv_id, run_id))
+    Ok((conv_id, run_id, model_note))
 }
 
 /// ── Scheduled follow-through (Tasks 8.2/8.3, now LIVE) ────────────────────
@@ -695,7 +829,7 @@ pub async fn run_due_schedules(app: &tauri::AppHandle) {
         let app = app.clone();
         let registry = registry.clone();
         async move {
-            send_message_inner(app, registry, conv, None, None, prompt)
+            send_message_inner(app, registry, conv, None, None, prompt, Vec::new())
                 .await
                 .map(|_| ())
                 .map_err(|e| e.to_string())

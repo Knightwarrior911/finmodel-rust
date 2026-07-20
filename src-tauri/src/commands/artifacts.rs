@@ -111,12 +111,15 @@ impl ArtifactRegistry {
             if !p.is_absolute() || !p.is_file() {
                 continue;
             }
-            let is_pdf = p
+            let allowed = p
                 .extension()
                 .and_then(|e| e.to_str())
-                .map(|e| e.eq_ignore_ascii_case("pdf"))
+                .map(|e| {
+                    let e = e.to_ascii_lowercase();
+                    crate::commands::attachments::ALLOWED_EXTS.contains(&e.as_str())
+                })
                 .unwrap_or(false);
-            if !is_pdf {
+            if !allowed {
                 continue;
             }
             drops.push_back(DropGrant {
@@ -143,14 +146,16 @@ impl ArtifactRegistry {
                 .ok_or_else(|| "no pending PDF drop to claim".to_string())?
                 .path
         };
+        // Full file name (extension kept) so downstream classification works.
         let label = path
-            .file_stem()
+            .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or("PDF")
+            .unwrap_or("file")
             .to_string();
+        let is_pdf = label.to_ascii_lowercase().ends_with(".pdf");
         let id = self.register(
             path,
-            ArtifactKind::UserPdf,
+            if is_pdf { ArtifactKind::UserPdf } else { ArtifactKind::UserFile },
             label.clone(),
             Some(conversation_id.to_string()),
         )?;
@@ -346,17 +351,18 @@ pub async fn pick_pdf_artifact(
 /// Claim the most recent Rust-observed PDF drop grant for this conversation.
 /// Does **not** accept a path from the frontend.
 #[tauri::command(rename_all = "snake_case")]
-pub fn claim_dropped_pdf(
+pub fn claim_dropped_file(
     registry: State<'_, ArtifactRegistry>,
-    conversation_id: String,
+    owner: String,
 ) -> AppResult<String> {
-    let (id, label) = registry
-        .claim_drop(&conversation_id)
-        .map_err(AppError::Config)?;
+    let (id, label) = registry.claim_drop(&owner).map_err(AppError::Config)?;
+    let class = crate::commands::attachments::classify(&label)
+        .map(|c| c.as_str())
+        .unwrap_or("text");
     Ok(serde_json::json!({
         "artifact_id": id,
         "label": label,
-        "kind": ArtifactKind::UserPdf,
+        "class": class,
     })
     .to_string())
 }

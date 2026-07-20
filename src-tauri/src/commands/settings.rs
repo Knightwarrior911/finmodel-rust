@@ -105,6 +105,26 @@ pub struct Settings {
     /// role uses the orchestrator (the flat `model`/`base_url` above).
     #[serde(default)]
     pub model_profiles: Option<crate::agent::model_router::ModelProfiles>,
+    /// When a message carries images and the chosen model can't see, quietly
+    /// use the cheapest capable model for that one message (default on).
+    #[serde(default = "default_true")]
+    pub auto_route_vision: bool,
+    /// Auto-routing price ceiling in USD per 1M OUTPUT tokens. Models priced
+    /// above this are never auto-selected. ≤ 0 disables auto-routing.
+    #[serde(default = "default_route_price_cap")]
+    pub route_price_cap_usd: f64,
+    /// Per-conversation spend ceiling in USD (approximate, checked between
+    /// steps). 0 = no limit. Guards runaway loops from surprise bills.
+    #[serde(default)]
+    pub conversation_budget_usd: f64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_route_price_cap() -> f64 {
+    5.0
 }
 
 fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
@@ -173,14 +193,27 @@ pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
         "version": version,
         "model_capability": s.model_capability,
         "model_profiles": s.model_profiles,
+        "auto_route_vision": s.auto_route_vision,
+        "route_price_cap_usd": s.route_price_cap_usd,
+        "conversation_budget_usd": s.conversation_budget_usd,
     })
 }
 
-/// Return `{ has_key, model, …, model_capability, model_profiles }` — never the raw key.
+/// Return `{ has_key, model, …, global_instructions }` — never the raw key.
+/// `global_instructions` reads the grounding file (`config.json`), the same
+/// layer the agent chains into every system prompt — one source of truth.
 #[tauri::command(rename_all = "snake_case")]
 pub fn load_settings(app: tauri::AppHandle) -> AppResult<String> {
     let s = read_settings(&app);
-    Ok(settings_view_json(&s, &app.package_info().version.to_string()).to_string())
+    let mut v = settings_view_json(&s, &app.package_info().version.to_string());
+    let global = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .and_then(|dir| crate::agent::grounding::read_global(&dir))
+        .unwrap_or_default();
+    v["global_instructions"] = serde_json::json!(global);
+    Ok(v.to_string())
 }
 
 /// Save settings. A blank `api_key` keeps the existing one (so the frontend can
@@ -198,6 +231,10 @@ pub fn save_settings(
     mcp_args: Option<Vec<String>>,
     synthesis_model: Option<String>,
     model_profiles: Option<crate::agent::model_router::ModelProfiles>,
+    auto_route_vision: Option<bool>,
+    route_price_cap_usd: Option<f64>,
+    conversation_budget_usd: Option<f64>,
+    global_instructions: Option<String>,
 ) -> AppResult<String> {
     let mut s = read_settings(&app);
     if !api_key.trim().is_empty() {
@@ -238,6 +275,39 @@ pub fn save_settings(
     if let Some(mp) = model_profiles {
         s.model_profiles = Some(mp);
     }
+    if let Some(v) = auto_route_vision {
+        s.auto_route_vision = v;
+    }
+    if let Some(cap) = route_price_cap_usd {
+        // Money fields never guess: invalid input is an error, not a silent
+        // default in either direction. 0 is the explicit "off" value.
+        if !cap.is_finite() || cap < 0.0 {
+            return Err(AppError::Config(
+                "That price limit doesn't look like a number. Enter a dollar amount like 5, or 0 to turn automatic switching off.".into(),
+            ));
+        }
+        s.route_price_cap_usd = cap;
+    }
+    if let Some(b) = conversation_budget_usd {
+        if !b.is_finite() || b < 0.0 {
+            return Err(AppError::Config(
+                "That budget doesn't look like a number. Enter a dollar amount like 2.50, or 0 for no limit.".into(),
+            ));
+        }
+        s.conversation_budget_usd = b;
+    }
+    if let Some(g) = global_instructions {
+        // One source of truth: the grounding file the agent already chains
+        // into every system prompt. Bounded so a pasted novel can't crowd
+        // out the base prompt. Blank clears the layer.
+        let text: String = g.trim().chars().take(4_000).collect();
+        let dir = app
+            .path()
+            .app_config_dir()
+            .map_err(|e| AppError::Config(format!("no config dir: {e}")))?;
+        crate::agent::grounding::write_global(&dir, &text)
+            .map_err(|e| AppError::Io(e.to_string()))?;
+    }
     write_settings(&app, &s)?;
     // Settings change kills any live MCP child (Phase 3.2).
     if let Some(mgr) = app.try_state::<crate::commands::mcp::McpManager>() {
@@ -275,7 +345,7 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
         // OpenRouter's catalog carries capability badges; other OpenAI-compatible
         // providers expose a plainer `{base}/models` (ids only).
         if is_openrouter(&s) {
-            let models = fm_extract::list_openrouter_models(&key)
+            let models = cached_openrouter_catalog(&key)
                 .map_err(|e| AppError::Engine(format!("OpenRouter model fetch failed: {e}")))?;
             let enriched: Vec<serde_json::Value> = models
                 .iter()
@@ -288,6 +358,7 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
                         "supported_parameters": m.supported_parameters,
                         "native_tools": m.native_tools(),
                         "strict_json": m.strict_json(),
+                        "vision": m.vision(),
                     })
                 })
                 .collect();
@@ -611,24 +682,62 @@ fn post_probe_json(
 /// One-shot non-streaming completion through the CONFIGURED provider (honors
 /// `Settings.base_url`, not a hardcoded endpoint). Returns the assistant message
 /// content. Used by self-evolution (skill drafting).
-pub(crate) fn complete_once(
+/// Patch just the model without touching keys or other settings — the
+/// composer's model picker writes through here.
+#[tauri::command]
+pub fn set_model(app: tauri::AppHandle, model: String) -> AppResult<String> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(AppError::Config("model id required".into()));
+    }
+    let mut s = read_settings(&app);
+    s.model = model.clone();
+    write_settings(&app, &s)?;
+    Ok(serde_json::json!({ "model": model }).to_string())
+}
+
+/// Build a chat-completions body, optionally multimodal. Shared by
+/// [`complete_once`] and the vision path so the shape is tested once.
+pub(crate) fn completion_body(
+    model: &str,
+    system: &str,
+    user: &str,
+    images: &[String],
+    max_tokens: u32,
+) -> serde_json::Value {
+    let user_content: serde_json::Value = if images.is_empty() {
+        serde_json::json!(user)
+    } else {
+        let mut parts = vec![serde_json::json!({ "type": "text", "text": user })];
+        for u in images {
+            parts.push(serde_json::json!({ "type": "image_url", "image_url": { "url": u } }));
+        }
+        serde_json::json!(parts)
+    };
+    serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user_content }
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+        "stream": false
+    })
+}
+
+/// One-shot completion with vision inputs (data URLs). Blocking.
+#[allow(dead_code)]
+pub(crate) fn complete_once_vision(
     api_key: &str,
     model: &str,
     chat_url: &str,
     system: &str,
     user: &str,
+    images: &[String],
     max_tokens: u32,
 ) -> Result<String, String> {
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": system },
-            { "role": "user", "content": user }
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.2,
-        "stream": false
-    });
+    let body = completion_body(model, system, user, images, max_tokens);
     match post_probe_json(api_key, chat_url, &body)? {
         ProbeOutcome::Unsupported => Err("provider rejected the request".into()),
         ProbeOutcome::Body(v) => v
@@ -637,6 +746,89 @@ pub(crate) fn complete_once(
             .map(|s| s.to_string())
             .ok_or_else(|| "no content in provider response".into()),
     }
+}
+
+pub(crate) fn complete_once(
+    api_key: &str,
+    model: &str,
+    chat_url: &str,
+    system: &str,
+    user: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let body = completion_body(model, system, user, &[], max_tokens);
+    match post_probe_json(api_key, chat_url, &body)? {
+        ProbeOutcome::Unsupported => Err("provider rejected the request".into()),
+        ProbeOutcome::Body(v) => v
+            .pointer("/choices/0/message/content")
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "no content in provider response".into()),
+    }
+}
+/// Process-wide OpenRouter catalog cache (5-minute TTL). Shared by the UI's
+/// model picker (`list_models`) and vision auto-routing so an image message
+/// never costs a second catalog fetch. Blocking — call off the IPC thread.
+pub(crate) fn cached_openrouter_catalog(
+    api_key: &str,
+) -> Result<std::sync::Arc<Vec<fm_extract::OpenRouterModel>>, String> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<Option<(Instant, Arc<Vec<fm_extract::OpenRouterModel>>)>>> =
+        OnceLock::new();
+    const TTL: Duration = Duration::from_secs(5 * 60);
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((at, models)) = cell.lock().ok().and_then(|g| g.clone()) {
+        if at.elapsed() < TTL {
+            return Ok(models);
+        }
+    }
+    let fresh = Arc::new(
+        fm_extract::list_openrouter_models(api_key).map_err(|e| e.to_string())?,
+    );
+    if let Ok(mut g) = cell.lock() {
+        *g = Some((Instant::now(), Arc::clone(&fresh)));
+    }
+    Ok(fresh)
+}
+
+/// System prompt for the composer's "polish my question" button. The reply
+/// must be ONLY the rewritten prompt — no preamble, no quotes, no options.
+const REFINE_SYSTEM: &str = "You tidy up a draft question for a financial-analysis assistant. \
+Rewrite the draft so it is clear, specific, and complete: keep the user's language, intent, \
+tickers, figures, and constraints exactly; fix grammar; spell out vague references; add the \
+obvious missing specifics (time period, metric, company) ONLY when the draft clearly implies \
+them. Never invent facts, never answer the question, never add commentary. \
+Reply with the rewritten prompt text and nothing else.";
+
+/// One-shot draft polish for the composer (never auto-sends). Uses the
+/// configured model with a tight output cap so a click costs at most a few
+/// hundred output tokens.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn refine_prompt(app: tauri::AppHandle, draft: String) -> AppResult<String> {
+    let draft = draft.trim().to_string();
+    if draft.is_empty() {
+        return Err(AppError::Config("Type a question first, then I can tidy it up.".into()));
+    }
+    // Bounded input: a pasted document isn't a prompt to rewrite.
+    let draft: String = draft.chars().take(8_000).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = read_settings(&app);
+        let key = s.openrouter_api_key.trim().to_string();
+        if key.is_empty() {
+            return Err(AppError::Config("Add your API key in Settings first.".into()));
+        }
+        let url = format!("{}/chat/completions", provider_base(&s));
+        let out = complete_once(&key, &s.model, &url, REFINE_SYSTEM, &draft, 600)
+            .map_err(|e| AppError::Engine(format!("couldn't polish the prompt: {e}")))?;
+        let text = out.trim();
+        if text.is_empty() {
+            return Err(AppError::Engine("the model returned an empty rewrite".into()));
+        }
+        Ok(serde_json::json!({ "text": text }).to_string())
+    })
+    .await
+    .map_err(|e| AppError::Engine(format!("refine task failed: {e}")))?
 }
 
 /// Minimal UTC ISO-8601 stamp without pulling chrono into the app crate.
@@ -712,6 +904,34 @@ mod tests {
             .and_then(|m| m.as_str());
         assert_eq!(worker_model, Some("deepseek-chat"));
         assert_eq!(v.get("version").and_then(|x| x.as_str()), Some("9.9.9"));
+    }
+    /// LIVE (network + configured key): the mini model must SEE — a solid
+    /// red 8x8 PNG rides the multimodal content array through the exact
+    /// production body builder (`completion_body` → `complete_once_vision`).
+    /// Run: cargo test --lib live_vision_red_png_mini -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_vision_red_png_mini() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            panic!("no API key in the credential store");
+        };
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC";
+        let url = format!("data:image/png;base64,{png}");
+        let out = complete_once_vision(
+            &key,
+            "openai/gpt-4.1-mini",
+            "https://openrouter.ai/api/v1/chat/completions",
+            "You answer in one lowercase word.",
+            "What color is this image?",
+            &[url],
+            10,
+        )
+        .expect("vision call");
+        println!("mini saw: {out}");
+        assert!(
+            out.to_lowercase().contains("red"),
+            "expected 'red', got: {out}"
+        );
     }
 
     #[test]

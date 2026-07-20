@@ -262,6 +262,20 @@ pub struct OpenRouterModel {
     /// `/models` `supported_parameters`), e.g. `tools`, `structured_outputs`.
     #[serde(default)]
     pub supported_parameters: Vec<String>,
+    /// Input/output modality badges (OpenRouter `/models` `architecture`).
+    #[serde(default)]
+    pub architecture: Option<OpenRouterArchitecture>,
+}
+
+/// The `architecture` object on an OpenRouter catalog entry. Only the
+/// modality fields are kept; both spellings are tolerated (older payloads
+/// carried a combined `modality` string like `text+image->text`).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct OpenRouterArchitecture {
+    #[serde(default)]
+    pub input_modalities: Vec<String>,
+    #[serde(default)]
+    pub modality: String,
 }
 
 impl OpenRouterModel {
@@ -277,6 +291,46 @@ impl OpenRouterModel {
     pub fn strict_json(&self) -> bool {
         self.supports("structured_outputs") || self.supports("response_format")
     }
+    /// Whether the model can accept image inputs (vision). Checks the
+    /// structured `input_modalities` list first, then falls back to the
+    /// combined `modality` string's input half (`text+image->text`).
+    pub fn vision(&self) -> bool {
+        let Some(a) = &self.architecture else {
+            return false;
+        };
+        if !a.input_modalities.is_empty() {
+            return a.input_modalities.iter().any(|m| m == "image");
+        }
+        a.modality
+            .split("->")
+            .next()
+            .map(|inputs| inputs.contains("image"))
+            .unwrap_or(false)
+    }
+    /// Prompt price in USD per 1M tokens, when the catalog carries a
+    /// parseable per-token price. Unparseable/absent → None (callers MUST
+    /// treat unknown price as ineligible for cost-based routing).
+    pub fn prompt_per_mtok(&self) -> Option<f64> {
+        per_mtok(self.pricing.as_ref().map(|p| p.prompt.as_str()))
+    }
+    /// Completion price in USD per 1M tokens (same contract as prompt).
+    pub fn completion_per_mtok(&self) -> Option<f64> {
+        per_mtok(self.pricing.as_ref().map(|p| p.completion.as_str()))
+    }
+}
+
+/// Parse an OpenRouter per-token USD price string into $/1M tokens.
+/// Empty, negative, or non-numeric prices → None.
+fn per_mtok(per_token: Option<&str>) -> Option<f64> {
+    let s = per_token?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let v: f64 = s.parse().ok()?;
+    if !v.is_finite() || v < 0.0 {
+        return None;
+    }
+    Some(v * 1_000_000.0)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -498,6 +552,47 @@ mod tests {
         assert_eq!(parse_models_response(&body).len(), 0);
         let body2 = serde_json::json!({});
         assert_eq!(parse_models_response(&body2).len(), 0);
+    }
+    #[test]
+    fn vision_from_architecture_both_shapes() {
+        let body = serde_json::json!({
+            "data": [
+                { "id": "a/eyes", "architecture": { "input_modalities": ["text", "image"] } },
+                { "id": "b/legacy", "architecture": { "modality": "text+image->text" } },
+                { "id": "c/text", "architecture": { "input_modalities": ["text"] } },
+                { "id": "d/legacy-text", "architecture": { "modality": "text->text" } },
+                { "id": "e/none" },
+                // Output-side "image" must NOT count as vision input.
+                { "id": "f/imagegen", "architecture": { "modality": "text->image" } }
+            ]
+        });
+        let models = parse_models_response(&body);
+        let vision: Vec<&str> = models
+            .iter()
+            .filter(|m| m.vision())
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(vision, vec!["a/eyes", "b/legacy"]);
+    }
+
+    #[test]
+    fn per_mtok_prices_parse_defensively() {
+        let m: OpenRouterModel = serde_json::from_value(serde_json::json!(
+            { "id": "x", "pricing": { "prompt": "0.0000025", "completion": "0.00001" } }
+        ))
+        .unwrap();
+        assert_eq!(m.prompt_per_mtok(), Some(2.5));
+        assert_eq!(m.completion_per_mtok(), Some(10.0));
+        // Unparseable, negative, or missing prices are None — never 0.
+        let bad: OpenRouterModel = serde_json::from_value(serde_json::json!(
+            { "id": "y", "pricing": { "prompt": "n/a", "completion": "-1" } }
+        ))
+        .unwrap();
+        assert_eq!(bad.prompt_per_mtok(), None);
+        assert_eq!(bad.completion_per_mtok(), None);
+        let none: OpenRouterModel =
+            serde_json::from_value(serde_json::json!({ "id": "z" })).unwrap();
+        assert_eq!(none.completion_per_mtok(), None);
     }
 
     #[test]

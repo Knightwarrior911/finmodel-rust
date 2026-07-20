@@ -440,6 +440,8 @@ pub struct LiveDriver {
     /// The verification card produced by `verify()`, taken by the actor and
     /// emitted as a durable `ResultPartAdded` (Task 2.1 single render path).
     verify_card: Option<Value>,
+    /// Per-conversation spend guard (budget + accumulated cost).
+    cost: CostGuard,
 }
 
 /// Authoritative value for a run claim in the current verification slice (Task
@@ -515,6 +517,75 @@ fn prune_history(messages: &mut Vec<serde_json::Value>) -> bool {
     true
 }
 
+/// Approximate per-conversation spend guard. The driver charges every model
+/// round; [`LiveDriver::request_model`] refuses to start a round once the
+/// user's conversation budget is reached, ending the run with a wrap-up
+/// message instead of another provider call (billing safety).
+///
+/// Costs prefer the provider-reported `cost` field (OpenRouter returns USD);
+/// otherwise tokens × the catalog price snapshot taken at launch. When a
+/// provider reports only `total_tokens`, the whole total is charged at the
+/// OUTPUT rate — deliberately overestimating, because a spend guard that
+/// underestimates is worse than one that stops a little early.
+#[derive(Clone, Debug, Default)]
+pub struct CostGuard {
+    /// Per-conversation ceiling in USD; 0 = no limit.
+    pub budget_usd: f64,
+    /// Spend recorded by this conversation's earlier runs.
+    pub prior_spend_usd: f64,
+    /// Spend accumulated by THIS run so far.
+    pub run_spend_usd: f64,
+    /// Catalog price snapshot for the run's model, USD per 1M tokens.
+    pub price_in_per_mtok: Option<f64>,
+    pub price_out_per_mtok: Option<f64>,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+}
+
+impl CostGuard {
+    /// Charge one completed provider round from its `usage` object.
+    pub fn charge(&mut self, usage: Option<&Value>) {
+        let Some(u) = usage else { return };
+        let p = u.get("prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
+        let c = u
+            .get("completion_tokens")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
+        self.prompt_tokens = self.prompt_tokens.saturating_add(p);
+        self.completion_tokens = self.completion_tokens.saturating_add(c);
+        let reported = u
+            .get("cost")
+            .and_then(|x| x.as_f64())
+            .filter(|v| v.is_finite() && *v >= 0.0);
+        let add = reported.unwrap_or_else(|| {
+            if p == 0 && c == 0 {
+                // Split-unknown: charge the whole total at the output rate.
+                let total = u.get("total_tokens").and_then(|x| x.as_u64()).unwrap_or(0);
+                self.price_out_per_mtok.unwrap_or(0.0) * total as f64 / 1e6
+            } else {
+                self.price_in_per_mtok.unwrap_or(0.0) * p as f64 / 1e6
+                    + self.price_out_per_mtok.unwrap_or(0.0) * c as f64 / 1e6
+            }
+        });
+        self.run_spend_usd += add;
+    }
+
+    /// Whether the conversation has reached the user's ceiling.
+    pub fn over_budget(&self) -> bool {
+        self.budget_usd > 0.0 && self.prior_spend_usd + self.run_spend_usd >= self.budget_usd
+    }
+
+    /// Durable usage snapshot for the run row (summed by
+    /// [`crate::store::Db::conversation_spend_usd`]).
+    pub fn usage_json(&self) -> String {
+        serde_json::json!({
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "cost_usd": self.run_spend_usd,
+        })
+        .to_string()
+    }
+}
 impl LiveDriver {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -525,7 +596,7 @@ impl LiveDriver {
         tools_enabled: bool,
         registry_hub: crate::agent::registry::ActorRegistry,
     ) -> Self {
-        let messages = crate::commands::chat::seed_agent_messages(&ctx.user_msg);
+        let messages = crate::commands::chat::seed_agent_messages_with_images(&ctx.user_msg, &ctx.images);
         let tools = if tools_enabled {
             ToolRegistry::shared().agent_schemas()
         } else {
@@ -549,7 +620,32 @@ impl LiveDriver {
             selected_workflow: None,
             run_claims: Vec::new(),
             verify_card: None,
+            cost: CostGuard::default(),
         }
+    }
+
+    /// Install the launch-time spend guard (budget + prior spend + price
+    /// snapshot). Separate from `new` so tests and the no-budget path stay
+    /// untouched.
+    pub fn with_cost_guard(mut self, cost: CostGuard) -> Self {
+        self.cost = cost;
+        self
+    }
+
+    /// Charge a completed provider round and persist the run's usage snapshot
+    /// so conversation spend survives a crash or kill (fire-and-forget write).
+    fn charge_round(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
+        self.cost.charge(acc.meta.usage.as_ref());
+        let store = self.store.clone();
+        let run = self.ctx.run_id.clone();
+        let usage = self.cost.usage_json();
+        tauri::async_runtime::spawn(async move {
+            store
+                .call(move |db| {
+                    let _ = db.set_run_usage(&run, &usage);
+                })
+                .await;
+        });
     }
 
     /// Resolve the workspace grounding layer (global personalization + project
@@ -728,6 +824,7 @@ impl LiveDriver {
     /// reducer `ModelOut`. Shared by the primary path and every retry arm so the
     /// accept logic never drifts across arms.
     fn accept_stream(&mut self, acc: &crate::agent::provider::StreamAccumulator) -> ModelOut {
+        self.charge_round(acc);
         self.last_content = acc.content.clone();
         self.seed_pending_from_acc(acc);
         if !acc.complete_calls().is_empty() {
@@ -818,6 +915,7 @@ impl LiveDriver {
         .await;
         match result {
             Ok(acc) if !acc.content.trim().is_empty() => {
+                self.charge_round(&acc);
                 finisher::succeed(&mut self.messages, &acc.content);
                 self.last_content = acc.content.clone();
                 ModelOut {
@@ -1122,6 +1220,21 @@ impl Driver for LiveDriver {
                 tokens: 0,
             };
         }
+        // Spending limit: refuse to START a round once the conversation
+        // budget is reached — the run ends with a clear wrap-up instead of
+        // another billable call. Checked before every round so a tool loop
+        // can never spend past the ceiling by more than one in-flight call.
+        if self.cost.over_budget() {
+            self.last_content = format!(
+                "This conversation has reached the spending limit you set (${:.2}). I stopped here so there are no surprise charges — nothing more was billed. You can raise or remove the limit in Settings → Spending, or start a fresh conversation.",
+                self.cost.budget_usd
+            );
+            return ModelOut {
+                calls: vec![],
+                final_answer: true,
+                tokens: 0,
+            };
+        }
         // Per-request ceiling = the reducer's remaining deadline; the adapter
         // (chat.rs) enforces it alongside connect + no-progress timeouts, and the
         // reducer's boundary Tick owns the overall deadline (Task 1.3). The former
@@ -1202,6 +1315,7 @@ impl Driver for LiveDriver {
                 .await
                 {
                     Ok(acc) => {
+                        self.charge_round(&acc);
                         self.last_content = acc.content.clone();
                         if !acc.content.trim().is_empty() {
                             self.messages.push(serde_json::json!({
@@ -2532,7 +2646,7 @@ mod tests {
 
 #[cfg(test)]
 mod finisher_tests {
-    use super::finisher;
+    use super::{finisher, CostGuard};
     use serde_json::json;
 
     fn history_with_draft() -> Vec<serde_json::Value> {
@@ -2583,5 +2697,73 @@ mod finisher_tests {
         let draft = finisher::begin(&mut m);
         finisher::fail(&mut m, draft);
         assert_eq!(m, before, "history byte-identical after a failed handoff");
+    }
+
+    // ── CostGuard (billing safety) ──────────────────────────────────
+
+    #[test]
+    fn cost_guard_prefers_provider_reported_cost() {
+        let mut g = CostGuard {
+            budget_usd: 1.0,
+            price_in_per_mtok: Some(1.0),
+            price_out_per_mtok: Some(2.0),
+            ..Default::default()
+        };
+        // Provider says 0.031 — the token estimate (which would be smaller)
+        // must NOT win.
+        g.charge(Some(&serde_json::json!({
+            "prompt_tokens": 1000, "completion_tokens": 500, "cost": 0.031
+        })));
+        assert!((g.run_spend_usd - 0.031).abs() < 1e-12);
+        assert!(!g.over_budget());
+    }
+
+    #[test]
+    fn cost_guard_estimates_from_prices_when_cost_absent() {
+        let mut g = CostGuard {
+            budget_usd: 0.0,
+            price_in_per_mtok: Some(2.5),
+            price_out_per_mtok: Some(10.0),
+            ..Default::default()
+        };
+        // 100k in = .25, 10k out = .10.
+        g.charge(Some(&serde_json::json!({
+            "prompt_tokens": 100_000, "completion_tokens": 10_000
+        })));
+        assert!((g.run_spend_usd - 0.35).abs() < 1e-9);
+        // budget 0 = no limit, whatever the spend
+        assert!(!g.over_budget());
+    }
+
+    #[test]
+    fn cost_guard_total_only_charges_output_rate() {
+        let mut g = CostGuard {
+            price_out_per_mtok: Some(10.0),
+            ..Default::default()
+        };
+        g.charge(Some(&serde_json::json!({ "total_tokens": 50_000 })));
+        // Overestimate on purpose: the whole total at the output rate.
+        assert!((g.run_spend_usd - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cost_guard_budget_counts_prior_runs() {
+        let mut g = CostGuard {
+            budget_usd: 1.0,
+            prior_spend_usd: 0.9,
+            price_out_per_mtok: Some(10.0),
+            ..Default::default()
+        };
+        assert!(!g.over_budget());
+        g.charge(Some(&serde_json::json!({
+            "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.2
+        })));
+        assert!(g.over_budget(), "prior + run spend crosses the ceiling");
+        // Negative / NaN provider costs are ignored, never crediting spend back.
+        g.charge(Some(&serde_json::json!({ "cost": -5.0, "total_tokens": 10 })));
+        assert!(g.run_spend_usd >= 0.2);
+        // The persisted snapshot carries the summable cost field.
+        let v: serde_json::Value = serde_json::from_str(&g.usage_json()).unwrap();
+        assert!(v.get("cost_usd").and_then(|c| c.as_f64()).unwrap() >= 0.2);
     }
 }

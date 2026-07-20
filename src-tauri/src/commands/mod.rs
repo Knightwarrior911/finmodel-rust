@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod analysis;
 pub mod artifacts;
+pub mod attachments;
 pub mod benchmark;
 pub mod cache;
 pub mod chat;
@@ -78,7 +79,10 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         settings::test_model,
         settings::clear_api_key,
         artifacts::pick_pdf_artifact,
-        artifacts::claim_dropped_pdf,
+        artifacts::claim_dropped_file,
+        attachments::stage_attachment,
+        settings::set_model,
+        settings::refine_prompt,
         update::check_for_update,
         update::install_update,
         update::restart_app,

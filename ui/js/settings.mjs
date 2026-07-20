@@ -142,6 +142,12 @@ export async function openSettings() {
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
     $("synthesisModel").value = s.synthesis_model || "";
+    $("autoRouteVision").checked = s.auto_route_vision !== false;
+    $("routePriceCap").value =
+      typeof s.route_price_cap_usd === "number" ? s.route_price_cap_usd : "";
+    $("conversationBudget").value =
+      s.conversation_budget_usd > 0 ? s.conversation_budget_usd : "";
+    $("globalInstructions").value = s.global_instructions || "";
     if ($("appVersion") && s.version)
       $("appVersion").textContent = `v${s.version}`;
     renderCaps(s.model_capability);
@@ -568,6 +574,23 @@ export function initSettings(opts = {}) {
     const api_key = $("apiKey").value;
     const model = $("modelSelect").value || "";
     const cmd = ($("mcpCommand").value || "").trim();
+    // Money fields: blank = keep what's saved; anything typed must be a
+    // number ≥ 0 (the backend double-checks and refuses junk).
+    const money = (id) => {
+      const raw = ($(id).value || "").trim();
+      if (raw === "") return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : NaN;
+    };
+    const cap = money("routePriceCap");
+    const budget = money("conversationBudget");
+    if (Number.isNaN(cap) || Number.isNaN(budget)) {
+      setStatus(
+        "The dollar limits need a plain number like 5 or 2.50 (or 0 to turn them off).",
+        "error",
+      );
+      return;
+    }
     try {
       await call("save_settings", {
         api_key,
@@ -579,6 +602,10 @@ export function initSettings(opts = {}) {
         mcp_args: cmd.split(/\s+/).slice(1),
         synthesis_model: $("synthesisModel").value,
         model_profiles: readModelProfiles(),
+        auto_route_vision: $("autoRouteVision").checked,
+        ...(cap !== undefined ? { route_price_cap_usd: cap } : {}),
+        ...(budget !== undefined ? { conversation_budget_usd: budget } : {}),
+        global_instructions: $("globalInstructions").value,
       });
       $("apiKey").value = "";
       // Auto-detect what the model can do so the home screen is accurate
@@ -661,6 +688,7 @@ export function initSettings(opts = {}) {
           const badges = [
             m.native_tools ? "tools" : null,
             m.strict_json ? "json" : null,
+            m.vision ? "sees images" : null,
           ]
             .filter(Boolean)
             .join(",");

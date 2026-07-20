@@ -1,3 +1,35 @@
+## Session (2026-07-20) v0.9.22 — attachments backend, vision routing, spend guards
+- **commands/attachments.rs** (new): stage_attachment (base64 over IPC → app-data
+  staging dir, classify by extension, ArtifactKind::UserImage/UserFile), read-only
+  has_image_attachments pre-probe, build_attachment_context (text extraction blocks:
+  PPTX via fm-pptx inspect, XLSX via fm-excel calamine, DOCX zip-XML, plain text
+  12k cap; images → data URLs ≤5MB ×4; PDFs re-registered to the live conversation).
+- **Vision auto-routing** (agent/model_router.rs route_for_vision + launch_run in
+  commands/agent.rs): cheapest catalog model with vision+tools, ≥32k ctx
+  (MIN_ROUTE_CONTEXT), never :free variants, parseable completion price ≤
+  settings.route_price_cap_usd (default $5/M out, 0=off). Per-TURN cfg override,
+  nothing persisted; agent_send returns model_note {using,using_id,usual}.
+  NoneAffordable fails the send BEFORE provider calls or attachment consumption.
+  Unknown current model (custom base) is never switched away from.
+- **CostGuard** (agent/driver.rs): conversation_budget_usd (0=off) from settings;
+  charge_round on every stream accept (accept_stream, manual retry arm, strong
+  finisher); prefers OpenRouter billed usage.cost — stream_completion_for_agent
+  injects usage:{include:true} for OpenRouter only; apply_delta keeps numeric cost;
+  fallback tokens × catalog snapshot (cached_openrouter_catalog, 5-min TTL,
+  settings.rs); total-only ⇒ total × out-rate (overestimates). set_run_usage after
+  each round; conversation_spend_usd sums; finish_run COALESCEs usage_json.
+  request_model refuses to start a round over budget.
+- **refine_prompt** command (settings.rs, registered in mod.rs): configured model,
+  600-token cap, returns {text}. grounding.rs write_global (read-modify-write
+  config.json, removes legacy 'personalization' alias); load/save_settings expose
+  global_instructions from THAT file (no duplicate Settings field).
+- Settings: auto_route_vision (default true), route_price_cap_usd,
+  conversation_budget_usd; money fields error on junk, never silently default.
+- fm-extract llm.rs: OpenRouterArchitecture + vision() (input_modalities, modality
+  fallback), prompt/completion_per_mtok (unparseable → None).
+- Tests: 344 lib green; live_vision_red_png_mini ships ignored (openrouter.ai TLS
+  was reset from this machine all session — pre-existing live tests failed too).
+
 ## Session (2026-07-19) v0.9.2–9.9 — Multi-year spread, credit metrics, blocked-source fallback
 - **get_financials** became the analyst spread: up to 6 fiscal years, balance sheet
   (cash/assets/LT debt/equity), cash flow (CFO/capex), shares, interest/D&A/short-term

@@ -107,7 +107,7 @@ pub fn run() {
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
             }
             // Capture OS drag-drop paths in Rust as one-use grants, then notify
-            // the UI. The UI claims only after `pdf_drop_ready` — never races
+            // the UI. The UI claims only after `file_drop_ready` — never races
             // the webview drag-drop event against Rust observation.
             if let Some(win) = app.get_webview_window("main") {
                 let handle = app.handle().clone();
@@ -119,7 +119,7 @@ pub fn run() {
                             let n = reg.observe_drop(paths);
                             if n > 0 {
                                 let _ = handle
-                                    .emit("pdf_drop_ready", serde_json::json!({ "count": n }));
+                                    .emit("file_drop_ready", serde_json::json!({ "count": n }));
                             }
                         }
                     }

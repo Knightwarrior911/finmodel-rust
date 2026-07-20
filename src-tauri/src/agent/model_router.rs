@@ -319,6 +319,82 @@ where
         }
     }
 }
+/// The vision-routing verdict for a turn that carries image attachments.
+#[derive(Clone, Debug, PartialEq)]
+pub enum VisionRoute {
+    /// The configured model already reads images — no switch.
+    KeepCurrent,
+    /// Route THIS TURN ONLY to the named model (cheapest eligible).
+    /// `(id, display name, $ per 1M output tokens)`.
+    Route(String, String, f64),
+    /// Vision models exist but none within the user's price cap.
+    NoneAffordable,
+    /// The configured model is not in the catalog — never route blind.
+    CurrentUnknown,
+}
+
+/// Smallest context window an auto-routed vision model may have. The agent
+/// system prompt + tool schemas + an image already reach tens of thousands
+/// of tokens; a smaller window would trade one failure (can't see) for
+/// another (context overflow mid-turn).
+pub const MIN_ROUTE_CONTEXT: u64 = 32_000;
+/// Pick a model for an image turn, cheapest first, never above the cap.
+///
+/// Contract (billing-safety):
+/// - the current model keeps the turn whenever it can already see;
+/// - a model missing from the catalog is NEVER auto-switched away from
+///   (custom/self-hosted ids stay untouched);
+/// - candidates MUST advertise vision AND native tool calling (the agent
+///   loop always offers tools), MUST carry a parseable completion price at
+///   or under `cap_per_mtok_out` (unknown price = ineligible), MUST NOT be
+///   a `:free` variant (heavily rate-limited — they fail mid-run), and MUST
+///   have a context window of at least [`MIN_ROUTE_CONTEXT`] tokens;
+/// - ordering: completion price, then prompt price, then id (deterministic);
+/// - `cap_per_mtok_out` ≤ 0 or non-finite disables routing entirely.
+pub fn route_for_vision(
+    catalog: &[fm_extract::OpenRouterModel],
+    current_model: &str,
+    cap_per_mtok_out: f64,
+) -> VisionRoute {
+    if !cap_per_mtok_out.is_finite() || cap_per_mtok_out <= 0.0 {
+        return VisionRoute::NoneAffordable;
+    }
+    let Some(current) = catalog.iter().find(|m| m.id == current_model) else {
+        return VisionRoute::CurrentUnknown;
+    };
+    if current.vision() {
+        return VisionRoute::KeepCurrent;
+    }
+    let mut candidates: Vec<(&fm_extract::OpenRouterModel, f64, f64)> = catalog
+        .iter()
+        .filter(|m| {
+            m.vision()
+                && m.native_tools()
+                && !m.id.ends_with(":free")
+                && m.context_length.unwrap_or(0) >= MIN_ROUTE_CONTEXT
+        })
+        .filter_map(|m| {
+            let out = m.completion_per_mtok()?;
+            let inp = m.prompt_per_mtok()?;
+            (out <= cap_per_mtok_out).then_some((m, out, inp))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return VisionRoute::NoneAffordable;
+    }
+    candidates.sort_by(|a, b| {
+        a.1.total_cmp(&b.1)
+            .then(a.2.total_cmp(&b.2))
+            .then(a.0.id.cmp(&b.0.id))
+    });
+    let (m, out, _) = candidates[0];
+    let name = if m.name.trim().is_empty() {
+        m.id.clone()
+    } else {
+        m.name.clone()
+    };
+    VisionRoute::Route(m.id.clone(), name, out)
+}
 
 #[cfg(test)]
 mod tests {
@@ -636,5 +712,99 @@ mod tests {
                 spent_usd: 0.0,
             }
         );
+    }
+    // ── route_for_vision ────────────────────────────────────────────
+
+    fn cat_model(
+        id: &str,
+        vision: bool,
+        tools: bool,
+        ctx: u64,
+        prompt: &str,
+        completion: &str,
+    ) -> fm_extract::OpenRouterModel {
+        let modalities = if vision {
+            vec!["text", "image"]
+        } else {
+            vec!["text"]
+        };
+        let params = if tools { vec!["tools"] } else { vec![] };
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": id,
+            "context_length": ctx,
+            "pricing": { "prompt": prompt, "completion": completion },
+            "supported_parameters": params,
+            "architecture": { "input_modalities": modalities },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn vision_keeps_a_model_that_already_sees() {
+        let cat = vec![cat_model("a/sees", true, true, 128_000, "0.000001", "0.000002")];
+        assert_eq!(route_for_vision(&cat, "a/sees", 5.0), VisionRoute::KeepCurrent);
+    }
+
+    #[test]
+    fn vision_never_routes_away_from_an_unknown_model() {
+        let cat = vec![cat_model("a/sees", true, true, 128_000, "0.000001", "0.000002")];
+        assert_eq!(
+            route_for_vision(&cat, "custom/self-hosted", 5.0),
+            VisionRoute::CurrentUnknown
+        );
+    }
+
+    #[test]
+    fn vision_routes_cheapest_eligible_under_cap() {
+        let cat = vec![
+            cat_model("t/blind", false, true, 128_000, "0.0000004", "0.0000016"),
+            // $12/M out — above the $5 cap.
+            cat_model("v/pricey", true, true, 200_000, "0.000003", "0.000012"),
+            // $2.40/M out — eligible, but pricier than v/cheap.
+            cat_model("v/mid", true, true, 128_000, "0.0000006", "0.0000024"),
+            // $0.80/M out — the winner.
+            cat_model("v/cheap", true, true, 64_000, "0.0000002", "0.0000008"),
+            // Cheaper than v/cheap but rate-limited free variant: excluded.
+            cat_model("v/gratis:free", true, true, 128_000, "0", "0"),
+            // Cheaper but no tool support: the agent loop can't use it.
+            cat_model("v/no-tools", true, false, 128_000, "0.0000001", "0.0000004"),
+            // Cheaper but a tiny window: overflows mid-turn.
+            cat_model("v/tiny-ctx", true, true, 8_000, "0.0000001", "0.0000004"),
+        ];
+        match route_for_vision(&cat, "t/blind", 5.0) {
+            VisionRoute::Route(id, name, out) => {
+                assert_eq!(id, "v/cheap");
+                assert_eq!(name, "v/cheap");
+                assert!((out - 0.8).abs() < 1e-9, "out price {out}");
+            }
+            other => panic!("expected Route(v/cheap), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn vision_cap_excludes_everything_or_disables() {
+        let cat = vec![
+            cat_model("t/blind", false, true, 128_000, "0.0000004", "0.0000016"),
+            cat_model("v/pricey", true, true, 200_000, "0.000003", "0.000012"),
+        ];
+        // Cap below every candidate → NoneAffordable, never a silent overshoot.
+        assert_eq!(route_for_vision(&cat, "t/blind", 1.0), VisionRoute::NoneAffordable);
+        // Cap 0 / NaN → routing disabled outright.
+        assert_eq!(route_for_vision(&cat, "t/blind", 0.0), VisionRoute::NoneAffordable);
+        assert_eq!(
+            route_for_vision(&cat, "t/blind", f64::NAN),
+            VisionRoute::NoneAffordable
+        );
+    }
+
+    #[test]
+    fn vision_unknown_price_is_ineligible() {
+        let cat = vec![
+            cat_model("t/blind", false, true, 128_000, "0.0000004", "0.0000016"),
+            // No parseable price — must NOT be routed to, whatever the cap.
+            cat_model("v/mystery", true, true, 128_000, "", ""),
+        ];
+        assert_eq!(route_for_vision(&cat, "t/blind", 100.0), VisionRoute::NoneAffordable);
     }
 }

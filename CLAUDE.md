@@ -1,5 +1,55 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.22 SHIPPING (2026-07-20) — composer multimodal + billing safety
+**Bumped to 0.9.22 (Cargo.toml + tauri.conf.json + Cargo.lock lockstep);
+CHANGELOG dated. Local gates on target OS: app-lib 344 · UI 191 ·
+cargo check --bin clean. Shipping sequence: commit → push → CI green →
+signed NSIS → tag v0.9.22 → publish finmodel-releases → verify endpoint.**
+
+What's in v0.9.22 (two feature waves on top of v0.9.21):
+1) Composer input surface: type-ahead model picker on the pill
+   (ui/js/composer.mjs; list_models catalog, 5-min cache + in-flight
+   dedupe); attachments via paperclip / OS drag-drop / Ctrl+V paste
+   (images ≤5MB ×4, PDF/PPTX/XLSX/DOCX/txt-md-csv-json); backend staging
+   commands/attachments.rs (classify + extract via fm-excel calamine,
+   fm-pptx inspect, docx zip-XML, plain text 12k cap); multimodal image
+   parts flow through seed_agent_messages_with_images → driver → provider.
+2) Vision auto-routing + spend guards + polish:
+   - agent/model_router.rs route_for_vision: cheapest vision+tools model,
+     ≥32k ctx, no :free variants, parseable price ≤ cap (settings
+     route_price_cap_usd, default $5/M out); per-TURN override in
+     launch_run (agent.rs) — never persisted; model_note → UI line.
+     NoneAffordable refuses BEFORE provider call/attachment consumption.
+   - CostGuard (agent/driver.rs): budget_usd from settings
+     conversation_budget_usd (0=off); charges every stream round
+     (accept_stream + manual arms + strong finisher) preferring
+     OpenRouter billed usage.cost (usage:{include:true} injected in
+     stream_completion_for_agent for OpenRouter only; cost survives the
+     SSE usage filter in chat.rs apply_delta); falls back tokens ×
+     catalog snapshot; total-only ⇒ total × out-rate (overestimates on
+     purpose). Persists per-round via store set_run_usage; conversation
+     sum = conversation_spend_usd; finish_run now COALESCEs usage_json.
+     request_model refuses to START a round over budget (friendly stop).
+   - refine_prompt command (settings.rs, 600-token cap) + sparkle
+     refineBtn in composer with undo (hint-action).
+   - Global personalization: grounding config.json instructions now has
+     Settings UI (read_global/write_global read-modify-write; legacy
+     'personalization' alias removed on write). ONE source of truth —
+     Settings.global_instructions field was deliberately NOT added.
+   - Settings copy humanized: Spending + Personal touch sections; money
+     fields reject junk (backend errors, UI validates); 'sees images'
+     badges (catalog vision() from architecture.input_modalities with
+     modality-string fallback, fm-extract llm.rs).
+   - Copy button: .msg-copy absolute→in-flow footer (overlap fix).
+
+Live-network caveat: openrouter.ai TLS handshake was RESET from this
+machine all session (SEC egress fine; pre-existing live tests fail
+identically) — live vision smoke ships as ignored test:
+cargo test --lib live_vision_red_png_mini -- --ignored --nocapture
+Not covered: budget inert on non-OpenRouter without catalog prices
+(hinted in Settings); one in-flight round can overshoot the cap;
+workspace-DB standing_instructions still dormant (project files cover it).
+
 ## HANDOVER — v0.9.21 SHIPPED + LIVE (2026-07-20) — the analyst writes the memo
 **Tagged v0.9.21 on 7759f09 (docs atop RC 4171a1b); released to public
 finmodel-releases (Latest). CI green all 5 jobs after the user fixed the

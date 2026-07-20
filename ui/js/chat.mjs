@@ -28,6 +28,12 @@ import {
 import { closeReader } from "./reader.mjs";
 import { evidenceIngest, evidenceReset } from "./evidence.mjs";
 import { scheduleDueLabel, draftOfferForCards } from "./labels.mjs";
+import {
+  initComposer,
+  attachmentPayload,
+  clearAttachments,
+  getAttachments,
+} from "./composer.mjs";
 import { openSettingsWithSkillDraft } from "./settings.mjs";
 
 let currentId = null;
@@ -1037,13 +1043,19 @@ function waitForAgentTerminal(runId, timeoutMs = 130000) {
 async function sendViaAgent(msg) {
   const projectId = pendingProjectId;
   turnCardTypes = new Set();
+  const attachments = attachmentPayload();
   const res = await call("agent_send", {
     conversation_id: currentId || null,
     text: msg,
     project_id: projectId,
+    attachments: attachments.length ? attachments : null,
   });
+  if (attachments.length) clearAttachments();
   currentId = res.conversation_id || currentId;
   activeRunId = res.run_id || activeRunId;
+  // The turn was quietly routed to an image-capable model (per-message only —
+  // the usual model is untouched). Say so in one calm line.
+  if (res.model_note && res.model_note.using) renderModelNote(res.model_note);
   // A follow-up promise in the message becomes a PROPOSAL — scheduling always
   // needs an explicit yes (never silently created from inference).
   if (res.commitment && res.commitment.text) renderScheduleOffer(res.commitment);
@@ -1067,6 +1079,20 @@ async function sendViaAgent(msg) {
     const offer = draftOfferForCards([...turnCardTypes]);
     if (offer) renderDraftOffer(offer);
   }
+}
+/// One quiet line when a message was read by a different model because it
+/// carried images. No buttons — nothing to decide; the switch already ended.
+function renderModelNote(note) {
+  const div = document.createElement("div");
+  div.className = "msg model-note";
+  const usual = note.usual
+    ? ` Back to ${escapeHtml(String(note.usual))} for your next message.`
+    : "";
+  div.innerHTML = `<span class="model-note-text">Reading this with <strong>${escapeHtml(
+    String(note.using),
+  )}</strong> — your usual model can't see images.${usual}</span>`;
+  scrollEl().appendChild(div);
+  scrollToBottom();
 }
 
 /// Quiet, dismissible offer to remember a standing preference the user just
@@ -1190,7 +1216,9 @@ function surfaceMinimalAnswer(terminal) {
 }
 
 async function send(text) {
-  const msg = (text || "").trim();
+  let msg = (text || "").trim();
+  // Attachment-only send: give the turn an honest default ask.
+  if (!msg && getAttachments().length) msg = "Take a look at what I attached.";
   if (!msg || streaming) return;
   clearAlert();
   lastQuestion = msg;
@@ -1321,41 +1349,6 @@ export function initChat(opts = {}) {
       send(ta.value);
     }
   });
-  // OS drag-drop: Rust observes paths and emits pdf_drop_ready. We claim
-  // the one-use grant for the current conversation and put the opaque handle
-  // in the composer — never the raw filesystem path.
-  on("pdf_drop_ready", async () => {
-    try {
-      const convId = currentId;
-      if (!convId) {
-        const orig = ta.placeholder;
-        ta.placeholder = "Open or start a chat, then drop the PDF again";
-        setTimeout(() => {
-          ta.placeholder = orig;
-        }, 2500);
-        return;
-      }
-      const res = await call("claim_dropped_pdf", { conversation_id: convId });
-      if (!res || !res.artifact_id) {
-        const orig = ta.placeholder;
-        ta.placeholder = "Couldn't attach that PDF — try dropping it again";
-        setTimeout(() => {
-          ta.placeholder = orig;
-        }, 2500);
-        return;
-      }
-      const label = res.label || "PDF";
-      ta.value = `Analyze the PDF “${label}”`;
-      autoGrow();
-      ta.focus();
-    } catch (err) {
-      const orig = ta.placeholder;
-      ta.placeholder = (err && err.message) || "Drop failed";
-      setTimeout(() => {
-        ta.placeholder = orig;
-      }, 2500);
-    }
-  });
   on("chat_progress", (e) => {
     const p = (e && e.payload) || {};
     if (!eventMatchesActive(p)) return;
@@ -1397,12 +1390,8 @@ export function initChat(opts = {}) {
     if (chip) send(chip.textContent);
   });
 
-  // Model pill opens Settings.
-  const pill = $("modelPill");
-  if (pill)
-    pill.addEventListener("click", () =>
-      document.dispatchEvent(new CustomEvent("open-settings")),
-    );
+  // Composer input surface: attachments + in-composer model picker.
+  initComposer({ getConversationId: () => currentId });
 }
 
 // Reflect the current model in the composer pill.

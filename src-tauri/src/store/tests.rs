@@ -988,3 +988,28 @@ fn schedule_lifecycle_list_cancel_rearm() {
         None
     );
 }
+
+#[test]
+fn conversation_spend_sums_run_costs_and_survives_finish() {
+    let td = TempDir::new("spend");
+    let db = mem_db(&td);
+    let w = ws(&db);
+    db.create_conversation("c1", &w, "t", NOW).unwrap();
+    db.create_conversation("c2", &w, "t", NOW).unwrap();
+    for (run, conv) in [("r1", "c1"), ("r2", "c1"), ("r3", "c2")] {
+        db.insert_run(run, conv, None, None, "running", "preparing", None, None, NOW)
+            .unwrap();
+    }
+    db.set_run_usage("r1", r#"{"prompt_tokens":10,"completion_tokens":5,"cost_usd":0.25}"#)
+        .unwrap();
+    db.set_run_usage("r2", r#"{"cost_usd":0.50}"#).unwrap();
+    // Another conversation's spend never bleeds in.
+    db.set_run_usage("r3", r#"{"cost_usd":9.99}"#).unwrap();
+    assert!((db.conversation_spend_usd("c1").unwrap() - 0.75).abs() < 1e-9);
+    // finish_run with usage_json=None must KEEP the driver's snapshot.
+    db.finish_run("r1", "completed", "done", None, None, NOW).unwrap();
+    assert!((db.conversation_spend_usd("c1").unwrap() - 0.75).abs() < 1e-9);
+    // Junk rows count as zero, never poison the sum.
+    db.set_run_usage("r2", "not json").unwrap();
+    assert!((db.conversation_spend_usd("c1").unwrap() - 0.25).abs() < 1e-9);
+}
