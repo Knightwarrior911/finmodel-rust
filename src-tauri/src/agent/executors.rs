@@ -702,6 +702,52 @@ mod tests {
         assert!(results.get("t2").unwrap().is_ok());
         assert_eq!(backend.calls.lock().len(), 2);
     }
+    #[test]
+    fn wave_calls_genuinely_overlap_in_time() {
+        // The child-agent fan-out story rests on this: independent calls in
+        // one wave must RUN concurrently, not merely both complete. A probe
+        // backend records the peak number of in-flight invocations; two
+        // sleeping calls must overlap (peak 2), or delegation/fan-out is a
+        // serial loop wearing a parallel costume.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Probe {
+            in_flight: AtomicUsize,
+            peak: AtomicUsize,
+        }
+        impl ToolBackend for Probe {
+            fn invoke(
+                &self,
+                _name: &str,
+                _args: &Value,
+                _ctx: &SessionContext,
+            ) -> Result<(String, Value), String> {
+                let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                self.in_flight.fetch_sub(1, Ordering::SeqCst);
+                Ok(("ok".into(), json!({ "type": "quote", "ticker": "X" })))
+            }
+        }
+        let reg = ToolRegistry::builtin();
+        let probe = Probe {
+            in_flight: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+        };
+        let ctx = SessionContext::test_ctx("c1", "overlap");
+        let calls = vec![
+            ("t1".into(), "get_quote".into(), json!({"ticker":"AAPL"})),
+            ("t2".into(), "get_quote".into(), json!({"ticker":"MSFT"})),
+        ];
+        let mut results = HashMap::new();
+        execute_batch(&reg, &probe, &calls, &ctx, &mut results);
+        assert!(results.get("t1").unwrap().is_ok());
+        assert!(results.get("t2").unwrap().is_ok());
+        assert_eq!(
+            probe.peak.load(Ordering::SeqCst),
+            2,
+            "two independent calls must be in flight simultaneously"
+        );
+    }
 
     #[test]
     fn analyze_pdf_requires_artifact_id_not_path() {

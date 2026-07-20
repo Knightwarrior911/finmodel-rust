@@ -11,6 +11,24 @@
 
 /** @type {Record<string, ToolStory>} */
 export const TOOL_STORY = {
+  self_check: {
+    running: "Double-checking my own figures…",
+    done: "Caught myself — re-checking those figures properly",
+    failed: "Couldn't finish the self-check",
+    verb: "Re-checking",
+  },
+  delegate_analysis: {
+    running: "Handing a deep dive to a second analyst…",
+    done: "Deep dive came back",
+    failed: "The deep dive didn't finish",
+    verb: "Delegating",
+  },
+  advisor: {
+    running: "Getting a second look…",
+    done: "Second look finished",
+    failed: "Couldn't get the second look",
+    verb: "Reviewing",
+  },
   research: {
     running: "Digging into the research…",
     done: "Finished the research",

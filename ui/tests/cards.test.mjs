@@ -362,3 +362,39 @@ test("memo card offers the deck when a pptx was produced", async () => {
   });
   assert.ok(!/Open deck/.test(plain.innerHTML), "no deck button without pptx");
 });
+
+test('advisor card renders the second-look notes', async () => {
+  const cards = await importModule('cards.mjs');
+  const el = cards.renderCard({
+    type: 'advisor',
+    notes: ['Revenue figure not in the evidence', 'Margin overclaim'],
+  });
+  const html = el.innerHTML;
+  assert.match(html, /Second look/);
+  assert.match(html, /Revenue figure not in the evidence/);
+  assert.equal(el.querySelectorAll('.advisor-notes li').length, 2);
+  // Empty notes render nothing (never an empty shell).
+  assert.equal(cards.renderCard({ type: 'advisor', notes: [] }).nodeType, 8, 'declines as comment node');
+});
+
+test('delegate card shows task, findings, and tools used', async () => {
+  const cards = await importModule('cards.mjs');
+  const el = cards.renderCard({
+    type: 'delegate',
+    task: 'Pull FY2025 revenue and operating margin for SAP',
+    findings: "SAP FY2025 revenue was EUR 36.8B.\n\nOperating margin held at 26%.",
+    tools_used: ['get_financials', 'research'],
+  });
+  const html = el.innerHTML;
+  assert.match(html, /Deep dive/);
+  assert.match(html, /SAP FY2025 revenue/);
+  assert.match(html, /Checked with: get_financials, research/);
+  // No findings -> no card.
+  assert.equal(cards.renderCard({ type: 'delegate', task: 'x', findings: '' }).nodeType, 8, 'declines as comment node');
+});
+
+test('self-check card carries the drift note', async () => {
+  const cards = await importModule('cards.mjs');
+  const el = cards.renderCard({ type: 'self_check', message: 'Caught figures with no tool behind them - checking properly.' });
+  assert.match(el.innerHTML, /Caught figures/);
+});

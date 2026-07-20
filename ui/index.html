@@ -1059,6 +1059,20 @@ Tie-out: check a finished model against a trusted answer key, cell by cell.
             >
           </label>
           <label class="field">
+            <span class="field-label">Second-look reviewer (optional)</span>
+            <input
+              id="advisorModel"
+              type="text"
+              list="modelCatalogList"
+              placeholder="Start typing to pick a model — blank turns the second look off"
+            />
+            <span class="field-hint"
+              >After each answer, this model re-reads it against the tool
+              evidence and flags anything that doesn't hold up. One extra
+              small call per answer.</span
+            >
+          </label>
+          <label class="field">
             <span class="field-label">Contact email for SEC downloads (optional)</span>
             <input
               id="edgarContact"

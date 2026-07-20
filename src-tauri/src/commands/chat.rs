@@ -759,14 +759,58 @@ pub(crate) async fn stream_completion_for_agent(
 }
 
 /// Seed messages for a fresh agent turn (system policy + current user text).
+/// Explicit workflow scaffolding for small/cheap model families. Frontier
+/// models follow the terse doctrine reliably; smaller models need the steps
+/// spelled out (per-model prompt profiles — the "benchmaxxed prompts" lever).
+/// Unknown vendors get the scaffold: unknown is rarely frontier, and the
+/// cost is ~80 tokens on a cached prefix.
+pub(crate) fn model_scaffolding(model: &str) -> Option<&'static str> {
+    const SCAFFOLD: &str = "Workflow (follow exactly): (1) If the answer involves ANY financial figure, first call the right tool - get_financials for reported figures, get_quote for prices, benchmark_peers for comparisons, research for anything qualitative or current. (2) Independent lookups go in ONE turn as parallel tool calls. (3) Write the answer only from the tool results and cite them; if a tool failed, say what you tried. Never state figures from memory.";
+    let m = model.trim().to_ascii_lowercase();
+    if m.is_empty() {
+        return None;
+    }
+    // Small variants of any vendor scaffold. Segment match, not substring —
+    // "gemini" must never match "mini".
+    const SMALL_MARKS: [&str; 8] = ["mini", "nano", "flash", "haiku", "lite", "small", "tiny", "fast"];
+    let small = m
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|seg| SMALL_MARKS.contains(&seg));
+    if small {
+        return Some(SCAFFOLD);
+    }
+    // Frontier families that follow the terse doctrine without help.
+    let frontier = (m.starts_with("anthropic/") && (m.contains("sonnet") || m.contains("opus")))
+        || (m.starts_with("openai/") && (m.contains("gpt-5") || m.contains("o3") || m.contains("o4")))
+        || (m.starts_with("google/") && m.contains("pro"))
+        || (m.starts_with("x-ai/") && m.contains("grok-4"));
+    if frontier {
+        None
+    } else {
+        Some(SCAFFOLD)
+    }
+}
+
 pub(crate) fn seed_agent_messages(user_text: &str) -> Vec<Value> {
-    seed_agent_messages_with_images(user_text, &[])
+    seed_agent_messages_for_model(user_text, &[], "")
 }
 
 /// Seed with optional vision inputs. When images are present the user content
 /// becomes the OpenAI-style multimodal parts array; text-only turns keep the
 /// plain string (maximum provider compatibility).
 pub(crate) fn seed_agent_messages_with_images(user_text: &str, images: &[String]) -> Vec<Value> {
+    seed_agent_messages_for_model(user_text, images, "")
+}
+
+/// Seed with the per-model prompt profile: base system prompt, then the
+/// scaffolding layer for model families that need explicit steps, then the
+/// user turn. The scaffold rides INSIDE the leading system block so the
+/// prompt-cache anchor still covers it.
+pub(crate) fn seed_agent_messages_for_model(
+    user_text: &str,
+    images: &[String],
+    model: &str,
+) -> Vec<Value> {
     let today = &iso_now()[..10];
     let system = format!(
         "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory.\n\nNever compute material percentages, growth rates, ratios, or multiples in prose — call a deterministic tool (get_financials, benchmark_peers, build_model) and cite its source. The structured tool result, not your own arithmetic, is the authority for every material number."
@@ -781,10 +825,12 @@ pub(crate) fn seed_agent_messages_with_images(user_text: &str, images: &[String]
         }
         json!(parts)
     };
-    vec![
-        json!({ "role": "system", "content": system }),
-        json!({ "role": "user", "content": user_content }),
-    ]
+    let mut msgs = vec![json!({ "role": "system", "content": system })];
+    if let Some(scaffold) = model_scaffolding(model) {
+        msgs.push(json!({ "role": "system", "content": scaffold }));
+    }
+    msgs.push(json!({ "role": "user", "content": user_content }));
+    msgs
 }
 
 /// Truncate a string to `max` chars for the LLM tool result.
@@ -795,6 +841,32 @@ fn truncate(s: &str, max: usize) -> String {
         let head: String = s.chars().take(max).collect();
         format!("{head}…")
     }
+}
+
+/// Delegated child analyst (delegate_analysis): bounded read-only tool loop
+/// in its own context; the parent receives only the compact findings brief.
+fn tool_delegate(
+    app: &tauri::AppHandle,
+    args: &Value,
+    conversation_id: &str,
+) -> Result<(String, Value), String> {
+    let task = args
+        .get("task")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or("delegate_analysis needs a `task`")?;
+    let settings = crate::commands::settings::read_settings(app);
+    let cfg = fm_extract::LlmConfig {
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model: settings.model.trim().to_string(),
+    };
+    tauri::async_runtime::block_on(crate::agent::delegate::run_delegate_loop(
+        app,
+        &cfg,
+        task,
+        conversation_id,
+    ))
 }
 
 /// Execute a tool. Returns `(llm_result_text, card)`. Errors bubble as `Err`.
@@ -820,6 +892,7 @@ pub(crate) fn run_tool(
         "list_filings" => tool_list_filings(args),
         "read_filing" => tool_read_filing(app, args),
         "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
+        "delegate_analysis" => tool_delegate(app, args, conversation_id),
         "research" => tool_research(app, args, user_msg),
         "use_skill" => tool_use_skill(app, args),
         "draft_memo" => tool_draft_memo(app, args, conversation_id),
@@ -2547,6 +2620,48 @@ mod tests {
         let bare = vec![json!({ "role": "user", "content": "hi" })];
         let req = build_chat_request("anthropic/claude-sonnet-4", &bare, &[], true, false);
         assert_eq!(req["messages"][0]["content"], json!("hi"));
+    }
+    #[test]
+    fn prompt_profiles_scaffold_small_families_only() {
+        // Frontier: terse doctrine, no scaffold.
+        for m in [
+            "anthropic/claude-sonnet-4",
+            "anthropic/claude-opus-4",
+            "openai/gpt-5",
+            "google/gemini-2.5-pro",
+            "x-ai/grok-4",
+        ] {
+            assert!(model_scaffolding(m).is_none(), "{m} should stay terse");
+        }
+        // Small variants of ANY vendor + non-frontier vendors get the steps.
+        for m in [
+            "openai/gpt-4.1-mini",
+            "anthropic/claude-haiku-4",
+            "google/gemini-2.5-flash",
+            "x-ai/grok-code-fast-1",
+            "deepseek/deepseek-chat",
+            "qwen/qwen3-72b",
+            "unknown-vendor/some-model",
+        ] {
+            assert!(model_scaffolding(m).is_some(), "{m} needs scaffolding");
+        }
+        // Blank model (fallback paths) → no scaffold.
+        assert!(model_scaffolding("").is_none());
+    }
+
+    #[test]
+    fn seed_places_scaffold_inside_leading_system_block() {
+        // Scaffolded model: [system, scaffold-system, user].
+        let msgs = seed_agent_messages_for_model("q", &[], "deepseek/deepseek-chat");
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[1]["role"], "system");
+        assert!(msgs[1]["content"].as_str().unwrap().contains("Workflow"));
+        assert_eq!(msgs[2]["role"], "user");
+        // Frontier model: [system, user] — unchanged shape.
+        let msgs = seed_agent_messages_for_model("q", &[], "anthropic/claude-sonnet-4");
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[1]["role"], "user");
     }
 
     #[test]

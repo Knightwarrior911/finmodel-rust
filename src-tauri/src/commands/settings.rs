@@ -90,6 +90,11 @@ pub struct Settings {
     /// where a whole call is already dedicated to synthesis.)
     #[serde(default)]
     pub synthesis_model: String,
+    /// Optional second-look reviewer model (the advisor role): reads each
+    /// drafted answer against the run's tool evidence and surfaces short
+    /// notes for material problems. Blank → advisor off (no extra calls).
+    #[serde(default)]
+    pub advisor_model: String,
     /// Web-research MCP server command + args (Phase 8.2).
     #[serde(default)]
     pub mcp_command: String,
@@ -193,6 +198,7 @@ pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
         "out_dir": s.out_dir,
         "mcp_command": s.mcp_command,
         "synthesis_model": s.synthesis_model,
+        "advisor_model": s.advisor_model,
         "mcp_args": s.mcp_args,
         "version": version,
         "model_capability": s.model_capability,
@@ -235,6 +241,7 @@ pub fn save_settings(
     mcp_command: Option<String>,
     mcp_args: Option<Vec<String>>,
     synthesis_model: Option<String>,
+    advisor_model: Option<String>,
     model_profiles: Option<crate::agent::model_router::ModelProfiles>,
     auto_route_vision: Option<bool>,
     route_price_cap_usd: Option<f64>,
@@ -275,6 +282,9 @@ pub fn save_settings(
     }
     if let Some(m) = synthesis_model {
         s.synthesis_model = m.trim().to_string();
+    }
+    if let Some(m) = advisor_model {
+        s.advisor_model = m.trim().to_string();
     }
     // Explicit role profiles (Task 1.5). Present → set (an empty object clears the
     // roles back to orchestrator-only); absent → keep existing.

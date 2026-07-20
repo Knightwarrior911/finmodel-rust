@@ -69,6 +69,47 @@ function renderVerification(card) {
   );
 }
 
+// A delegated deep dive: the child analyst's findings brief, with the task
+// as the card title so parallel dives stay tellable-apart.
+function renderDelegate(card) {
+  const task = String(card.task || "Deep dive");
+  const findings = String(card.findings || "");
+  if (!findings) return null;
+  const tools = Array.isArray(card.tools_used) && card.tools_used.length
+    ? `<p class="card-sub">Checked with: ${escapeHtml(card.tools_used.join(", "))}</p>`
+    : "";
+  const paras = findings
+    .split(/\n{2,}/)
+    .slice(0, 6)
+    .map((p) => `<p class="card-note">${escapeHtml(p.trim())}</p>`)
+    .join("");
+  return cardShell(
+    "research",
+    `<div class="card-head">
+       <span class="card-title">Deep dive · ${escapeHtml(task.length > 80 ? task.slice(0, 80) + "…" : task)}</span>
+     </div>
+     ${paras}
+     ${tools}`,
+  );
+}
+
+// The advisor's "second look": short reviewer notes, rendered as a quiet
+// list — the point is honesty, not alarm.
+function renderAdvisor(card) {
+  const notes = Array.isArray(card.notes) ? card.notes.filter(Boolean) : [];
+  if (!notes.length) return null;
+  const items = notes
+    .map((t) => `<li>${escapeHtml(String(t))}</li>`)
+    .join("");
+  return cardShell(
+    "verify advisor",
+    `<div class="card-head">
+       <span class="card-title">Second look</span>
+     </div>
+     <ul class="advisor-notes">${items}</ul>`,
+  );
+}
+
 // ── model ───────────────────────────────────────────────────────────
 function valuationStrip(v) {
   if (!v || !v.has_dcf) return "";
@@ -735,6 +776,18 @@ export function renderCard(card) {
     case "verification":
       el = renderVerification(card);
       break;
+    case "advisor":
+      el = renderAdvisor(card);
+      break;
+    case "delegate":
+      el = renderDelegate(card);
+      break;
+    case "self_check":
+      el = cardShell(
+        "verify",
+        `<p class="card-note">${escapeHtml(card.message || "Caught figures with no tool behind them — checking properly.")}</p>`,
+      );
+      break;
     case "research_digest":
       el = renderResearchDigest(card);
       break;
@@ -756,6 +809,9 @@ export function renderCard(card) {
         `<p class="card-note">Result ready.</p>`,
       );
   }
+  // Renderers may decline (advisor with no notes, delegate with no
+  // findings) — same convention as the empty-card guard above.
+  if (!el) return document.createComment("empty card");
   wireCard(el);
   return el;
 }

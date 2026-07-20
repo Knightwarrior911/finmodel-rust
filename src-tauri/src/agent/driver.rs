@@ -437,6 +437,12 @@ pub struct LiveDriver {
     /// Material numeric claims extracted from this run's tool results, verified in
     /// `verify()` against their source value before the run is badged (Task 4.2).
     run_claims: Vec<fm_agent::types::Claim>,
+    /// One corrective round per run when a final answer states material
+    /// figures with zero tool evidence (the drift rule).
+    drift_corrected: bool,
+    /// The working mode for this run (composer mode chip): prepare() weaves
+    /// its doctrine layer into the system prompt on the LIVE path.
+    mode: crate::agent::modes::AgentMode,
     /// The verification card produced by `verify()`, taken by the actor and
     /// emitted as a durable `ResultPartAdded` (Task 2.1 single render path).
     verify_card: Option<Value>,
@@ -650,7 +656,11 @@ impl LiveDriver {
         registry_hub: crate::agent::registry::ActorRegistry,
         mode: crate::agent::modes::AgentMode,
     ) -> Self {
-        let mut messages = crate::commands::chat::seed_agent_messages_with_images(&ctx.user_msg, &ctx.images);
+        let mut messages = crate::commands::chat::seed_agent_messages_for_model(
+            &ctx.user_msg,
+            &ctx.images,
+            &cfg.model,
+        );
         // The mode doctrine rides as one extra system layer, right after the
         // base seed (before the user turn) — same slot every mode.
         if let Some(layer) = mode.system_layer() {
@@ -681,6 +691,8 @@ impl LiveDriver {
             fallback_served: false,
             selected_workflow: None,
             run_claims: Vec::new(),
+            drift_corrected: false,
+            mode,
             verify_card: None,
             cost: CostGuard::default(),
         }
@@ -823,7 +835,7 @@ impl LiveDriver {
     /// Human-readable subagent label: tool name plus its primary argument
     /// (ticker / company / query / url / cik) when present.
     fn subagent_label(name: &str, args: &Value) -> String {
-        let key = ["ticker", "company", "query", "url", "cik"]
+        let key = ["ticker", "company", "query", "task", "url", "cik"]
             .iter()
             .find_map(|k| args.get(*k).and_then(|v| v.as_str()))
             .map(|s| s.trim())
@@ -899,6 +911,237 @@ impl LiveDriver {
         }
         model_out_from_stream(&self.registry, acc, self.out_dir_path().as_deref())
     }
+    /// Drift detector wrapper: whitelist = every message already in the
+    /// visible history EXCEPT the just-drafted answer (accept_stream appended
+    /// it last), so figures restated from prior turns or prior tool results
+    /// never fire the rule.
+    fn drift_detected(&self) -> bool {
+        let draft = &self.last_content;
+        let mut haystack = String::new();
+        let last = self.messages.len().saturating_sub(1);
+        for m in self.messages.iter().take(last) {
+            if let Some(s) = m["content"].as_str() {
+                haystack.push_str(s);
+                haystack.push('\n');
+            }
+        }
+        uncited_figures(draft, &haystack) >= 2
+    }
+
+    /// Second-look reviewer (the advisor role): a separate model reads the
+    /// drafted answer against this run's deterministic evidence and surfaces
+    /// up to three short notes for MATERIAL problems only. Opt-in via
+    /// Settings (advisor_model); failures never break the turn.
+    async fn advisor_note(&mut self) {
+        let model = {
+            let s = crate::commands::settings::read_settings(&self.app);
+            s.advisor_model.trim().to_string()
+        };
+        if model.is_empty()
+            || self.cfg.api_key.trim().is_empty()
+            || self.ctx.cancel.is_cancelled()
+        {
+            return;
+        }
+        let answer = self.last_content.trim().to_string();
+        // Nothing to review without an answer AND tool evidence to check it
+        // against (the drift rule owns the no-evidence case).
+        if answer.is_empty() || self.turn_results.is_empty() {
+            return;
+        }
+        let mut evidence: Vec<String> = self
+            .run_claims
+            .iter()
+            .take(40)
+            .map(|c| {
+                format!(
+                    "{} = {} {} ({})",
+                    c.claim_key, c.normalized_value, c.unit, c.period
+                )
+            })
+            .collect();
+        if evidence.is_empty() {
+            // No structured claims (e.g. research-only turns): the tool cards'
+            // summaries are the evidence.
+            evidence = self
+                .turn_results
+                .iter()
+                .filter(|(t, _)| t != "self_check")
+                .take(12)
+                .map(|(tool, card)| {
+                    let mut s = card.to_string();
+                    if s.len() > 700 {
+                        // Boundary-safe cut: research snippets carry non-ASCII.
+                        let mut cut = 700;
+                        while cut > 0 && !s.is_char_boundary(cut) {
+                            cut -= 1;
+                        }
+                        s.truncate(cut);
+                    }
+                    format!("[{tool}] {s}")
+                })
+                .collect();
+        }
+        let msgs = vec![
+            serde_json::json!({ "role": "system", "content": ADVISOR_PROMPT }),
+            serde_json::json!({ "role": "user", "content": format!(
+                "Question:\n{}\n\nAnalyst's answer:\n{}\n\nDeterministic tool evidence:\n{}",
+                self.ctx.user_msg, answer, evidence.join("\n")
+            ) }),
+        ];
+        let req = crate::commands::chat::build_chat_request(&model, &msgs, &[], true, false);
+        let cfg = fm_extract::LlmConfig {
+            api_key: self.cfg.api_key.clone(),
+            model,
+        };
+        // ":advisor" run id: the UI filters deltas by run id, so review
+        // reasoning never paints into the answer stream.
+        let run = format!("{}:advisor", self.ctx.run_id);
+        let Ok(acc) = crate::commands::chat::stream_completion_for_agent(
+            &self.app,
+            &self.ctx.conversation_id.clone(),
+            &run,
+            &cfg,
+            &req,
+            &self.ctx.cancel.clone(),
+            std::time::Duration::from_secs(45),
+        )
+        .await
+        else {
+            return;
+        };
+        self.charge_round(&acc);
+        let Some(notes) = parse_advisor_notes(&acc.content) else {
+            return;
+        };
+        if notes.is_empty() {
+            return;
+        }
+        let card = serde_json::json!({ "type": "advisor", "notes": notes });
+        self.emit_tool("advisor", "done", Some(&card));
+        self.turn_results.push(("advisor".to_string(), card));
+    }
+}
+
+const DRIFT_RULE: &str = "RULE VIOLATION: your answer states material financial figures, but no tool ran in this turn and the figures are not in the conversation's evidence. Every material number must come from a deterministic tool result. Call the right tool now (get_financials, get_quote, benchmark_peers, research) and answer from its results - or, if no tool can source the figure, restate the answer without invented numbers and say what you could not verify.";
+
+const ADVISOR_PROMPT: &str = "You are the second-look reviewer inside finmodel, a financial analyst app. You receive the user's question, the analyst's drafted answer, and the deterministic tool evidence for this turn. List at most 3 short notes, ONLY for material problems: a figure that contradicts or is absent from the evidence, an overclaim the evidence does not support, or a missing caveat the user genuinely needs. Style: plain, specific, one sentence each - name the figure or claim. If the answer is sound, return ok. Reply with STRICT JSON only: {\"ok\": true} or {\"ok\": false, \"notes\": [\"...\"]}.";
+
+/// Count material figure tokens in `text` whose digit core does not appear in
+/// `haystack` (the visible history). Material = currency-prefixed numbers
+/// ($96.3B, EUR 4.2 ...), percentages (23%), and word-scaled numbers
+/// (4.2 billion). Pure - unit-tested; the drift gate fires at >= 2.
+pub(crate) fn uncited_figures(text: &str, haystack: &str) -> usize {
+    let bytes: Vec<char> = text.chars().collect();
+    let mut i = 0usize;
+    let mut count = 0usize;
+    let scales = ["billion", "million", "trillion", "bn", "mm", "tn"];
+    while i < bytes.len() {
+        let c = bytes[i];
+        let currency = matches!(c, '$' | '\u{20ac}' | '\u{a5}' | '\u{a3}');
+        if currency || c.is_ascii_digit() {
+            // Capture the digit run (with separators) starting here or after
+            // the currency symbol.
+            let start = if currency { i + 1 } else { i };
+            let mut j = start;
+            let mut core = String::new();
+            while j < bytes.len() && (bytes[j].is_ascii_digit() || bytes[j] == '.' || bytes[j] == ',') {
+                if bytes[j] != ',' {
+                    core.push(bytes[j]);
+                }
+                j += 1;
+            }
+            let core = core.trim_end_matches('.').to_string();
+            if core.is_empty() || !core.chars().next().unwrap().is_ascii_digit() {
+                i += 1;
+                continue;
+            }
+            // Material? currency prefix, % suffix, scale suffix (B/M/T word or letter).
+            let tail: String = bytes[j..bytes.len().min(j + 10)].iter().collect();
+            let tail_trim = tail.trim_start();
+            let pct = tail_trim.starts_with('%');
+            let scale_letter = matches!(tail_trim.chars().next(), Some('B' | 'T' | 'M'))
+                && !tail_trim
+                    .chars()
+                    .nth(1)
+                    .map(|c| c.is_ascii_alphanumeric())
+                    .unwrap_or(false);
+            let lower_tail = tail_trim.to_ascii_lowercase();
+            let scale_word = scales.iter().any(|w| lower_tail.starts_with(w));
+            if (currency || pct || scale_word || (currency && scale_letter) || (scale_letter && core.contains('.')))
+                && !contains_number(haystack, &core)
+            {
+                count += 1;
+            }
+            i = j.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    count
+}
+
+/// The full agent system prompt for one run: base analyst doctrine, then
+/// the per-model workflow scaffold (small model families), then the working
+/// mode's doctrine layer. Pure - unit-tested; prepare() is the live caller.
+pub(crate) fn agent_system_prompt(model: &str, mode: crate::agent::modes::AgentMode) -> String {
+    let mut prompt = crate::commands::chat::seed_agent_messages("")
+        .into_iter()
+        .next()
+        .and_then(|m| m.get("content").and_then(|c| c.as_str()).map(String::from))
+        .unwrap_or_default();
+    if let Some(scaffold) = crate::commands::chat::model_scaffolding(model) {
+        prompt.push_str("\n\n");
+        prompt.push_str(scaffold);
+    }
+    if let Some(layer) = mode.system_layer() {
+        prompt.push_str("\n\n");
+        prompt.push_str(layer);
+    }
+    prompt
+}
+
+/// Boundary-aware number search: a core only matches when not embedded in a
+/// longer digit run — "2023" never whitelists "23", "196.35" never
+/// whitelists "96.3".
+pub(crate) fn contains_number(haystack: &str, core: &str) -> bool {
+    let h: Vec<char> = haystack.chars().collect();
+    let cl: Vec<char> = core.chars().collect();
+    if cl.is_empty() || h.len() < cl.len() {
+        return false;
+    }
+    for i in 0..=(h.len() - cl.len()) {
+        if h[i..i + cl.len()] != cl[..] {
+            continue;
+        }
+        let before_ok = i == 0 || !h[i - 1].is_ascii_digit();
+        let after = i + cl.len();
+        let after_ok = after >= h.len() || (!h[after].is_ascii_digit() && h[after] != '.');
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+/// Parse the advisor's strict-JSON verdict; None on anything malformed
+/// (the advisor never breaks a turn). Returns the notes; empty when ok.
+pub(crate) fn parse_advisor_notes(content: &str) -> Option<Vec<String>> {
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    let v: serde_json::Value = serde_json::from_str(&content[start..=end]).ok()?;
+    if v["ok"].as_bool() == Some(true) {
+        return Some(Vec::new());
+    }
+    let notes = v["notes"]
+        .as_array()?
+        .iter()
+        .filter_map(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(3)
+        .collect();
+    Some(notes)
 }
 
 /// Message surgery for the stream-handoff finisher (pure — unit-tested).
@@ -1163,13 +1406,11 @@ impl Driver for LiveDriver {
                 }
             }
         }
-        // Analyst system prompt (authoritative policy layer) + skill catalog +
-        // workspace grounding.
-        let base_prompt = crate::commands::chat::seed_agent_messages("")
-            .into_iter()
-            .next()
-            .and_then(|m| m.get("content").and_then(|c| c.as_str()).map(String::from))
-            .unwrap_or_default();
+        // Analyst system prompt (authoritative policy layer) + the per-model
+        // scaffold + the mode doctrine + skill catalog + workspace grounding.
+        // THIS is the live seed - LiveDriver::new's messages are replaced here,
+        // so every prompt layer must be woven in at this point.
+        let base_prompt = agent_system_prompt(&self.cfg.model, self.mode);
         let (ws_instructions, catalog) = self.grounding_layers().await;
         let system_prompt = match catalog {
             Some(cat) => format!("{base_prompt}\n\n{cat}"),
@@ -1338,7 +1579,53 @@ impl Driver for LiveDriver {
 
         match result {
             Ok(acc) => {
-                let out = self.accept_stream(&acc);
+                let mut out = self.accept_stream(&acc);
+                // Drift rule (doctrine, enforced): a final answer stating
+                // material figures with ZERO tool evidence in this run gets
+                // exactly one corrective round. The rule is injected as a
+                // system reminder and the model re-answers - usually by
+                // finally calling the tool it skipped. Figures restated from
+                // earlier turns are whitelisted via the visible history.
+                if out.final_answer
+                    && out.calls.is_empty()
+                    && !self.drift_corrected
+                    && self.turn_results.is_empty()
+                    && self.run_claims.is_empty()
+                    && self.drift_detected()
+                {
+                    self.drift_corrected = true;
+                    let note = serde_json::json!({
+                        "type": "self_check",
+                        "message": "Caught figures with no tool behind them - checking properly.",
+                    });
+                    self.emit_tool("self_check", "done", Some(&note));
+                    self.turn_results.push(("self_check".to_string(), note));
+                    // accept_stream already appended the draft; add the rule.
+                    self.messages.push(serde_json::json!({
+                        "role": "system",
+                        "content": DRIFT_RULE,
+                    }));
+                    let req = crate::commands::chat::build_chat_request(
+                        &self.cfg.model,
+                        &self.messages,
+                        &self.tools,
+                        true,
+                        !self.tools.is_empty(),
+                    );
+                    if let Ok(acc2) = crate::commands::chat::stream_completion_for_agent(
+                        &app,
+                        &conv,
+                        &run,
+                        &cfg,
+                        &req,
+                        &cancel,
+                        self.remaining(),
+                    )
+                    .await
+                    {
+                        out = self.accept_stream(&acc2);
+                    }
+                }
                 if let (Some(strong), true) =
                     (&strong_model, out.final_answer && out.calls.is_empty())
                 {
@@ -1697,6 +1984,8 @@ impl Driver for LiveDriver {
     }
 
     async fn synthesize(&mut self) {
+        // Second look first, so the note persists as a turn part below.
+        self.advisor_note().await;
         // Persist the turn as one assistant message with ordered parts:
         // tool result cards (execution order) first, then the final prose.
         // Snapshots/reload then render exactly what the live turn produced.
@@ -1980,6 +2269,64 @@ mod tests {
         assert_eq!(parse_memory_directive("what are Tesla's 2025 sales?"), None);
         // Empty content after the prefix.
         assert_eq!(parse_memory_directive("remember: "), None);
+    }
+    #[test]
+    fn drift_detector_counts_only_unwhitelisted_material_figures() {
+        // Two invented figures, empty history → drift.
+        assert_eq!(uncited_figures("Revenue grew 23% to $96.3B in FY2024.", ""), 2);
+        // The SAME figures present in history (prior tool results) → clean.
+        let hist = "get_financials: revenue 96.3 B USD, growth 23 %";
+        assert_eq!(uncited_figures("Revenue grew 23% to $96.3B.", hist), 0);
+        // A year is not a material figure; bare prose numbers don't fire.
+        assert_eq!(uncited_figures("In 2024 the company had a strong year.", ""), 0);
+        // Word scales count ($ and "billion" forms).
+        assert_eq!(uncited_figures("about 4.2 billion of capex and $1.1B of buybacks", ""), 2);
+        // One figure only → below the >=2 gate the caller applies.
+        assert_eq!(uncited_figures("Margin was 45%.", ""), 1);
+    }
+
+    #[test]
+    fn number_whitelist_is_boundary_aware() {
+        // "2023" must NEVER whitelist a claimed "23".
+        assert!(!contains_number("fiscal 2023 filing", "23"));
+        assert!(contains_number("margin was 23 percent", "23"));
+        // Decimal cores match plainly.
+        assert!(contains_number("value 96.3 reported", "96.3"));
+        assert!(!contains_number("value 196.35 reported", "96.3"));
+    }
+
+    #[test]
+    fn advisor_verdict_parsing_is_strict_and_safe() {
+        // Sound answer → ok, no notes.
+        assert_eq!(parse_advisor_notes(r#"{"ok": true}"#), Some(vec![]));
+        // Notes come through, capped at 3, trimmed, empties dropped.
+        let got = parse_advisor_notes(
+            r#"noise {"ok": false, "notes": [" a ", "", "b", "c", "d"]} trailing"#,
+        )
+        .unwrap();
+        assert_eq!(got, vec!["a".to_string(), "b".into(), "c".into()]);
+        // Malformed → None (the advisor never breaks a turn).
+        assert_eq!(parse_advisor_notes("I think it looks fine!"), None);
+        assert_eq!(parse_advisor_notes(r#"{"ok": false}"#), None);
+    }
+    #[test]
+    fn live_system_prompt_weaves_scaffold_and_mode_doctrine() {
+        use crate::agent::modes::AgentMode;
+        // Frontier + Analyst: the plain base doctrine, nothing extra.
+        let base = agent_system_prompt("anthropic/claude-sonnet-4", AgentMode::Analyst);
+        assert!(base.contains("finmodel's analyst assistant"));
+        assert!(!base.contains("Workflow (follow exactly)"));
+        assert!(!base.contains("PLAN MODE"));
+        // Small family: the workflow scaffold rides in.
+        let small = agent_system_prompt("deepseek/deepseek-chat", AgentMode::Analyst);
+        assert!(small.contains("Workflow (follow exactly)"));
+        // Mode doctrine reaches the LIVE prompt (the v0.9.25 layer was lost
+        // in prepare()'s rebuild — this pins the fix).
+        let plan = agent_system_prompt("anthropic/claude-sonnet-4", AgentMode::Plan);
+        assert!(plan.contains("PLAN MODE"));
+        let skeptic = agent_system_prompt("openai/gpt-4.1-mini", AgentMode::Skeptic);
+        assert!(skeptic.contains("SKEPTIC MODE"));
+        assert!(skeptic.contains("Workflow (follow exactly)"), "layers stack");
     }
 
     #[test]

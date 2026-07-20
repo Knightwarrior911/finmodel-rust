@@ -24,6 +24,7 @@ pub mod grounding;
 pub mod memo;
 pub mod memory;
 pub mod model_router;
+pub mod delegate;
 pub mod modes;
 pub mod provider;
 pub mod registry;

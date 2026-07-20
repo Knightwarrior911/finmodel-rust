@@ -119,6 +119,10 @@ fn validate_query(args: &Value) -> Result<(), String> {
     require_nonempty(args, "query")
 }
 
+fn validate_task(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "task")
+}
+
 fn validate_peers(args: &Value) -> Result<(), String> {
     match args.get("tickers").and_then(|v| v.as_array()) {
         Some(a) if !a.is_empty() => Ok(()),
@@ -215,6 +219,19 @@ fn schema_research() -> Value {
         "required": ["query"]
     })
 }
+fn schema_delegate() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "task": {
+                "type": "string",
+                "description": "The complete, self-contained subtask: what to find or compute, for which company/period, and what the brief must contain."
+            }
+        },
+        "required": ["task"]
+    })
+}
+
 fn schema_read_page() -> Value {
     json!({ "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] })
 }
@@ -402,6 +419,20 @@ impl ToolRegistry {
                 trust: TrustPolicy::Untrusted,
                 validate: |a| require_nonempty(a, "artifact_id"),
                 params_schema: schema_analyze_pdf,
+                model_visible: true,
+            },
+            ToolSpec {
+                name: "delegate_analysis",
+                label: "Deep dive",
+                description: "Delegate ONE self-contained analysis subtask to a junior analyst who works it with the full read-only toolset (financials, quotes, filings, research, news) in a separate context and returns a compact findings brief. Use when a request spans several companies or long multi-step lookups: one delegation per independent slice, and independent delegations belong in the SAME turn so they run in parallel. Keeps the main conversation focused on conclusions instead of raw data.",
+                risk: Risk::ReadOnly,
+                capabilities: &["research", "delegate"],
+                required_args: &["task"],
+                interruptible: true,
+                idempotent: false,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_task,
+                params_schema: schema_delegate,
                 model_visible: true,
             },
             ToolSpec {
@@ -650,7 +681,7 @@ mod tests {
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 14);
+        assert_eq!(r.names().len(), 15);
     }
 
     #[test]
@@ -761,7 +792,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 14);
+        assert_eq!(cat.lines().count(), 15);
         assert!(cat.contains("build_model"));
     }
 
@@ -803,6 +834,6 @@ mod tests {
         assert_eq!(ranked[0], "build_model");
         // Deterministic: identical query → identical order.
         assert_eq!(ranked, r.rank_for_query("build a dcf excel model"));
-        assert_eq!(ranked.len(), 14);
+        assert_eq!(ranked.len(), 15);
     }
 }

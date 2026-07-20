@@ -162,3 +162,9 @@ test("draftOfferForCards picks the most specific memo kind", () => {
   assert.match(o.text, /write-up/);
 });
 
+
+test('new harness steps speak the warm story', () => {
+  assert.equal(toolDoneLabel('advisor'), 'Second look finished');
+  assert.equal(toolDoneLabel('delegate_analysis'), 'Deep dive came back');
+  assert.match(toolRunningLabel('self_check'), /Double-checking/);
+});

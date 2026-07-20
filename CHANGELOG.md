@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.9.27 - 2026-07-20 - Harness pass 2: the analyst gets a conscience, a reviewer, and a junior
+
+- **Drift rule, enforced.** The doctrine "every material number comes from a
+  tool" is now machinery: when a final answer states figures with zero tool
+  evidence in the turn, the run catches itself (a quiet "double-checking"
+  note), injects the rule, and re-answers once - usually by finally calling
+  the tool it skipped. Figures restated from earlier turns are whitelisted
+  against the visible history, so follow-ups never trip it.
+- **Second-look reviewer (opt-in).** Point Settings -> Second-look reviewer
+  at any model and it re-reads each answer against the turn's deterministic
+  evidence, flagging unbacked figures, overclaims, and missing caveats as a
+  quiet "Second look" card. One small extra call per answer; it can never
+  break a turn.
+- **A junior analyst to delegate to.** New delegate_analysis tool: the
+  analyst hands a self-contained slice (one company's deep dive, one
+  multi-step lookup) to a child analyst that works it in its OWN context
+  with read-only tools and returns a compact findings brief. Independent
+  delegations run in parallel - proven by a test that requires true
+  overlap - and the main conversation keeps conclusions, not raw data.
+- **Prompt profiles per model family.** Small/cheap models (mini, flash,
+  haiku, deepseek, ...) get the workflow spelled out step by step; frontier
+  models keep the terse doctrine. Unknown vendors get the training wheels.
+- **Fixed: mode doctrine now reaches the live model.** The v0.9.25 mode
+  layer (Plan/Goal/Loop/Skeptic instructions) was lost in a prompt rebuild
+  on the live path - budgets and the read-only belt worked, the words did
+  not. All prompt layers are now woven in at the one live seam, with a test
+  pinning it.
+
 ## v0.9.26 - 2026-07-20 - Harness pass 1: prompt caching + tools that teach
 
 - **Prompt caching.** On Anthropic and Gemini models the static prefix -

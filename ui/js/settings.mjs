@@ -175,6 +175,7 @@ export async function openSettings() {
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
     $("synthesisModel").value = s.synthesis_model || "";
+  $("advisorModel").value = s.advisor_model || "";
     $("autoRouteVision").checked = s.auto_route_vision !== false;
     $("routePriceCap").value =
       typeof s.route_price_cap_usd === "number" ? s.route_price_cap_usd : "";
@@ -637,6 +638,7 @@ export function initSettings(opts = {}) {
         mcp_command: cmd.split(/\s+/)[0] || "",
         mcp_args: cmd.split(/\s+/).slice(1),
         synthesis_model: $("synthesisModel").value,
+        advisor_model: $("advisorModel").value,
         model_profiles: readModelProfiles(),
         auto_route_vision: $("autoRouteVision").checked,
         ...(cap !== undefined ? { route_price_cap_usd: cap } : {}),
