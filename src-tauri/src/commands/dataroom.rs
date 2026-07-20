@@ -321,21 +321,7 @@ async fn answer_question(
             "findings": [],
         });
     }
-    let excerpts: String = top
-        .iter()
-        .enumerate()
-        .map(|(n, &ci)| {
-            let c = &chunks[ci];
-            format!(
-                "[{}] {} - page {}\n{}\n",
-                n + 1,
-                files[c.file_idx].rel,
-                c.page,
-                c.text
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let excerpts = build_excerpts(&top, chunks, files);
     let msgs = vec![
         json!({ "role": "system", "content": ROOM_PROMPT }),
         json!({ "role": "user", "content": format!("Question: {question}\n\nExcerpts:\n{excerpts}") }),
@@ -361,17 +347,49 @@ async fn answer_question(
             });
         }
     };
-    let content = acc.content;
+    let (answer, findings) = resolve_findings(&acc.content, &top, chunks, files);
+    json!({
+        "question": question,
+        "answer": answer,
+        "findings": findings,
+    })
+}
+
+/// Numbered excerpt block handed to the model — the numbers are the ONLY
+/// citation vocabulary it gets.
+pub(crate) fn build_excerpts(top: &[usize], chunks: &[Chunk], files: &[RoomFile]) -> String {
+    top.iter()
+        .enumerate()
+        .map(|(n, &ci)| {
+            let c = &chunks[ci];
+            format!(
+                "[{}] {} - page {}\n{}\n",
+                n + 1,
+                files[c.file_idx].rel,
+                c.page,
+                c.text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The brittle leg, kept pure and tested: model reply -> (answer, findings).
+/// Excerpt numbers resolve back to (file, page) HERE — the model never names
+/// files, so it can never misattribute; every quote is verified verbatim.
+/// A reply that isn't the contract JSON degrades to prose with no findings.
+pub(crate) fn resolve_findings(
+    content: &str,
+    top: &[usize],
+    chunks: &[Chunk],
+    files: &[RoomFile],
+) -> (String, Vec<Value>) {
     let parsed: Option<Value> = content
         .find('{')
         .and_then(|s| content.rfind('}').map(|e| (s, e)))
         .and_then(|(s, e)| serde_json::from_str(&content[s..=e]).ok());
     let Some(v) = parsed else {
-        return json!({
-            "question": question,
-            "answer": content.trim(),
-            "findings": [],
-        });
+        return (content.trim().to_string(), Vec::new());
     };
     let findings: Vec<Value> = v["findings"]
         .as_array()
@@ -384,8 +402,6 @@ async fn answer_question(
                     if quote.is_empty() || n == 0 || n > top.len() {
                         return None;
                     }
-                    // Resolve the excerpt NUMBER back to (file, page) ourselves —
-                    // the model never names files, so it can never misattribute.
                     let c = &chunks[top[n - 1]];
                     let verified = quote_verified(&c.text, quote);
                     Some(json!({
@@ -399,11 +415,10 @@ async fn answer_question(
                 .collect()
         })
         .unwrap_or_default();
-    json!({
-        "question": question,
-        "answer": v["answer"].as_str().unwrap_or("").trim(),
-        "findings": findings,
-    })
+    (
+        v["answer"].as_str().unwrap_or("").trim().to_string(),
+        findings,
+    )
 }
 
 /// Run the full data room review. Returns `(model_summary, card)`.
@@ -574,6 +589,79 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(skipped.iter().any(|s| s.contains(".docx not supported")), "{skipped:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_findings_enforces_the_citation_contract() {
+        let (files, chunks) = room(&[
+            ("fin/accounts.txt", "Revenue for fiscal year 2025 was 96,307 thousand USD."),
+            ("legal/nda.txt", "Mutual non-disclosure agreement."),
+        ]);
+        let top = vec![0usize, 1];
+        // Good citation: excerpt 1 resolves to the FILE WE chose; verbatim
+        // quote verifies. Out-of-range excerpt 9 is dropped, paraphrase is
+        // kept but marked unverified.
+        let reply = r#"noise {"answer": "FY2025 revenue was 96,307 thousand USD.", "findings": [
+            {"excerpt": 1, "quote": "Revenue for fiscal year 2025 was 96,307 thousand USD."},
+            {"excerpt": 1, "quote": "revenue was roughly 96 million"},
+            {"excerpt": 9, "quote": "ghost"},
+            {"excerpt": 0, "quote": "ghost"}
+        ]} trailing"#;
+        let (answer, findings) = resolve_findings(reply, &top, &chunks, &files);
+        assert!(answer.contains("96,307"));
+        assert_eq!(findings.len(), 2, "range-invalid citations dropped");
+        assert_eq!(findings[0]["file"], "fin/accounts.txt");
+        assert_eq!(findings[0]["page"], 1);
+        assert_eq!(findings[0]["verified"], true);
+        assert_eq!(findings[1]["verified"], false, "paraphrase flagged, not trusted");
+        // Non-JSON reply degrades to prose with zero findings.
+        let (answer, findings) = resolve_findings("I could not find it.", &top, &chunks, &files);
+        assert_eq!(answer, "I could not find it.");
+        assert!(findings.is_empty());
+    }
+
+    /// LIVE smoke of the leg unit tests cannot reach: the real prompt against
+    /// the real model -> JSON -> excerpt resolution -> verbatim verification.
+    /// Run: cargo test --lib data_room_live_smoke -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn data_room_live_smoke() {
+        let Some(key) = crate::commands::secrets::get_api_key() else {
+            eprintln!("no OpenRouter key in the credential store; skipping");
+            return;
+        };
+        let (files, chunks) = room(&[
+            (
+                "fin/accounts.txt",
+                "Project Atlas - audited accounts.\n\nRevenue for fiscal year 2025 was 96,307 thousand USD, up from 80,120 thousand USD in fiscal 2024. EBITDA margin held at 31 percent.",
+            ),
+            ("legal/nda.txt", "Mutual non-disclosure agreement between the parties, governed by Delaware law."),
+        ]);
+        let question = "What was FY2025 revenue?";
+        let top = bm25_top_k(&chunks, question, TOP_K);
+        assert_eq!(top[0], 0, "retrieval sanity");
+        let excerpts = build_excerpts(&top, &chunks, &files);
+        let cfg = fm_extract::LlmConfig {
+            api_key: key,
+            model: "openai/gpt-4.1-mini".into(),
+        };
+        let content = fm_extract::llm_complete_with(
+            Some(&cfg),
+            ROOM_PROMPT,
+            &format!("Question: {question}\n\nExcerpts:\n{excerpts}"),
+            700,
+        )
+        .expect("live completion");
+        eprintln!("MODEL REPLY:\n{content}");
+        let (answer, findings) = resolve_findings(&content, &top, &chunks, &files);
+        eprintln!("ANSWER: {answer}\nFINDINGS: {findings:?}");
+        assert!(!findings.is_empty(), "no findings came back");
+        assert_eq!(findings[0]["file"], "fin/accounts.txt");
+        assert!(
+            findings.iter().any(|f| f["verified"] == true),
+            "no verbatim-verified quote"
+        );
+        assert!(answer.contains("96,307") || answer.to_lowercase().contains("96.3"));
     }
 
     #[test]
