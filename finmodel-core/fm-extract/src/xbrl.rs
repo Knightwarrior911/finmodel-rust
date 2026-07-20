@@ -570,9 +570,39 @@ pub fn ifrs_tag_map() -> HashMap<&'static str, &'static [&'static str]> {
     m
 }
 
-/// Choose the reporting taxonomy present in a companyfacts JSON: prefer
-/// `us-gaap` (US filers), else `ifrs-full` (foreign 20-F filers). Returns the
+/// The newest annual (fp=FY) period end across a taxonomy's headline tags —
+/// the "is this taxonomy still alive?" probe for [`select_taxonomy`].
+fn newest_annual_end(map: &serde_json::Map<String, Value>, tags: &[&str]) -> String {
+    let mut best = String::new();
+    for &tag in tags {
+        let Some(units) = map.get(tag).and_then(|e| e.get("units")).and_then(|u| u.as_object())
+        else {
+            continue;
+        };
+        for vals in units.values() {
+            let Some(arr) = vals.as_array() else { continue };
+            for v in arr {
+                if v.get("fp").and_then(|f| f.as_str()) == Some("FY") {
+                    if let Some(end) = v.get("end").and_then(|e| e.as_str()) {
+                        if end > best.as_str() {
+                            best = end.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Choose the reporting taxonomy present in a companyfacts JSON. Returns the
 /// concept map, the matching canonical tag map, and the taxonomy name.
+///
+/// Both present → the one with the most RECENT annual headline data wins.
+/// Size lies: Toyota kept 483 residual us-gaap concepts (last filed FY2020,
+/// pre-IFRS-transition) next to 221 live ifrs-full concepts — picking by
+/// count served five-year-old figures as current. Recency ties break to the
+/// larger map (fuller vintage of the same year).
 pub fn select_taxonomy(
     facts: &Value,
 ) -> Option<(
@@ -584,11 +614,24 @@ pub fn select_taxonomy(
     let ifrs = facts
         .pointer("/facts/ifrs-full")
         .and_then(|v| v.as_object());
-    // Pick the taxonomy the company actually reports in — the one with more
-    // concepts — so residual us-gaap stubs on an IFRS filer don't win.
     match (us, ifrs) {
         (Some(u), Some(i)) => {
-            if u.len() >= i.len() {
+            let u_end = newest_annual_end(
+                u,
+                &[
+                    "Revenues",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet",
+                    "NetIncomeLoss",
+                ],
+            );
+            let i_end = newest_annual_end(i, &["Revenue", "ProfitLoss"]);
+            let use_us = match u_end.cmp(&i_end) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Less => false,
+                std::cmp::Ordering::Equal => u.len() >= i.len(),
+            };
+            if use_us {
                 Some((u, xbrl_tag_map(), "us-gaap"))
             } else {
                 Some((i, ifrs_tag_map(), "ifrs-full"))
@@ -1199,7 +1242,46 @@ mod deterministic_tests {
     }
 
     #[test]
-    fn parses_ifrs_full_taxonomy() {
+    fn taxonomy_transition_recency_beats_size() {
+        // Toyota-shaped: a LARGE residual us-gaap block whose newest annual
+        // fact is FY2020, next to a smaller LIVE ifrs-full block (FY2025).
+        // Size-based selection served five-year-old figures as current.
+        let mut us = serde_json::Map::new();
+        us.insert(
+            "Revenues".into(),
+            serde_json::json!({ "units": { "JPY": [
+                { "val": 29_930_000_000_000.0, "end": "2020-03-31", "fp": "FY", "form": "20-F", "filed": "2020-06-24" }
+            ]}}),
+        );
+        // 300 stale filler concepts outnumber the live taxonomy.
+        for n in 0..300 {
+            us.insert(format!("StaleConcept{n}"), serde_json::json!({ "units": {} }));
+        }
+        let facts = serde_json::json!({ "facts": {
+            "us-gaap": us,
+            "ifrs-full": {
+                "Revenue": { "units": { "JPY": [
+                    { "val": 45_095_000_000_000.0, "end": "2025-03-31", "fp": "FY", "form": "20-F", "filed": "2025-06-18" }
+                ]}}
+            }
+        }});
+        let (_, _, tax) = select_taxonomy(&facts).unwrap();
+        assert_eq!(tax, "ifrs-full", "recency must beat size");
+        // A genuinely current us-gaap filer still picks us-gaap.
+        let facts = serde_json::json!({ "facts": {
+            "us-gaap": { "Revenues": { "units": { "USD": [
+                { "val": 1.0, "end": "2025-12-31", "fp": "FY", "form": "10-K", "filed": "2026-01-30" }
+            ]}}},
+            "ifrs-full": { "Revenue": { "units": { "EUR": [
+                { "val": 1.0, "end": "2024-12-31", "fp": "FY", "form": "20-F", "filed": "2025-02-27" }
+            ]}}}
+        }});
+        let (_, _, tax) = select_taxonomy(&facts).unwrap();
+        assert_eq!(tax, "us-gaap");
+    }
+
+    #[test]
+fn parses_ifrs_full_taxonomy() {
         // Foreign 20-F filer: facts under ifrs-full, no us-gaap. Revenue + net
         // income (owners-of-parent preferred) extracted; provenance ifrs-qualified.
         let facts = serde_json::json!({

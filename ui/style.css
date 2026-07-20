@@ -1592,6 +1592,10 @@ body.sidebar-collapsed .sidebar-expand {
   color: var(--muted);
   animation: soft-in var(--dur) var(--ease) both;
 }
+.basis-chip.basis-unavailable {
+  color: var(--muted);
+  text-decoration: line-through;
+}
 .model-note strong {
   color: var(--ink);
   font-weight: 600;

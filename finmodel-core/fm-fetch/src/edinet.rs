@@ -301,13 +301,30 @@ pub fn fetch_edinet_companyfacts(query: &str, api_key: &str) -> Result<Value, St
     // of re-spending the API quota.
     let today = today_utc();
     let mut probed = 0usize;
+    let mut transient_errors = 0usize;
     let mut day = today;
     while probed < 400 {
         if is_weekend(&day) {
             day = prev_date(&day);
             continue;
         }
-        let hits = search_day(&day, query, api_key)?;
+        // A flaky day never sinks the scan; a rejected KEY always does
+        // (every further day would fail identically).
+        let hits = match search_day(&day, query, api_key) {
+            Ok(h) => h,
+            Err(err) if err.contains("rejected the key") => return Err(err),
+            Err(_) => {
+                transient_errors += 1;
+                if transient_errors > 10 {
+                    return Err(
+                        "EDINET isn't responding right now — try again in a few minutes.".into(),
+                    );
+                }
+                day = prev_date(&day);
+                probed += 1;
+                continue;
+            }
+        };
         if let Some(doc) = hits.into_iter().max_by(|a, b| a.submitted.cmp(&b.submitted)) {
             let period_end = doc
                 .period_end

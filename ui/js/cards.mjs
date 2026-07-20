@@ -358,8 +358,13 @@ function renderFinancials(card) {
       )}</td></tr>`;
     })
     .join("");
-  const fy = card.fiscal_year
-    ? `FY${escapeHtml(String(card.fiscal_year))}`
+  // Only bare years get the FY prefix — LTM / quarterly / "H1 FY25" labels
+  // arrive pre-worded ("FYLTM" was nonsense).
+  const fyRaw = card.fiscal_year ? String(card.fiscal_year) : "";
+  const fy = fyRaw
+    ? /^\d{4}$/.test(fyRaw)
+      ? `FY${escapeHtml(fyRaw)}`
+      : escapeHtml(fyRaw)
     : "";
   const sub = [
     fy,
@@ -367,17 +372,24 @@ function renderFinancials(card) {
   ]
     .filter(Boolean)
     .join(" · ");
+  // Source label from the actual venue — ESEF cards are not "SEC EDGAR".
+  const srcLabel = /sec\.gov/.test(card.source || "")
+    ? "SEC EDGAR"
+    : /filings\.xbrl\.org/.test(card.source || "")
+      ? "filings.xbrl.org (ESEF)"
+      : "Source";
   const src = card.source
-    ? `<div class="card-sources"><a href="#" class="md-link" data-url="${escapeHtml(card.source)}">SEC EDGAR</a></div>`
+    ? `<div class="card-sources"><a href="#" class="md-link" data-url="${escapeHtml(card.source)}">${srcLabel}</a></div>`
     : "";
-  // Basis toggle: Annual / Quarterly / LTM re-fetch this ticker's card in
-  // place — the three real bases an analyst flips between.
+  // Basis toggle: the four bases an analyst flips between, re-fetched in
+  // place. Half-year is how most EU/UK/JP companies report.
   const basisNow = String(card.basis || "annual").toLowerCase();
   const basisChips = card.ticker
     ? `<div class="basis-toggle" role="group" aria-label="Reporting basis">${[
         ["annual", "Annual"],
         ["quarterly", "Quarterly"],
         ["ltm", "LTM"],
+        ["semi", "Half-year"],
       ]
         .map(
           ([b, label]) =>
@@ -794,8 +806,13 @@ function wireCard(el) {
           const next = renderCard(typeof card === "string" ? JSON.parse(card) : card);
           shell.replaceWith(next);
         })
-        .catch(() => {
+        .catch((err) => {
           chips.forEach((c) => (c.disabled = false));
+          // Say why, quietly — a US filer has no half-years, and silence
+          // reads like a broken button.
+          basisBtn.title = (err && err.message) || "That view isn't available for this company";
+          basisBtn.classList.add("basis-unavailable");
+          setTimeout(() => basisBtn.classList.remove("basis-unavailable"), 1600);
         });
       return;
     }

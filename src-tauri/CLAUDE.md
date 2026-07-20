@@ -1,3 +1,18 @@
+## Session (2026-07-20 bug hunt) — post-v0.9.23 fixes
+- fm-extract select_taxonomy: RECENCY-first (newest FY end over headline
+  tags), size only tie-breaks. Toyota: 483 stale us-gaap concepts (FY2020)
+  vs 221 live ifrs → size pick served 5-year-old data. Regression test
+  taxonomy_transition_recency_beats_size + live financials_live_toyota_
+  current_jpy (FY2025 ¥48.04T). SAP/TSLA live re-verified after.
+- chat.rs cards carry "basis"; render_period_spread sets ltm/semi.
+- cards.mjs: FY prefix only for 4-digit years; source label by venue
+  (sec.gov / filings.xbrl.org); Half-year basis chip; failed basis switch
+  sets title + .basis-unavailable flash (was silent).
+- fmt_money_cur/fmt_eps_cur: sign before symbol (-€1.50B).
+- edinet.rs scan: ≤10 transient day errors tolerated; key rejection still
+  aborts instantly.
+- Gates: app 351 · fm-extract 69 · fm-fetch 59 · fm-research 126 · UI 194.
+
 ## Session (2026-07-20 later) — international financials pipeline
 - chat.rs financials_from_facts/quarterly/ltm now taxonomy-aware via
   fm_extract::xbrl::select_taxonomy: us-gaap OR ifrs-full (IFRS candidates

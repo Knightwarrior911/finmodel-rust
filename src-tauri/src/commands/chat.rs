@@ -1587,15 +1587,17 @@ fn fmt_money_cur(v: f64, cur: &str) -> String {
     } else {
         sym.to_string()
     };
+    // Sign leads the symbol (-$1.50B), matching how analysts write it.
+    let sign = if v < 0.0 { "-" } else { "" };
     let a = v.abs();
     if a >= 1e12 {
-        format!("{prefix}{:.2}T", v / 1e12)
+        format!("{sign}{prefix}{:.2}T", a / 1e12)
     } else if a >= 1e9 {
-        format!("{prefix}{:.2}B", v / 1e9)
+        format!("{sign}{prefix}{:.2}B", a / 1e9)
     } else if a >= 1e6 {
-        format!("{prefix}{:.1}M", v / 1e6)
+        format!("{sign}{prefix}{:.1}M", a / 1e6)
     } else {
-        format!("{prefix}{v:.0}")
+        format!("{sign}{prefix}{a:.0}")
     }
 }
 
@@ -1609,10 +1611,12 @@ fn fmt_eps_cur(v: f64, cur: &str) -> String {
         "INR" => "₹".to_string(),
         c => format!("{c} "),
     };
+    let sign = if v < 0.0 { "-" } else { "" };
+    let a = v.abs();
     if cur == "JPY" {
-        format!("{prefix}{v:.0}")
+        format!("{sign}{prefix}{a:.0}")
     } else {
-        format!("{prefix}{v:.2}")
+        format!("{sign}{prefix}{a:.2}")
     }
 }
 
@@ -2174,6 +2178,7 @@ Source: SEC EDGAR XBRL company facts (latest filing wins per period)."
         "period_end": axis.first().cloned().unwrap_or_default(),
         "filed": filed_latest,
         "currency": cur,
+        "basis": "annual",
         "periods": periods,
         "rows": rows,
         "source": if cik.is_empty() {
@@ -2723,6 +2728,7 @@ fn render_period_spread(
         "fiscal_year": period_label,
         "period_end": d.as_of,
         "currency": cur,
+        "basis": if period_label == "LTM" { "ltm" } else { "semi" },
         "periods": [{ "label": format!("{period_label} {}", d.as_of), "end": d.as_of }],
         "rows": rows,
         "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"),
@@ -2934,6 +2940,7 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
         "fiscal_year": "quarterly",
         "period_end": axis.first().cloned().unwrap_or_default(),
         "currency": cur,
+        "basis": "quarterly",
         "periods": periods,
         "rows": rows,
         "source": format!("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-Q"),
@@ -3123,6 +3130,9 @@ mod financials_tests {
         assert_eq!(fmt_money_cur(94.83e9, "USD"), "$94.83B");
         assert_eq!(fmt_money_cur(45.1e12, "JPY"), "¥45.10T");
         assert_eq!(fmt_money_cur(1.2e9, "CHF"), "CHF 1.20B");
+        // Sign leads the symbol — net debt is negative all the time.
+        assert_eq!(fmt_money_cur(-1.5e9, "USD"), "-$1.50B");
+        assert_eq!(fmt_eps_cur(-0.42, "EUR"), "-€0.42");
         assert_eq!(fmt_eps_cur(5.12, "EUR"), "€5.12");
         assert_eq!(fmt_eps_cur(231.0, "JPY"), "¥231");
         assert!(is_annual_form("10-K/A"));
@@ -3160,5 +3170,22 @@ mod financials_tests {
         assert!(text.contains("figures in EUR"), "{text}");
         assert!(text.contains("filings.xbrl.org"), "{text}");
         assert!(text.contains("Revenue"), "{text}");
+    }
+
+    /// LIVE: Toyota (dual-taxonomy transition filer) must serve CURRENT
+    /// IFRS/JPY figures, never the residual FY2020 us-gaap block.
+    /// Run: cargo test --lib financials_live_toyota -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn financials_live_toyota_current_jpy() {
+        let cik = fm_fetch::cik_from_ticker("TM").unwrap();
+        let raw = fm_fetch::edgar::fetch_companyfacts_raw(&cik).unwrap();
+        let (text, card) = financials_from_facts("TM", &cik, &raw, None, 3).unwrap();
+        println!("{text}");
+        assert_eq!(card["currency"], "JPY", "{text}");
+        let fy = card["fiscal_year"].as_str().unwrap_or("");
+        assert!(fy >= "2024", "stale taxonomy served: FY{fy}
+{text}");
+        assert!(text.contains("¥"), "{text}");
     }
 }

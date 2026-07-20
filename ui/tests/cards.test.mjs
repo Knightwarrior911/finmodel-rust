@@ -291,7 +291,7 @@ test("financials card: basis chips render and swap the card in place", async () 
   });
   host.appendChild(el);
   const chips = [...el.querySelectorAll(".basis-chip")].map((c) => c.textContent);
-  assert.deepEqual(chips, ["Annual", "Quarterly", "LTM"]);
+  assert.deepEqual(chips, ["Annual", "Quarterly", "LTM", "Half-year"]);
   assert.ok(el.querySelector('.basis-chip[data-basis="annual"]').classList.contains("active"));
   el.querySelector('[data-basis="quarterly"]').click();
   await tick();

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased - bug hunt
+
+- **Transition filers no longer serve stale numbers.** Toyota kept 483
+  residual US-GAAP concepts (last filed FY2020) next to its live IFRS
+  facts; taxonomy selection picked the bigger, dead block and answered
+  with five-year-old figures. Selection is now recency-first
+  (live-verified: Toyota FY2025 ¥48.04T). Heals the spread, LTM, comps,
+  and build_model together.
+- Financials card: the basis chip now highlights the view you're actually
+  on (cards carry their basis; "FYLTM"-style labels fixed), a failed
+  basis switch says why instead of silently reverting, a Half-year chip
+  joins the toggle, and ESEF-sourced cards no longer link-label
+  themselves "SEC EDGAR".
+- Negative money reads -€1.50B, not €-1.50B (net debt is negative a lot).
+- A flaky EDINET day can't sink the whole 13-month scan (a rejected key
+  still stops immediately).
+
 ## v0.9.23 - 2026-07-20 - The analyst goes international
 
 - **Non-US numbers, same rigor.** The financials spread now reads IFRS
