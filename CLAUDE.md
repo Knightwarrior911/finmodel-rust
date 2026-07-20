@@ -1,5 +1,15 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.24 SHIPPED + LIVE (2026-07-20) — two-face theme + bug hunt
+**Tagged v0.9.24 on e823f7e; released to public finmodel-releases (Latest).
+CI green (run 29754078854). Signed NSIS published; endpoint VERIFIED:
+latest.json serves 0.9.24 (sig 420), installer HTTP 200 (6,677,333 bytes,
+byte-exact to the signed local bundle). Includes the bug-hunt commit
+923cb51 (recency-first taxonomy selection — Toyota fix) and the theme
+commit (Cursor-cream light / OpenCode-dark, --accent-ink AA token; see
+ui/CLAUDE.md session block). Human visual pass of both themes still
+recommended on next launch (token-only change, jsdom can't see color).**
+
 ## HANDOVER — v0.9.23 SHIPPED + LIVE (2026-07-20) — international research + composer polish
 **Tagged v0.9.23 on 7be5c36; released to public finmodel-releases (Latest).
 CI green all 5 jobs (run 29742579672). Signed NSIS published; endpoint
