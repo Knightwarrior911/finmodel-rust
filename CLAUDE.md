@@ -1,5 +1,32 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.28 SHIPPED + LIVE (2026-07-20) — JARVIS persona + cost honesty + delegation polish
+**Tagged v0.9.28 (abf0149); released to public finmodel-releases (Latest).
+CI green (run 29768979254); signed NSIS published; endpoint VERIFIED:
+latest.json serves 0.9.28 (sig 420), installer HTTP 200. Gates: app-lib
+369, UI 201.**
+
+Pass 3: (a) JARVIS-register PERSONALITY appended to SYSTEM_PROMPT in
+chat.rs (chief-of-staff bearing, one wit touch, professional failure
+reports) — test persona_reaches_every_live_prompt. (b) delegate child
+usage rides card.usage → driver charges CostGuard (generic: any card
+with usage charges). (c) cancel: run_tool + tool_delegate +
+run_delegate_loop take the parent CancellationToken (ChatToolBackend
+passes ctx.cancel); child checks between rounds + streams abort. (d)
+delegate cards carry trail[] (tool/subject/first line) → collapsed
+details in renderDelegate. (e) advisor auto-on: advisor_model_for —
+explicit setting wins, else Skeptic/Goal use cfg.model fresh-context.
+(f) turn_cost side card (tokens always, usd >= $0.0005) via
+turn_cost_card + CostGuard::token_counts. (g) FOUND+FIXED: chat_tool
+events have NO UI consumer — self_check/advisor/turn_cost now emit via
+Driver::take_side_cards drained by the actor at Action::Verify onto the
+durable ResultPartAdded path (live + persisted via turn_results).
+
+Still deferred: sliding cache breakpoint (needs live Anthropic verify);
+research machine internal LLM spend still outside CostGuard (delegate is
+now inside); emit_tool/chat_tool legacy channel is consumer-less —
+candidate for removal in a cleanup pass.
+
 ## HANDOVER — v0.9.27 SHIPPED + LIVE (2026-07-20) — harness pass 2: drift rule, advisor, delegation, prompt profiles
 **Tagged v0.9.27 (release commit 2cdae82 + chore); released to public
 finmodel-releases (Latest). CI green (run 29766978150); signed NSIS
