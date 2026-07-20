@@ -1,5 +1,5 @@
 /* finmodel UI — chat-first desktop, editorial finance aesthetic.
-   Warm-neutral canvas, one indigo accent, hairline borders, restrained motion.
+   Two-face warm palette: cream editorial light (orange voice) / near-black terminal dark (blue voice). Hairline borders, restrained motion.
    Light theme in :root; dark overrides in [data-theme="dark"]. */
 
 /* ── Fonts (bundled woff2; CSP font-src 'self' data:) ────────────── */
@@ -40,43 +40,44 @@
 }
 
 :root {
-  /* Surfaces */
-  --canvas: #fdfdfc;
-  --chrome: #f6f5f4;
-  --element: #efedea;
+  /* Surfaces — Cursor-style warm cream editorial canvas */
+  --canvas: #f7f7f4;
+  --chrome: #f1f0eb;
+  --element: #e6e5e0;
   --raised: #ffffff;
 
-  /* Ink */
-  --ink: #21222a;
-  --muted: #6e6c78;
-  --faint: #9a98a1;
+  /* Ink — warm near-black ladder */
+  --ink: #26251e;
+  --muted: #5a5852;
+  --faint: #807d72;
 
   /* Lines */
-  --hairline: #e7e6e3;
+  --hairline: #e6e5e0;
 
-  /* Accent — deep indigo */
-  --accent: #4338ca;
-  --accent-strong: #3730a3;
-  --accent-soft: #e7e7fb;
-  --accent-weak: #d8d9f7;
+  /* Accent — Cursor orange, reserved for actions and focus */
+  --accent: #f54e00;
+  --accent-strong: #d04200;
+  --accent-soft: #fde5da;
+  --accent-weak: #f8c3ac;
+  --accent-ink: #b83c00; /* text-role accent — AA on cream (#f54e00 is fills-only) */
   --on-accent: #ffffff;
 
   /* Semantic */
-  --ok: #16a34a;
+  --ok: #1f8a65;
   --warn: #d97706;
-  --err: #dc2626;
+  --err: #cf2d56;
   --info: #2563eb;
 
   /* Projected column tint */
-  --proj: #5b52c9;
-  --proj-bg: rgba(67, 56, 202, 0.04);
+  --proj: #d04200;
+  --proj-bg: rgba(245, 78, 0, 0.05);
 
   /* Elevation */
-  --shadow-xs: 0 1px 2px rgba(33, 34, 42, 0.05);
+  --shadow-xs: 0 1px 2px rgba(38, 37, 30, 0.05);
   --shadow-sm:
-    0 1px 2px rgba(33, 34, 42, 0.06), 0 1px 1px rgba(33, 34, 42, 0.04);
-  --shadow-pop: 0 4px 14px rgba(33, 34, 42, 0.1);
-  --shadow-modal: 0 12px 32px rgba(33, 34, 42, 0.16);
+    0 1px 2px rgba(38, 37, 30, 0.06), 0 1px 1px rgba(38, 37, 30, 0.04);
+  --shadow-pop: 0 4px 14px rgba(38, 37, 30, 0.1);
+  --shadow-modal: 0 12px 32px rgba(38, 37, 30, 0.16);
 
   /* Geometry */
   --radius: 8px;
@@ -116,21 +117,29 @@
 }
 
 [data-theme="dark"] {
-  --canvas: #1b1c22;
-  --chrome: #22232b;
-  --element: #2a2b34;
-  --raised: #22232b;
-  --ink: #e8e7ee;
-  --muted: #a09eab;
-  --faint: #6e6c78;
-  --hairline: #33343e;
-  --accent: #8b85f1;
-  --accent-strong: #a5a0f5;
-  --accent-soft: #2c2a4a;
-  --accent-weak: #3a3766;
-  --on-accent: #15161c;
-  --proj: #8b85f1;
-  --proj-bg: rgba(139, 133, 241, 0.07);
+  /* OpenCode-style warm near-black terminal surfaces */
+  --canvas: #201d1d;
+  --chrome: #282424;
+  --element: #302c2c;
+  --raised: #282424;
+  --ink: #fdfcfc;
+  --muted: #9a9898;
+  --faint: #6e6e73;
+  --hairline: #3a3636;
+  /* Accent — the HIG blue OpenCode's TUI runs on */
+  --accent: #339cff;
+  --accent-strong: #66b5ff;
+  --accent-soft: #1e2a3c;
+  --accent-weak: #2a4664;
+  --accent-ink: #339cff;
+  --on-accent: #10131a;
+  /* Semantic — dark-tuned HIG ramp */
+  --ok: #30d158;
+  --warn: #ff9f0a;
+  --err: #ff453a;
+  --info: #339cff;
+  --proj: #66b5ff;
+  --proj-bg: rgba(51, 156, 255, 0.08);
   color-scheme: dark;
 }
 
@@ -303,7 +312,7 @@ body.sidebar-collapsed #sidebar {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .brand-name {
   font-size: 16px;
@@ -475,7 +484,7 @@ body.sidebar-collapsed #sidebar {
   color: var(--ink);
 }
 .foot-update[data-state="available"] {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .foot-update[data-state="error"] {
   color: var(--err);
@@ -768,7 +777,7 @@ body.sidebar-collapsed .sidebar-expand {
   padding: 0;
 }
 .prose a.md-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 .prose a.md-link:hover {
@@ -1087,7 +1096,7 @@ body.sidebar-collapsed .sidebar-expand {
   height: 16px;
 }
 .think-step.running .think-icon {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .think-label {
   flex: 1 1 auto;
@@ -1222,11 +1231,11 @@ body.sidebar-collapsed .sidebar-expand {
 .act-badge-running,
 .act-badge-queued {
   background: var(--accent-bg);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .act-badge-success {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .act-badge-warning {
   background: var(--chrome);
@@ -1243,7 +1252,7 @@ body.sidebar-collapsed .sidebar-expand {
 }
 .act-badge-awaiting_approval {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .act-icon {
@@ -1257,7 +1266,7 @@ body.sidebar-collapsed .sidebar-expand {
   line-height: 1;
 }
 .act-icon-success {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .act-icon-warning {
   color: var(--warn);
@@ -1272,12 +1281,12 @@ body.sidebar-collapsed .sidebar-expand {
   color: var(--tertiary);
 }
 .act-icon-awaiting_approval {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .act-spinner {
   animation: spin 0.7s linear infinite;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .act-detail {
@@ -1342,7 +1351,7 @@ body.sidebar-collapsed .sidebar-expand {
 
 [data-theme="dark"] .act-badge-success {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 [data-theme="dark"] .act-badge-warning {
   background: var(--chrome);
@@ -1354,10 +1363,10 @@ body.sidebar-collapsed .sidebar-expand {
 }
 [data-theme="dark"] .act-badge-awaiting_approval {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 [data-theme="dark"] .act-icon-success {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 [data-theme="dark"] .act-icon-warning {
   color: var(--warn);
@@ -1366,7 +1375,7 @@ body.sidebar-collapsed .sidebar-expand {
   color: var(--err);
 }
 [data-theme="dark"] .act-icon-awaiting_approval {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 [data-theme="dark"] .act-errtext {
   color: var(--err);
@@ -1523,7 +1532,7 @@ body.sidebar-collapsed .sidebar-expand {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
   border-radius: var(--radius-sm);
   padding: 2px 6px;
@@ -1567,7 +1576,7 @@ body.sidebar-collapsed .sidebar-expand {
   background: transparent;
   padding: 0;
   font: inherit;
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -1636,7 +1645,7 @@ body.sidebar-collapsed .sidebar-expand {
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
-  accent-color: var(--accent);
+  accent-color: var(--accent-ink);
 }
 .field-check .field-label {
   margin: 0;
@@ -1702,7 +1711,7 @@ body.sidebar-collapsed .sidebar-expand {
 }
 .mp-row.current .mp-name::after {
   content: " ✓";
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .mp-name {
   font-size: 13px;
@@ -1722,7 +1731,7 @@ body.sidebar-collapsed .sidebar-expand {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
   border-radius: var(--radius-sm);
   padding: 1px 6px;
@@ -2052,7 +2061,7 @@ body.sidebar-collapsed .sidebar-expand {
   gap: 4px 14px;
 }
 .card-sources a.md-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
   font-size: 13px;
 }
@@ -2415,7 +2424,7 @@ a.src-card-title:hover {
 }
 .reader-url {
   font-size: 13px;
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2462,7 +2471,7 @@ a.src-card-title:hover {
   padding-left: 22px;
 }
 .reader-body a.md-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 .reader-loading {
@@ -2884,7 +2893,7 @@ body {
 }
 .temp-chat-btn.is-active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: var(--accent);
 }
 .workspace-banner {
@@ -3079,7 +3088,7 @@ body {
   min-width: 1.2em;
 }
 .part-source-link {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3391,7 +3400,7 @@ body {
   flex: none;
 }
 .proj-open:hover .proj-fold-ic {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .think-icon {
   width: 16px;

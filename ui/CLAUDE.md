@@ -1,3 +1,18 @@
+## Session (2026-07-20 theme) v0.9.24 — two-face palette
+- style.css tokens only (no layout churn): light = Cursor cream editorial
+  (canvas #f7f7f4, chrome #f1f0eb, element/hairline #e6e5e0, raised #fff,
+  ink #26251e/#5a5852/#807d72, accent #f54e00 FILLS-ONLY, accent-strong
+  #d04200, --accent-ink #b83c00 for TEXT — raw orange is ~3.3:1 on cream,
+  fails AA); dark = OpenCode near-black terminal (canvas #201d1d, chrome/
+  raised #282424, element #302c2c, hairline #3a3636, ink #fdfcfc/#9a9898/
+  #6e6e73, accent #339cff, strong #66b5ff, on-accent #10131a, dark HIG
+  semantics 30d158/ff9f0a/ff453a).
+- NEW TOKEN --accent-ink: every color: var(--accent) text role swapped to
+  it (26 sites); border/outline/background/spinner stay --accent. Sources:
+  getdesign.md/design-md/{cursor,opencode.ai}/DESIGN.md (palettes only —
+  their all-mono/72px display identities deliberately NOT adopted).
+- DESIGN.md contract rewritten: one accent per theme, One Voice Rule kept.
+
 ## Session (2026-07-20 later) v0.9.23 — previews, power prompt, settings pickers, copy sweep
 - composer.mjs: image chips carry data-URL thumbnails (blob: URLs are
   CSP-blocked — img-src 'self' data:); 40px .attach-thumb. Multi-image

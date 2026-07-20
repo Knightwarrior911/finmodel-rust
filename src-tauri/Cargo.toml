@@ -1,6 +1,6 @@
 [package]
 name = "finmodel-app"
-version = "0.9.23"
+version = "0.9.24"
 description = "finmodel desktop app"
 authors = ["Vinit"]
 edition = "2021"

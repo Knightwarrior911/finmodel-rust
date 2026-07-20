@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased - bug hunt
+## v0.9.24 - 2026-07-20 - Two faces: cream editorial light, terminal dark
+
+- **A new coat of paint, both modes.** Light mode is now a warm cream
+  editorial page with a single orange voice for actions (Cursor-inspired);
+  dark mode is a warm near-black terminal with a signal-blue voice
+  (OpenCode-inspired). Same layout, same warmth — every color routes
+  through the token system, and accent TEXT uses an AA-readable ink
+  variant so small orange type never washes out on cream. The design
+  contract (DESIGN.md) is updated to match, one accent per theme.
+
+### Also in this release: bug hunt
 
 - **Transition filers no longer serve stale numbers.** Toyota kept 483
   residual US-GAAP concepts (last filed FY2020) next to its live IFRS

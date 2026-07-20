@@ -1,21 +1,26 @@
 ---
 name: finmodel
-description: Agentic financial-analyst desktop app — warm-neutral canvas, one indigo accent, evidence-forward.
+description: Agentic financial-analyst desktop app — two-face warm palette (cream editorial light / near-black terminal dark), one accent per theme, evidence-forward.
 colors:
-  paper-white: "#fdfdfc"
-  warm-chrome: "#f6f5f4"
-  linen-element: "#efedea"
+  cream-canvas: "#f7f7f4"
+  cream-chrome: "#f1f0eb"
+  cream-element: "#e6e5e0"
   raised-white: "#ffffff"
-  night-ink: "#21222a"
-  slate-muted: "#6e6c78"
-  faint-gray: "#9a98a1"
-  hairline: "#e7e6e3"
-  ledger-indigo: "#4338ca"
-  ledger-indigo-strong: "#3730a3"
-  indigo-wash: "#e7e7fb"
-  ok-green: "#16a34a"
+  warm-ink: "#26251e"
+  warm-muted: "#5a5852"
+  warm-faint: "#807d72"
+  hairline: "#e6e5e0"
+  action-orange: "#f54e00"
+  action-orange-ink: "#b83c00"
+  orange-wash: "#fde5da"
+  dark-canvas: "#201d1d"
+  dark-element: "#302c2c"
+  dark-ink: "#fdfcfc"
+  signal-blue: "#339cff"
+  blue-wash: "#1e2a3c"
+  ok-green: "#1f8a65"
   warn-amber: "#d97706"
-  err-red: "#dc2626"
+  err-red: "#cf2d56"
 typography:
   body:
     fontFamily: "IBM Plex Sans, Segoe UI, Inter, system-ui, sans-serif"
@@ -48,7 +53,7 @@ components:
     textColor: "{colors.night-ink}"
     rounded: "{rounded.sm}"
   button-primary:
-    backgroundColor: "{colors.ledger-indigo}"
+    backgroundColor: "{colors.action-orange}"
     textColor: "#ffffff"
     rounded: "{rounded.sm}"
   modal-card:
@@ -62,31 +67,31 @@ components:
 
 **Creative North Star: "The Patient Analyst"**
 
-finmodel's interface is a senior colleague who shows their work: calm warm-neutral surfaces, one deep indigo voice for action and selection, hairline structure instead of boxes, and numbers set in mono with tabular figures. Warmth comes from clarity and guidance — helpful hints, teaching empty states, inline editing where you already are — not from decoration.
+finmodel's interface is a senior colleague who shows their work: calm warm surfaces, ONE accent voice per theme for action and selection, hairline structure instead of boxes, and numbers set in mono with tabular figures. Light mode is a cream editorial page (Cursor-inspired) with a single orange voltage; dark mode is a warm near-black terminal (OpenCode-inspired) with a single signal blue. Warmth comes from clarity and guidance — helpful hints, teaching empty states, inline editing where you already are — not from decoration.
 
 The system explicitly rejects cramped modal-heavy UI (editing squeezed into narrow dialogs), generic SaaS dashboard tropes (card grids, hero metrics, gradient accents), and consumer fintech gloss (playful gradients, confetti). It is friendly by being legible, guiding, and unhurried.
 
 **Key Characteristics:**
-- Warm-neutral canvas (`#fdfdfc` light / `#1b1c22` dark), tinted — never pure black or white
-- One accent: ledger indigo, for primary actions, selection, and citations only
-- Hairline borders (`#e7e6e3`) carry structure; shadows are reserved for true overlays
+- Warm-tinted canvas (`#f7f7f4` cream light / `#201d1d` near-black dark) — never pure black or white
+- One accent per theme — action orange (light) / signal blue (dark) — for primary actions, selection, and citations only; text uses the AA-readable ink variant (#b83c00 on cream)
+- Hairline borders (`#e6e5e0` light / `#3a3636` dark) carry structure; shadows are reserved for true overlays
 - IBM Plex Sans for UI, IBM Plex Mono + tabular-nums for anything numeric
 - Soft and tactile components: rounded, generous touch targets, quiet hover fills
 
 ## 2. Colors
 
-A warm paper-and-ink neutral ramp with a single indigo accent; semantic colors appear only as state.
+A warm paper-and-ink ramp with a single accent per theme; semantic colors appear only as state.
 
 ### Primary
-- **Ledger Indigo** (#4338ca, dark: #8b85f1): primary actions, active selection, citation markers, focus. Never decoration; its rarity is its authority.
+- **Action Orange** (#f54e00 fills, #b83c00 as text — light) / **Signal Blue** (#339cff — dark): primary actions, active selection, citation markers, focus. Never decoration; its rarity is its authority. Small orange TEXT always uses the ink variant — the raw fill orange fails AA on cream.
 
 ### Neutral
-- **Paper White** (#fdfdfc): the canvas. **Warm Chrome** (#f6f5f4): sidebars and toolbars — the second neutral layer. **Linen Element** (#efedea): hover fills and inset fields. **Raised White** (#ffffff): overlays and cards.
-- **Night Ink** (#21222a): primary text. **Slate Muted** (#6e6c78): secondary text. **Faint Gray** (#9a98a1): tertiary/hints. **Hairline** (#e7e6e3): all structural lines.
-- Semantic: **OK** #16a34a, **Warn** #d97706, **Error** #dc2626 — always paired with a glyph or word, never color alone.
+- **Cream Canvas** (#f7f7f4): the page. **Cream Chrome** (#f1f0eb): sidebars and toolbars. **Cream Element** (#e6e5e0): hover fills and inset fields. **Raised White** (#ffffff): overlays and cards. Dark: #201d1d canvas, #282424 chrome/raised, #302c2c element.
+- **Warm Ink** (#26251e / #fdfcfc dark): primary text. **Muted** (#5a5852 / #9a9898): secondary. **Faint** (#807d72 / #6e6e73): tertiary/hints. **Hairline** (#e6e5e0 / #3a3636): all structural lines.
+- Semantic: **OK** #1f8a65/#30d158, **Warn** #d97706/#ff9f0a, **Error** #cf2d56/#ff453a (light/dark) — always paired with a glyph or word, never color alone.
 
 ### Named Rules
-**The One Voice Rule.** Indigo is the only voice of action. If two accents compete on a surface, one is wrong.
+**The One Voice Rule.** Each theme has exactly one voice of action (orange in light, blue in dark). If two accents compete on a surface, one is wrong.
 **The Tinted Neutral Rule.** No `#000`, no untinted grays; every neutral leans warm.
 
 ## 3. Typography
@@ -162,4 +167,4 @@ Citation refs (`[1]`, ticker pills, tool chips) set in mono, indigo-strong on in
 - **Don't** ship generic SaaS dashboard tropes: card grids, hero metrics, gradient accents.
 - **Don't** add consumer fintech gloss: gradients, confetti, gamified anything.
 - **Don't** use side-stripe borders, gradient text, or glassmorphism.
-- **Don't** introduce a second accent or use indigo decoratively.
+- **Don't** introduce a second accent or use the accent decoratively.
