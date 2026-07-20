@@ -5,6 +5,7 @@ pub mod attachments;
 pub mod benchmark;
 pub mod cache;
 pub mod chat;
+pub mod dataroom;
 pub mod mcp;
 pub mod model;
 pub mod news;

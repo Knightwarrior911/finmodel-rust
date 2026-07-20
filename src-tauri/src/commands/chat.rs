@@ -836,6 +836,39 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Data room review (analyze_data_room): local folder -> grounded answers
+/// with verified file/page/quote citations. Approval-gated (Risk::LocalRead).
+fn tool_data_room(
+    app: &tauri::AppHandle,
+    args: &Value,
+    conversation_id: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(String, Value), String> {
+    let path = args["path"].as_str().unwrap_or("").trim().to_string();
+    let questions: Vec<String> = args["questions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|q| q.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let settings = crate::commands::settings::read_settings(app);
+    let cfg = fm_extract::LlmConfig {
+        api_key: settings.openrouter_api_key.trim().to_string(),
+        model: settings.model.trim().to_string(),
+    };
+    tauri::async_runtime::block_on(crate::commands::dataroom::run_data_room(
+        app,
+        &cfg,
+        &path,
+        &questions,
+        conversation_id,
+        cancel,
+    ))
+}
+
 /// Delegated child analyst (delegate_analysis): bounded read-only tool loop
 /// in its own context; the parent receives only the compact findings brief.
 fn tool_delegate(
@@ -888,6 +921,7 @@ pub(crate) fn run_tool(
         "list_filings" => tool_list_filings(args),
         "read_filing" => tool_read_filing(app, args),
         "analyze_pdf" => tool_analyze_pdf(app, args, conversation_id),
+        "analyze_data_room" => tool_data_room(app, args, conversation_id, cancel),
         "delegate_analysis" => tool_delegate(app, args, conversation_id, cancel),
         "research" => tool_research(app, args, user_msg),
         "use_skill" => tool_use_skill(app, args),

@@ -6,6 +6,12 @@
 pub mod date;
 pub mod edgar;
 pub mod extract;
+
+/// Panic-safe per-page PDF text extraction (data room reviews, corpus
+/// tools). One malformed PDF returns Err instead of crashing the process.
+pub fn pdf_pages(path: &str) -> Result<Vec<String>, String> {
+    extract::extract_pdf_pages(path).map_err(|e| e.to_string())
+}
 pub mod llm;
 pub mod ltm;
 pub mod period;

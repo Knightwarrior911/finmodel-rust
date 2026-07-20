@@ -749,7 +749,7 @@ fn parse_llm_json_response(raw: &str) -> Result<serde_json::Value, ExtractError>
 /// Returns a vector of page texts. Verified to match pdfplumber's page count
 /// and figure extraction on the baseline filings (Sandvik: 160 pages, key
 /// figures 126,503 / 122,878 extracted identically).
-fn extract_pdf_pages(pdf_path: &str) -> Result<Vec<String>, ExtractError> {
+pub fn extract_pdf_pages(pdf_path: &str) -> Result<Vec<String>, ExtractError> {
     // pdf-extract can panic (not just Err) on malformed PDFs — catch it so one
     // bad filing can't crash the whole app/Tauri process.
     let path = pdf_path.to_string();

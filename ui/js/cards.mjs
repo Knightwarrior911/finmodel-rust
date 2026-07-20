@@ -70,6 +70,49 @@ function renderVerification(card) {
   );
 }
 
+// Data room review: per-question answers where every finding is a chip -
+// file, page, verified badge - and the quote is one hover away. Click a
+// chip to open the document itself.
+function renderDataRoom(card) {
+  const qs = Array.isArray(card.questions) ? card.questions : [];
+  if (!qs.length) return null;
+  const rootLeaf = String(card.root || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || "data room";
+  const sections = qs
+    .map((q) => {
+      const findings = (Array.isArray(q.findings) ? q.findings : [])
+        .map((f) => {
+          const label = `${f.file || ""}${f.page ? ` · p.${f.page}` : ""}`;
+          const badge = f.verified
+            ? '<span class="room-verified" title="Quote verified verbatim against the document">✓</span>'
+            : '<span class="room-unverified" title="Couldn\u2019t verify this quote verbatim - open the file to check">?</span>';
+          return `<button type="button" class="room-finding" data-room-file="${escapeHtml(f.path || "")}" title="${escapeHtml(String(f.quote || ""))}">${escapeHtml(label)} ${badge}</button>`;
+        })
+        .join("");
+      return `<div class="room-q">
+        <p class="room-question">${escapeHtml(q.question || "")}</p>
+        <p class="card-note">${escapeHtml(q.answer || "")}</p>
+        ${findings ? `<div class="room-findings">${findings}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+  const skipped = Array.isArray(card.skipped) && card.skipped.length
+    ? `<details class="delegate-trail"><summary>Not read (${card.skipped.length})</summary><ol>${card.skipped
+        .slice(0, 20)
+        .map((s) => `<li>${escapeHtml(String(s))}</li>`)
+        .join("")}</ol></details>`
+    : "";
+  const sub = `${card.file_count || 0} files · ${card.findings || 0} findings · ${card.verified || 0} verified`;
+  return cardShell(
+    "research data-room",
+    `<div class="card-head">
+       <span class="card-title">Data room · ${escapeHtml(rootLeaf)}</span>
+       <span class="card-sub">${escapeHtml(sub)}</span>
+     </div>
+     ${sections}
+     ${skipped}`,
+  );
+}
+
 // A delegated deep dive: the child analyst's findings brief, with the task
 // as the card title so parallel dives stay tellable-apart.
 function renderDelegate(card) {
@@ -835,6 +878,9 @@ export function renderCard(card) {
     case "delegate":
       el = renderDelegate(card);
       break;
+    case "data_room":
+      el = renderDataRoom(card);
+      break;
     case "turn_cost":
       el = renderTurnCost(card);
       break;
@@ -928,6 +974,13 @@ function wireCard(el) {
         });
       return;
     }
+    // Data room finding chip: open the cited file locally.
+    const roomFile = e.target.closest("[data-room-file]");
+    if (roomFile) {
+      e.stopPropagation();
+      openPath(roomFile.dataset.roomFile);
+      return;
+    }
     // External link/button (checked before reader row so the Open button wins).
     const ext = e.target.closest("[data-url]");
     if (ext) {
@@ -941,11 +994,14 @@ function wireCard(el) {
       openReader(reader.dataset.readerUrl, reader.dataset.readerTitle || "");
     }
   });
-  // Keyboard activation for clickable rows.
+  // Keyboard activation for clickable rows and inline links. Enter works
+  // for both; Space is button-only (links must not swallow page scroll).
   el.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const row = e.target.closest("[data-reader-url],[data-url]");
-    if (row && row.getAttribute("role") === "button") {
+    if (!row) return;
+    const role = row.getAttribute("role");
+    if (role === "button" || (role === "link" && e.key === "Enter")) {
       e.preventDefault();
       row.click();
     }

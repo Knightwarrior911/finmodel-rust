@@ -153,6 +153,11 @@ pub enum Risk {
     LocalDelete,
     /// Exports outside the output root; pauses on approval.
     Export,
+    /// Reads user-named local paths OUTSIDE the artifact registry (a deal
+    /// data room folder); pauses on approval so the user confirms exactly
+    /// which folder is opened. The registry stays the only auto-run door
+    /// to local files.
+    LocalRead,
 }
 
 impl Risk {
@@ -451,6 +456,7 @@ mod tests {
         assert!(!Risk::LocalOverwrite.auto_runs());
         assert!(!Risk::LocalDelete.auto_runs());
         assert!(!Risk::Export.auto_runs());
+        assert!(!Risk::LocalRead.auto_runs(), "folder reads must pause for the go-ahead");
     }
 
     #[test]

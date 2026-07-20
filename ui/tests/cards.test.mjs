@@ -512,3 +512,39 @@ test("cite pills deep-link to the quoted passage", async () => {
   const srcCard = el.querySelector(".src-card");
   assert.ok(srcCard.dataset.url.includes("#:~:text="), "src card deep links");
 });
+
+test("data room card: per-finding chips with file, page, verified badge", async () => {
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "data_room",
+    root: "C:/deals/ProjectAtlas/VDR",
+    file_count: 12,
+    findings: 3,
+    verified: 2,
+    skipped: ["hr/photo.png (.png not supported yet)"],
+    questions: [
+      {
+        question: "What was FY2025 revenue?",
+        answer: "Revenue was €36.8B per the audited accounts.",
+        findings: [
+          { file: "fin/accounts.pdf", path: "C:/deals/ProjectAtlas/VDR/fin/accounts.pdf", page: 12, quote: "revenue of €36.8 billion", verified: true },
+          { file: "cim/teaser.pdf", path: "C:/deals/ProjectAtlas/VDR/cim/teaser.pdf", page: 3, quote: "approx €37bn top line", verified: false },
+        ],
+      },
+      { question: "Any change of control clauses?", answer: "Nothing in the readable files matches this question.", findings: [] },
+    ],
+  });
+  const html = el.innerHTML;
+  assert.match(html, /Data room · VDR/);
+  assert.match(html, /12 files · 3 findings · 2 verified/);
+  const chips = el.querySelectorAll(".room-finding");
+  assert.equal(chips.length, 2);
+  assert.match(chips[0].textContent, /fin\/accounts.pdf · p.12/);
+  assert.equal(chips[0].dataset.roomFile, "C:/deals/ProjectAtlas/VDR/fin/accounts.pdf");
+  assert.equal(chips[0].title, "revenue of €36.8 billion", "quote rides the tooltip");
+  assert.ok(chips[0].querySelector(".room-verified"), "verified badge");
+  assert.ok(chips[1].querySelector(".room-unverified"), "unverified marked, not hidden");
+  assert.match(html, /Not read \(1\)/);
+  // No questions → declines.
+  assert.equal(cards.renderCard({ type: "data_room", questions: [] }).nodeType, 8);
+});

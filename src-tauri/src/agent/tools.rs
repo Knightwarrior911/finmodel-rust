@@ -123,6 +123,14 @@ fn validate_task(args: &Value) -> Result<(), String> {
     require_nonempty(args, "task")
 }
 
+fn validate_data_room(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "path")?;
+    match args.get("questions").and_then(|v| v.as_array()) {
+        Some(a) if !a.is_empty() && a.iter().all(|q| q.as_str().map_or(false, |s| !s.trim().is_empty())) => Ok(()),
+        _ => Err("`questions` must be a non-empty array of questions".into()),
+    }
+}
+
 fn validate_peers(args: &Value) -> Result<(), String> {
     match args.get("tickers").and_then(|v| v.as_array()) {
         Some(a) if !a.is_empty() => Ok(()),
@@ -219,6 +227,21 @@ fn schema_research() -> Value {
         "required": ["query"]
     })
 }
+fn schema_data_room() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Absolute path to the data room folder the user named." },
+            "questions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "1-6 self-contained questions to answer from the documents."
+            }
+        },
+        "required": ["path", "questions"]
+    })
+}
+
 fn schema_delegate() -> Value {
     json!({
         "type": "object",
@@ -419,6 +442,20 @@ impl ToolRegistry {
                 trust: TrustPolicy::Untrusted,
                 validate: |a| require_nonempty(a, "artifact_id"),
                 params_schema: schema_analyze_pdf,
+                model_visible: true,
+            },
+            ToolSpec {
+                name: "analyze_data_room",
+                label: "Data room review",
+                description: "Read through a local deal folder (a data room: subfolders, PDFs, notes) and answer questions with exact per-finding citations - file, page, and a verbatim quote verified against the document. Args: path (the folder), questions (1-6, each self-contained). Use when the user points at a folder of documents. Reads locally only; asks the user's go-ahead before opening the folder.",
+                risk: Risk::LocalRead,
+                capabilities: &["documents", "local"],
+                required_args: &["path", "questions"],
+                interruptible: true,
+                idempotent: true,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_data_room,
+                params_schema: schema_data_room,
                 model_visible: true,
             },
             ToolSpec {
@@ -681,7 +718,7 @@ mod tests {
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 15);
+        assert_eq!(r.names().len(), 16);
     }
 
     #[test]
@@ -792,7 +829,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 15);
+        assert_eq!(cat.lines().count(), 16);
         assert!(cat.contains("build_model"));
     }
 
@@ -834,6 +871,6 @@ mod tests {
         assert_eq!(ranked[0], "build_model");
         // Deterministic: identical query → identical order.
         assert_eq!(ranked, r.rank_for_query("build a dcf excel model"));
-        assert_eq!(ranked.len(), 15);
+        assert_eq!(ranked.len(), 16);
     }
 }

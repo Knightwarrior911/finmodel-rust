@@ -17,6 +17,12 @@ export const TOOL_STORY = {
     failed: "Couldn't finish the self-check",
     verb: "Re-checking",
   },
+  analyze_data_room: {
+    running: "Reading through the data room\u2026",
+    done: "Data room review ready",
+    failed: "Couldn't finish the data room review",
+    verb: "Reading",
+  },
   delegate_analysis: {
     running: "Handing a deep dive to a second analyst…",
     done: "Deep dive came back",

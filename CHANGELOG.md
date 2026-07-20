@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.30 - 2026-07-20 - The data room review: answers with receipts
+
+- **Point the analyst at a deal folder.** New analyze_data_room tool: give
+  it a folder (subfolders welcome - PDFs, notes, HTML, CSVs) and 1-6
+  questions, and it reads everything readable and answers each question
+  with findings that cite the exact file, page, and a verbatim quote.
+- **Traceability is enforced, not promised.** The model answers from
+  numbered excerpts and cites excerpt numbers - the app resolves them
+  back to file and page itself, so a finding can never point at the wrong
+  document. Every quote is re-checked character-for-character against the
+  document; anything that fails shows a ? badge instead of being silently
+  trusted. What was NOT read (unsupported formats, oversized files) is
+  listed on the card - silent gaps are how audits fail.
+- **Your files, your call.** Reading a folder pauses for your go-ahead
+  first (a new LocalRead approval class - the artifact registry remains
+  the only auto-run door to local files). Links and junctions inside the
+  room are never followed, so a stray shortcut can't widen what you
+  approved. Click any finding chip to open the document itself.
+
 ## v0.9.29 - 2026-07-20 - Click a number, land on its source
 
 - **Citations deep-link to the exact passage.** Cited answers use the
