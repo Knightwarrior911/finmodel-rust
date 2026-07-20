@@ -514,6 +514,26 @@ impl ToolRegistry {
     /// Provider tool array (OpenAI function-tool shape) for every model-visible
     /// tool. The single authority the driver hands the provider (Task 1.1);
     /// replaces the removed `commands::chat::tool_schemas`/`agent_tool_schemas`.
+    /// Read-only subset of [`Self::agent_schemas`] — Plan mode's belt:
+    /// research and lookups stay, anything that creates, overwrites, or
+    /// exports is off the table entirely (not even approval-gated).
+    pub fn agent_schemas_read_only(&self) -> Vec<Value> {
+        let read_only: std::collections::HashSet<&str> = self
+            .specs
+            .values()
+            .filter(|s| s.model_visible && matches!(s.risk, Risk::ReadOnly))
+            .map(|s| s.name)
+            .collect();
+        self.agent_schemas()
+            .into_iter()
+            .filter(|v| {
+                v.pointer("/function/name")
+                    .and_then(|n| n.as_str())
+                    .map_or(false, |n| read_only.contains(n))
+            })
+            .collect()
+    }
+
     pub fn agent_schemas(&self) -> Vec<Value> {
         let mut specs: Vec<&ToolSpec> = self.specs.values().filter(|s| s.model_visible).collect();
         specs.sort_by_key(|s| s.name);

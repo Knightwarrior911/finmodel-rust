@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.9.25 - 2026-07-20 - The autonomy dial: working modes + model chip in the box
+
+- **Working modes.** A new chip inside the composer picks how much rope the
+  analyst gets for the next message: **Analyst** (balanced default),
+  **Plan first** (read-only research, a numbered plan, then it stops and
+  waits for your go-ahead), **Goal run** (state the outcome; it works
+  autonomously under the workflow budget until verifiably done),
+  **Loop & refine** (finish, self-critique against your ask, redo until a
+  pass finds nothing material), and **Skeptic** (tries to break the answer:
+  re-derives figures deterministically, hunts disconfirming sources, grades
+  its own confidence).
+- **Modes never weaken safety.** Approvals, the conversation spending limit,
+  and verification run identically in every mode; Plan mode goes further -
+  anything that creates, overwrites, or exports is off the tool belt
+  entirely. Interrupted runs resume in their original mode (a Goal run does
+  not wake up as a chat).
+- **Plan mode is one-shot.** After the plan is delivered the chip flips back
+  to Analyst, so your "go ahead" runs the plan instead of producing
+  another plan.
+- **Model picker joined the composer.** The model chip now lives inside the
+  input box next to the other controls (Cursor-style) with a short name -
+  the full id is in the tooltip - instead of a floating strip under the box.
+
 ## v0.9.24 - 2026-07-20 - Two faces: cream editorial light, terminal dark
 
 - **A new coat of paint, both modes.** Light mode is now a warm cream

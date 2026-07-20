@@ -177,6 +177,7 @@ pub async fn agent_resume(
         .as_ref()
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
+    let mode = crate::agent::modes::AgentMode::parse(orig.policy.as_deref());
     let _ = launch_run(LaunchSpec {
         app: app.clone(),
         registry: (*registry).clone(),
@@ -189,7 +190,8 @@ pub async fn agent_resume(
         api_key: settings.openrouter_api_key.trim().to_string(),
         model,
         tools_ok,
-        policy: fm_agent::budget::Policy::INTERACTIVE,
+        policy: mode.policy(),
+        mode,
     })
     .await?;
     Ok(new_id)
@@ -216,6 +218,7 @@ struct LaunchSpec {
     model: String,
     tools_ok: bool,
     policy: fm_agent::budget::Policy,
+    mode: crate::agent::modes::AgentMode,
 }
 
 /// Shared launch path for `agent_send` and `agent_resume`: register the run with
@@ -245,6 +248,7 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
         mut model,
         tools_ok,
         policy,
+        mode,
     } = spec;
 
     // ── Pre-flight: vision auto-routing + spend guard ──────────────────
@@ -388,6 +392,7 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
         ctx,
         tools_ok,
         registry.clone(),
+        mode,
     )
     .with_cost_guard(guard);
     let sink = TauriEventSink::new(app.clone());
@@ -426,6 +431,7 @@ pub async fn agent_send(
     project_id: Option<String>,
     text: String,
     attachments: Option<Vec<serde_json::Value>>,
+    mode: Option<String>,
 ) -> AppResult<String> {
     use serde_json::json;
     // A follow-up promise in the user's text becomes a PROPOSED schedule —
@@ -442,7 +448,7 @@ pub async fn agent_send(
             Some((id.to_string(), scope.to_string()))
         })
         .collect();
-    let (conv_id, run_id, model_note) = send_message_inner(
+    let (conv_id, run_id, model_note) = send_message_inner_mode(
         app,
         (*registry).clone(),
         conversation_id,
@@ -450,6 +456,7 @@ pub async fn agent_send(
         project_id,
         text,
         att_pairs,
+        crate::agent::modes::AgentMode::parse(mode.as_deref()),
     )
     .await?;
     let mut out = json!({ "conversation_id": conv_id, "run_id": run_id });
@@ -482,8 +489,32 @@ pub(crate) async fn send_message_inner(
     text: String,
     attachments: Vec<(String, String)>,
 ) -> AppResult<(String, String, Option<serde_json::Value>)> {
+    send_message_inner_mode(
+        app,
+        registry,
+        conversation_id,
+        workspace_id,
+        project_id,
+        text,
+        attachments,
+        crate::agent::modes::AgentMode::Analyst,
+    )
+    .await
+}
+
+/// The shared send path with the working mode (composer mode chip).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn send_message_inner_mode(
+    app: tauri::AppHandle,
+    registry: ActorRegistry,
+    conversation_id: Option<String>,
+    workspace_id: Option<String>,
+    project_id: Option<String>,
+    text: String,
+    attachments: Vec<(String, String)>,
+    mode: crate::agent::modes::AgentMode,
+) -> AppResult<(String, String, Option<serde_json::Value>)> {
     use crate::commands::settings::read_settings;
-    use fm_agent::budget::Policy;
     use serde_json::json;
 
     let text = text.trim().to_string();
@@ -568,7 +599,7 @@ pub(crate) async fn send_message_inner(
                 "running",
                 "preparing",
                 Some(&model_for_insert),
-                None,
+                Some(mode.name()),
                 &now,
             )
             .map_err(|e| e.to_string())?;
@@ -595,7 +626,10 @@ pub(crate) async fn send_message_inner(
         api_key: settings.openrouter_api_key.trim().to_string(),
         model,
         tools_ok,
-        policy: Policy::INTERACTIVE,
+        // Outcome modes (goal/loop) run under the WORKFLOW guard rails;
+        // everything else keeps the interactive ceiling.
+        policy: mode.policy(),
+        mode,
     })
     .await?;
 

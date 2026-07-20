@@ -30,6 +30,9 @@ import { evidenceIngest, evidenceReset } from "./evidence.mjs";
 import { scheduleDueLabel, draftOfferForCards } from "./labels.mjs";
 import {
   initComposer,
+  setPillText,
+  getMode,
+  setMode,
   attachmentPayload,
   clearAttachments,
   getAttachments,
@@ -1044,11 +1047,13 @@ async function sendViaAgent(msg) {
   const projectId = pendingProjectId;
   turnCardTypes = new Set();
   const attachments = attachmentPayload();
+  const mode = getMode();
   const res = await call("agent_send", {
     conversation_id: currentId || null,
     text: msg,
     project_id: projectId,
     attachments: attachments.length ? attachments : null,
+    mode: mode === "analyst" ? null : mode,
   });
   if (attachments.length) clearAttachments();
   currentId = res.conversation_id || currentId;
@@ -1069,6 +1074,9 @@ async function sendViaAgent(msg) {
   const terminal = await waitForAgentTerminal(activeRunId);
   lastTerminalKind = terminal.kind;
   surfaceMinimalAnswer(terminal);
+  // Plan mode is one-shot: the plan is delivered, so the chip flips back —
+  // your "go ahead" should RUN the plan, not produce another plan.
+  if (mode === "plan") setMode("analyst");
   // Evidence gathered, no memo yet, run finished clean, nothing else being
   // offered → quietly suggest the write-up (drafting needs an explicit yes).
   if (
@@ -1394,10 +1402,9 @@ export function initChat(opts = {}) {
   initComposer({ getConversationId: () => currentId });
 }
 
-// Reflect the current model in the composer pill.
+// Reflect the current model in the composer pill (short label + tooltip).
 export function setModelPill(model) {
-  const pill = $("modelPillText");
-  if (pill) pill.textContent = model || "Choose a model";
+  setPillText(model);
 }
 
 // Honest onboarding (Phase 4.6): distinguish capability states with the exact

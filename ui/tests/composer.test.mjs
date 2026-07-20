@@ -84,7 +84,9 @@ test("pill opens the live catalog; typing filters; Enter selects and persists", 
   input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await tick();
   assert.equal(saved, "anthropic/claude-opus-4", "Enter persists via set_model");
-  assert.equal(document.getElementById("modelPillText").textContent, "anthropic/claude-opus-4");
+  // The chip shows the short name; the full id lives in the tooltip.
+  assert.equal(document.getElementById("modelPillText").textContent, "claude-opus-4");
+  assert.match(document.getElementById("modelPill").title, /anthropic\/claude-opus-4/);
   assert.equal(document.getElementById("modelPicker").hidden, true, "picker closes on select");
 });
 
@@ -352,4 +354,29 @@ test("pasting two screenshots stages both with distinct names", async () => {
   assert.notEqual(staged[0], staged[1], "names never collide");
   assert.equal(document.querySelectorAll(".attach-chip").length, 2);
   assert.match(document.getElementById("composerHint").textContent, /2 screenshots/);
+});
+
+test('mode chip: menu opens, selection arms the mode, analyst is default', async () => {
+  setupDom();
+  const composer = await bootComposer();
+  assert.equal(composer.getMode(), 'analyst', 'analyst is the silent default');
+  const btn = document.getElementById('modeBtn');
+  const menu = document.getElementById('modeMenu');
+  assert.ok(btn && menu, 'chip and menu exist in the composer');
+  assert.equal(menu.hidden, true);
+  btn.click();
+  assert.equal(menu.hidden, false, 'chip opens the menu');
+  menu.querySelector('[data-mode-opt="plan"]').click();
+  await tick();
+  assert.equal(composer.getMode(), 'plan', 'selection arms the mode');
+  assert.equal(document.getElementById('modeBtnText').textContent, 'Plan first');
+  assert.ok(btn.classList.contains('mode-active'), 'non-default mode tints the chip');
+  assert.equal(menu.hidden, true, 'menu closes on pick');
+  // The one-shot flip chat.mjs performs after a plan turn: back to Analyst.
+  composer.setMode('analyst');
+  assert.equal(document.getElementById('modeBtnText').textContent, 'Analyst');
+  assert.ok(!btn.classList.contains('mode-active'));
+  // Junk names never take (the chip is UX, not a contract).
+  composer.setMode('warp-speed');
+  assert.equal(composer.getMode(), 'analyst');
 });

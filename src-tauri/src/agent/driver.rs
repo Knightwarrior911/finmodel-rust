@@ -648,12 +648,21 @@ impl LiveDriver {
         ctx: SessionContext,
         tools_enabled: bool,
         registry_hub: crate::agent::registry::ActorRegistry,
+        mode: crate::agent::modes::AgentMode,
     ) -> Self {
-        let messages = crate::commands::chat::seed_agent_messages_with_images(&ctx.user_msg, &ctx.images);
-        let tools = if tools_enabled {
-            ToolRegistry::shared().agent_schemas()
-        } else {
+        let mut messages = crate::commands::chat::seed_agent_messages_with_images(&ctx.user_msg, &ctx.images);
+        // The mode doctrine rides as one extra system layer, right after the
+        // base seed (before the user turn) — same slot every mode.
+        if let Some(layer) = mode.system_layer() {
+            let at = messages.len().saturating_sub(1);
+            messages.insert(at, serde_json::json!({ "role": "system", "content": layer }));
+        }
+        let tools = if !tools_enabled {
             Vec::new()
+        } else if mode.read_only() {
+            ToolRegistry::shared().agent_schemas_read_only()
+        } else {
+            ToolRegistry::shared().agent_schemas()
         };
         LiveDriver {
             app,

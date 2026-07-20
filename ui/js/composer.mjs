@@ -353,13 +353,54 @@ function applyFilter(q) {
   renderPickerList();
 }
 
+// ── working mode (the autonomy dial) ────────────────────────────────
+
+const MODE_LABEL = {
+  analyst: "Analyst",
+  plan: "Plan first",
+  goal: "Goal run",
+  loop: "Loop & refine",
+  skeptic: "Skeptic",
+};
+let currentMode = "analyst";
+
+/// The mode the next send rides with.
+export function getMode() {
+  return currentMode;
+}
+
+/// Set the working mode and reflect it on the chip. Unknown names are
+/// ignored (the chip is UX, not a contract).
+export function setMode(mode) {
+  if (!MODE_LABEL[mode]) return;
+  currentMode = mode;
+  const text = document.getElementById("modeBtnText");
+  if (text) text.textContent = MODE_LABEL[mode];
+  const btn = document.getElementById("modeBtn");
+  if (btn) btn.classList.toggle("mode-active", mode !== "analyst");
+}
+
+/// Short, human pill label: "openai/gpt-4.1-mini" → "gpt-4.1-mini".
+/// The full id stays in the tooltip — the chip has to fit inside the box.
+export function modelPillLabel(id) {
+  const s = String(id || "").trim();
+  return s.includes("/") ? s.slice(s.indexOf("/") + 1) : s;
+}
+
+/// Write the pill chip (short text + full id as tooltip).
+export function setPillText(id) {
+  const text = document.getElementById("modelPillText");
+  const pill = document.getElementById("modelPill");
+  if (text) text.textContent = id ? modelPillLabel(id) : "Choose a model";
+  if (pill && id) pill.title = `${id} — click to change (type to filter the live catalog)`;
+}
+
 async function selectModel(id) {
   if (!id) return;
   try {
     await call("set_model", { model: id });
     pickerState.current = id;
-    const pill = document.getElementById("modelPillText");
-    if (pill) pill.textContent = id;
+    setPillText(id);
     closePicker();
     composerHint(`Model set to ${id}`);
   } catch (e) {
@@ -431,6 +472,37 @@ export function initComposer({ getConversationId, currentModel } = {}) {
       if (ta) ta.focus();
     });
   }
+  // Mode chip → the autonomy menu (Analyst / Plan / Goal / Loop / Skeptic).
+  const modeBtn = document.getElementById("modeBtn");
+  const modeMenu = document.getElementById("modeMenu");
+  if (modeBtn && modeMenu) {
+    modeBtn.addEventListener("click", () => {
+      modeMenu.hidden = !modeMenu.hidden;
+      if (!modeMenu.hidden) modeMenu.querySelector(".refine-opt")?.focus();
+    });
+    modeMenu.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-mode-opt]");
+      if (!opt) return;
+      modeMenu.hidden = true;
+      setMode(opt.dataset.modeOpt);
+      if (opt.dataset.modeOpt === "plan") {
+        composerHint("Plan first: I'll map the steps and wait for your go-ahead");
+      }
+      if (ta) ta.focus();
+    });
+    modeMenu.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        modeMenu.hidden = true;
+        modeBtn.focus();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (modeMenu.hidden) return;
+      if (modeMenu.contains(e.target) || modeBtn.contains(e.target)) return;
+      modeMenu.hidden = true;
+    });
+  }
+
   // Wand → a two-choice menu: quick tidy, or a full power-prompt rewrite.
   const refineBtn = document.getElementById("refineBtn");
   const refineMenu = document.getElementById("refineMenu");

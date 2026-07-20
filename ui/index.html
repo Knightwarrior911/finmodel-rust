@@ -243,6 +243,28 @@
         <div id="composer" class="composer">
           <div id="composerAttachments" class="composer-attachments" hidden></div>
           <div id="composerHint" class="composer-hint" role="status" hidden></div>
+          <div id="modeMenu" class="refine-menu mode-menu" role="menu" aria-label="Working mode" hidden>
+            <button type="button" class="refine-opt" data-mode-opt="analyst" role="menuitem">
+              <strong>Analyst</strong>
+              <span>Balanced default — research, tools, and answers as you chat</span>
+            </button>
+            <button type="button" class="refine-opt" data-mode-opt="plan" role="menuitem">
+              <strong>Plan first</strong>
+              <span>Maps out the steps and waits for your go-ahead — nothing gets built yet</span>
+            </button>
+            <button type="button" class="refine-opt" data-mode-opt="goal" role="menuitem">
+              <strong>Goal run</strong>
+              <span>Give the destination — works autonomously until it's verifiably done</span>
+            </button>
+            <button type="button" class="refine-opt" data-mode-opt="loop" role="menuitem">
+              <strong>Loop &amp; refine</strong>
+              <span>Finishes, critiques its own work, and redoes it until a pass finds nothing</span>
+            </button>
+            <button type="button" class="refine-opt" data-mode-opt="skeptic" role="menuitem">
+              <strong>Skeptic</strong>
+              <span>Tries to break the answer — re-derives figures, hunts contradictions</span>
+            </button>
+          </div>
           <div id="refineMenu" class="refine-menu" role="menu" aria-label="Improve my question" hidden>
             <button type="button" class="refine-opt" data-mode="tidy" role="menuitem">
               <strong>Quick tidy</strong>
@@ -261,6 +283,30 @@
               aria-label="Message"
             ></textarea>
             <div class="composer-btns">
+              <button
+                type="button"
+                id="modelPill"
+                class="model-pill"
+                title="Change model — type to filter the live catalog"
+                aria-haspopup="listbox"
+              >
+                <span id="modelPillText">model</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="modeBtn"
+                class="model-pill mode-chip"
+                title="Working mode — how much rope the analyst gets this message"
+                aria-haspopup="menu"
+              >
+                <span id="modeBtnText">Analyst</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
               <button
                 type="button"
                 id="refineBtn"
@@ -347,15 +393,6 @@
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            id="modelPill"
-            class="model-pill"
-            title="Change model — type to filter the live catalog"
-            aria-haspopup="listbox"
-          >
-            <span id="modelPillText">model</span>
-          </button>
           <div id="modelPicker" class="model-picker" hidden>
             <input
               type="text"

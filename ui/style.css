@@ -1660,8 +1660,7 @@ body.sidebar-collapsed .sidebar-expand {
 /* ── In-composer model picker ─────────────────────────────────── */
 .model-picker {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 24px;
   bottom: calc(100% - 4px);
   width: min(480px, calc(100vw - 48px));
   background: var(--raised);
@@ -1757,30 +1756,44 @@ body.sidebar-collapsed .sidebar-expand {
 }
 
 .model-pill {
-  display: block;
-  margin: 8px auto 0;
-  max-width: 780px;
+  /* In-box model chip: quiet, compact, first in the button row. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
   border: none;
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
   cursor: pointer;
-  text-align: center;
-  width: 100%;
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  transition: color var(--dur-fast) var(--ease-fast);
+  padding: 6px 8px;
+  transition:
+    color var(--dur-fast) var(--ease-fast),
+    background var(--dur-fast) var(--ease-fast);
 }
 .model-pill:hover {
-  color: var(--muted);
+  color: var(--ink);
+  background: var(--element);
 }
 .model-pill:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  color: var(--muted);
+  color: var(--ink);
+}
+.model-pill svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+.mode-chip.mode-active {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
 }
 #modelPillText {
   font-family: var(--font-num);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Cards (the only card treatment) ─────────────────────────────── */
