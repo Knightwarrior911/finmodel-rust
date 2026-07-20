@@ -1,5 +1,26 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.26 SHIPPED + LIVE (2026-07-20) — harness pass 1: prompt caching + self-repair tool errors
+**Tagged v0.9.26 on 6edf3af; released to public finmodel-releases (Latest).
+CI green (run 29763540825); signed NSIS published; endpoint VERIFIED:
+latest.json serves 0.9.26 (sig 420), installer HTTP 200 (6,689,614 bytes).
+Gates: app-lib 356, UI 195.**
+
+First two items of the OMP-gap roadmap (harness quality: make every model
+perform better in finmodel): (1) prompt caching — mark_cache_prefix in
+src-tauri/src/commands/chat.rs puts an OpenRouter cache_control ephemeral
+anchor on the LAST leading system layer for anthropic/ + google/ models
+(tools+system+mode doctrine cache across tool-loop rounds; OpenAI-class is
+automatic, untouched). Deliberate follow-up: a second SLIDING breakpoint on
+the last history message needs live verification that OpenRouter forwards
+cache_control on role:tool multipart content before enabling. (2) tool
+errors that teach — executors::tool_error_content echoes the tool catalog
+(UnknownTool) or exact params schema + required list (MissingArg/Invalid,
+900-char cap) into the role:tool message; runtime errors stay terse; wired
+in driver.rs error branch. Remaining roadmap (discussed, not started):
+drift rules (abort+inject on uncited arithmetic), Verifier-as-advisor,
+per-model prompt profiles, true child agents for research fan-out.
+
 ## HANDOVER — v0.9.25 SHIPPED + LIVE (2026-07-20) — working modes (autonomy dial) + composer model chip
 **Tagged v0.9.25 on c707cad; released to public finmodel-releases (Latest).
 CI green (run 29757213942); signed NSIS published; endpoint VERIFIED:
