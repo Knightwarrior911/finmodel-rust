@@ -1,10 +1,11 @@
 # Finmodel — Financial Model Engine
 
-## HANDOVER — v0.9.22 SHIPPING (2026-07-20) — composer multimodal + billing safety
-**Bumped to 0.9.22 (Cargo.toml + tauri.conf.json + Cargo.lock lockstep);
-CHANGELOG dated. Local gates on target OS: app-lib 344 · UI 191 ·
-cargo check --bin clean. Shipping sequence: commit → push → CI green →
-signed NSIS → tag v0.9.22 → publish finmodel-releases → verify endpoint.**
+## HANDOVER — v0.9.22 SHIPPED + LIVE (2026-07-20) — composer multimodal + billing safety
+**Tagged v0.9.22 on fd25e15; released to public finmodel-releases (Latest).
+CI green all 5 jobs (run 29729750562). Signed NSIS published; endpoint
+VERIFIED: latest.json serves 0.9.22 (sig 420), installer HTTP 200
+(6,629,539 bytes = the signed local bundle). Local gates: app-lib 344 ·
+UI 191 · cargo check --bin clean.**
 
 What's in v0.9.22 (two feature waves on top of v0.9.21):
 1) Composer input surface: type-ahead model picker on the pill
