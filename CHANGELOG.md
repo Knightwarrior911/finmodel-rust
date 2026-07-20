@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.9.28 - 2026-07-20 - Harness pass 3: JARVIS bearing, honest costs, visible juniors
+
+- **A personality worthy of the work.** The analyst now carries itself like
+  an impeccable chief of staff - the calm, dry, quietly brilliant JARVIS
+  register: composed under pressure, anticipating the next question before
+  it is asked, precise to the decimal, one understated touch of wit per
+  answer, and professional failure reports (what happened, what was tried,
+  what is next). Woven into the base doctrine so it survives every mode
+  and model.
+- **Delegated work counts against your budget.** A junior analyst's spend
+  now rides home on its card and charges the same conversation ceiling as
+  everything else - no more off-the-books child runs.
+- **Stop means stop.** Cancelling a turn now aborts a running delegation
+  mid-stream instead of letting it quietly finish its rounds.
+- **See how the junior worked.** Deep-dive cards grow a collapsed "How
+  this was worked" trail - each check, its subject, and the first line of
+  what came back.
+- **Skeptic and Goal get a second look by default.** In the adversarial
+  and autonomous modes the answer is re-read against the evidence with a
+  fresh context even when no reviewer model is configured (an explicit
+  Settings choice always wins).
+- **This turn cost.** A quiet dashed line under each answer: tokens
+  always, dollars when the provider actually billed ("This turn: 12.5k
+  tokens - about $0.031").
+- **Self-checks and second looks now appear live.** They previously rode a
+  dead event channel and only surfaced after a reload; they now land on
+  the durable render path next to verification.
+
 ## v0.9.27 - 2026-07-20 - Harness pass 2: the analyst gets a conscience, a reviewer, and a junior
 
 - **Drift rule, enforced.** The doctrine "every material number comes from a

@@ -118,6 +118,12 @@ pub trait Driver {
     fn take_verify_card(&mut self) -> Option<serde_json::Value> {
         None
     }
+    /// Drain side cards produced outside the tool path (self-check notes,
+    /// advisor second looks, the turn cost line) so the actor emits them on
+    /// the durable render path too. Default: none.
+    fn take_side_cards(&mut self) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
     /// Run bounded memory extraction; returns the count of rows saved so the
     /// loop emits exactly one `MemoryUpdated {count}` before the terminal event
     /// (zero → no notice). The count is required: the UI drops count-less
@@ -617,6 +623,21 @@ pub async fn run_turn<D: Driver>(
             }
             Action::Verify => {
                 let ok = driver.verify().await;
+                // Side cards (self-check, advisor, turn cost) ride the same
+                // durable render path as the verification card.
+                for card in driver.take_side_cards() {
+                    events.push(
+                        emit_durable(
+                            store,
+                            sink,
+                            conversation_id,
+                            run_id,
+                            EventKind::ResultPartAdded,
+                            serde_json::json!({ "card": card }),
+                        )
+                        .await,
+                    );
+                }
                 // Emit the verification card on the durable render path (Task 2.1).
                 if let Some(card) = driver.take_verify_card() {
                     events.push(

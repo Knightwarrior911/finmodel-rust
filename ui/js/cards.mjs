@@ -83,13 +83,44 @@ function renderDelegate(card) {
     .slice(0, 6)
     .map((p) => `<p class="card-note">${escapeHtml(p.trim())}</p>`)
     .join("");
+  const trail = Array.isArray(card.trail) ? card.trail.filter(Boolean) : [];
+  const trailHtml = trail.length
+    ? `<details class="delegate-trail"><summary>How this was worked (${trail.length} ${trail.length === 1 ? "check" : "checks"})</summary><ol>${trail
+        .slice(0, 12)
+        .map((t) => {
+          const subject = t.subject ? ` · ${escapeHtml(String(t.subject))}` : "";
+          const note = t.note ? ` — ${escapeHtml(String(t.note))}` : "";
+          return `<li><span class="trail-tool">${escapeHtml(String(t.tool || ""))}</span>${subject}${note}</li>`;
+        })
+        .join("")}</ol></details>`
+    : "";
   return cardShell(
     "research",
     `<div class="card-head">
        <span class="card-title">Deep dive · ${escapeHtml(task.length > 80 ? task.slice(0, 80) + "…" : task)}</span>
      </div>
      ${paras}
+     ${trailHtml}
      ${tools}`,
+  );
+}
+
+// Per-turn spend transparency: one quiet line. Tokens always; dollars
+// only when the provider actually billed something measurable.
+function renderTurnCost(card) {
+  const p = Number(card.prompt_tokens || 0);
+  const c = Number(card.completion_tokens || 0);
+  if (p + c === 0) return null;
+  const tokens = p + c;
+  const tokensLabel =
+    tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k tokens` : `${tokens} tokens`;
+  const usd =
+    typeof card.usd === "number" && card.usd > 0
+      ? ` · about $${card.usd.toFixed(card.usd < 0.1 ? 3 : 2)}`
+      : "";
+  return cardShell(
+    "turn-cost",
+    `<p class="card-sub turn-cost-line">This turn: ${escapeHtml(tokensLabel)}${escapeHtml(usd)}</p>`,
   );
 }
 
@@ -781,6 +812,9 @@ export function renderCard(card) {
       break;
     case "delegate":
       el = renderDelegate(card);
+      break;
+    case "turn_cost":
+      el = renderTurnCost(card);
       break;
     case "self_check":
       el = cardShell(

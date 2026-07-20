@@ -1785,6 +1785,35 @@ body.sidebar-collapsed .sidebar-expand {
   flex: 0 0 auto;
   opacity: 0.7;
 }
+.delegate-trail {
+  margin-top: 8px;
+}
+.delegate-trail summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.delegate-trail ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.delegate-trail .trail-tool {
+  font-family: var(--font-num);
+  color: var(--ink);
+}
+.card.turn-cost {
+  padding: 6px 12px;
+  background: transparent;
+  border-style: dashed;
+}
+.turn-cost-line {
+  color: var(--faint);
+  font-size: 12px;
+  margin: 0;
+}
+
 .mode-chip.mode-active {
   color: var(--accent-ink);
   background: var(--accent-soft);

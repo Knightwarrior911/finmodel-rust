@@ -398,3 +398,39 @@ test('self-check card carries the drift note', async () => {
   const el = cards.renderCard({ type: 'self_check', message: 'Caught figures with no tool behind them - checking properly.' });
   assert.match(el.innerHTML, /Caught figures/);
 });
+
+test("delegate card folds the junior analyst's work trail", async () => {
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "delegate",
+    task: "SAP margins",
+    findings: "Operating margin held at 26%.",
+    tools_used: ["get_financials"],
+    trail: [
+      { tool: "get_financials", subject: "SAP", note: "SAP SE — annual report" },
+      { tool: "research", subject: "SAP margin drivers", note: "3 sources" },
+    ],
+  });
+  const html = el.innerHTML;
+  assert.match(html, /How this was worked \(2 checks\)/);
+  assert.equal(el.querySelectorAll(".delegate-trail li").length, 2);
+  assert.match(html, /SAP SE — annual report/);
+  // Trail is collapsed by default (details without open attribute).
+  const details = el.querySelector("details.delegate-trail");
+  assert.ok(details && !details.hasAttribute("open"));
+});
+
+test("turn cost renders tokens always, dollars only when billed", async () => {
+  const cards = await importModule("cards.mjs");
+  const paid = cards.renderCard({
+    type: "turn_cost", prompt_tokens: 11200, completion_tokens: 1300, usd: 0.031,
+  });
+  assert.match(paid.innerHTML, /This turn: 12.5k tokens · about \$0.031/);
+  const free = cards.renderCard({
+    type: "turn_cost", prompt_tokens: 400, completion_tokens: 100,
+  });
+  assert.match(free.innerHTML, /This turn: 500 tokens/);
+  assert.ok(!/\$/.test(free.innerHTML), "no fabricated dollars");
+  // Zero tokens declines (comment node).
+  assert.equal(cards.renderCard({ type: "turn_cost" }).nodeType, 8);
+});

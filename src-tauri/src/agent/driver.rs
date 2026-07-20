@@ -443,6 +443,9 @@ pub struct LiveDriver {
     /// The working mode for this run (composer mode chip): prepare() weaves
     /// its doctrine layer into the system prompt on the LIVE path.
     mode: crate::agent::modes::AgentMode,
+    /// Cards produced outside the tool path (self-check, advisor, turn
+    /// cost); the actor drains these onto the durable render path.
+    side_cards: Vec<Value>,
     /// The verification card produced by `verify()`, taken by the actor and
     /// emitted as a durable `ResultPartAdded` (Task 2.1 single render path).
     verify_card: Option<Value>,
@@ -629,6 +632,11 @@ impl CostGuard {
         self.run_spend_usd += add;
     }
 
+    /// Prompt/completion tokens charged to this run so far.
+    pub fn token_counts(&self) -> (u64, u64) {
+        (self.prompt_tokens, self.completion_tokens)
+    }
+
     /// Whether the conversation has reached the user's ceiling.
     pub fn over_budget(&self) -> bool {
         self.budget_usd > 0.0 && self.prior_spend_usd + self.run_spend_usd >= self.budget_usd
@@ -693,6 +701,7 @@ impl LiveDriver {
             run_claims: Vec::new(),
             drift_corrected: false,
             mode,
+            side_cards: Vec::new(),
             verify_card: None,
             cost: CostGuard::default(),
         }
@@ -933,14 +942,14 @@ impl LiveDriver {
     /// up to three short notes for MATERIAL problems only. Opt-in via
     /// Settings (advisor_model); failures never break the turn.
     async fn advisor_note(&mut self) {
-        let model = {
+        let configured = {
             let s = crate::commands::settings::read_settings(&self.app);
             s.advisor_model.trim().to_string()
         };
-        if model.is_empty()
-            || self.cfg.api_key.trim().is_empty()
-            || self.ctx.cancel.is_cancelled()
-        {
+        let Some(model) = advisor_model_for(&configured, self.mode, &self.cfg.model) else {
+            return;
+        };
+        if self.cfg.api_key.trim().is_empty() || self.ctx.cancel.is_cancelled() {
             return;
         }
         let answer = self.last_content.trim().to_string();
@@ -1018,7 +1027,7 @@ impl LiveDriver {
             return;
         }
         let card = serde_json::json!({ "type": "advisor", "notes": notes });
-        self.emit_tool("advisor", "done", Some(&card));
+        self.side_cards.push(card.clone());
         self.turn_results.push(("advisor".to_string(), card));
     }
 }
@@ -1099,6 +1108,43 @@ pub(crate) fn agent_system_prompt(model: &str, mode: crate::agent::modes::AgentM
         prompt.push_str(layer);
     }
     prompt
+}
+
+/// Which model reviews this turn, if any: an explicitly configured
+/// advisor always wins; otherwise the adversarial/outcome modes (Skeptic,
+/// Goal) get a second look from the main model by default - a fresh
+/// context catches what the doer rushed past. Pure - unit-tested.
+pub(crate) fn advisor_model_for(
+    configured: &str,
+    mode: crate::agent::modes::AgentMode,
+    main_model: &str,
+) -> Option<String> {
+    use crate::agent::modes::AgentMode;
+    if !configured.trim().is_empty() {
+        return Some(configured.trim().to_string());
+    }
+    if matches!(mode, AgentMode::Skeptic | AgentMode::Goal) && !main_model.trim().is_empty() {
+        return Some(main_model.trim().to_string());
+    }
+    None
+}
+
+/// The per-turn spend card: tokens always, dollars when the run billed
+/// anything measurable. None for free/keyless turns - a $0.00 line is noise.
+pub(crate) fn turn_cost_card(cost: &CostGuard) -> Option<Value> {
+    let (p, c) = cost.token_counts();
+    if p + c == 0 {
+        return None;
+    }
+    let mut card = serde_json::json!({
+        "type": "turn_cost",
+        "prompt_tokens": p,
+        "completion_tokens": c,
+    });
+    if cost.run_spend_usd >= 0.0005 {
+        card["usd"] = serde_json::json!((cost.run_spend_usd * 1000.0).round() / 1000.0);
+    }
+    Some(card)
 }
 
 /// Boundary-aware number search: a core only matches when not embedded in a
@@ -1598,7 +1644,7 @@ impl Driver for LiveDriver {
                         "type": "self_check",
                         "message": "Caught figures with no tool behind them - checking properly.",
                     });
-                    self.emit_tool("self_check", "done", Some(&note));
+                    self.side_cards.push(note.clone());
                     self.turn_results.push(("self_check".to_string(), note));
                     // accept_stream already appended the draft; add the rule.
                     self.messages.push(serde_json::json!({
@@ -1865,6 +1911,11 @@ impl Driver for LiveDriver {
                 };
                 match res {
                     Ok(env) => {
+                        // A card-borne usage object (delegated child spend)
+                        // charges the SAME conversation guard as parent rounds.
+                        if let Some(u) = env.display.get("usage") {
+                            self.cost.charge(Some(u));
+                        }
                         self.emit_tool(name, "done", Some(&env.display));
                         self.turn_results.push((name.clone(), env.display.clone()));
                         batch_parts.push(crate::agent::actor::ResultPart {
@@ -1986,6 +2037,12 @@ impl Driver for LiveDriver {
     async fn synthesize(&mut self) {
         // Second look first, so the note persists as a turn part below.
         self.advisor_note().await;
+        // Per-turn spend transparency (OMP-style): one quiet line when the
+        // turn actually billed something.
+        if let Some(cost_card) = turn_cost_card(&self.cost) {
+            self.side_cards.push(cost_card.clone());
+            self.turn_results.push(("turn_cost".to_string(), cost_card));
+        }
         // Persist the turn as one assistant message with ordered parts:
         // tool result cards (execution order) first, then the final prose.
         // Snapshots/reload then render exactly what the live turn produced.
@@ -2083,6 +2140,10 @@ impl Driver for LiveDriver {
 
     fn take_verify_card(&mut self) -> Option<Value> {
         self.verify_card.take()
+    }
+
+    fn take_side_cards(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.side_cards)
     }
 
     async fn extract_memory(&mut self) -> usize {
@@ -2327,6 +2388,68 @@ mod tests {
         let skeptic = agent_system_prompt("openai/gpt-4.1-mini", AgentMode::Skeptic);
         assert!(skeptic.contains("SKEPTIC MODE"));
         assert!(skeptic.contains("Workflow (follow exactly)"), "layers stack");
+    }
+    #[test]
+    fn persona_reaches_every_live_prompt() {
+        use crate::agent::modes::AgentMode;
+        // The JARVIS-register persona is part of the base doctrine, so it
+        // survives scaffolds, modes, and the prepare() rebuild alike.
+        for (model, mode) in [
+            ("anthropic/claude-sonnet-4", AgentMode::Analyst),
+            ("deepseek/deepseek-chat", AgentMode::Skeptic),
+        ] {
+            let p = agent_system_prompt(model, mode);
+            assert!(p.contains("PERSONALITY"), "{model} lost the persona");
+            assert!(p.contains("chief of staff"));
+            assert!(p.contains("JARVIS"));
+        }
+    }
+
+    #[test]
+    fn advisor_gating_explicit_wins_then_modes_default_on() {
+        use crate::agent::modes::AgentMode;
+        // Explicitly configured advisor always wins, any mode.
+        assert_eq!(
+            advisor_model_for(" openai/gpt-5 ", AgentMode::Analyst, "m"),
+            Some("openai/gpt-5".to_string())
+        );
+        // Skeptic and Goal default to a fresh-context pass on the main model.
+        assert_eq!(
+            advisor_model_for("", AgentMode::Skeptic, "anthropic/claude-sonnet-4"),
+            Some("anthropic/claude-sonnet-4".to_string())
+        );
+        assert_eq!(
+            advisor_model_for("", AgentMode::Goal, "m"),
+            Some("m".to_string())
+        );
+        // Conversational modes stay silent without explicit opt-in.
+        assert_eq!(advisor_model_for("", AgentMode::Analyst, "m"), None);
+        assert_eq!(advisor_model_for("", AgentMode::Plan, "m"), None);
+        // No main model (keyless/fallback) → never a phantom advisor.
+        assert_eq!(advisor_model_for("", AgentMode::Skeptic, " "), None);
+    }
+
+    #[test]
+    fn turn_cost_card_reports_tokens_and_meaningful_dollars_only() {
+        // Keyless/free turn: no tokens, no card.
+        let g = CostGuard::default();
+        assert!(turn_cost_card(&g).is_none());
+        // Tokens without measurable spend: tokens only, no usd field.
+        let mut g = CostGuard::default();
+        g.charge(Some(&serde_json::json!({
+            "prompt_tokens": 800, "completion_tokens": 200
+        })));
+        let card = turn_cost_card(&g).unwrap();
+        assert_eq!(card["prompt_tokens"], 800);
+        assert_eq!(card["completion_tokens"], 200);
+        assert!(card.get("usd").is_none(), "no fabricated $0.00");
+        // Reported cost shows up rounded to a tenth of a cent.
+        let mut g = CostGuard::default();
+        g.charge(Some(&serde_json::json!({
+            "prompt_tokens": 1000, "completion_tokens": 500, "cost": 0.0312
+        })));
+        let card = turn_cost_card(&g).unwrap();
+        assert_eq!(card["usd"], 0.031);
     }
 
     #[test]
