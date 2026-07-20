@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.26 - 2026-07-20 - Harness pass 1: prompt caching + tools that teach
+
+- **Prompt caching.** On Anthropic and Gemini models the static prefix -
+  tool schemas, system prompt, and the mode doctrine - is now marked as an
+  ephemeral cache anchor (OpenRouter cache_control), so a ten-round tool
+  loop stops re-billing the same tokens every round. OpenAI-style models
+  already cache automatically and are left untouched. Cheaper rounds mean
+  the budget guard stops being the binding constraint on answer quality.
+- **Tool errors that teach.** When a tool call fails validation, the model
+  no longer sees a bare error string: unknown tools get the real catalog,
+  missing or invalid arguments get the exact parameter schema and required
+  list - so the next round fixes the call instead of flailing or giving
+  up. Runtime failures (network, source outages) stay terse; the schema is
+  noise when the arguments were fine.
+
 ## v0.9.25 - 2026-07-20 - The autonomy dial: working modes + model chip in the box
 
 - **Working modes.** A new chip inside the composer picks how much rope the

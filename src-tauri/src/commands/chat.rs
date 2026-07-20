@@ -312,6 +312,7 @@ pub(crate) fn build_chat_request(
     stream: bool,
     parallel: bool,
 ) -> Value {
+    let msgs = mark_cache_prefix(model, msgs);
     let mut req = json!({
         "model": model,
         "messages": msgs,
@@ -324,6 +325,37 @@ pub(crate) fn build_chat_request(
         req["parallel_tool_calls"] = json!(parallel);
     }
     req
+}
+
+/// Prompt-cache breakpoint (OpenRouter/Anthropic `cache_control`): mark the
+/// LAST message of the leading system block as an ephemeral cache anchor, so
+/// the static prefix — tool schemas + system prompt + mode doctrine — is
+/// cached across the many rounds of a tool loop instead of re-billed each
+/// round. Only applied where explicit breakpoints pay (Anthropic, Gemini);
+/// OpenAI-style providers cache automatically and are left untouched.
+/// String content becomes one multipart text block carrying the marker —
+/// semantically identical for the model.
+fn mark_cache_prefix(model: &str, msgs: &[Value]) -> Vec<Value> {
+    let explicit = model.starts_with("anthropic/") || model.starts_with("google/");
+    if !explicit {
+        return msgs.to_vec();
+    }
+    // End of the LEADING system block (history may hold later system layers
+    // - e.g. the finisher nudge - which are not part of the stable prefix).
+    let lead = msgs.iter().take_while(|m| m["role"] == "system").count();
+    if lead == 0 {
+        return msgs.to_vec();
+    }
+    let mut out = msgs.to_vec();
+    let anchor = &mut out[lead - 1];
+    if let Some(text) = anchor["content"].as_str() {
+        anchor["content"] = json!([{
+            "type": "text",
+            "text": text,
+            "cache_control": { "type": "ephemeral" },
+        }]);
+    }
+    out
 }
 
 /// Apply one SSE `data:` payload to the running accumulators. Returns the
@@ -2474,6 +2506,47 @@ mod tests {
         assert_eq!(bare["stream"], json!(false));
         assert!(bare.get("tools").is_none());
         assert!(bare.get("tool_choice").is_none());
+    }
+    #[test]
+    fn cache_breakpoint_marks_last_leading_system_for_anthropic() {
+        let msgs = vec![
+            json!({ "role": "system", "content": "base prompt" }),
+            json!({ "role": "system", "content": "mode doctrine" }),
+            json!({ "role": "user", "content": "hi" }),
+            json!({ "role": "system", "content": "late nudge" }),
+        ];
+        let req = build_chat_request("anthropic/claude-sonnet-4", &msgs, &[], true, false);
+        let out = req["messages"].as_array().unwrap();
+        // First system layer untouched (only the LAST leading one anchors).
+        assert_eq!(out[0]["content"], json!("base prompt"));
+        // The anchor: multipart text block carrying cache_control.
+        assert_eq!(out[1]["content"][0]["type"], json!("text"));
+        assert_eq!(out[1]["content"][0]["text"], json!("mode doctrine"));
+        assert_eq!(out[1]["content"][0]["cache_control"]["type"], json!("ephemeral"));
+        // User turn and the LATE system layer (finisher nudge) untouched —
+        // they are not part of the stable prefix.
+        assert_eq!(out[2]["content"], json!("hi"));
+        assert_eq!(out[3]["content"], json!("late nudge"));
+    }
+
+    #[test]
+    fn cache_breakpoint_skipped_where_caching_is_automatic() {
+        let msgs = vec![
+            json!({ "role": "system", "content": "base prompt" }),
+            json!({ "role": "user", "content": "hi" }),
+        ];
+        for model in ["openai/gpt-5", "deepseek/deepseek-chat", "x-ai/grok-4"] {
+            let req = build_chat_request(model, &msgs, &[], true, false);
+            assert_eq!(
+                req["messages"][0]["content"],
+                json!("base prompt"),
+                "{model} must stay untouched"
+            );
+        }
+        // No leading system block → nothing to anchor (never panics).
+        let bare = vec![json!({ "role": "user", "content": "hi" })];
+        let req = build_chat_request("anthropic/claude-sonnet-4", &bare, &[], true, false);
+        assert_eq!(req["messages"][0]["content"], json!("hi"));
     }
 
     #[test]

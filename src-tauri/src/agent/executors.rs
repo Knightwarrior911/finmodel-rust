@@ -333,6 +333,59 @@ pub fn execute<B: ToolBackend>(
     Ok(envelope_from_card(summary, card, trust, &ctx.workspace_id))
 }
 
+/// What the MODEL reads when a tool call fails — built for self-repair, not
+/// for logs. Validation failures echo the tool's exact parameter schema so
+/// the next round can fix the arguments instead of flailing or giving up;
+/// unknown tools list the real catalog; runtime failures stay terse (the
+/// schema is noise when the args were fine).
+pub fn tool_error_content(
+    registry: &crate::agent::tools::ToolRegistry,
+    e: &ExecuteError,
+) -> String {
+    use crate::agent::tools::ToolError;
+    const SCHEMA_CAP: usize = 900;
+    let schema_line = |tool: &str| -> String {
+        registry
+            .get(tool)
+            .map(|spec| {
+                let mut s = serde_json::to_string(&(spec.params_schema)()).unwrap_or_default();
+                if s.len() > SCHEMA_CAP {
+                    s.truncate(SCHEMA_CAP);
+                    s.push_str("...");
+                }
+                format!(
+                    "\nParameters schema for {tool}: {s}\nRequired: [{}]. Fix the arguments and retry the call.",
+                    spec.required_args.join(", ")
+                )
+            })
+            .unwrap_or_default()
+    };
+    match e {
+        ExecuteError::Validation(ToolError::UnknownTool(t)) => {
+            let mut names: Vec<&str> = registry.names();
+            names.sort_unstable();
+            format!(
+                "Tool error: no tool named `{t}`. Available tools: {}. Pick one of these exact names and retry.",
+                names.join(", ")
+            )
+        }
+        ExecuteError::Validation(ToolError::MissingArg { tool, arg }) => {
+            format!(
+                "Tool error: `{tool}` is missing the required argument `{arg}`.{}",
+                schema_line(tool)
+            )
+        }
+        ExecuteError::Validation(ToolError::Invalid { tool, reason }) => {
+            format!(
+                "Tool error: invalid arguments for `{tool}`: {reason}.{}",
+                schema_line(tool)
+            )
+        }
+        ExecuteError::Cancelled => "Tool error: cancelled".to_string(),
+        ExecuteError::Runtime(msg) => format!("Tool error: {msg}"),
+    }
+}
+
 /// Execute a batch of independent calls concurrently. Returns a conservative
 /// token charge. Independent read-only tools (e.g. a peer set's per-ticker
 /// fetches) run in parallel — capped at [`PER_RUN_SLOTS`] in-flight — instead
@@ -407,6 +460,48 @@ mod tests {
             "ws-a",
         );
         assert_eq!(a.sources[0].id, a2.sources[0].id);
+    }
+    #[test]
+    fn tool_errors_teach_the_model_to_self_repair() {
+        use crate::agent::tools::{ToolError, ToolRegistry};
+        let reg = ToolRegistry::shared();
+
+        // Unknown tool → the real catalog, so the next round picks a valid name.
+        let s = tool_error_content(
+            reg,
+            &ExecuteError::Validation(ToolError::UnknownTool("get_finances".into())),
+        );
+        assert!(s.contains("`get_finances`"), "names the bad call: {s}");
+        assert!(s.contains("get_financials"), "offers the real catalog: {s}");
+
+        // Missing arg → the exact parameter schema + required list.
+        let s = tool_error_content(
+            reg,
+            &ExecuteError::Validation(ToolError::MissingArg {
+                tool: "get_financials".into(),
+                arg: "ticker".into(),
+            }),
+        );
+        assert!(s.contains("required argument `ticker`"), "{s}");
+        assert!(s.contains("Parameters schema for get_financials"), "{s}");
+        assert!(s.contains("\"ticker\""), "schema JSON present: {s}");
+        assert!(s.contains("Required: [ticker]"), "{s}");
+
+        // Invalid args → reason + schema.
+        let s = tool_error_content(
+            reg,
+            &ExecuteError::Validation(ToolError::Invalid {
+                tool: "get_quote".into(),
+                reason: "ticker has invalid characters".into(),
+            }),
+        );
+        assert!(s.contains("invalid arguments for `get_quote`"), "{s}");
+        assert!(s.contains("Parameters schema for get_quote"), "{s}");
+
+        // Runtime failures stay terse — the schema is noise when args were fine.
+        let s = tool_error_content(reg, &ExecuteError::Runtime("EDGAR timed out".into()));
+        assert_eq!(s, "Tool error: EDGAR timed out");
+        assert!(!s.contains("Parameters schema"));
     }
 
     #[test]

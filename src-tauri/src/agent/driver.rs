@@ -1613,7 +1613,12 @@ impl Driver for LiveDriver {
                         self.messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": id,
-                            "content": format!("Tool error: {e}"),
+                            // Self-repair content: validation failures echo the
+                            // exact parameter schema so the next round fixes the
+                            // args instead of flailing (executors::tool_error_content).
+                            "content": crate::agent::executors::tool_error_content(
+                                ToolRegistry::shared(), &e,
+                            ),
                         }));
                         if let (Some(p), Some(sid)) = (pool.as_mut(), sub_ids.get(id)) {
                             p.fail(*sid, e.to_string());
