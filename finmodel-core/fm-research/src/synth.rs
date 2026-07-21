@@ -27,6 +27,8 @@ pub enum SynthReject {
     /// A citation's quote is not an exact (whitespace-normalized) substring of
     /// the cited source's excerpt.
     QuoteMismatch { source_id: String, quote: String },
+    /// A citation's quote is blank / whitespace-only — it grounds nothing.
+    BlankQuote { source_id: String },
 }
 
 impl SynthReject {
@@ -38,6 +40,7 @@ impl SynthReject {
             SynthReject::UnknownSource(_) => "unknown_source",
             SynthReject::NonReadSource(_) => "non_read_source",
             SynthReject::QuoteMismatch { .. } => "quote_mismatch",
+            SynthReject::BlankQuote { .. } => "blank_quote",
         }
     }
 }
@@ -80,6 +83,11 @@ pub fn validate_synthesis(
                 return Err(SynthReject::NonReadSource(c.source_id.clone()));
             }
             let excerpt = rec.excerpt.as_deref().unwrap_or("");
+            if normalize_ws(&c.quote).is_empty() {
+                return Err(SynthReject::BlankQuote {
+                    source_id: c.source_id.clone(),
+                });
+            }
             if !normalize_ws(excerpt).contains(&normalize_ws(&c.quote)) {
                 return Err(SynthReject::QuoteMismatch {
                     source_id: c.source_id.clone(),
@@ -689,9 +697,43 @@ mod tests {
         // No primary read: the gap is stated outright.
         let none = vec![rec("S1", SourceKind::Newswire, SourceStatus::Read, None)];
         let line = coverage_line(&none);
-        assert!(line.contains("no primary source could be reached"), "{line}");
+        assert!(
+            line.contains("no primary source could be reached"),
+            "{line}"
+        );
         // Nothing read at all.
         let empty: Vec<SourceRecord> = vec![];
         assert!(coverage_line(&empty).contains("no source could be read"));
+    }
+
+    #[test]
+    fn blank_or_whitespace_quote_is_rejected() {
+        let records = vec![rec(
+            "S1",
+            SourceKind::Regulatory,
+            SourceStatus::Read,
+            Some("Data-center revenue grew 200%."),
+        )];
+        // Empty AND whitespace-only both fail — normalization is the guard, and
+        // models often emit whitespace placeholders.
+        for q in ["", "   \n\t "] {
+            let draft = SynthesisDraft {
+                summary: CitedParagraph {
+                    text: "Revenue grew.".into(),
+                    citations: vec![CitationRef {
+                        source_id: "S1".into(),
+                        quote: q.into(),
+                    }],
+                },
+                sections: vec![],
+            };
+            assert_eq!(
+                validate_synthesis(&draft, &records),
+                Err(SynthReject::BlankQuote {
+                    source_id: "S1".into()
+                }),
+                "quote {q:?} must be rejected as blank"
+            );
+        }
     }
 }

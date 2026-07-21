@@ -518,7 +518,11 @@ mod engine_gate {
         match s.run() {
             Action::Done(ResearchOutput::Digest(d)) => {
                 // Grounding line leads every digest; the exact reason follows.
-                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
+                assert!(
+                    d.limitations[0].starts_with("Grounding:"),
+                    "{:?}",
+                    d.limitations
+                );
                 assert_eq!(
                     d.limitations[1],
                     "The selected model could not produce a validated synthesis".to_string()
@@ -660,5 +664,287 @@ mod engine_gate {
             }
             other => panic!("expected digest (failed source uncitable), got {other:?}"),
         }
+    }
+
+    // ── Answer-quality gate: score grounded answers built through the REAL
+    // pipeline (build_answer + validate_synthesis) with `quality_eval`, and fail
+    // if the mean drops below a committed baseline. A live model×prompt sweep
+    // reuses the SAME `run_sweep` on real-model artifacts (see quality_eval docs).
+    #[test]
+    fn answer_quality_meets_committed_baseline() {
+        use fm_research::quality_eval::{AnswerArtifact, GoldAnswer, report_sweep, run_sweep};
+
+        // web_current_factual — prose STATES the gold facts; quotes ⊂ excerpts.
+        let nvda_src = vec![
+            record(
+                "S1",
+                SourceKind::Regulatory,
+                SourceStatus::Read,
+                Some("Data-center revenue grew 200% as AI demand accelerated."),
+            ),
+            record(
+                "S2",
+                SourceKind::Newswire,
+                SourceStatus::Read,
+                Some("Competition and export controls are key risks to the thesis."),
+            ),
+        ];
+        let nvda_draft = SynthesisDraft {
+            summary: para(
+                "Data-center revenue grew 200% as AI demand accelerated the bull case.",
+                &[("S1", "Data-center revenue grew 200%")],
+            ),
+            sections: vec![
+                AnswerSection {
+                    heading: "Catalysts".into(),
+                    paragraphs: vec![para(
+                        "AI demand is the primary catalyst.",
+                        &[("S1", "AI demand accelerated")],
+                    )],
+                },
+                AnswerSection {
+                    heading: "Risks".into(),
+                    paragraphs: vec![para(
+                        "Competition and export controls could invalidate the thesis.",
+                        &[("S2", "export controls are key risks")],
+                    )],
+                },
+            ],
+        };
+        let nvda = Scenario {
+            request: nvidia_request(ResearchDepth::Standard),
+            plan: Some(ResearchPlan {
+                queries: vec!["q".into()],
+                required_source_types: vec![],
+            }),
+            searched: nvda_src.clone(),
+            read: nvda_src,
+            drafts: vec![Some(nvda_draft)],
+            interrupt: None,
+        };
+        let nvda_ans = expect_answer(nvda.run());
+
+        // company_brief — Company mode, distinct facts/sections.
+        let msft_req = ResearchRequest {
+            question: "Give me a company brief on Microsoft with valuation context.".into(),
+            mode: ResearchMode::Company,
+            tickers: vec!["MSFT".into()],
+            periods: vec![],
+            filing_forms: vec![],
+            target: None,
+            acquirer: None,
+            depth: ResearchDepth::Standard,
+        };
+        let msft_src = vec![
+            record(
+                "S1",
+                SourceKind::Regulatory,
+                SourceStatus::Read,
+                Some("Microsoft cloud revenue rose 20% year over year."),
+            ),
+            record(
+                "S2",
+                SourceKind::Newswire,
+                SourceStatus::Read,
+                Some("Azure growth and margins support a premium valuation."),
+            ),
+        ];
+        let msft_draft = SynthesisDraft {
+            summary: para(
+                "Microsoft cloud revenue rose 20%, anchoring the bull case.",
+                &[("S1", "cloud revenue rose 20%")],
+            ),
+            sections: vec![
+                AnswerSection {
+                    heading: "Business".into(),
+                    paragraphs: vec![para(
+                        "Azure is the growth engine.",
+                        &[("S1", "cloud revenue rose 20%")],
+                    )],
+                },
+                AnswerSection {
+                    heading: "Valuation".into(),
+                    paragraphs: vec![para(
+                        "A premium valuation reflects durable growth.",
+                        &[("S2", "premium valuation")],
+                    )],
+                },
+            ],
+        };
+        let msft = Scenario {
+            request: msft_req,
+            plan: Some(ResearchPlan {
+                queries: vec!["q".into()],
+                required_source_types: vec![],
+            }),
+            searched: msft_src.clone(),
+            read: msft_src,
+            drafts: vec![Some(msft_draft)],
+            interrupt: None,
+        };
+        let msft_ans = expect_answer(msft.run());
+
+        // Load committed gold (only answer-producing cases carry it).
+        let gv: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/gold_answers.json")).expect("gold json");
+        let gold: Vec<GoldAnswer> = serde_json::from_value(gv["gold"].clone()).expect("gold parse");
+        assert_eq!(
+            gv["schema_version"].as_u64(),
+            Some(1),
+            "gold_answers.json schema changed — update the gate + baseline"
+        );
+
+        let artifacts = vec![
+            AnswerArtifact {
+                model: "fixture".into(),
+                prompt_variant: "grounded".into(),
+                case_id: "web_current_factual".into(),
+                answer: nvda_ans,
+            },
+            AnswerArtifact {
+                model: "fixture".into(),
+                prompt_variant: "grounded".into(),
+                case_id: "company_brief".into(),
+                answer: msft_ans,
+            },
+        ];
+        let rep = run_sweep(&artifacts, &gold).expect("no duplicate artifacts");
+        eprintln!("{}", report_sweep(&rep));
+
+        let best = rep.best().expect("a graded variant");
+        assert_eq!(best.covered, 2, "both gold cases answered");
+        assert_eq!(best.total, 2, "gold set has two answer cases");
+
+        // Compare against the committed baseline artifact: gold hash + metric
+        // weights are pinned EXACTLY (drift must refresh the file); scores are
+        // regression FLOORS (>=) so real improvements pass without a rewrite.
+        // Refresh tests/baselines/quality_v1.json only on a deliberate change —
+        // never to make a regression pass.
+        let bl: serde_json::Value =
+            serde_json::from_str(include_str!("baselines/quality_v1.json")).expect("baseline json");
+        assert_eq!(bl["schema_version"].as_u64(), Some(1));
+        assert_eq!(
+            bl["weights_version"].as_str(),
+            Some(fm_research::quality_eval::WEIGHTS_VERSION),
+            "metric weights version changed — refresh tests/baselines/quality_v1.json"
+        );
+        let bl_weights: Vec<f64> = bl["weights"]
+            .as_array()
+            .expect("weights array")
+            .iter()
+            .map(|v| v.as_f64().expect("weight f64"))
+            .collect();
+        assert_eq!(
+            bl_weights,
+            fm_research::quality_eval::metric_weights().to_vec(),
+            "metric weights changed — refresh tests/baselines/quality_v1.json"
+        );
+
+        // Gold hash is exact: editing gold_answers.json must refresh it.
+        let canonical = serde_json::to_string(&gv["gold"]).expect("serialize gold");
+        let gold_hash = format!("{:016x}", super::fnv1a_64(canonical.as_bytes()));
+        assert_eq!(
+            bl["gold_hash"].as_str(),
+            Some(gold_hash.as_str()),
+            "gold_answers.json drifted (computed hash {gold_hash}) — update gold_hash in tests/baselines/quality_v1.json"
+        );
+
+        // Scores are floors, not snapshots.
+        let min_mean = bl["min_mean_overall"].as_f64().expect("min_mean_overall");
+        assert!(
+            best.mean_overall >= min_mean,
+            "answer quality {:.3} regressed below baseline floor {min_mean}",
+            best.mean_overall
+        );
+        for (id, score) in &best.per_case {
+            let s = score.expect("case graded");
+            let floor = bl["case_floors"][id]
+                .as_f64()
+                .unwrap_or_else(|| panic!("baseline missing floor for case {id}"));
+            assert!(
+                s.overall >= floor,
+                "case {id} overall {:.3} below floor {floor}",
+                s.overall
+            );
+        }
+    }
+
+    // Drives the JSON ingestion path (`run_sweep_from_json`, what the CLI wraps)
+    // against the ACTUAL committed `gold_answers.json` wrapper — proving the CLI
+    // reads the repository fixture and the full-gold denominator holds.
+    #[test]
+    fn cli_ingestion_path_scores_committed_gold_fixture() {
+        use fm_research::quality_eval::{AnswerArtifact, run_sweep_from_json};
+
+        let nvda_src = vec![
+            record(
+                "S1",
+                SourceKind::Regulatory,
+                SourceStatus::Read,
+                Some("Data-center revenue grew 200% as AI demand accelerated."),
+            ),
+            record(
+                "S2",
+                SourceKind::Newswire,
+                SourceStatus::Read,
+                Some("Competition and export controls are key risks to the thesis."),
+            ),
+        ];
+        let nvda_draft = SynthesisDraft {
+            summary: para(
+                "Data-center revenue grew 200% as AI demand accelerated the bull case.",
+                &[("S1", "Data-center revenue grew 200%")],
+            ),
+            sections: vec![
+                AnswerSection {
+                    heading: "Catalysts".into(),
+                    paragraphs: vec![para(
+                        "AI demand is the primary catalyst.",
+                        &[("S1", "AI demand accelerated")],
+                    )],
+                },
+                AnswerSection {
+                    heading: "Risks".into(),
+                    paragraphs: vec![para(
+                        "Competition and export controls could invalidate the thesis.",
+                        &[("S2", "export controls are key risks")],
+                    )],
+                },
+            ],
+        };
+        let nvda = Scenario {
+            request: nvidia_request(ResearchDepth::Standard),
+            plan: Some(ResearchPlan {
+                queries: vec!["q".into()],
+                required_source_types: vec![],
+            }),
+            searched: nvda_src.clone(),
+            read: nvda_src,
+            drafts: vec![Some(nvda_draft)],
+            interrupt: None,
+        };
+        let nvda_ans = expect_answer(nvda.run());
+
+        let arts = vec![AnswerArtifact {
+            model: "fixture".into(),
+            prompt_variant: "grounded".into(),
+            case_id: "web_current_factual".into(),
+            answer: nvda_ans,
+        }];
+        let aj = serde_json::to_string(&arts).expect("serialize artifacts");
+        // The committed wrapper, verbatim — not a hand-made bare array.
+        let gold_json = include_str!("fixtures/gold_answers.json");
+
+        let rep = run_sweep_from_json(&aj, gold_json).expect("ingest committed gold");
+        let best = rep.best().expect("a variant");
+        assert_eq!(best.total, 2, "committed gold has two answer cases");
+        assert_eq!(best.covered, 1, "this run answered one of them");
+        let scored = best
+            .per_case
+            .iter()
+            .find(|(id, _)| id == "web_current_factual")
+            .and_then(|(_, s)| *s)
+            .expect("answered case is scored");
+        assert_eq!(scored.overall, 1.0, "the answered case scores perfectly");
     }
 }

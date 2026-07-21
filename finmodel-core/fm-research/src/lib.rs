@@ -30,6 +30,7 @@ pub mod comps;
 pub mod events;
 pub mod machine;
 pub mod observe;
+pub mod quality_eval;
 pub mod research;
 pub mod safety;
 pub mod scoring;

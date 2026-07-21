@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "description": "Committed baseline for the answer-quality gate (research_eval.rs::engine_gate::answer_quality_meets_committed_baseline). gold_hash and weights_version are pinned EXACTLY: editing gold_answers.json, renaming a metric, or changing a weight must refresh this file deliberately. min_mean_overall and case_floors are regression FLOORS (>=), so a genuine quality improvement passes without a rewrite. Never lower a floor to make a regression pass.",
+  "weights_version": "v2",
+  "weights": [0.35, 0.3, 0.15, 0.15, 0.05],
+  "gold_hash": "92a29169ffc5cc5c",
+  "min_mean_overall": 0.9,
+  "case_floors": {
+    "web_current_factual": 0.85,
+    "company_brief": 0.85
+  }
+}

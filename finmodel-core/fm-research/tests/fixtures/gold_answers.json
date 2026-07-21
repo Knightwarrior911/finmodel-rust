@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "description": "Gold answer-quality expectations for answer-producing research cases (see research_cases.json). Only cases whose expected_terminal is 'answer' carry gold; digest/direct/error/cancelled/tool_contract terminals are contract outcomes graded by engine_gate and never scored for quality. Each fact is a set of accepted phrasings (any_of) matched against answer PROSE only (never citation quotes); aliases preserve exact numeric/entity value so a wrong magnitude misses. Sections are required headings; min_sources is the minimum distinct Read sources actually cited.",
+  "gold": [
+    {
+      "case_id": "web_current_factual",
+      "expected_facts": [
+        { "any_of": ["revenue grew 200%", "revenue increased 200%", "revenue rose 200%"] },
+        { "any_of": ["export controls"] }
+      ],
+      "expected_sections": ["Catalysts", "Risks"],
+      "min_sources": 2
+    },
+    {
+      "case_id": "company_brief",
+      "expected_facts": [
+        { "any_of": ["cloud revenue rose 20%", "cloud revenue grew 20%", "cloud revenue increased 20%"] },
+        { "any_of": ["premium valuation"] }
+      ],
+      "expected_sections": ["Business", "Valuation"],
+      "min_sources": 2
+    }
+  ]
+}
