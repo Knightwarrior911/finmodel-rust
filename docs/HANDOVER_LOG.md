@@ -1,5 +1,23 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.33 SHIPPED + LIVE (2026-07-20) — starter agent bench
+**Tagged v0.9.33 (release 06d573d + test commit); Latest on finmodel-releases;
+CI green (run 29807147739); endpoint VERIFIED (latest.json 0.9.33, sig 420,
+installer HTTP 200, 6,792,617 bytes). Gates: app-lib 382, UI 205.**
+
+Agents feature shipped empty in v0.9.31; now seeds 5 read-only research
+specialists on first run: diligence-reviewer, comps-analyst, earnings-reviewer,
+credit-analyst, deal-screener. Bundled AGENT.md in src-tauri/agents/
+(BUILTIN_AGENTS); agents::seed_builtin_agents mirrors seed_builtin_skills
+(one-shot .seeded_v1 marker, never clobbers, sticky deletes), called in
+lib.rs setup after the skills seed. Each agent wires REAL built-in skills
+(reviewer/earnings-analysis/verification-loop, comparable-companies/precedent-
+transactions, credit-analysis/lbo-screen, ma-accretion-dilution). Tests:
+bundled parse + name==stem + every cited skill in BUILTIN_SKILLS + first-run
+no-clobber + sticky delete + END-TO-END preload (seed both, compose each
+prompt, assert ## Skill: present, none flagged missing). Existing installs
+get the bench on next launch (seed runs at startup).
+
 ## HANDOVER — v0.9.32 SHIPPED + LIVE (2026-07-20) — bug-hunt pass (4 fixes)
 **Tagged v0.9.32 (release c47d712 over fix 56f772f); Latest on
 finmodel-releases; CI green (run 29800807523); endpoint VERIFIED

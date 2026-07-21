@@ -25,8 +25,11 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
 - `scheduler.rs` — `plan_batches`: read-only tools fan out in parallel; write-class serialize.
 - `executors.rs` — `execute_batch` (thread::scope parallel), `tool_error_content`.
 - `delegate.rs` — child-agent loop (`run_child_loop`), `child_tool_belt`/`agent_tool_belt`, usage helpers.
-- `agents.rs` — user-defined agents (AGENT.md store, mirrors `skills.rs`).
-- `skills.rs` — user skills (SKILL.md store, `use_skill` tool, catalog_block).
+- `agents.rs` — user-defined agents (AGENT.md store, mirrors `skills.rs`). Ships a 5-agent
+  starter bench in `src-tauri/agents/` (`BUILTIN_AGENTS`); `seed_builtin_agents` seeds it once
+  at startup (lib.rs) — never clobbers user edits, deletions sticky (`.seeded_v1` marker).
+- `skills.rs` — user skills (SKILL.md store, `use_skill` tool, catalog_block). 13 built-ins in
+  `src-tauri/skills/`, `seed_builtin_skills` at startup (same one-shot semantics).
 - `modes.rs` — `AgentMode` (Analyst/Plan/Goal/Loop/Skeptic): policy, read_only, doctrine layer.
 - `model_router.rs`, `provider.rs`, `context.rs` (build_context), `grounding.rs`, `verification.rs`,
   `memory.rs`, `subagents.rs`, `fallback.rs`.
