@@ -20,9 +20,14 @@ Ignored live tests hit the real model/network (run only when online):
 `cargo test --lib data_room_live_smoke -- --ignored --nocapture`
 
 ## Build the desktop app (NSIS installer, Windows)
-`cd src-tauri && CI=true cargo tauri build --bundles nsis`
+`cd src-tauri && CI=true cargo tauri build --bundles nsis` — UNSIGNED, local smoke only.
 - Produces `src-tauri/target/release/bundle/nsis/finmodel_<ver>_x64-setup.exe`.
-- The build's own signing step FAILS by design (no `TAURI_SIGNING_PRIVATE_KEY` env) — sign manually below.
+- For a RELEASE, sign DURING the build by passing the updater key IN-ENV (authoritative path;
+  the tauri-cli honors the key CONTENTS, not a path):
+  `TAURI_SIGNING_PRIVATE_KEY="$(cat < /c/Users/vinit/.tauri/finmodel.key)" \`
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" CI=true cargo tauri build --bundles nsis`
+  → also emits `finmodel_<ver>_x64-setup.exe.sig` (the minisign sig for `latest.json`).
+  NEVER commit or echo the key; read it via `< redirection` (the bare arg form fails on this shell).
 
 ## Release ritual (see docs/RELEASE_CHECKLIST.md for the authoritative version)
 Source repo `Knightwarrior911/finmodel-rust` is PRIVATE; releases go to PUBLIC
@@ -30,16 +35,18 @@ Source repo `Knightwarrior911/finmodel-rust` is PRIVATE; releases go to PUBLIC
 `https://github.com/Knightwarrior911/finmodel-releases/releases/latest/download/latest.json`
 
 1. **Version lockstep** — bump BOTH `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`
-   to the same `X.Y.Z`; `cargo check` to refresh `src-tauri/Cargo.lock`.
+   to the same `X.Y.Z`; `cargo check`/build refreshes `src-tauri/Cargo.lock`.
 2. Prepend a `## vX.Y.Z - <date> - <headline>` block to `CHANGELOG.md` (warm, user-facing copy).
-3. Commit (`release: vX.Y.Z - …`), `git push origin master`.
-4. Wait for CI green on the pushed SHA: `gh run watch <id> --exit-status`.
-5. Build NSIS (above). Then **sign** the installer with the Tauri updater signer:
-   `cd src-tauri && cargo tauri signer sign -f <signing-key-path> <setup.exe>`
-   The key location and its passphrase are local secrets — see `docs/RELEASE_CHECKLIST.md`
-   / your local config, never hard-code them here. A signature is 420 chars.
-6. Write `latest.json` next to the exe: `{version, notes, pub_date, platforms:{"windows-x86_64":{signature:<.sig contents>, url:<download URL for this tag>}}}`.
-7. `git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z`.
+3. Commit (`release: vX.Y.Z - …`), `git push origin master` — **NO tag yet**.
+4. Wait for CI green on the pushed SHA: `gh run list -L 1` → `gh run watch <id> --exit-status`.
+   A red CI is a release blocker — fix on master and re-push before tagging.
+5. **Only after CI is green**, tag the verified commit and push it (a tag never points at
+   unverified code): `git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z`.
+6. Build the SIGNED installer (build section above — key in-env; emits exe + .sig).
+7. Write `latest.json` next to the exe: `{version, notes, pub_date, platforms:{"windows-x86_64":
+   {signature:<.sig contents>, url:<download URL for this tag>}}}`. STRIP the `.sig` trailing
+   newline (bit us in v0.9.10 → `Invalid symbol 10`): the signature MUST be exactly 420 chars
+   ending in `=`, no embedded/trailing newline.
 8. `gh release create vX.Y.Z --repo Knightwarrior911/finmodel-releases --title "finmodel X.Y.Z" --notes "…" --latest <setup.exe> latest.json`.
 9. **Verify the endpoint**: curl the latest.json download URL → `version` == X.Y.Z, sig len 420,
    and `curl -sIL <installer url>` → `HTTP/1.1 200`.
