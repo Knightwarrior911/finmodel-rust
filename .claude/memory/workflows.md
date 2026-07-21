@@ -29,9 +29,10 @@ Source repo `Knightwarrior911/finmodel-rust` is PRIVATE; releases go to PUBLIC
 2. Prepend a `## vX.Y.Z - <date> - <headline>` block to `CHANGELOG.md` (warm, user-facing copy).
 3. Commit (`release: vX.Y.Z - …`), `git push origin master`.
 4. Wait for CI green on the pushed SHA: `gh run watch <id> --exit-status`.
-5. Build NSIS (above). Then **sign**:
-   `cd src-tauri && cargo tauri signer sign -f "C:/Users/<user>/.tauri/finmodel.key" -p "" "<setup.exe>"`
-   (password is empty).
+5. Build NSIS (above). Then **sign** the installer with the Tauri updater signer:
+   `cd src-tauri && cargo tauri signer sign -f <signing-key-path> <setup.exe>`
+   The key location and its passphrase are local secrets — see `docs/RELEASE_CHECKLIST.md`
+   / your local config, never hard-code them here. A signature is 420 chars.
 6. Write `latest.json` next to the exe: `{version, notes, pub_date, platforms:{"windows-x86_64":{signature:<.sig contents>, url:<download URL for this tag>}}}`.
 7. `git tag -a vX.Y.Z -m "…" && git push origin vX.Y.Z`.
 8. `gh release create vX.Y.Z --repo Knightwarrior911/finmodel-releases --title "finmodel X.Y.Z" --notes "…" --latest <setup.exe> latest.json`.
