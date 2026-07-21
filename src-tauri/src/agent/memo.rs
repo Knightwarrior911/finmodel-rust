@@ -680,10 +680,33 @@ pub fn validate_slot(text: &str, ev: &Evidence, max_sentences: usize) -> Result<
 
 /// Deterministic fallback prose for a slot: honest fact lines, no synthesis.
 pub fn fallback_text(heading: &str, ev: &Evidence) -> String {
+    // "Outlook" (earnings_release) makes an explicit no-guidance statement
+    // when the evidence carries none, per its section spec — never arbitrary
+    // facts dressed as guidance.
+    if heading == "Outlook" {
+        // Word-token match (not substring) so "unexpected" never reads as
+        // "expect"; surface a real guidance note, else state none was given.
+        let is_guidance = |n: &str| {
+            const G: [&str; 6] =
+                ["guidance", "outlook", "forecast", "expects", "expected", "expecting"];
+            n.to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|t| G.contains(&t))
+        };
+        if let Some(n) = ev.notes.iter().find(|n| is_guidance(n)) {
+            return n.trim_end_matches('.').to_string() + ".";
+        }
+        return "The company provided no guidance in the sources reviewed.".into();
+    }
     let mut lines: Vec<&str> = Vec::new();
+    // Prose-voice sections draw from research notes; figure sections from facts.
     let wants_prose = matches!(
         heading,
-        "Business" | "Strategic rationale" | "Drivers and outlook" | "Considerations"
+        "Business"
+            | "Strategic rationale"
+            | "Drivers and outlook"
+            | "Considerations"
+            | "Business commentary"
     );
     if wants_prose && !ev.notes.is_empty() {
         for n in ev.notes.iter().take(2) {
@@ -1260,5 +1283,26 @@ mod tests {
         assert!(md.contains("DRAFT — NOT FOR DISTRIBUTION"), "banner missing:\n{md}");
         let note = render_markdown("earnings_note", "TestCo", "2026-07-21", &sections, &ev);
         assert!(!note.contains("NOT FOR DISTRIBUTION"));
+    }
+    #[test]
+    fn earnings_release_outlook_fallback_states_no_guidance() {
+        let mut ev = Evidence::default();
+        ev.facts.push("Revenue: $96,000M".into());
+        // No guidance in notes → the explicit no-guidance statement.
+        assert_eq!(
+            fallback_text("Outlook", &ev),
+            "The company provided no guidance in the sources reviewed."
+        );
+        // "unexpected" must NOT be read as guidance (word-token, not substring).
+        ev.notes.push("An unexpected charge hit the quarter".into());
+        assert_eq!(
+            fallback_text("Outlook", &ev),
+            "The company provided no guidance in the sources reviewed."
+        );
+        // A real guidance note is surfaced.
+        ev.notes.push("Management raised full-year guidance to 12% growth".into());
+        assert!(fallback_text("Outlook", &ev).to_lowercase().contains("guidance"));
+        // Financial highlights is a figure section → draws from facts.
+        assert!(fallback_text("Financial highlights", &ev).contains("96,000"));
     }
 }
