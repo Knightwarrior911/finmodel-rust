@@ -1,5 +1,29 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.32 SHIPPED + LIVE (2026-07-20) — bug-hunt pass (4 fixes)
+**Tagged v0.9.32 (release c47d712 over fix 56f772f); Latest on
+finmodel-releases; CI green (run 29800807523); endpoint VERIFIED
+(latest.json 0.9.32, sig 420, installer HTTP 200, 6,799,758 bytes).
+Gates: app-lib 379, UI 205.**
+
+Feature-by-feature bug hunt: (1) agent<->data-room dead-end — run_agent
+contract + agent GROUND_RULES (chat.rs tool_run_agent) now state agents
+have read-only research tools and CANNOT open folders; orchestrator runs
+analyze_data_room itself then hands findings to the agent. (2) prompt
+cache — chat.rs mark_cache_prefix anchors the FIRST (stable) leading
+system layer, not the last; build_context appends volatile summary/
+memories as trailing system layers, so the old anchor missed cache every
+turn. (3) panic — parse_advisor_notes (driver.rs) + resolve_findings
+(dataroom.rs) guard start<=end before content[s..=e]; "}" before "{"
+used to panic. (4) budget — run_data_room accumulates per-question usage
+onto card.usage (reuses delegate::add_usage/usage_value); parent charge
+hook (driver.rs:1929) does the rest.
+
+Audited clean (no change): scheduler risk-gating (parallel grouping, not
+approval), drift gate (well-guarded), uncited_figures/contains_number
+(boundary-aware). Still OPEN from prior: data_room_live_smoke + run_agent
+live path unexercised (openrouter.ai was network-blocked all session).
+
 ## HANDOVER — v0.9.29-31 SHIPPED + LIVE (2026-07-20) — auditability, data room, user agents
 **Three releases, all tagged + published + endpoint-verified (Latest =
 v0.9.31, sig 420, installer HTTP 200). CI green on every tag.**
