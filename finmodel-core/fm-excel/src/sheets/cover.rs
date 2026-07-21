@@ -2,7 +2,7 @@
 //! from those tabs; otherwise shows the snapshot placeholder.
 
 use crate::input::WorkbookInput;
-use crate::model::{DATA0, LABEL, Sheet, cell_ref};
+use crate::model::{DATA0, LABEL, Sheet, cell_ref, fmt_per_share};
 use crate::sheets::dcf::rows as dr;
 use crate::sheets::wacc::rows as wr;
 
@@ -85,6 +85,9 @@ pub fn build(input: &WorkbookInput) -> Sheet {
             DATA0,
             format!("=DCF!{}", cell_ref(dr::EV_PRICE, DATA0)),
         );
+        let ps = fmt_per_share(&m.currency);
+        s.stamp_row(CURRENT_PX, ps);
+        s.stamp_row(IMPLIED_PX, ps);
         s.text(UPSIDE, LABEL, "Upside / (Downside) %");
         let cur_c = cell_ref(CURRENT_PX, DATA0);
         let imp_c = cell_ref(IMPLIED_PX, DATA0);

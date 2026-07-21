@@ -2,7 +2,7 @@
 
 use crate::input::WorkbookInput;
 use crate::model::{
-    BLUE, DATA0, FMT_MULT, FMT_NUM, FMT_PCT, LABEL, LIGHT_BLUE, Sheet, cell_ref, col_name,
+    BLUE, DATA0, FMT_MULT, FMT_NUM, FMT_PCT, LABEL, LIGHT_BLUE, Sheet, cell_ref, col_name, fmt_per_share,
 };
 use crate::sheets::wacc::rows as wr;
 
@@ -476,7 +476,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         format!("=IF({sh_c}<>0,{eq_val_c}/{sh_c},0)"),
         dcf.implied_price,
     );
-    s.stamp_row(EV_PRICE, FMT_NUM);
+    s.stamp_row(EV_PRICE, fmt_per_share(&m.currency));
 
     // ── Sensitivity (inline) ────────────────────────────────────────────────
     s.section(SENS_HDR, "SENSITIVITY ANALYSIS  (Implied Share Price)");
@@ -546,7 +546,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 s.fill(r, col, fill);
             }
         }
-        s.stamp_row(r, FMT_NUM);
+        s.stamp_row(r, fmt_per_share(&m.currency));
     }
 
     s.text(SENS2_LBL, LABEL, "WACC  ↓  /  Terminal Growth Rate  →");
@@ -594,7 +594,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 s.fill(r, col, fill);
             }
         }
-        s.stamp_row(r, FMT_NUM);
+        s.stamp_row(r, fmt_per_share(&m.currency));
     }
 
     // Cross-checks (hardcoded numbers from engine, matching Python)
@@ -621,7 +621,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     s.stamp_row(XC_IMP_G, FMT_PCT);
     s.text(XC_CURRENT, LABEL, "  Current Share Price");
     s.number(XC_CURRENT, vc, dcf.current_share_price);
-    s.stamp_row(XC_CURRENT, FMT_NUM);
+    s.stamp_row(XC_CURRENT, fmt_per_share(&m.currency));
     s.text(XC_UPSIDE, LABEL, "  Implied Upside / (Downside) vs Current");
     s.number(XC_UPSIDE, vc, dcf.upside_downside_pct);
     s.stamp_row(XC_UPSIDE, FMT_PCT);

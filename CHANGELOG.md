@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.9.35 - 2026-07-21 - The house dollar rule, finished
+
+Completes the number-format spec deferred in v0.9.34 (code-level alignment and
+price formatting shipped then; the placement + per-share rules land here).
+
+- **`$` leads the first monetary row of each statement section.** Income
+  Statement (revenue + each Cost/Opex/Other/Per-Share header), Balance Sheet
+  (Cash, Accounts Payable, Retained Earnings — the tops of Assets, Liabilities,
+  Equity), and Cash Flow (Operating, Investing, Financing). Every other dollar
+  row stays plain, so the eye anchors on section starts instead of a wall of `$`.
+  Implemented via a row-level selector in the statement builders.
+- **Per-share and share-price cells show cents.** They rendered with the integer
+  format (`$5.12` → `5`); they now carry two decimals (`$#,##0.00`) everywhere
+  they appear: IS EPS (diluted/basic), Cash Flow Dividend per Share, Assumptions
+  Dividend per Share + Current Share Price, DCF Implied/Current Share Price and
+  both sensitivity matrices, the Sensitivities tables, the Cover valuation
+  prices, and the Comps peer Price / 52-week / LTM-EPS columns + Implied
+  Per-Share Price. Aggregate `$M` figures and share *counts* stay integer.
+- **Currency-aware.** The `$` symbol is suppressed for non-USD reporting
+  currencies (EUR/SEK/JPY/…), matching writer.py parity; per-share keeps two
+  decimals without a symbol. Peer comps stay USD-normalized per their header.
+  Verified by cell-format tests pinning the exact included/excluded rows across
+  the statements (USD + EUR) and every valuation sheet.
+
 ## v0.9.34 - 2026-07-21 - Drafted memos you can actually find, open, and read
 
 - **Memos save somewhere you can find them.** Drafts now default to your

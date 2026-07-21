@@ -1,7 +1,7 @@
 //! Cash Flow Statement tab — port of `writer.py::_write_cf`.
 
 use crate::input::{Statement, WorkbookInput};
-use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref};
+use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref, fmt_dollar, fmt_per_share};
 use crate::sheets::{col, period_headers, tab_header};
 
 /// First value under `key` at period `idx`, mirroring Python `_v` / `.get`.
@@ -424,6 +424,14 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     }
 
     s.stamp_numeric_default(FMT_NUM);
+    // House rule: `$` leads the first monetary row of each section (Operating,
+    // Investing, Financing); every other dollar row stays plain.
+    let lead = fmt_dollar(&m.currency);
+    for row in [11u32, 22, 29] {
+        s.stamp_row(row, lead);
+    }
+    // Dividend per Share is a per-share figure — two decimals, not integer.
+    s.stamp_row(30, fmt_per_share(&m.currency));
     s.stamp_row(23, FMT_PCT);
 
     // Visual finish (render-only): bold subtotal rows + top border; italic drivers/checks.

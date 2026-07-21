@@ -1,7 +1,7 @@
 //! Comps Peers tab — port of `writer.py::_write_comps_peers`.
 
 use crate::input::WorkbookInput;
-use crate::model::{FMT_MULT, FMT_NUM, FMT_PCT, LABEL, Sheet};
+use crate::model::{FMT_MULT, FMT_NUM, FMT_PCT, LABEL, Sheet, fmt_per_share};
 use fm_value::PublicCompsOutput;
 
 pub fn build(input: &WorkbookInput) -> Sheet {
@@ -28,6 +28,7 @@ fn write_opt(s: &mut Sheet, row: u32, col: u32, v: Option<f64>, fmt: &'static st
 
 pub fn build_from(pc: &PublicCompsOutput) -> Sheet {
     let mut s = Sheet::new("Comps Peers");
+    let ps = fmt_per_share("USD");
     s.title(
         2,
         format!("{} — Public Comps  (Peer Detail)", pc.target_company_name),
@@ -81,9 +82,9 @@ pub fn build_from(pc: &PublicCompsOutput) -> Sheet {
         };
         s.text(r, LABEL, p.ticker.clone());
         write_num(&mut s, r, LABEL + 1, p.tier as f64, FMT_NUM);
-        write_num(&mut s, r, LABEL + 2, p.share_price, FMT_NUM);
-        write_num(&mut s, r, LABEL + 3, p.week52_high, FMT_NUM);
-        write_num(&mut s, r, LABEL + 4, p.week52_low, FMT_NUM);
+        write_num(&mut s, r, LABEL + 2, p.share_price, ps);
+        write_num(&mut s, r, LABEL + 3, p.week52_high, ps);
+        write_num(&mut s, r, LABEL + 4, p.week52_low, ps);
         write_num(&mut s, r, LABEL + 5, p.shares_diluted, FMT_NUM);
         write_num(&mut s, r, LABEL + 6, p.market_cap, FMT_NUM);
         write_num(&mut s, r, LABEL + 7, p.total_debt, FMT_NUM);
@@ -93,7 +94,7 @@ pub fn build_from(pc: &PublicCompsOutput) -> Sheet {
         write_num(&mut s, r, LABEL + 11, p.ltm_ebitda, FMT_NUM);
         write_num(&mut s, r, LABEL + 12, p.ltm_ebit, FMT_NUM);
         write_num(&mut s, r, LABEL + 13, p.ltm_net_income, FMT_NUM);
-        write_num(&mut s, r, LABEL + 14, p.ltm_eps_diluted, FMT_NUM);
+        write_num(&mut s, r, LABEL + 14, p.ltm_eps_diluted, ps);
         write_opt(&mut s, r, LABEL + 15, p.ev_rev_ltm, FMT_MULT);
         write_opt(&mut s, r, LABEL + 16, p.ev_ebitda_ltm, FMT_MULT);
         write_opt(&mut s, r, LABEL + 17, p.ev_ebit_ltm, FMT_MULT);

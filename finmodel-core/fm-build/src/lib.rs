@@ -1564,4 +1564,108 @@ mod tests {
         assert_eq!(fm_engine::default_driver("dso_days"), 45.0);
         assert_eq!(fm_engine::default_driver("unknown"), 0.0);
     }
+
+    #[test]
+    fn dollar_leads_section_first_rows_and_per_share_is_two_decimals() {
+        use fm_excel::model::{FMT_NUM, LABEL, Value, fmt_dollar, fmt_per_share};
+        use fm_types::StatementData;
+
+        // Build a fully-populated model in the given reporting currency.
+        let build_ccy = |ccy: &str| -> BuildOutput {
+            let mut is = StatementData::new();
+            for (k, v) in [
+                ("revenue", vec![Some(1000.0), Some(1100.0)]),
+                ("cogs", vec![Some(400.0), Some(440.0)]),
+                ("net_income", vec![Some(120.0), Some(140.0)]),
+                ("eps_diluted", vec![Some(5.12), Some(6.30)]),
+            ] {
+                is.insert(k.into(), v);
+            }
+            let mut bs = StatementData::new();
+            for (k, v) in [
+                ("cash", vec![Some(300.0), Some(350.0)]),
+                ("accounts_receivable", vec![Some(200.0), Some(220.0)]),
+                ("accounts_payable", vec![Some(150.0), Some(160.0)]),
+                ("retained_earnings", vec![Some(500.0), Some(560.0)]),
+            ] {
+                bs.insert(k.into(), v);
+            }
+            let mut cf = StatementData::new();
+            for (k, v) in [
+                ("net_income", vec![Some(120.0), Some(140.0)]),
+                ("da", vec![Some(40.0), Some(44.0)]),
+                ("capex", vec![Some(80.0), Some(88.0)]),
+                ("dividends_paid", vec![Some(30.0), Some(33.0)]),
+            ] {
+                cf.insert(k.into(), v);
+            }
+            let extraction = ExtractionResult {
+                currency: ccy.into(),
+                years_found: vec!["2023".into(), "2024".into()],
+                income_statement: is,
+                balance_sheet: bs,
+                cash_flow_statement: cf,
+                notes: HashMap::new(),
+                confidence: 1.0,
+                discrepancies: vec![],
+            };
+            build(&extraction, "TEST", 5)
+        };
+
+        // First stamped number-format on the lowest-indexed row whose LABEL cell
+        // contains every `needle`. Panics loudly if the row or a format is absent.
+        fn row_fmt(sheet: &fm_excel::model::Sheet, needles: &[&str]) -> &'static str {
+            let row = sheet
+                .cells
+                .iter()
+                .filter_map(|((r, c), cell)| match &cell.value {
+                    Some(Value::Text(s)) if *c == LABEL && needles.iter().all(|n| s.contains(n)) => {
+                        Some(*r)
+                    }
+                    _ => None,
+                })
+                .min()
+                .unwrap_or_else(|| panic!("row {needles:?} not found"));
+            sheet
+                .cells
+                .iter()
+                .filter_map(|((r, _), cell)| if *r == row { cell.num_fmt } else { None })
+                .next()
+                .unwrap_or_else(|| panic!("row {needles:?} has no stamped format"))
+        }
+
+        // ── USD: `$` leads the first monetary row of each section; ordinary
+        //    rows stay plain; per-share rows carry two decimals. ──
+        let usd = build_ccy("USD");
+        let dollar = fmt_dollar("USD");
+        let per_share = fmt_per_share("USD");
+        assert_ne!(dollar, FMT_NUM, "USD dollar format must differ from plain");
+
+        let is = usd.workbook.sheet("IS").expect("IS");
+        assert_eq!(row_fmt(is, &["Revenue"]), dollar, "IS top line leads with $");
+        assert_eq!(row_fmt(is, &["Gross Profit"]), FMT_NUM, "ordinary IS row stays plain");
+        assert_eq!(row_fmt(is, &["EPS", "Diluted"]), per_share, "EPS uses per-share format");
+
+        let bs = usd.workbook.sheet("BS").expect("BS");
+        assert_eq!(row_fmt(bs, &["Cash"]), dollar, "BS Assets first row leads with $");
+        assert_eq!(row_fmt(bs, &["Accounts Receivable"]), FMT_NUM, "ordinary BS asset stays plain");
+        assert_eq!(row_fmt(bs, &["Accounts Payable"]), dollar, "BS Liabilities first row leads with $");
+        assert_eq!(row_fmt(bs, &["Retained Earnings"]), dollar, "BS Equity first row leads with $");
+
+        let cf = usd.workbook.sheet("CF").expect("CF");
+        assert_eq!(row_fmt(cf, &["Net Income"]), dollar, "CF Operating first row leads with $");
+        assert_eq!(row_fmt(cf, &["D&A"]), FMT_NUM, "ordinary CF row stays plain");
+        assert_eq!(row_fmt(cf, &["Capital Expenditures"]), dollar, "CF Investing first row leads with $");
+        assert_eq!(row_fmt(cf, &["Dividends Paid"]), dollar, "CF Financing first row leads with $");
+        assert_eq!(row_fmt(cf, &["Dividend per Share"]), per_share, "dividend-per-share uses per-share format");
+
+        // ── Non-USD: `$` is suppressed everywhere (writer.py parity); per-share
+        //    keeps two decimals but no currency symbol. ──
+        let eur = build_ccy("EUR");
+        let is_e = eur.workbook.sheet("IS").expect("IS");
+        assert_eq!(row_fmt(is_e, &["Revenue"]), FMT_NUM, "EUR section-first row carries no $");
+        let eps_e = row_fmt(is_e, &["EPS", "Diluted"]);
+        assert_eq!(eps_e, fmt_per_share("EUR"), "EUR EPS is plain two-decimal");
+        assert!(!eps_e.contains('$'), "EUR per-share must not carry $");
+    }
 }

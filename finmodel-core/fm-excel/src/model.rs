@@ -41,6 +41,17 @@ pub fn fmt_dollar(currency: &str) -> &'static str {
     }
 }
 
+/// Per-share / price format, two decimals: `$#,##0.00` for USD reporting,
+/// plain `#,##0.00` otherwise. EPS and share-price rows use this instead of the
+/// integer [`FMT_NUM`], which would silently drop the cents (e.g. `$5.12` → `5`).
+pub fn fmt_per_share(currency: &str) -> &'static str {
+    if currency == "USD" {
+        "$#,##0.00_);($#,##0.00);\"-\"_);@_)"
+    } else {
+        "#,##0.00_);(#,##0.00);\"-\"_);@_)"
+    }
+}
+
 // ── Column layout (0-based), mirrors writer.py ──────────────────────────────
 /// Col A — left gutter.
 pub const MARGIN: u32 = 0;

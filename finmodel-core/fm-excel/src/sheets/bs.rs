@@ -5,7 +5,7 @@
 //! the schedules below and the IS/CF/Assumptions tabs.
 
 use crate::input::{Statement, WorkbookInput};
-use crate::model::{BLUE, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref};
+use crate::model::{BLUE, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref, fmt_dollar};
 use crate::sheets::{col, formula_maybe_cached, period_headers, tab_header};
 
 // ── BS main-section rows (0-based; Excel row = index + 1) ────────────────────
@@ -441,6 +441,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     }
 
     s.stamp_numeric_default(FMT_NUM);
+    // House rule: `$` leads the first monetary row of each section (Assets →
+    // Cash, Liabilities → Accounts Payable, Equity → Retained Earnings); every
+    // other dollar row stays plain.
+    let lead = fmt_dollar(&m.currency);
+    for row in [CASH, AP, RET_EARN] {
+        s.stamp_row(row, lead);
+    }
     s.stamp_row(DEBT_RATE, FMT_PCT);
 
     // Visual finish (render-only): mirrors writer.py `_Fmt` families.

@@ -1,7 +1,7 @@
 //! Comps Summary tab — port of `writer.py::_write_comps_summary`.
 
 use crate::input::WorkbookInput;
-use crate::model::{BLUE, DATA0, FMT_MULT, FMT_NUM, LABEL, Sheet};
+use crate::model::{BLUE, DATA0, FMT_MULT, FMT_NUM, LABEL, Sheet, fmt_per_share};
 use fm_value::PublicCompsOutput;
 
 const STAT_KEYS: [&str; 7] = [
@@ -101,7 +101,7 @@ pub fn build_from(pc: &PublicCompsOutput) -> Sheet {
     s.number(20, DATA0 + 2, pc.implied_price_high);
     for j in 0..3 {
         if let Some(c) = s.cells.get_mut(&(20, DATA0 + j)) {
-            c.num_fmt = Some(FMT_NUM);
+            c.num_fmt = Some(fmt_per_share("USD"));
             c.fill = Some(BLUE.to_string());
         }
     }

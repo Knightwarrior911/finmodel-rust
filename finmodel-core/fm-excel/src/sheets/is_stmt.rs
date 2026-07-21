@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::input::{Statement, WorkbookInput};
 use crate::is_structure::{IS_BODY_START, RowType, compute_is_row_map, driver_assump_offset};
-use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref, col_name};
+use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref, col_name, fmt_dollar, fmt_per_share};
 use crate::sheets::{col, formula_maybe_cached, period_headers, tab_header};
 
 // Assumptions active-driver block anchor (0-based) + data col.
@@ -274,11 +274,18 @@ pub fn build(input: &WorkbookInput) -> Sheet {
     let rm = compute_is_row_map(&input.is_structure);
     let proj_sh = input.assumptions.shares_diluted;
 
+    // House number-format rule: the first monetary row of each section carries
+    // the `$` lead (`fmt_dollar`); ordinary rows stay plain (`FMT_NUM`). EPS and
+    // other per-share rows always use the two-decimal per-share format.
+    let mut section_first = true;
     for (idx, isr) in input.is_structure.iter().enumerate() {
         let r = IS_BODY_START + idx as u32;
         match isr.row_type {
             RowType::Spacer => {}
-            RowType::SectionHeader => s.section(r, isr.label.clone()),
+            RowType::SectionHeader => {
+                s.section(r, isr.label.clone());
+                section_first = true;
+            }
             RowType::LineItem | RowType::Subtotal => {
                 s.text(r, LABEL, isr.label.clone());
                 let key = &isr.key;
@@ -332,7 +339,15 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                         }
                     }
                 }
-                s.stamp_row(r, FMT_NUM);
+                let fmt = if isr.key == "eps_diluted" || isr.key == "eps_basic" {
+                    fmt_per_share(&m.currency)
+                } else if section_first {
+                    fmt_dollar(&m.currency)
+                } else {
+                    FMT_NUM
+                };
+                section_first = false;
+                s.stamp_row(r, fmt);
                 if isr.row_type == RowType::Subtotal {
                     s.stamp_bold_row(r);
                     s.stamp_top_border_row(r);
@@ -425,6 +440,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         let rev_r = rm_row(&rm, "revenue", 10);
         let round2 = |x: f64| (x * 100.0).round() / 100.0;
         let mut row = start + 1;
+        let mut seg_first = true;
         for seg_key in seg_keys {
             let base = &seg_key[4..];
             let cleaned = base.replace("Revenue", "").replace("Sales", "");
@@ -453,7 +469,13 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 };
                 s.number(row, col(ci), proj_val);
             }
-            s.stamp_row(row, FMT_NUM);
+            let seg_fmt = if seg_first {
+                seg_first = false;
+                fmt_dollar(&m.currency)
+            } else {
+                FMT_NUM
+            };
+            s.stamp_row(row, seg_fmt);
             s.text(row + 1, LABEL, "    % of Total Revenue");
             for j in 0..n {
                 let seg_c = cell_ref(row, col(j));

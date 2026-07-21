@@ -1,7 +1,7 @@
 //! Sensitivities tab — port of `writer.py::_write_sensitivities`.
 
 use crate::input::WorkbookInput;
-use crate::model::{BLUE, DATA0, FMT_MULT, FMT_NUM, FMT_PCT, LABEL, LIGHT_BLUE, Sheet, col_name};
+use crate::model::{BLUE, DATA0, FMT_MULT, FMT_PCT, LABEL, LIGHT_BLUE, Sheet, col_name, fmt_per_share};
 use crate::sheets::dcf::rows as dr;
 
 // SENS_R
@@ -100,7 +100,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 s.fill(r, col, fill);
             }
         }
-        s.stamp_row(r, FMT_NUM);
+        s.stamp_row(r, fmt_per_share(&m.currency));
     }
 
     // Table 2: WACC × Exit Multiple
@@ -147,7 +147,7 @@ pub fn build(input: &WorkbookInput) -> Sheet {
                 s.fill(r, col, fill);
             }
         }
-        s.stamp_row(r, FMT_NUM);
+        s.stamp_row(r, fmt_per_share(&m.currency));
     }
 
     s

@@ -2,7 +2,7 @@
 //! hardcoded scenarios + shared valuation inputs. Layout mirrors `ASSUMP_R`.
 
 use crate::input::{ScenarioInputs, WorkbookInput};
-use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref};
+use crate::model::{DATA0, FMT_NUM, FMT_PCT, LABEL, Sheet, cell_ref, fmt_per_share};
 use crate::sheets::{assumptions_proj_periods, col};
 
 /// Per-driver number format, aligned with `DRIVERS` / writer.py ASSUMP_DRIVERS.
@@ -244,6 +244,14 @@ pub fn build(input: &WorkbookInput) -> Sheet {
         s.stamp_row(r, SHARED_FMT[i]);
         style_driver_row(&mut s, r, SHARED_FMT[i] == FMT_PCT, 1);
     }
+
+    // Per-share / price inputs show cents (two decimals), not the integer driver
+    // default: Dividend per Share in every scenario block + Current Share Price.
+    let ps = fmt_per_share(&m.currency);
+    for drv0 in [ACTIVE_DRV0, BASE_DRV0, UPSIDE_DRV0, DOWNSIDE_DRV0] {
+        s.stamp_row(drv0 + 11, ps);
+    }
+    s.stamp_row(SHARED_DRV0 + 4, ps);
 
     s
 }
