@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.32 - 2026-07-20 - Bug-hunt pass: four fixes across the new agentic surface
+
+- **Agents no longer dead-end on a data room.** A dispatched agent has
+  read-only research tools but cannot open local folders. The analyst now
+  reviews the data room ITSELF (with your go-ahead) and hands the findings
+  to the agent - stated plainly in the tool contract and the agent's
+  ground rules, so "have my reviewer go through this folder" works instead
+  of stalling.
+- **Prompt caching actually caches now.** The cache breakpoint was landing
+  on the per-turn recalled-memories layer (which changes every turn),
+  quietly missing the cache while still paying the write premium. It now
+  anchors the large stable prefix (system + tools + mode), so multi-round
+  tool loops on Anthropic/Gemini get the intended savings.
+- **No crash on a malformed model reply.** A reply whose text put a "}"
+  before a "{" could panic the answer-parsing slice - taking down the
+  second-look reviewer or an entire data-room review. Both parsers now
+  guard the range and fall back cleanly.
+- **Data-room reviews count against your budget.** Their model calls were
+  running off the books; they now charge the same conversation spending
+  limit as everything else.
+
 ## v0.9.31 - 2026-07-20 - Your own agents, dispatched in parallel
 
 - **Build your own bench.** Settings -> Agents: define named specialists
