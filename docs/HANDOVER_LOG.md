@@ -1,5 +1,48 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.34 SHIPPED + LIVE (2026-07-21) — memo artifacts findable/openable + format spec + region-aware agents
+**Tagged v0.9.34 (release 0a00d17 + fallback fix dd041c1); Latest on
+finmodel-releases; CI green (run 29811922760); endpoint VERIFIED
+(latest.json 0.9.34, sig 420, installer HTTP 200, 6,795,445 bytes).
+Gates: app-lib 385, UI 207, fm-excel clean.**
+
+PRIORITY BUG (user: drafted earnings memo "saved somewhere" but could not
+find/open it). Traced via the live DB + %TEMP%: the tool DID run and wrote
+Tesla_earnings_note_*.md/.pptx to %TEMP%/finmodel-memos (out_dir empty),
+but (a) %TEMP% is undiscoverable, (b) same-day filename overwrote prior
+drafts, (c) open_path REJECTS unregistered raw paths and openPath()
+swallowed the failure -> dead buttons. Fixes (chat.rs tool_draft_memo,
+model.rs, artifacts.rs, lib.rs, core.mjs, cards.mjs):
+- Durable default dir Documents/finmodel/memos (document_dir->config_dir->
+  temp fallback); unique collision-safe {stem}_{kind}_{date}_{hms}[_n]
+  basename shared by .md+.pptx; verify path.exists() after write.
+- push_recent now registers the file AND its parent folder; new
+  model::rehydrate_recent(app) called in lib.rs setup (list_recent was
+  NEVER invoked - persisted Recent never rehydrated -> buttons broke after
+  restart, incl. model cards). open_path gate now satisfied.
+- core.openPath returns bool (was undefined, swallowed); cards.mjs
+  openFileOrHint surfaces .open-fail-hint on failure.
+- memo card inline preview (card.preview = truncate(md,4000)).
+- earnings_release memo kind: section plan, DRAFT—NOT FOR DISTRIBUTION
+  banner (render_markdown), fallback_text Outlook no-guidance + word-token
+  guidance detector, memoKindLabel, schema enum.
+
+FORMATTING (user image spec §3): fm-excel adhoc.rs + model.rs number-format
+CODES normalized verbatim (zero/text _) alignment padding; price/per-share
+get $; adhoc dollar made plain per the "other dollar rows plain" rule).
+DEFERRED (stated to user): $-only-on-section-first-row placement needs a
+row-level selector in the statement builders + a workbook-XML test +
+visual verify; model fmt_dollar still $-prefixes all USD (pre-existing).
+
+REGION-AWARE AGENTS: chat.rs GROUND_RULES now states get_financials non-US
+coverage (20-F native ccy, ESEF by name/LEI, EDINET), list_filings/
+read_filing are SEC-by-ticker incl. foreign 20-F (form:20-F) but not
+home-market-only, fallback to research/web/IR; analyze_pdf only on an
+attached artifact. diligence-reviewer.md risk-source line domicile-neutral.
+
+STILL OPEN: live draft->open flow verified by COMPONENTS (unit tests) only
+— full end-to-end needs a live LLM run (network blocked all session).
+
 ## HANDOVER — v0.9.33 SHIPPED + LIVE (2026-07-20) — starter agent bench
 **Tagged v0.9.33 (release 06d573d + test commit); Latest on finmodel-releases;
 CI green (run 29807147739); endpoint VERIFIED (latest.json 0.9.33, sig 420,
