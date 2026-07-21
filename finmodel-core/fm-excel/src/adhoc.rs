@@ -27,12 +27,17 @@ pub const ADHOC_HEADER: &str = "FF0F1632";
 pub const ADHOC_SUMMARY: &str = "FFE6EBED";
 // Group banner uses SPEC `SAND` `#EAE0D3` == model `TAN`.
 
-// ── Number formats (product polish; NOT gated) — verbatim from SPEC NF_* ─────
-pub const NF_DOLLAR: &str = "#,##0_);($#,##0);\"-\";@";
-pub const NF_PLAIN: &str = "#,##0_);(#,##0);\"-\";@";
-pub const NF_PCT: &str = "0.0%_);(0.0%);\"-\";@";
-pub const NF_MULT: &str = "0.0\"x\";(0.0\"x\");\"-\";@";
-pub const NF_PRICE: &str = "#,##0.00_);($#,##0.00);\"-\";@";
+// ── Number formats — codes VERBATIM from SPEC §3 Number Formats ──────────────
+// Four sections each: positive; (negative); zero "-"; @ text — with `_)` /
+// trailing padding so zeros and text right-align under parenthesised negatives.
+// Per the spec RULE, ordinary dollar rows are PLAIN (no `$`); `$` is reserved
+// for price / per-share cells (NF_PRICE) and would need a section-first row
+// selector to apply to statement headers — not done here (codes-only pass).
+pub const NF_DOLLAR: &str = "#,##0_);(#,##0);\"-\"_);@_)";
+pub const NF_PLAIN: &str = "#,##0_);(#,##0);\"-\"_);@_)";
+pub const NF_PCT: &str = "0.0%_);(0.0%);\"-\"_);@_)";
+pub const NF_MULT: &str = "0.0\"x\"_);(0.0\"x\");\"-\"_);@_)";
+pub const NF_PRICE: &str = "$#,##0.00_);($#,##0.00);\"-\"_);@_)";
 pub const NF_SHARES: &str = "#,##0.0,,;\"-\"";
 
 /// A single value in an ad-hoc row.

@@ -35,6 +35,11 @@ pub fn run() {
                     // deletions stay sticky per the .seeded marker).
                     let _ = agent::skills::seed_builtin_skills(&dir);
                     let _ = agent::agents::seed_builtin_agents(&dir);
+                    // Re-register persisted Recent artifacts (generated memos,
+                    // models, decks + their folders) so open_path allowlists
+                    // them after a restart — otherwise reloaded card Open /
+                    // Show-in-folder buttons fail until a new file is made.
+                    commands::model::rehydrate_recent(app.handle());
                     match store::init(&dir) {
                         Ok((handle, report, workspace_id)) => {
                             if !report.quarantined.is_empty() {

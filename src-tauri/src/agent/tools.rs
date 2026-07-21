@@ -183,7 +183,7 @@ fn schema_draft_memo() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "kind": { "type": "string", "enum": ["earnings_note", "company_profile", "deal_summary", "comps_note"], "description": "The memo type to draft." },
+            "kind": { "type": "string", "enum": ["earnings_note", "earnings_release", "company_profile", "deal_summary", "comps_note"], "description": "The memo type to draft. earnings_release = a company-voice results press release; earnings_note = an analyst's read of the quarter." },
             "deck": { "type": "boolean", "description": "Also produce a compact branded PPTX of the memo (cover, prose, key figures, sources)." },
             "company": { "type": "string", "description": "Company display name for the title (optional; inferred from evidence when absent)." }
         },

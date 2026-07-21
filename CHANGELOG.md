@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.34 - 2026-07-21 - Drafted memos you can actually find, open, and read
+
+- **Memos save somewhere you can find them.** Drafts now default to your
+  Documents folder (finmodel/memos) instead of the OS temp directory, and
+  each draft gets a unique, timestamped filename so re-drafting the same
+  company never silently overwrites an earlier file.
+- **Open / Show-in-folder actually work now.** Generated memos and decks
+  are registered as artifacts (and re-registered on restart), so the card
+  buttons open them instead of failing silently. A failed open now says so.
+- **Read the draft right in the chat.** The memo card shows an inline
+  preview of the drafted text.
+- **Draft an earnings release is now a first-class deliverable** with its
+  own company-voice structure, watermarked DRAFT - NOT FOR DISTRIBUTION.
+- **Number formatting matches the house spec.** Workbook number codes
+  carry consistent alignment padding; per-share / price cells show the
+  currency symbol.
+- **Agents are region-aware.** Dispatched agents know get_financials
+  covers US and many non-US issuers, that SEC tools also reach foreign
+  20-F filers, and to fall back to research / local exchange / IR for
+  home-market-only companies.
+
 ## v0.9.33 - 2026-07-20 - A starter bench of agents, ready out of the box
 
 - **Five specialists ship with the app.** The Agents tab is no longer

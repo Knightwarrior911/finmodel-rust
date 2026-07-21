@@ -822,11 +822,16 @@ pub async fn finalize_model(
 
 /// Append a generated file to the Recent list (4.2), capped at 10, dedup by path.
 /// Also mints an opaque artifact handle so open_path can allowlist it.
-fn push_recent(app: &tauri::AppHandle, path: &str, label: &str) {
+pub(crate) fn push_recent(app: &tauri::AppHandle, path: &str, label: &str) {
     use crate::commands::artifacts::ArtifactRegistry;
     use crate::commands::settings::{read_settings, write_settings, RecentEntry};
     if let Some(reg) = app.try_state::<ArtifactRegistry>() {
         let _ = reg.ensure_generated(std::path::PathBuf::from(path), label);
+        // Also allowlist the containing folder so "Show in folder" (which
+        // opens the parent dir through open_path's exact-path gate) resolves.
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            let _ = reg.ensure_generated(parent.to_path_buf(), "folder");
+        }
     }
     let mut s = read_settings(app);
     s.recent.retain(|r| r.path != path);
@@ -847,19 +852,30 @@ fn today_iso_local() -> String {
     fm_extract::today_iso()
 }
 
-/// Recent generated files (4.2), most-recent-first.
-/// Rehydrates each path into the artifact registry so open_path still works
-/// after an app restart (handles are otherwise process-scoped).
-#[tauri::command(rename_all = "snake_case")]
-pub fn list_recent(app: tauri::AppHandle) -> AppResult<String> {
+/// Re-register every persisted Recent path (and its containing folder) into
+/// the in-memory artifact registry, so `open_path` still allowlists them after
+/// a restart (handles are process-scoped). Called at startup AND by
+/// `list_recent` — without a startup call, Open / Show-in-folder buttons on
+/// reloaded memo/model cards break on relaunch.
+pub(crate) fn rehydrate_recent(app: &tauri::AppHandle) {
     use crate::commands::artifacts::ArtifactRegistry;
     use crate::commands::settings::read_settings;
-    let s = read_settings(&app);
+    let s = read_settings(app);
     if let Some(reg) = app.try_state::<ArtifactRegistry>() {
         for r in &s.recent {
             let _ = reg.ensure_generated(std::path::PathBuf::from(&r.path), &r.label);
+            if let Some(parent) = std::path::Path::new(&r.path).parent() {
+                let _ = reg.ensure_generated(parent.to_path_buf(), "folder");
+            }
         }
     }
+}
+
+/// Recent generated files (4.2), most-recent-first.
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_recent(app: tauri::AppHandle) -> AppResult<String> {
+    rehydrate_recent(&app);
+    let s = crate::commands::settings::read_settings(&app);
     serde_json::to_string(&s.recent).map_err(|e| AppError::Engine(e.to_string()))
 }
 /// Open a file with the OS default handler. Accepts either an `artifact_id`

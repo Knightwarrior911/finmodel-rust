@@ -1843,6 +1843,33 @@ body.sidebar-collapsed .sidebar-expand {
   color: var(--warn, #d97706);
 }
 
+/* Memo in-chat preview: the drafted deliverable, readable without opening. */
+.memo-preview {
+  margin: 8px 0;
+}
+.memo-preview summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.memo-preview-body {
+  margin: 6px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.5 var(--font, system-ui);
+  color: var(--ink);
+  background: var(--element);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.open-fail-hint {
+  color: var(--err, #dc2626);
+  font-size: 12px;
+  align-self: center;
+}
 .delegate-trail {
   margin-top: 8px;
 }

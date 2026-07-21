@@ -220,8 +220,14 @@ export function openExternal(url) {
     .catch(() => false);
 }
 
+/// Open a local path via the OS. Resolves `true` on success, `false` on
+/// failure (empty path, unregistered artifact, or opener error) so callers
+/// can surface a dead-click instead of swallowing it.
 export function openPath(path) {
-  if (path) call("open_path", { path }).catch(() => {});
+  if (!path) return Promise.resolve(false);
+  return call("open_path", { path })
+    .then(() => true)
+    .catch(() => false);
 }
 
 export function flashBtn(btn, txt) {

@@ -39,6 +39,18 @@ import {
 function parentDir(p) {
   return String(p || "").replace(/[\\/][^\\/]+$/, "");
 }
+// Open a path via the OS; on failure surface a short hint on the card rather
+// than a dead click. openPath resolves false when the path isn't a registered
+// artifact or the opener errors.
+async function openFileOrHint(cardEl, path) {
+  const ok = await openPath(path);
+  if (ok) return;
+  const hint = cardEl && cardEl.querySelector(".open-fail-hint");
+  if (hint) {
+    hint.textContent = "Couldn't open it — the file may have moved or been cleaned up. Re-run the draft to regenerate it.";
+    hint.hidden = false;
+  }
+}
 
 function cardShell(kind, inner) {
   const el = document.createElement("div");
@@ -611,16 +623,25 @@ function renderMemo(card) {
     fell > 0
       ? `<p class="card-note">${fell} section${fell === 1 ? "" : "s"} composed directly from the evidence (drafting model text did not pass validation).</p>`
       : "";
+  // In-chat preview: the drafted text itself, collapsed, so the deliverable
+  // is readable without leaving the conversation (the user asked to see the
+  // output in chat, not just a file path).
+  const preview = String(card.preview || "").trim();
+  const previewHtml = preview
+    ? `<details class="memo-preview" open><summary>Preview</summary><pre class="memo-preview-body">${escapeHtml(preview)}</pre></details>`
+    : "";
   const inner = `
     <div class="card-head">
       <span class="card-title">${escapeHtml(card.company || "")}</span>
       <span class="card-sub">${escapeHtml(kind)} · ${escapeHtml(String(card.sections || 0))} sections · ${escapeHtml(String(card.sources || 0))} sources</span>
     </div>
     ${note}
+    ${previewHtml}
     <div class="card-actions">
       <button type="button" class="btn-primary" data-open-excel="${escapeHtml(card.memo_path || "")}">Open memo</button>
       ${card.pptx_path ? `<button type="button" class="btn-ghost" data-open-excel="${escapeHtml(card.pptx_path)}">Open deck</button>` : ""}
       <button type="button" class="btn-ghost" data-show-folder="${escapeHtml(card.memo_path || "")}">Show in folder</button>
+      <span class="open-fail-hint" hidden></span>
     </div>`;
   return cardShell("memo", inner);
 }
@@ -928,17 +949,19 @@ function wireCard(el) {
       await buildFromAssumptions(el, buildBtn.dataset.buildAssumptions);
       return;
     }
-    // Excel / folder.
+    // Excel / folder. openPath resolves false when the path isn't a
+    // registered artifact or the OS can't open it — surface that instead of
+    // failing silently (the old behavior read as a dead button).
     const excel = e.target.closest("[data-open-excel]");
     if (excel) {
       e.stopPropagation();
-      openPath(excel.dataset.openExcel);
+      openFileOrHint(el, excel.dataset.openExcel);
       return;
     }
     const folder = e.target.closest("[data-show-folder]");
     if (folder) {
       e.stopPropagation();
-      openPath(parentDir(folder.dataset.showFolder));
+      openFileOrHint(el, parentDir(folder.dataset.showFolder));
       return;
     }
     // Analyst tools (Phase 6.5): EV / IFRS / tie-out.

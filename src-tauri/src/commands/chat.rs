@@ -873,7 +873,7 @@ fn tool_run_agent(
             format!("no agent named `{name}`. Available agents: {}", bench.join(", "))
         });
     };
-    const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only research tools only. You CANNOT open local files or folders - if the task refers to documents or a data room you were not handed in the task text, say so plainly rather than guessing. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
+    const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only research tools only. You CANNOT open local files or folders (analyze_pdf works only on a PDF the user has attached, identified by an artifact id in the task) - if the task refers to documents or a data room you were not handed in the task text, say so plainly rather than guessing. Tool reach across regions: get_financials covers US tickers AND many non-US issuers (foreign 20-F filers in native currency, Europe-only companies by legal name or LEI via the ESEF index, Japan via EDINET). list_filings and read_filing reach SEC EDGAR by ticker - INCLUDING foreign private issuers that file a 20-F (pass form:\\\"20-F\\\") - but NOT home-market-only filings; for a company that files only in its local market (no SEC filing), get narrative and disclosures (risk factors, management discussion, notes) from research, or from web_search against the local exchange and the company's IR page. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
     let system = crate::agent::agents::agent_system_prompt(&dir, &def, GROUND_RULES);
     let settings = crate::commands::settings::read_settings(app);
     let cfg = fm_extract::LlmConfig {
@@ -1065,20 +1065,43 @@ fn tool_draft_memo(
         memo::draft_sections(&api_key, &write_model, &chat_url, &kind, &ev);
 
     // 3. Render + persist the artifact.
-    let today = &iso_now()[..10];
+    let now = iso_now();
+    let today = &now[..10];
     let md = memo::render_markdown(&kind, &company, today, &sections, &ev);
-    let dir = if settings.out_dir.trim().is_empty() {
-        std::env::temp_dir().join("finmodel-memos")
-    } else {
+    // Durable, DISCOVERABLE default location when the user hasn't set an
+    // output folder: the OS Documents dir (…/finmodel/memos), not %TEMP%
+    // (obscure and auto-cleaned — the old default lost people's memos).
+    let dir = if !settings.out_dir.trim().is_empty() {
         std::path::PathBuf::from(settings.out_dir.trim())
+    } else {
+        use tauri::Manager;
+        app.path()
+            .document_dir()
+            .or_else(|_| app.path().app_config_dir())
+            .map(|d| d.join("finmodel").join("memos"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("finmodel-memos"))
     };
     std::fs::create_dir_all(&dir).map_err(|e| format!("out dir: {e}"))?;
     let stem: String = company
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect();
-    let path = dir.join(format!("{stem}_{kind}_{today}.md"));
+    // Collision-safe basename shared by the memo and its deck: a time suffix
+    // (HHMMSS) plus an incrementing guard so re-drafting the same company/kind
+    // — even twice in one second — never silently overwrites an earlier file.
+    let hms: String = now.get(11..19).unwrap_or("").chars().filter(|c| c.is_ascii_digit()).collect();
+    let base0 = format!("{stem}_{kind}_{today}_{hms}");
+    let mut base = base0.clone();
+    let mut n = 2;
+    while dir.join(format!("{base}.md")).exists() || dir.join(format!("{base}.pptx")).exists() {
+        base = format!("{base0}_{n}");
+        n += 1;
+    }
+    let path = dir.join(format!("{base}.md"));
     std::fs::write(&path, &md).map_err(|e| format!("write memo: {e}"))?;
+    if !path.exists() {
+        return Err("memo file did not persist to disk".into());
+    }
 
     // Optional deck: the same validated sections and evidence, as a compact
     // branded PPTX (cover, prose, key figures, sources).
@@ -1100,13 +1123,21 @@ fn tool_draft_memo(
             &src_titles,
         )
         .map_err(|e| format!("memo deck: {e}"))?;
-        let dp = dir.join(format!("{stem}_{kind}_{today}.pptx"));
+        let dp = dir.join(format!("{base}.pptx"));
         let saved = deck
             .save(&dp.to_string_lossy())
             .map_err(|e| format!("save memo deck: {e}"))?;
         pptx_path = Some(saved);
     }
 
+    // Register both files as generated artifacts (durable via settings.recent,
+    // rehydrated by list_recent after restart) so the card's Open / Show-in-
+    // folder buttons actually resolve — open_path rejects unregistered paths.
+    let klabel = memo::kind_label(&kind);
+    crate::commands::model::push_recent(app, &path.to_string_lossy(), &format!("{company} — {klabel}"));
+    if let Some(pp) = &pptx_path {
+        crate::commands::model::push_recent(app, pp, &format!("{company} — {klabel} deck"));
+    }
     let card = json!({
         "type": "memo",
         "pptx_path": pptx_path,
@@ -1116,6 +1147,8 @@ fn tool_draft_memo(
         "sections": sections.len(),
         "fallback_sections": fallbacks,
         "sources": ev.sources.len(),
+        // In-chat preview so the deliverable is readable without opening a file.
+        "preview": truncate(&md, 4_000),
     });
     Ok((truncate(&md, 12_000), card))
 }

@@ -362,6 +362,47 @@ test("memo card offers the deck when a pptx was produced", async () => {
   });
   assert.ok(!/Open deck/.test(plain.innerHTML), "no deck button without pptx");
 });
+test("memo card previews the draft inline and labels earnings_release", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "memo", kind: "earnings_release", company: "Tesla, Inc.",
+    sections: 4, sources: 2,
+    memo_path: "C:/out/memos/Tesla_earnings_release_2026-07-21_121733.md",
+    preview: "# Tesla, Inc. — Earnings release\n\nDRAFT — NOT FOR DISTRIBUTION.\n\nRevenue was $96,000M.",
+  });
+  const html = el.innerHTML;
+  // The new company-voice kind is humanized in the subtitle, not raw snake_case.
+  assert.match(el.querySelector(".card-sub").textContent, /Earnings release/);
+  // The drafted text is readable in chat (collapsible preview).
+  const pre = el.querySelector(".memo-preview-body");
+  assert.ok(pre, "inline preview present");
+  assert.match(pre.textContent, /DRAFT — NOT FOR DISTRIBUTION/);
+  // Clickable file affordances carry the real path.
+  const open = el.querySelector("[data-open-excel]");
+  assert.equal(open.dataset.openExcel, "C:/out/memos/Tesla_earnings_release_2026-07-21_121733.md");
+  assert.ok(el.querySelector("[data-show-folder]"), "Show in folder present");
+});
+
+test("memo Open surfaces a hint when the file can't be opened", async () => {
+  const ctx = setupDom();
+  const cards = await importModule("cards.mjs");
+  // Reject open_path to simulate an unregistered/moved file.
+  ctx.invokeHandlers["open_path"] = () => {
+    throw new Error("open_path requires a registered artifact handle");
+  };
+  const el = cards.renderCard({
+    type: "memo", kind: "earnings_note", company: "X",
+    sections: 1, sources: 1, memo_path: "C:/gone/x.md",
+  });
+  document.body.appendChild(el);
+  el.querySelector("[data-open-excel]").click();
+  await tick();
+  await tick();
+  const hint = el.querySelector(".open-fail-hint");
+  assert.equal(hint.hidden, false, "failure is surfaced, not swallowed");
+  assert.match(hint.textContent, /Couldn't open it/);
+});
 
 test('advisor card renders the second-look notes', async () => {
   const cards = await importModule('cards.mjs');

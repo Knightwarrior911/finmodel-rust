@@ -19,11 +19,13 @@ use serde_json::Value;
 
 /// Memo kinds an analyst actually writes. Kept to three until each earns
 /// its structure.
-pub const KINDS: &[&str] = &["earnings_note", "company_profile", "deal_summary", "comps_note"];
+pub const KINDS: &[&str] =
+    &["earnings_note", "earnings_release", "company_profile", "deal_summary", "comps_note"];
 
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
         "earnings_note" => "Earnings note",
+        "earnings_release" => "Earnings release",
         "company_profile" => "Company profile",
         "deal_summary" => "Deal summary",
         "comps_note" => "Comps note",
@@ -570,6 +572,12 @@ pub fn section_specs(kind: &str) -> Vec<(&'static str, &'static str, usize)> {
             ("Results", "Two to three sentences on revenue, profitability, and the standout line items versus the prior period. Numbers only from the fact pack.", 3),
             ("Drivers and outlook", "Two to three sentences on what drove the quarter and any guidance or forward commentary found in the research notes. Do not restate figures already covered under Results. If no guidance appears in the evidence, say management gave none in the sources reviewed.", 3),
         ],
+        "earnings_release" => vec![
+            ("Headline", "One sentence in a company press-release voice announcing the period's results, led by the headline figure. Factual, third person, no adjectives that the evidence does not support.", 1),
+            ("Financial highlights", "Two to three sentences stating revenue, earnings, and margin for the period versus the prior period, in plain release language. Every number only from the fact pack.", 3),
+            ("Business commentary", "Two to three sentences on what drove the period, drawn strictly from the research notes. Attribute forward-looking or opinion statements to the company, not to the analyst.", 3),
+            ("Outlook", "One to two sentences on guidance or outlook if it appears in the evidence; if none is present in the sources reviewed, state that the company provided no guidance in the sources reviewed.", 2),
+        ],
         "company_profile" => vec![
             ("Business", "Two to three sentences describing what the company actually sells and to whom, from the research notes only.", 3),
             ("Financial position", "Two to three sentences on scale and trajectory: revenue, margins, cash generation — numbers only from the fact pack.", 3),
@@ -706,6 +714,10 @@ pub fn render_markdown(
 ) -> String {
     let mut md = String::new();
     md.push_str(&format!("# {} — {}\n\n", company, kind_label(kind)));
+    // A company-voice release must never read as an official disclosure.
+    if kind == "earnings_release" {
+        md.push_str("**DRAFT — NOT FOR DISTRIBUTION.** Generated from cited evidence for internal review; figures and any quotations must be verified against the company's official release before any use.\n\n");
+    }
     md.push_str(&format!("*Prepared {date} · finmodel · sources cited below*\n\n"));
     for (heading, text, fell_back) in sections {
         md.push_str(&format!("## {heading}\n\n{text}\n"));
@@ -1226,5 +1238,27 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn earnings_release_kind_is_wired_and_banners_as_draft() {
+        assert!(KINDS.contains(&"earnings_release"));
+        assert_eq!(kind_label("earnings_release"), "Earnings release");
+        // Its own release-voice section plan.
+        let specs = section_specs("earnings_release");
+        assert_eq!(specs.len(), 4);
+        assert!(specs.iter().any(|(h, _, _)| *h == "Financial highlights"));
+        assert!(specs.iter().any(|(h, _, _)| *h == "Outlook"));
+        // Rendered markdown carries the DRAFT / NOT FOR DISTRIBUTION banner so
+        // a company-voice release never reads as an official disclosure — and
+        // the analyst earnings_note does NOT.
+        let ev = pack();
+        let sections: Vec<(String, String, bool)> = specs
+            .iter()
+            .map(|(h, _, _)| (h.to_string(), "x".to_string(), false))
+            .collect();
+        let md = render_markdown("earnings_release", "TestCo", "2026-07-21", &sections, &ev);
+        assert!(md.contains("DRAFT — NOT FOR DISTRIBUTION"), "banner missing:\n{md}");
+        let note = render_markdown("earnings_note", "TestCo", "2026-07-21", &sections, &ev);
+        assert!(!note.contains("NOT FOR DISTRIBUTION"));
     }
 }

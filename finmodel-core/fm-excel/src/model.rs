@@ -23,11 +23,11 @@ pub const LIGHT_BLUE: &str = "FFDEEAF1";
 // ── Number formats (product polish; NOT part of the snapshot gate) ───────────
 // Ported verbatim from writer.py `_Fmt` (Section 3 codes).
 /// Plain number, thousands-separated: `#,##0`.
-pub const FMT_NUM: &str = "#,##0_);(#,##0);\"-\";@";
+pub const FMT_NUM: &str = "#,##0_);(#,##0);\"-\"_);@_)";
 /// Percentage, one decimal: `0.0%`.
-pub const FMT_PCT: &str = "0.0%_);(0.0%);\"-\";@";
+pub const FMT_PCT: &str = "0.0%_);(0.0%);\"-\"_);@_)";
 /// EV/EBITDA-style multiple: `0.0"x"`.
-pub const FMT_MULT: &str = "0.0\"x\";(0.0\"x\");\"-\";@";
+pub const FMT_MULT: &str = "0.0\"x\"_);(0.0\"x\");\"-\"_);@_)";
 /// Check rows — always render a dash.
 pub const FMT_CHECK: &str = "\"-\";;\"-\"";
 
@@ -35,7 +35,7 @@ pub const FMT_CHECK: &str = "\"-\";;\"-\"";
 /// currencies (writer.py only prefixes `$` for USD).
 pub fn fmt_dollar(currency: &str) -> &'static str {
     if currency == "USD" {
-        "$#,##0_);($#,##0);\"-\";@"
+        "$#,##0_);($#,##0);\"-\"_);@_)"
     } else {
         FMT_NUM
     }

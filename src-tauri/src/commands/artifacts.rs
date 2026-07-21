@@ -419,6 +419,20 @@ mod tests {
         assert!(reg.resolve(&a, None).is_ok());
         assert!(reg.resolve(&a, Some("any")).is_ok());
     }
+    #[test]
+    fn generated_file_and_folder_pass_open_path_gate() {
+        // open_path allowlists only paths present in the registry
+        // (contains_path). A generated memo/deck AND its containing folder
+        // must both register, so "Open" and "Show in folder" resolve.
+        let reg = ArtifactRegistry::default();
+        let file = std::path::PathBuf::from("C:/out/memos/TestCo_earnings_note_2026-07-21_121733.md");
+        let folder = std::path::PathBuf::from("C:/out/memos");
+        assert!(!reg.contains_path(&file));
+        reg.ensure_generated(file.clone(), "memo");
+        reg.ensure_generated(folder.clone(), "folder");
+        assert!(reg.contains_path(&file), "Open memo would be rejected");
+        assert!(reg.contains_path(&folder), "Show in folder would be rejected");
+    }
 
     #[test]
     fn drop_grant_is_one_use() {

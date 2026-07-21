@@ -574,6 +574,8 @@ export function memoKindLabel(kind) {
   switch (String(kind || "")) {
     case "earnings_note":
       return "Earnings note";
+    case "earnings_release":
+      return "Earnings release";
     case "company_profile":
       return "Company profile";
     case "deal_summary":
