@@ -1,5 +1,38 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.37 SHIPPED + LIVE (2026-07-21) — dispatch_swarm parallel subagent fan-out
+**Tagged v0.9.37; Latest on finmodel-releases; CI green (run 29854045813, all 5
+jobs); endpoint VERIFIED (latest.json 0.9.37, sig 420, installer HTTP 200,
+6,823,657 bytes). Gates: app-lib 389, ui 208, python 234 (9 skip).**
+
+- **`dispatch_swarm` (new tool, 18th in the registry):** one call spawns an army
+  of read-only research subagents that run in PARALLEL, one per slice. Args
+  `{ context, tasks[] }` — shared context prepended to every worker + up to
+  `MAX_SWARM=8` slices `{ name?, task, agent? }`. Reuses `run_child_loop`
+  (`tool_run_agent`/`tool_delegate`) so it is guaranteed fan-out, never new agent
+  behavior. Consolidated `swarm` card: one panel per worker in input order,
+  per-slice trail, `k/n returned a brief` tally; failed slices marked not dropped.
+  Base doctrine nudges the analyst to swarm a divisible task automatically.
+- **Bounded via shared slots:** new `ActorRegistry::acquire_active_slot` lets the
+  batch borrow the run's per-run/global permits (4/8) instead of an inner pool —
+  several swarms in one turn can't oversubscribe; global-then-per-run order =
+  deadlock-free. Excluded from child/agent belts (one level deep). Returned
+  briefs' spend aggregates into the card's `usage`, charged once (a failed slice
+  bills like a failed `delegate_analysis` — partial spend not recharged).
+- Files: `agent/tools.rs` (spec+schema+validate, count pins→18), `commands/chat.rs`
+  (`tool_swarm`/`parse_swarm_tasks`/`build_swarm_output`, doctrine), `agent/registry.rs`
+  (shared slot), `agent/delegate.rs` (belt exclusions), `ui/js/cards.mjs`+`style.css`
+  (`renderSwarm`). Referenced OMP `@oh-my-pi/pi-coding-agent@17.0.4` `src/task/` batch contract.
+- Commits: feature `dd8969d`, memory/doc reconcile `e5a6201`. Memory refreshed:
+  `.claude/memory/{architecture,workflows,conventions}.md` (workflows release ritual
+  reconciled to the authoritative checklist: sign-in-build, tag-after-CI).
+- **Live leg untested here:** the swarm's live LLM legs (child loops hitting the
+  provider) were NOT run this session (no OpenRouter key/network). All deterministic
+  logic — parse, fan-out, shared-slot bounding, aggregation, card, belt exclusion —
+  is unit-tested; the child-loop it drives is the same code the existing delegate
+  path uses. Live tie-out (checklist step 1) not run — Python core untouched; the
+  deterministic tie-out regression guard passed inside the 234 pytest gate.
+
 ## HANDOVER — v0.9.36 SHIPPED + LIVE (2026-07-21) — reject blank citation quotes + answer-quality eval harness
 **Tagged v0.9.36; Latest on finmodel-releases; CI green (run 29828081488);
 endpoint VERIFIED (latest.json 0.9.36, sig 420, installer HTTP 200, 6,791,382
