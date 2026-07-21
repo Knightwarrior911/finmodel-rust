@@ -1,5 +1,22 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.35 SHIPPED + LIVE (2026-07-21) — house dollar rule finished (section-first $ + per-share cents)
+**Tagged v0.9.35; Latest on finmodel-releases; CI green (run 29815321599);
+endpoint VERIFIED (latest.json 0.9.35, sig 420, installer HTTP 200, 6,787,273
+bytes). Gates: full workspace green + new cell-format tests.**
+
+- **Section-first `$`** on every statement section (IS/BS/CF) via a row-level
+  selector in the statement builders; ordinary dollar rows stay plain.
+- **Per-share/price cells show cents** (`$#,##0.00`) workbook-wide: IS EPS, CF
+  Dividend/Share, Assumptions Dividend/Share + Current Share Price, DCF
+  implied/current price + both sensitivity matrices, Sensitivities tables, Cover
+  prices, Comps peer Price/52w/LTM-EPS + Implied Per-Share Price. Aggregate `$M`
+  figures and share counts stay integer; `$` suppressed for non-USD.
+- New helper `fmt_per_share(currency)` in `fm-excel/src/model.rs`. Tests:
+  `fm-excel/tests/formats.rs` (Assumptions via SEK snapshot + every valuation
+  sheet via fixtures) and a `fm-build` statement test (USD + EUR).
+- Completes the number-format spec deferred in v0.9.34.
+
 ## HANDOVER — v0.9.34 SHIPPED + LIVE (2026-07-21) — memo artifacts findable/openable + format spec + region-aware agents
 **Tagged v0.9.34 (release 0a00d17 + fallback fix dd041c1); Latest on
 finmodel-releases; CI green (run 29811922760); endpoint VERIFIED
