@@ -1,5 +1,30 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.36 SHIPPED + LIVE (2026-07-21) — reject blank citation quotes + answer-quality eval harness
+**Tagged v0.9.36; Latest on finmodel-releases; CI green (run 29828081488);
+endpoint VERIFIED (latest.json 0.9.36, sig 420, installer HTTP 200, 6,791,382
+bytes). Gates: fm-research 131 lib + 15 eval, app-lib builds clean.**
+
+- **Grounding fix (production):** `synth::validate_synthesis` now rejects
+  blank/whitespace-only citation quotes (`BlankQuote`) — an empty quote is a
+  substring of every source, so it previously passed and let a citation ground
+  nothing. The quality grader mirrors this rule.
+- **Answer-quality eval harness** (`fm-research/src/quality_eval.rs`): offline
+  grader (`grade`) + model×prompt sweep (`run_sweep` / `run_sweep_from_json`) +
+  committed regression gate (`tests/baselines/quality_v1.json` — gold hash +
+  weights pinned EXACTLY, per-case/mean scores as regression FLOORS) + CLI
+  (`examples/quality_sweep.rs`, exit 1 below floor / 2 on bad input). Metrics:
+  completeness (answer PROSE only), section + citation coverage, `quote_integrity`
+  (verbatim case-sensitive substring — same rule as `validate_synthesis`), and
+  cited-`Read`-source sufficiency. Gold facts use `any_of` phrasings with exact
+  numeric anchors (paraphrase-tolerant, wrong-magnitude-safe).
+- Memory refreshed: `.claude/memory/{architecture,workflows,conventions}.md`.
+- Commits: feature `062ebcc`, release `4b90f34`.
+- **Live leg untested here:** model×prompt generation is a separate app-layer
+  producer (openrouter unreachable this session); the harness scores its JSON
+  artifacts offline. The blank-quote fix's live synthesis path is unit-tested,
+  not run against a live model this session.
+
 ## HANDOVER — v0.9.35 SHIPPED + LIVE (2026-07-21) — house dollar rule finished (section-first $ + per-share cents)
 **Tagged v0.9.35; Latest on finmodel-releases; CI green (run 29815321599);
 endpoint VERIFIED (latest.json 0.9.35, sig 420, installer HTTP 200, 6,787,273
