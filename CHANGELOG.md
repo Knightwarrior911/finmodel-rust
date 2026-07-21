@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.33 - 2026-07-20 - A starter bench of agents, ready out of the box
+
+- **Five specialists ship with the app.** The Agents tab is no longer
+  empty on a fresh install - it comes seeded with a read-only research
+  bench the analyst can dispatch (in parallel) and you can edit or delete:
+  - **diligence-reviewer** - red-teams a company or deal, hunting risks,
+    contingencies, and figures that don't hold up.
+  - **comps-analyst** - builds and sanity-checks trading/precedent comps
+    and justifies every peer.
+  - **earnings-reviewer** - reads the latest quarter/year for beats,
+    misses, guidance, and a one-line thesis.
+  - **credit-analyst** - leverage, coverage, liquidity, and the maturity
+    wall through a lender's eyes.
+  - **deal-screener** - a fast go/no-go read on an M&A or LBO idea.
+- Each agent comes wired to the matching built-in skills (comparable-
+  companies, credit-analysis, earnings-analysis, reviewer, and more), so
+  its playbook is loaded the moment it's dispatched.
+- **Your bench stays yours.** The starter set seeds once; your edits win
+  and a deleted agent stays gone across restarts (same one-shot rule as
+  the built-in skills).
+
 ## v0.9.32 - 2026-07-20 - Bug-hunt pass: four fixes across the new agentic surface
 
 - **Agents no longer dead-end on a data room.** A dispatched agent has

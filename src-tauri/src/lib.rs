@@ -30,9 +30,11 @@ pub fn run() {
             // must never take the app down.
             match app.path().app_config_dir() {
                 Ok(dir) => {
-                    // Seed the bundled IB/financial-analysis skills once
-                    // (never overwrites user files; deletions stay sticky).
+                    // Seed the bundled IB/financial-analysis skills and the
+                    // starter agent bench once (never overwrites user files;
+                    // deletions stay sticky per the .seeded marker).
                     let _ = agent::skills::seed_builtin_skills(&dir);
+                    let _ = agent::agents::seed_builtin_agents(&dir);
                     match store::init(&dir) {
                         Ok((handle, report, workspace_id)) => {
                             if !report.quarantined.is_empty() {

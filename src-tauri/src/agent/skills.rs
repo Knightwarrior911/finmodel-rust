@@ -222,6 +222,13 @@ const BUILTIN_SKILLS: &[(&str, &str)] = &[
 /// of a built-in skill is sticky across restarts.
 const SEED_MARKER: &str = ".seeded_v1";
 
+/// The names of the built-in skills — for cross-catalog checks (e.g. that a
+/// bundled agent only references skills that actually exist). Test-only.
+#[cfg(test)]
+pub(crate) fn builtin_skill_names() -> Vec<&'static str> {
+    BUILTIN_SKILLS.iter().map(|(n, _)| *n).collect()
+}
+
 /// Seed the built-in skill set into `<config_dir>/skills/` exactly once.
 /// Existing files are never overwritten (user edits win) and the marker keeps
 /// deletions sticky. Best-effort: IO failures skip, never abort startup.

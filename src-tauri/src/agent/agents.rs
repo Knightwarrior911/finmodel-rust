@@ -202,6 +202,59 @@ pub fn agent_system_prompt(config_dir: &Path, def: &AgentDef, ground_rules: &str
     prompt.push_str(ground_rules);
     prompt
 }
+/// The starter bench shipped with the app, seeded once into
+/// `<config_dir>/agents/` at startup (see `run()` in lib.rs). Each file lives
+/// in `src-tauri/agents/` and must parse + reference only real built-in
+/// skills (both enforced by tests). Read-only research specialists.
+const BUILTIN_AGENTS: &[(&str, &str)] = &[
+    (
+        "diligence-reviewer",
+        include_str!("../../agents/diligence-reviewer.md"),
+    ),
+    (
+        "comps-analyst",
+        include_str!("../../agents/comps-analyst.md"),
+    ),
+    (
+        "earnings-reviewer",
+        include_str!("../../agents/earnings-reviewer.md"),
+    ),
+    (
+        "credit-analyst",
+        include_str!("../../agents/credit-analyst.md"),
+    ),
+    (
+        "deal-screener",
+        include_str!("../../agents/deal-screener.md"),
+    ),
+];
+
+/// Marker that makes seeding one-shot per version: a user's later delete of a
+/// built-in agent stays sticky across restarts.
+const SEED_MARKER: &str = ".seeded_v1";
+
+/// Seed the starter agents into `<config_dir>/agents/` exactly once. Existing
+/// files are never overwritten (user edits win) and the marker keeps deletions
+/// sticky. Best-effort: IO failures skip, never abort startup. Returns how
+/// many files were written.
+pub fn seed_builtin_agents(config_dir: &Path) -> usize {
+    let dir = agents_dir(config_dir);
+    if dir.join(SEED_MARKER).exists() {
+        return 0;
+    }
+    if std::fs::create_dir_all(&dir).is_err() {
+        return 0;
+    }
+    let mut written = 0;
+    for (name, content) in BUILTIN_AGENTS {
+        let path = dir.join(format!("{name}.md"));
+        if !path.exists() && std::fs::write(&path, content).is_ok() {
+            written += 1;
+        }
+    }
+    let _ = std::fs::write(dir.join(SEED_MARKER), "v1\n");
+    written
+}
 
 #[cfg(test)]
 mod tests {
@@ -263,6 +316,51 @@ mod tests {
         assert!(p.contains("`beta-skill` listed for this agent no longer exists"));
         // Ground rules close the prompt.
         assert!(p.trim_end().ends_with("GROUND RULES HERE"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn bundled_agents_parse_match_names_and_cite_real_skills() {
+        let known: std::collections::HashSet<&str> =
+            crate::agent::skills::builtin_skill_names().into_iter().collect();
+        assert_eq!(BUILTIN_AGENTS.len(), 5, "the starter bench is five agents");
+        for (name, content) in BUILTIN_AGENTS {
+            let def = parse_agent(content)
+                .unwrap_or_else(|| panic!("bundled agent `{name}` does not parse"));
+            // Frontmatter name must match the file stem (seeding writes by stem).
+            assert_eq!(&def.name, name, "agent `{name}` frontmatter name mismatch");
+            assert!(!def.description.is_empty());
+            assert!(!def.skills.is_empty(), "`{name}` should wire real skills");
+            // Every referenced skill must exist — no typos, no silent
+            // preload-degradation when a skill is renamed later.
+            for s in &def.skills {
+                assert!(
+                    known.contains(s.as_str()),
+                    "agent `{name}` references unknown skill `{s}`"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn seed_builtin_agents_is_one_shot_and_never_clobbers() {
+        let dir = tmp();
+        // A user's own comps-analyst exists BEFORE the first seed.
+        let mine = "---\nname: comps-analyst\ndescription: my tweak\n---\nmy own doctrine\n";
+        save_agent(&dir, "comps-analyst", mine).unwrap();
+        // First run writes every OTHER agent, skips the pre-existing one.
+        let n = seed_builtin_agents(&dir);
+        assert_eq!(n, BUILTIN_AGENTS.len() - 1, "the user's file is not overwritten");
+        assert_eq!(list_agents(&dir).len(), BUILTIN_AGENTS.len());
+        assert_eq!(
+            get_agent(&dir, "comps-analyst").unwrap().description,
+            "my tweak",
+            "the user's content survived the first seed"
+        );
+        // Second run: marker makes it a no-op, and a delete stays sticky.
+        delete_agent(&dir, "credit-analyst").unwrap();
+        let n2 = seed_builtin_agents(&dir);
+        assert_eq!(n2, 0, "marker makes re-seeding a no-op");
+        assert!(get_agent(&dir, "credit-analyst").is_none(), "deletion stays sticky");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
