@@ -26,7 +26,9 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
 - `tools.rs` — `ToolRegistry`, `ToolSpec`, `agent_schemas()` / `agent_schemas_read_only()`, catalog.
 - `scheduler.rs` — `plan_batches`: read-only tools fan out in parallel; write-class serialize.
 - `executors.rs` — `execute_batch` (thread::scope parallel), `tool_error_content`.
-- `delegate.rs` — child-agent loop (`run_child_loop`), `child_tool_belt`/`agent_tool_belt`, usage helpers.
+- `delegate.rs` — child-agent loop (`run_child_loop`) backing `delegate_analysis`, `run_agent`,
+  AND `dispatch_swarm`; `child_tool_belt`/`agent_tool_belt` (swarm/delegate excluded — one level
+  deep, no nesting), usage helpers.
 - `agents.rs` — user-defined agents (AGENT.md store, mirrors `skills.rs`). Ships a 5-agent
   starter bench in `src-tauri/agents/` (`BUILTIN_AGENTS`); `seed_builtin_agents` seeds it once
   at startup (lib.rs) — never clobbers user edits, deletions sticky (`.seeded_v1` marker).
@@ -35,10 +37,15 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
 - `modes.rs` — `AgentMode` (Analyst/Plan/Goal/Loop/Skeptic): policy, read_only, doctrine layer.
 - `model_router.rs`, `provider.rs`, `context.rs` (build_context), `grounding.rs`, `verification.rs`,
   `memory.rs`, `subagents.rs`, `fallback.rs`.
+- `registry.rs` — `ActorRegistry`: active-run authority + shared execution slots
+  (`GLOBAL_SLOTS` 8 / `PER_RUN_SLOTS` 4). `acquire_active_slot(conversation_id)` lets a nested
+  executor (the `dispatch_swarm` batch) borrow the SAME per-run/global permits, so a wide swarm
+  (or several in one turn) can never oversubscribe the run's concurrency ceiling.
 
 ## src-tauri commands — `src-tauri/src/commands/`
 - `chat.rs` — the big one: `build_chat_request`, `stream_completion_for_agent`, `run_tool`
-  (all tool dispatch), `seed_agent_messages_for_model`, `financials_from_facts`.
+  (all tool dispatch, incl. `tool_swarm` = `dispatch_swarm` parallel subagent fan-out),
+  `seed_agent_messages_for_model`, `financials_from_facts`.
 - `agent.rs` — `agent_send`/`agent_resume`, skills_*/agents_* CRUD commands.
 - `dataroom.rs` — data-room review (walk/extract/chunk/BM25/`resolve_findings`).
 - `secrets.rs` — OpenRouter key in OS credential store (keyring), service `finmodel`,

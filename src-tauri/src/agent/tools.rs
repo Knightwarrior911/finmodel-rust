@@ -128,6 +128,59 @@ fn validate_run_agent(args: &Value) -> Result<(), String> {
     require_nonempty(args, "task")
 }
 
+/// A swarm spawns at most this many subagents in one call (the OMP `task[]`
+/// batch, scoped to this product). Bounded so a single turn can never
+/// oversubscribe the run's execution slots.
+pub(crate) const MAX_SWARM: usize = 8;
+
+fn validate_swarm(args: &Value) -> Result<(), String> {
+    require_nonempty(args, "context")?;
+    let tasks = args
+        .get("tasks")
+        .and_then(|v| v.as_array())
+        .ok_or("`tasks` must be a non-empty array of subtasks")?;
+    if tasks.is_empty() {
+        return Err("`tasks` must have at least one subtask".into());
+    }
+    if tasks.len() > MAX_SWARM {
+        return Err(format!(
+            "a swarm runs at most {MAX_SWARM} subagents at once - send fewer slices or split the work"
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    for (i, t) in tasks.iter().enumerate() {
+        match t.get("task").and_then(|v| v.as_str()) {
+            Some(s) if !s.trim().is_empty() => {}
+            _ => return Err(format!("subtask #{} needs a non-empty `task`", i + 1)),
+        }
+        if let Some(name) = t.get("name") {
+            let name = name
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("subtask #{} has an empty `name`", i + 1))?;
+            if !names.insert(name.to_lowercase()) {
+                return Err(format!(
+                    "subtask #{} repeats name `{name}` - swarm task names must be unique",
+                    i + 1
+                ));
+            }
+        }
+        if let Some(a) = t.get("agent") {
+            match a.as_str() {
+                Some(s) if !s.trim().is_empty() => {}
+                _ => {
+                    return Err(format!(
+                        "subtask #{} has an empty `agent` - omit it for the default analyst, or name a catalog agent",
+                        i + 1
+                    ))
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_data_room(args: &Value) -> Result<(), String> {
     require_nonempty(args, "path")?;
     match args.get("questions").and_then(|v| v.as_array()) {
@@ -240,6 +293,34 @@ fn schema_run_agent() -> Value {
             "task": { "type": "string", "description": "The complete, self-contained task for the agent." }
         },
         "required": ["agent", "task"]
+    })
+}
+
+fn schema_swarm() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "context": {
+                "type": "string",
+                "description": "Shared background prepended to EVERY subagent assignment: the overall goal, constraints, scope, period/date, and any common output contract. Put only shared facts here; each task still carries its own exact slice."
+            },
+            "tasks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_SWARM,
+                "description": "The independent slices to run in parallel - one subagent per slice. Split a large task into slices that do NOT depend on each other's output.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Optional short, unique label for this slice (for example `NVDA margins` or `Risk factors`)." },
+                        "task": { "type": "string", "description": "The complete, self-contained instructions for this independent slice. It receives the shared context above but cannot see another slice's output." },
+                        "agent": { "type": "string", "description": "Optional: the name of one of the USER'S agents (from the Agents catalog) to run this slice. Omit to use the default junior analyst." }
+                    },
+                    "required": ["task"]
+                }
+            }
+        },
+        "required": ["context", "tasks"]
     })
 }
 
@@ -503,6 +584,20 @@ impl ToolRegistry {
                 model_visible: true,
             },
             ToolSpec {
+                name: "dispatch_swarm",
+                label: "Dispatch swarm",
+                description: "Spawn an ARMY of subagents that work in PARALLEL - one per slice, all in a single call. The fan-out primitive for a large, multi-part task: put shared goal/constraints in `context`, decompose the work into independent `tasks` (per company, section, or question), and get every findings brief back at once. Each task may have a unique `name` for tracking and may name one of the user's agents (see the Agents catalog), or omit `agent` to use the default analyst. Use this instead of firing delegate_analysis/run_agent one at a time when a request splits into 2-8 independent parts. Slices cannot see one another's output. Results remain in input order; partial failures do not erase successful briefs.",
+                risk: Risk::ReadOnly,
+                capabilities: &["research", "delegate"],
+                required_args: &["context", "tasks"],
+                interruptible: true,
+                idempotent: false,
+                trust: TrustPolicy::Untrusted,
+                validate: validate_swarm,
+                params_schema: schema_swarm,
+                model_visible: true,
+            },
+            ToolSpec {
                 name: "research",
                 label: "Research",
                 description: "Research a question with web search + page/filing reading + cited synthesis. Use for current, factual, entity, or numeric questions that need up-to-date primary-source evidence (e.g. revenue growth, market trends, guidance). Returns a cited answer.",
@@ -748,7 +843,7 @@ mod tests {
         ] {
             assert!(r.get(name).is_some(), "missing {name}");
         }
-        assert_eq!(r.names().len(), 17);
+        assert_eq!(r.names().len(), 18);
     }
 
     #[test]
@@ -859,7 +954,7 @@ mod tests {
     fn catalog_lists_all_tools_sorted() {
         let r = ToolRegistry::builtin();
         let cat = r.catalog();
-        assert_eq!(cat.lines().count(), 17);
+        assert_eq!(cat.lines().count(), 18);
         assert!(cat.contains("build_model"));
     }
 
@@ -901,6 +996,58 @@ mod tests {
         assert_eq!(ranked[0], "build_model");
         // Deterministic: identical query → identical order.
         assert_eq!(ranked, r.rank_for_query("build a dcf excel model"));
-        assert_eq!(ranked.len(), 17);
+        assert_eq!(ranked.len(), 18);
+    }
+
+    #[test]
+    fn dispatch_swarm_registered_and_validated() {
+        let r = ToolRegistry::builtin();
+        let spec = r.get("dispatch_swarm").expect("dispatch_swarm registered");
+        assert_eq!(spec.risk, Risk::ReadOnly);
+        assert!(spec.model_visible, "swarm is offered to the orchestrator");
+        // Empty / missing tasks rejected.
+        assert!(r.validate_call("dispatch_swarm", &serde_json::json!({})).is_err());
+        assert!(r
+            .validate_call("dispatch_swarm", &serde_json::json!({ "context": "peer sweep", "tasks": [] }))
+            .is_err());
+        // A slice missing `task` is rejected.
+        assert!(r
+            .validate_call(
+                "dispatch_swarm",
+                &serde_json::json!({ "context": "peer sweep", "tasks": [{ "agent": "Screener" }] })
+            )
+            .is_err());
+        // Over the cap is rejected.
+        let too_many: Vec<serde_json::Value> = (0..MAX_SWARM + 1)
+            .map(|i| serde_json::json!({ "task": format!("slice {i}") }))
+            .collect();
+        assert!(r
+            .validate_call("dispatch_swarm", &serde_json::json!({ "context": "peer sweep", "tasks": too_many }))
+            .is_err());
+        // A mix of default and named-agent slices passes.
+        assert!(r
+            .validate_call(
+                "dispatch_swarm",
+                &serde_json::json!({
+                    "context": "Compare latest annual peer margins on the same reported basis.",
+                    "tasks": [
+                        { "name": "NVDA", "task": "margins for NVDA" },
+                        { "name": "AMD", "task": "margins for AMD", "agent": "Screener" }
+                    ]
+                })
+            )
+            .is_ok());
+        assert!(r
+            .validate_call(
+                "dispatch_swarm",
+                &serde_json::json!({
+                    "context": "peer sweep",
+                    "tasks": [
+                        { "name": "NVDA", "task": "first" },
+                        { "name": "nvda", "task": "duplicate, case-insensitive" }
+                    ]
+                })
+            )
+            .is_err());
     }
 }

@@ -815,7 +815,7 @@ pub(crate) fn seed_agent_messages_for_model(
 ) -> Vec<Value> {
     let today = &iso_now()[..10];
     let system = format!(
-        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory.\n\nNever compute material percentages, growth rates, ratios, or multiples in prose — call a deterministic tool (get_financials, benchmark_peers, build_model) and cite its source. The structured tool result, not your own arithmetic, is the authority for every material number."
+        "{SYSTEM_PROMPT}\n\nToday's date is {today} (UTC). You do not have reliable knowledge of events after your training cutoff, so for anything current, recent, \"latest\", or time-bound, rely on tool results rather than your own memory.\n\nNever compute material percentages, growth rates, ratios, or multiples in prose — call a deterministic tool (get_financials, benchmark_peers, build_model) and cite its source. The structured tool result, not your own arithmetic, is the authority for every material number.\n\nFor a long request that divides into 2-8 genuinely independent slices, automatically use dispatch_swarm ONCE: put shared goal/constraints in context and every slice in tasks[]. Do not dispatch those slices one-by-one. Keep dependent work in the parent; swarm workers cannot see one another's output."
     );
     let user_content: Value = if images.is_empty() {
         json!(user_text)
@@ -953,6 +953,253 @@ fn tool_delegate(
     ))
 }
 
+/// One slice of a swarm: a self-contained subtask, optionally named for the
+/// live/result UI and optionally routed to a named user agent (else the
+/// default junior analyst runs it).
+#[derive(Clone, Debug)]
+struct SwarmSlice {
+    name: Option<String>,
+    task: String,
+    agent: Option<String>,
+}
+
+/// Parse `dispatch_swarm` arguments into shared context + typed slices.
+/// Mirrors `tools::validate_swarm` so a direct `run_tool` call (which does not
+/// re-validate) still fails cleanly instead of spawning junk children.
+fn parse_swarm_tasks(args: &Value) -> Result<(String, Vec<SwarmSlice>), String> {
+    let context = args
+        .get("context")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or("dispatch_swarm needs non-empty shared `context`")?
+        .to_string();
+    let tasks = args
+        .get("tasks")
+        .and_then(|v| v.as_array())
+        .ok_or("dispatch_swarm needs a `tasks` array")?;
+    if tasks.is_empty() {
+        return Err("dispatch_swarm needs at least one subtask".into());
+    }
+    if tasks.len() > crate::agent::tools::MAX_SWARM {
+        return Err(format!(
+            "a swarm runs at most {} subagents at once",
+            crate::agent::tools::MAX_SWARM
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut slices = Vec::with_capacity(tasks.len());
+    for (i, t) in tasks.iter().enumerate() {
+        let task = t
+            .get("task")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| format!("subtask #{} needs a non-empty `task`", i + 1))?;
+        let name = t
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(name) = &name {
+            if !names.insert(name.to_lowercase()) {
+                return Err(format!("subtask #{} repeats name `{name}`", i + 1));
+            }
+        }
+        let agent = t
+            .get("agent")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        slices.push(SwarmSlice {
+            name,
+            task: task.to_string(),
+            agent,
+        });
+    }
+    Ok((context, slices))
+}
+
+/// Fold each subagent's outcome into the consolidated swarm card and the
+/// compact parent-facing brief. Pure (no `AppHandle`) so it is unit-testable
+/// without spawning children: each `Ok` carries the child's `delegate` card
+/// (findings, trail, tools_used, usage); each `Err` carries the reason.
+fn build_swarm_output(
+    context: &str,
+    outcomes: &[(SwarmSlice, Result<(String, Value), String>)],
+) -> (String, Value) {
+    use crate::agent::delegate::{add_usage, usage_value};
+    let mut usage_total: (u64, u64, f64, bool) = (0, 0, 0.0, false);
+    let mut agents: Vec<Value> = Vec::with_capacity(outcomes.len());
+    let mut lines: Vec<String> = Vec::new();
+    let mut ok_count = 0usize;
+    for (idx, (slice, outcome)) in outcomes.iter().enumerate() {
+        let worker = match &slice.agent {
+            Some(a) => format!("Agent {a}"),
+            None => "Deep dive".to_string(),
+        };
+        let label = slice.name.as_deref().unwrap_or(&worker);
+        let task_head = truncate(&slice.task, 90);
+        match outcome {
+            Ok((_summary, card)) => {
+                ok_count += 1;
+                add_usage(&mut usage_total, card.get("usage"));
+                let findings = card
+                    .get("findings")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let lead = findings
+                    .lines()
+                    .find(|l| !l.trim().is_empty())
+                    .unwrap_or("(no findings)")
+                    .trim();
+                let worker_note = if label == worker {
+                    String::new()
+                } else {
+                    format!(" ({worker})")
+                };
+                lines.push(format!(
+                    "[{}] {label}{worker_note} - {task_head}: {}",
+                    idx + 1,
+                    truncate(lead, 220)
+                ));
+                agents.push(json!({
+                    "label": label,
+                    "name": slice.name,
+                    "agent": slice.agent,
+                    "task": slice.task,
+                    "ok": true,
+                    "findings": findings,
+                    "tools_used": card.get("tools_used").cloned().unwrap_or_else(|| json!([])),
+                    "trail": card.get("trail").cloned().unwrap_or_else(|| json!([])),
+                }));
+            }
+            Err(e) => {
+                let worker_note = if label == worker {
+                    String::new()
+                } else {
+                    format!(" ({worker})")
+                };
+                lines.push(format!(
+                    "[{}] {label}{worker_note} - {task_head}: FAILED - {e}",
+                    idx + 1
+                ));
+                agents.push(json!({
+                    "label": label,
+                    "name": slice.name,
+                    "agent": slice.agent,
+                    "task": slice.task,
+                    "ok": false,
+                    "error": e,
+                }));
+            }
+        }
+    }
+    let n = outcomes.len();
+    let context_head = truncate(context.trim(), 180);
+    let header = format!(
+        "Swarm complete: {ok_count}/{n} subagents returned a brief.\nShared context: {context_head}"
+    );
+    let summary = format!("{header}\n\n{}", lines.join("\n\n"));
+    let card = json!({
+        "type": "swarm",
+        "context": context.trim(),
+        "count": n,
+        "ok_count": ok_count,
+        "agents": agents,
+        "usage": usage_value(&usage_total),
+    });
+    (summary, card)
+}
+
+/// Dispatch a swarm (dispatch_swarm): spawn one subagent per slice and run
+/// them all in PARALLEL (waves bounded by the run's execution slots), then
+/// fold the briefs into one consolidated card. Each slice reuses the exact
+/// per-slice path a hand-fired run_agent / delegate_analysis would take, so a
+/// swarm is just guaranteed fan-out - never new agent behavior. Each returned
+/// brief's spend is aggregated into the card's `usage` and charged once to the
+/// CostGuard like any delegated work; a slice that fails before returning a
+/// brief is billed like a failed delegate_analysis (partial spend not recharged).
+fn tool_swarm(
+    app: &tauri::AppHandle,
+    args: &Value,
+    conversation_id: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(String, Value), String> {
+    use tauri::Manager;
+    let (context, slices) = parse_swarm_tasks(args)?;
+    // Fail before spawning any thread if the key is missing - every child
+    // would otherwise fail with the same message.
+    if read_settings(app).openrouter_api_key.trim().is_empty() {
+        return Err("a swarm needs the OpenRouter key configured in Settings".into());
+    }
+    // Resolve the ACTIVE run's shared global/per-run semaphores once. Every
+    // child acquires one permit before provider/tool I/O, so even several
+    // dispatch_swarm calls in the same model turn cannot multiply 4-per-run
+    // into 16+ inner loops.
+    let registry = app
+        .try_state::<crate::agent::registry::ActorRegistry>()
+        .map(|state| (*state).clone())
+        .ok_or("swarm requires the unified agent runtime")?;
+    if registry.active_run(conversation_id).is_none() {
+        return Err("swarm requires an active unified-agent run".into());
+    }
+    let indexed: Vec<(usize, SwarmSlice)> = slices.into_iter().enumerate().collect();
+    let collected: parking_lot::Mutex<Vec<(usize, SwarmSlice, Result<(String, Value), String>)>> =
+        parking_lot::Mutex::new(Vec::with_capacity(indexed.len()));
+    // Waves bounded by PER_RUN_SLOTS so a wide swarm never oversubscribes the
+    // run's concurrency ceiling; each slice runs on its own OS thread and
+    // drives its child loop to terminal via block_on - the proven parallel
+    // path execute_batch already uses for several run_agent calls in one turn.
+    for chunk in indexed.chunks(crate::agent::registry::PER_RUN_SLOTS) {
+        std::thread::scope(|s| {
+            for (idx, slice) in chunk {
+                let collected = &collected;
+                let registry = &registry;
+                let context = &context;
+                s.spawn(move || {
+                    let slot =
+                        tauri::async_runtime::block_on(registry.acquire_active_slot(conversation_id));
+                    let outcome = if cancel.is_cancelled() {
+                        Err("swarm cancelled".to_string())
+                    } else if slot.is_none() {
+                        Err("swarm execution slot unavailable".to_string())
+                    } else {
+                        let assignment = format!(
+                            "Shared context (applies to every swarm worker):\n{context}\n\nYour assigned slice:\n{}",
+                            slice.task
+                        );
+                        if let Some(name) = &slice.agent {
+                            tool_run_agent(
+                                app,
+                                &json!({ "agent": name, "task": assignment }),
+                                conversation_id,
+                                cancel,
+                            )
+                        } else {
+                            tool_delegate(
+                                app,
+                                &json!({ "task": assignment }),
+                                conversation_id,
+                                cancel,
+                            )
+                        }
+                    };
+                    collected.lock().push((*idx, slice.clone(), outcome));
+                });
+            }
+        });
+    }
+    let mut rows = collected.into_inner();
+    rows.sort_by_key(|(i, _, _)| *i);
+    let ordered: Vec<(SwarmSlice, Result<(String, Value), String>)> =
+        rows.into_iter().map(|(_, slice, outcome)| (slice, outcome)).collect();
+    Ok(build_swarm_output(&context, &ordered))
+}
+
 /// Execute a tool. Returns `(llm_result_text, card)`. Errors bubble as `Err`.
 /// `user_msg` is the ORIGINAL user text — the `research` tool normalizes against
 /// it rather than the model's rewritten `question` argument.
@@ -980,6 +1227,7 @@ pub(crate) fn run_tool(
         "analyze_data_room" => tool_data_room(app, args, conversation_id, cancel),
         "run_agent" => tool_run_agent(app, args, conversation_id, cancel),
         "delegate_analysis" => tool_delegate(app, args, conversation_id, cancel),
+        "dispatch_swarm" => tool_swarm(app, args, conversation_id, cancel),
         "research" => tool_research(app, args, user_msg),
         "use_skill" => tool_use_skill(app, args),
         "draft_memo" => tool_draft_memo(app, args, conversation_id),
@@ -2679,6 +2927,80 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_swarm_tasks_typed_and_bounded() {
+        let (context, ok) = parse_swarm_tasks(&json!({
+            "context": "Compare latest annual margins on a consistent basis.",
+            "tasks": [
+                { "name": " NVDA ", "task": " margins for NVDA " },
+                { "name": "AMD", "task": "margins for AMD", "agent": " Screener " }
+            ]
+        }))
+        .expect("valid");
+        assert_eq!(context, "Compare latest annual margins on a consistent basis.");
+        assert_eq!(ok.len(), 2);
+        assert_eq!(ok[0].name.as_deref(), Some("NVDA"));
+        assert_eq!(ok[0].task, "margins for NVDA");
+        assert_eq!(ok[0].agent, None);
+        assert_eq!(ok[1].agent.as_deref(), Some("Screener"));
+        assert!(parse_swarm_tasks(&json!({ "context": "x", "tasks": [] })).is_err());
+        assert!(parse_swarm_tasks(&json!({ "context": "x", "tasks": [{ "agent": "x" }] })).is_err());
+        assert!(parse_swarm_tasks(&json!({
+            "context": "x",
+            "tasks": [
+                { "name": "Peer", "task": "first" },
+                { "name": "peer", "task": "duplicate" }
+            ]
+        }))
+        .is_err());
+        let too_many: Vec<Value> = (0..crate::agent::tools::MAX_SWARM + 1)
+            .map(|i| json!({ "task": format!("s{i}") }))
+            .collect();
+        assert!(parse_swarm_tasks(&json!({ "context": "x", "tasks": too_many })).is_err());
+    }
+
+    #[test]
+    fn build_swarm_output_folds_briefs_and_usage() {
+        let child_card = |findings: &str, cost: f64| {
+            json!({
+                "type": "delegate",
+                "findings": findings,
+                "tools_used": ["get_financials"],
+                "trail": [],
+                "usage": { "prompt_tokens": 100, "completion_tokens": 20, "cost": cost },
+            })
+        };
+        let outcomes = vec![
+            (
+                SwarmSlice { name: Some("NVDA".into()), task: "NVDA margins".into(), agent: None },
+                Ok(("brief a".into(), child_card("NVDA gross margin 75%.", 0.01))),
+            ),
+            (
+                SwarmSlice { name: Some("AMD".into()), task: "AMD margins".into(), agent: Some("Screener".into()) },
+                Ok(("brief b".into(), child_card("AMD gross margin 50%.", 0.02))),
+            ),
+            (
+                SwarmSlice { name: Some("INTC".into()), task: "INTC margins".into(), agent: None },
+                Err("ran out of rounds".into()),
+            ),
+        ];
+        let (summary, card) = build_swarm_output("peer margins", &outcomes);
+        assert_eq!(card["type"], "swarm");
+        assert_eq!(card["count"], 3);
+        assert_eq!(card["ok_count"], 2);
+        assert_eq!(card["context"], "peer margins");
+        assert_eq!(card["usage"]["prompt_tokens"], 200);
+        assert_eq!(card["usage"]["completion_tokens"], 40);
+        assert!((card["usage"]["cost"].as_f64().unwrap() - 0.03).abs() < 1e-9);
+        assert_eq!(card["agents"][2]["ok"], false);
+        assert!(card["agents"][2]["error"].as_str().unwrap().contains("rounds"));
+        assert_eq!(card["agents"][1]["agent"], "Screener");
+        assert_eq!(card["agents"][0]["name"], "NVDA");
+        assert!(summary.contains("2/3 subagents"));
+        assert!(summary.contains("NVDA gross margin 75%"));
+        assert!(summary.contains("FAILED"));
+    }
+
+    #[test]
     #[ignore] // live: hits SEC EDGAR XBRL
     fn get_financials_tsla_fy2025_revenue_live() {
         let (text, card) = tool_get_financials(&json!({ "ticker": "TSLA", "year": 2025 })).unwrap();
@@ -2805,6 +3127,13 @@ mod tests {
         assert_eq!(msgs[0]["role"], "system");
         assert_eq!(msgs[1]["role"], "system");
         assert!(msgs[1]["content"].as_str().unwrap().contains("Workflow"));
+        assert!(
+            msgs[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("automatically use dispatch_swarm ONCE"),
+            "base doctrine makes long-task fan-out automatic"
+        );
         assert_eq!(msgs[2]["role"], "user");
         // Frontier model: [system, user] — unchanged shape.
         let msgs = seed_agent_messages_for_model("q", &[], "anthropic/claude-sonnet-4");

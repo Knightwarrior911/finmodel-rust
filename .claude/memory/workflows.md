@@ -8,8 +8,8 @@
 - Sweep CLI (scores model×prompt answer artifacts offline):
   `cargo run -p fm-research --example quality_sweep -- <artifacts.json> <gold_answers.json> [min_mean_floor]`
   (exit 1 below floor, 2 on bad input); grading = `quality_eval::run_sweep`.
-- App lib: `cargo test --manifest-path src-tauri/Cargo.toml --lib`  (≈379 tests)
-- UI: `cd ui && npm ci --no-audit --no-fund && npm test`  (jsdom, ≈205 tests)
+- App lib: `cargo test --manifest-path src-tauri/Cargo.toml --lib`  (≈389 tests)
+- UI: `cd ui && npm ci --no-audit --no-fund && npm test`  (jsdom, ≈208 tests)
 
 Fast local loops:
 - App lib one test: `cd src-tauri && cargo test --lib <name>`

@@ -22,6 +22,55 @@ test("renderCard renders a verified verification card", async () => {
   assert.match(text, /SEC EDGAR XBRL/);
 });
 
+test("renderCard renders an ordered swarm with success and failure slices", async () => {
+  setupDom();
+  const cards = await importModule("cards.mjs");
+  const el = cards.renderCard({
+    type: "swarm",
+    context: "Compare latest annual peer margins on one reported basis.",
+    count: 3,
+    ok_count: 2,
+    agents: [
+      {
+        name: "NVDA",
+        agent: "Screener",
+        task: "Read the latest annual margin profile.",
+        ok: true,
+        findings: "Gross margin expanded.",
+        tools_used: ["get_financials"],
+        trail: [{ tool: "get_financials", subject: "NVDA", note: "FY2025" }],
+      },
+      {
+        name: "AMD",
+        task: "Read the latest annual margin profile.",
+        ok: true,
+        findings: "Gross margin was stable.",
+        tools_used: [],
+        trail: [],
+      },
+      {
+        name: "<script>INTC</script>",
+        task: "Read the latest annual margin profile.",
+        ok: false,
+        error: "ran out of rounds",
+      },
+    ],
+  });
+  assert.match(el.className, /\bswarm\b/);
+  assert.equal(el.querySelectorAll(".swarm-agent").length, 3);
+  assert.equal(el.querySelectorAll(".swarm-failed").length, 1);
+  const text = el.textContent;
+  assert.match(text, /Swarm · 3 subagents/);
+  assert.match(text, /2\/3 returned a brief/);
+  assert.match(text, /Compare latest annual peer margins/);
+  assert.match(text, /NVDA/);
+  assert.match(text, /Agent Screener/);
+  assert.match(text, /Gross margin expanded/);
+  assert.match(text, /Didn't finish/);
+  assert.match(text, /ran out of rounds/);
+  assert.equal(el.querySelector("script"), null, "slice labels are escaped");
+});
+
 test("renderCard verification card shows partial-unverified badge", async () => {
   setupDom();
   const cards = await importModule("cards.mjs");

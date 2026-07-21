@@ -53,6 +53,11 @@ struct Entry {
     token: CancellationToken,
     /// Resumable pause signal, distinct from `token` (terminal cancel).
     interrupt: CancellationToken,
+    /// Shared per-run child/tool I/O slots. Stored in the registry entry as
+    /// well as the [`RunHandle`] so nested executors (such as a batch swarm)
+    /// can acquire the SAME permits instead of creating an unbounded inner
+    /// pool.
+    per_run: Arc<Semaphore>,
 }
 
 type Map = Arc<Mutex<HashMap<String, Entry>>>;
@@ -81,6 +86,22 @@ impl Default for ActorRegistry {
 impl ActorRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Acquire one execution slot for the active run in `conversation_id`.
+    ///
+    /// Nested executors cannot borrow the parent [`RunHandle`] directly, so
+    /// they resolve its shared per-run semaphore through the registry. `None`
+    /// means the conversation is not owned by an active unified-agent run.
+    /// The returned permit releases both global and per-run capacity on drop.
+    pub async fn acquire_active_slot(&self, conversation_id: &str) -> Option<SlotPermit> {
+        let per_run = self.map.lock().get(conversation_id)?.per_run.clone();
+        let global = self.global.clone().acquire_owned().await.ok()?;
+        let per_run = per_run.acquire_owned().await.ok()?;
+        Some(SlotPermit {
+            _global: global,
+            _per_run: per_run,
+        })
     }
 
     /// Park an approval for `run_id`; the returned receiver resolves when
@@ -113,12 +134,14 @@ impl ActorRegistry {
         }
         let token = CancellationToken::new();
         let interrupt = CancellationToken::new();
+        let per_run = Arc::new(Semaphore::new(PER_RUN_SLOTS));
         map.insert(
             conversation_id.to_string(),
             Entry {
                 run_id: run_id.to_string(),
                 token: token.clone(),
                 interrupt: interrupt.clone(),
+                per_run: per_run.clone(),
             },
         );
         Ok(RunHandle {
@@ -128,7 +151,7 @@ impl ActorRegistry {
             token,
             interrupt,
             global: self.global.clone(),
-            per_run: Arc::new(Semaphore::new(PER_RUN_SLOTS)),
+            per_run,
         })
     }
 
@@ -374,5 +397,24 @@ mod tests {
         assert_eq!(h.per_run_available(), PER_RUN_SLOTS - 1);
         drop(p);
         assert_eq!(h.per_run_available(), PER_RUN_SLOTS);
+    }
+
+    #[tokio::test]
+    async fn nested_executor_acquires_the_active_runs_shared_slots() {
+        let reg = ActorRegistry::new();
+        assert!(
+            reg.acquire_active_slot("missing").await.is_none(),
+            "no orphan slot pool for inactive conversations"
+        );
+        let h = reg.start_run("c1", "r1").unwrap();
+        let p = reg
+            .acquire_active_slot("c1")
+            .await
+            .expect("active run slot");
+        assert_eq!(h.per_run_available(), PER_RUN_SLOTS - 1);
+        assert_eq!(reg.global_available(), GLOBAL_SLOTS - 1);
+        drop(p);
+        assert_eq!(h.per_run_available(), PER_RUN_SLOTS);
+        assert_eq!(reg.global_available(), GLOBAL_SLOTS);
     }
 }

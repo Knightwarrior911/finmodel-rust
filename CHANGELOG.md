@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.9.37 - 2026-07-21 - Dispatch a swarm of analysts in one move
+
+- **`dispatch_swarm` — an army of subagents in a single call.** For a long
+  request that splits into independent parts (per company, per section, per
+  question), the analyst can now fan the whole thing out at once instead of
+  running deep-dives one at a time. It passes a shared `context` (the common
+  goal and constraints) plus a `tasks` list — up to 8 slices, each its own
+  self-contained subtask — and every slice runs in parallel as its own
+  subagent with the read-only research toolset, reporting back a findings
+  brief. A slice may name one of your own agents (from the Agents catalog) or
+  fall back to the default junior analyst. You get one consolidated card: a
+  panel per subagent, in the order you asked, with a per-slice work trail and
+  a `2/3 returned a brief` tally; a slice that fails is marked, never dropped,
+  and never erases the briefs that succeeded. The base doctrine now nudges the
+  analyst to reach for a swarm automatically on a genuinely divisible task
+  rather than serializing the work.
+- **Bounded and accountable.** Swarm workers draw from the run's existing
+  execution slots (4 per run, 8 global), so even several swarms in one turn
+  can never oversubscribe the machine; a Stop cancels the whole swarm; and the
+  spend of every returned brief is aggregated into one usage figure and charged
+  once to the same conversation budget as any other delegated work (a slice
+  that errors out before returning a brief is billed exactly like a failed
+  delegate_analysis — its partial spend is not separately recharged).
+  Swarm workers are read-only and cannot themselves spawn agents, delegate, or
+  launch another swarm — the fan-out stays exactly one level deep.
+
 ## v0.9.36 - 2026-07-21 - Citations must actually quote something
 
 - **Blank citation quotes are rejected.** Research synthesis now refuses a

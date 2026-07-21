@@ -15,8 +15,14 @@
 - **Citations are auditable.** Cite pills/source cards deep-link via Chrome text fragments
   (`deepSourceUrl`); financials columns link to the exact SEC filing (per-year accession).
 - **Local file access is user-gated.** Only the artifact registry auto-runs on local files.
-  Reading a user-named folder is `Risk::LocalRead` → PAUSES for approval. Subagents (delegate/
-  run_agent) get read-only research tools only — they CANNOT open folders and never nest.
+  Reading a user-named folder is `Risk::LocalRead` → PAUSES for approval. Subagents
+  (`delegate_analysis` / `run_agent` / `dispatch_swarm`) get read-only research tools only — they
+  CANNOT open folders and never nest (a swarm worker cannot itself swarm/delegate).
+- **`dispatch_swarm` shares the run's slots.** The batch swarm acquires each child's execution
+  slot via `ActorRegistry::acquire_active_slot` (GLOBAL 8 / PER_RUN 4) — never its own pool — so it
+  can't oversubscribe. It needs an active unified-agent run; the legacy `chat_send` path returns a
+  clean error instead of running unbounded. Failed slices bill like a failed `delegate_analysis`
+  (partial spend not recharged); only returned briefs aggregate into the card's `usage`.
 
 ## Editing discipline (this codebase specifically)
 - **Use the `edit`/`write` tools for Rust/JS**, not JS patch scripts. Hard-won lesson: routing

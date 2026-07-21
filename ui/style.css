@@ -1888,6 +1888,48 @@ body.sidebar-collapsed .sidebar-expand {
   font-family: var(--font-num);
   color: var(--ink);
 }
+
+/* Swarm result: one quiet nested panel per subagent. Uses the existing
+   research-card surface and single accent; hierarchy comes from the left
+   rule + labels rather than another competing card treatment. */
+.swarm-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.swarm-agent {
+  padding: 10px 12px;
+  background: var(--element);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+.swarm-agent.swarm-failed {
+  border-left-color: var(--err);
+}
+.swarm-agent-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.swarm-worker {
+  color: var(--faint);
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 400;
+}
+.swarm-task {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.swarm-agent .card-note:first-of-type {
+  margin-top: 8px;
+}
 .card.turn-cost {
   padding: 6px 12px;
   background: transparent;

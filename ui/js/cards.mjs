@@ -162,6 +162,70 @@ function renderDelegate(card) {
   );
 }
 
+// A dispatched swarm: the whole army's briefs at a glance, one panel per
+// subagent, so parallel work stays legible instead of scattered through the
+// log. Mirrors the delegate card's treatment per panel (findings + trail).
+function renderSwarm(card) {
+  const agents = Array.isArray(card.agents) ? card.agents.filter(Boolean) : [];
+  if (!agents.length) return null;
+  const okCount = Number(
+    card.ok_count != null ? card.ok_count : agents.filter((a) => a.ok).length,
+  );
+  const context = card.context ? String(card.context) : "";
+  const contextChip = context
+    ? ` · ${escapeHtml(context.length > 92 ? context.slice(0, 92) + "…" : context)}`
+    : "";
+  const head = `<div class="card-head">
+       <span class="card-title">Swarm · ${agents.length} subagent${agents.length === 1 ? "" : "s"}</span>
+       <span class="card-sub">${okCount}/${agents.length} returned a brief${contextChip}</span>
+     </div>`;
+  const panels = agents
+    .map((a) => {
+      const worker = a.agent ? `Agent ${String(a.agent)}` : "Deep dive";
+      const name = a.name ? String(a.name) : worker;
+      const workerMeta =
+        name === worker ? "" : `<span class="swarm-worker">${escapeHtml(worker)}</span>`;
+      const task = String(a.task || "");
+      const taskHead = escapeHtml(task.length > 90 ? task.slice(0, 90) + "…" : task);
+      if (!a.ok) {
+        return `<div class="swarm-agent swarm-failed">
+           <p class="swarm-agent-title">${escapeHtml(name)} ${workerMeta}</p>
+           <p class="swarm-task">${taskHead}</p>
+           <p class="card-note">Didn't finish — ${escapeHtml(String(a.error || "no brief"))}</p>
+         </div>`;
+      }
+      const findings = String(a.findings || "");
+      const paras = findings
+        .split(/\n{2,}/)
+        .slice(0, 4)
+        .map((p) => `<p class="card-note">${escapeHtml(p.trim())}</p>`)
+        .join("");
+      const tools = Array.isArray(a.tools_used) && a.tools_used.length
+        ? `<p class="card-sub">Checked with: ${escapeHtml(a.tools_used.join(", "))}</p>`
+        : "";
+      const trail = Array.isArray(a.trail) ? a.trail.filter(Boolean) : [];
+      const trailHtml = trail.length
+        ? `<details class="delegate-trail"><summary>How this was worked (${trail.length} ${trail.length === 1 ? "check" : "checks"})</summary><ol>${trail
+            .slice(0, 12)
+            .map((t) => {
+              const subject = t.subject ? ` · ${escapeHtml(String(t.subject))}` : "";
+              const note = t.note ? ` — ${escapeHtml(String(t.note))}` : "";
+              return `<li><span class="trail-tool">${escapeHtml(String(t.tool || ""))}</span>${subject}${note}</li>`;
+            })
+            .join("")}</ol></details>`
+        : "";
+      return `<div class="swarm-agent">
+         <p class="swarm-agent-title">${escapeHtml(name)} ${workerMeta}</p>
+         <p class="swarm-task">${taskHead}</p>
+         ${paras}
+         ${trailHtml}
+         ${tools}
+       </div>`;
+    })
+    .join("");
+  return cardShell("research swarm", `${head}<div class="swarm-grid">${panels}</div>`);
+}
+
 // Per-turn spend transparency: one quiet line. Tokens always; dollars
 // only when the provider actually billed something measurable.
 function renderTurnCost(card) {
@@ -899,6 +963,9 @@ export function renderCard(card) {
       break;
     case "delegate":
       el = renderDelegate(card);
+      break;
+    case "swarm":
+      el = renderSwarm(card);
       break;
     case "data_room":
       el = renderDataRoom(card);

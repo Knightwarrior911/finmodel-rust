@@ -31,10 +31,12 @@ const CHILD_PROMPT: &str = "You are a junior analyst inside finmodel handling ON
 
 /// The child's tool belt: read-only, minus the delegate tool itself.
 pub(crate) fn child_tool_belt() -> Vec<Value> {
-    // Excluded even though read-only: recursion (delegate_analysis) and
-    // deliverable/meta tools (draft_memo, use_skill) — a child returns a
-    // findings brief, never artifacts or behavior changes.
-    const EXCLUDED: [&str; 4] = ["delegate_analysis", "run_agent", "draft_memo", "use_skill"];
+    // Excluded even though read-only: recursion (delegate_analysis, run_agent,
+    // dispatch_swarm - a child never fans out again) and deliverable/meta tools
+    // (draft_memo, use_skill) - a child returns a findings brief, never
+    // artifacts or behavior changes.
+    const EXCLUDED: [&str; 5] =
+        ["delegate_analysis", "run_agent", "dispatch_swarm", "draft_memo", "use_skill"];
     crate::agent::tools::ToolRegistry::shared()
         .agent_schemas_read_only()
         .into_iter()
@@ -50,7 +52,7 @@ pub(crate) fn child_tool_belt() -> Vec<Value> {
 /// tools, but WITH `use_skill` - user agents are built to use the skill
 /// library (their listed skills are also preloaded into the prompt).
 pub(crate) fn agent_tool_belt() -> Vec<Value> {
-    const EXCLUDED: [&str; 3] = ["delegate_analysis", "run_agent", "draft_memo"];
+    const EXCLUDED: [&str; 4] = ["delegate_analysis", "run_agent", "dispatch_swarm", "draft_memo"];
     crate::agent::tools::ToolRegistry::shared()
         .agent_schemas_read_only()
         .into_iter()
@@ -302,6 +304,7 @@ mod tests {
         assert!(!names.contains(&"delegate_analysis"), "no recursion: {names:?}");
         assert!(!names.contains(&"use_skill"), "meta tools stay out");
         assert!(!names.contains(&"run_agent"), "no nesting from delegates");
+        assert!(!names.contains(&"dispatch_swarm"), "no swarm nesting from delegates");
         // Write-risk tools must be absent from the child belt entirely.
         for banned in ["build_model", "draft_memo"] {
             assert!(!names.contains(&banned), "{banned} leaked into the child belt");
@@ -320,7 +323,7 @@ mod tests {
         // Agents are BUILT to use the skill library.
         assert!(names.iter().any(|x| x == "use_skill"), "{names:?}");
         // But never dispatch further agents or delegates, and never draft.
-        for banned in ["run_agent", "delegate_analysis", "draft_memo", "build_model"] {
+        for banned in ["run_agent", "delegate_analysis", "dispatch_swarm", "draft_memo", "build_model"] {
             assert!(!names.iter().any(|x| x == banned), "{banned} leaked");
         }
     }
