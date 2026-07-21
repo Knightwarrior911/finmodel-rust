@@ -363,4 +363,33 @@ mod tests {
         assert!(get_agent(&dir, "credit-analyst").is_none(), "deletion stays sticky");
         let _ = std::fs::remove_dir_all(&dir);
     }
+    #[test]
+    fn seeded_agents_preload_their_skills_end_to_end() {
+        // Reproduce the real startup order into a clean config, then prove the
+        // seeded agents' skills actually load into their composed prompts —
+        // metadata name-matching is not the same as preload working.
+        let dir = tmp();
+        crate::agent::skills::seed_builtin_skills(&dir);
+        seed_builtin_agents(&dir);
+        let agents = list_agents(&dir);
+        assert_eq!(agents.len(), BUILTIN_AGENTS.len());
+        for a in &agents {
+            assert!(!a.skills.is_empty(), "`{}` wires no skills", a.name);
+            let prompt = agent_system_prompt(&dir, a, "GROUND RULES");
+            for s in &a.skills {
+                assert!(
+                    prompt.contains(&format!("## Skill: {s}")),
+                    "agent `{}` did not preload skill `{s}`",
+                    a.name
+                );
+            }
+            assert!(
+                !prompt.contains("no longer exists"),
+                "agent `{}` flagged a missing skill after a real seed",
+                a.name
+            );
+            assert!(prompt.trim_end().ends_with("GROUND RULES"));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
