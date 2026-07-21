@@ -10,7 +10,9 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
   fm-build, fm-research, fm-pptx, fm-mcp, fm-cli, fm-agent`.
   - `fm-extract` — SEC XBRL / companyfacts parsing, `pdf_pages()` (panic-safe per-page PDF text), LTM/period logic.
   - `fm-fetch` — EDGAR, ESEF (filings.xbrl.org), EDINET, market data, news.
-  - `fm-research` — the research machine (own LLM loop, cited synthesis, quote grounding).
+  - `fm-research` — the research machine (own LLM loop, cited synthesis, quote grounding);
+    `synth::validate_synthesis` rejects unknown/non-read/blank/mismatched citation quotes.
+    `quality_eval.rs` = offline answer-quality grader + model×prompt sweep + committed gate.
   - `fm-agent` — budget `Policy` (INTERACTIVE/WORKFLOW), `Risk` enum, workflows, ids, `types::Claim`.
   - `fm-build` / `fm-excel` / `fm-pptx` — model/workbook/deck generation.
 - `src-tauri/` — the app crate `finmodel-app` (lib + bin). Owns the agent runtime, tool

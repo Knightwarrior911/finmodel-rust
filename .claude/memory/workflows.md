@@ -3,6 +3,11 @@
 ## Tests (what CI runs — `.github/workflows/ci.yml`)
 - Core engine: `cd finmodel-core && cargo test --workspace`
 - Research eval gate: `cd finmodel-core && cargo test -p fm-research --test research_eval -- --nocapture`
+- Answer-quality gate: in the same `research_eval` binary — `answer_quality_meets_committed_baseline`
+  (scores grounded answers vs `tests/baselines/quality_v1.json`) + `cli_ingestion_path_scores_committed_gold_fixture`.
+- Sweep CLI (scores model×prompt answer artifacts offline):
+  `cargo run -p fm-research --example quality_sweep -- <artifacts.json> <gold_answers.json> [min_mean_floor]`
+  (exit 1 below floor, 2 on bad input); grading = `quality_eval::run_sweep`.
 - App lib: `cargo test --manifest-path src-tauri/Cargo.toml --lib`  (≈379 tests)
 - UI: `cd ui && npm ci --no-audit --no-fund && npm test`  (jsdom, ≈205 tests)
 

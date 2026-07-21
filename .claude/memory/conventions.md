@@ -44,3 +44,9 @@
 - Smallest fix wins; no drive-by refactors or unrequested hardening.
 - Live LLM paths (research, data room, run_agent) are integration-tested only when online;
   their pure logic is unit-tested. Say "untested" when the live leg didn't run.
+- Answer-quality gate: `fm-research/tests/baselines/quality_v1.json` pins the gold-corpus
+  hash + metric weights (and `WEIGHTS_VERSION`) EXACTLY — editing `gold_answers.json`,
+  renaming a metric, or reweighting MUST deliberately refresh it. Per-case + mean scores are
+  regression FLOORS (`>=`); never lower a floor to make a regression pass. Facts match answer
+  PROSE only (not citation quotes); `quote_integrity` mirrors `validate_synthesis` (verbatim,
+  case-sensitive), so the scorer never grants grounding production would reject.

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.36 - 2026-07-21 - Citations must actually quote something
+
+- **Blank citation quotes are rejected.** Research synthesis now refuses a
+  citation whose quote is empty or whitespace-only — previously such a citation
+  passed validation because an empty string is a substring of every source, so a
+  model could "cite" a source while quoting nothing. The synthesis validator now
+  flags it (`blank_quote`), forcing a real supporting quote or an honest digest.
+- **Answer-quality evaluation harness (internal).** A deterministic, offline
+  grader scores a research answer against a per-case gold spec — fact
+  completeness (from prose only), section + citation coverage, quote integrity
+  (verbatim, case-sensitive substring of a Read source, matching the synthesis
+  validator), and cited-source sufficiency. A model×prompt sweep ranks answer
+  variants over the full gold set, and a committed baseline gates the mean so
+  answer quality can be measured and defended against regressions. Live
+  generation stays a separate producer; the harness scores its artifacts offline.
+
 ## v0.9.35 - 2026-07-21 - The house dollar rule, finished
 
 Completes the number-format spec deferred in v0.9.34 (code-level alignment and
