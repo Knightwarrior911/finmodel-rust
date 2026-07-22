@@ -1,5 +1,46 @@
 # Finmodel — Financial Model Engine
 
+## HANDOVER — v0.9.38 SHIPPED + LIVE (2026-07-22) — correct gross margin for IFRS cost-of-sales-only filers
+**Tagged v0.9.38 (commit `bca257f`); Latest on finmodel-releases; CI green (run
+29889057456, all 5 jobs: test/ruff/rust/app/ui); endpoint VERIFIED (latest.json
+0.9.38, sig 420, installer HTTP 200, 6,819,191 bytes). Gates this session:
+cargo test --workspace 470 pass / 0 fail; python 234 (9 skip, mock LLM);
+`fm verify` 0 diffs across all 5 non-USA snapshots.**
+
+- **Root cause (found by non-US accuracy testing):** `fm-engine`
+  `derive_assumptions` read gross margin from an explicit `gross_profit` line
+  only. A filing that reports cost of sales WITHOUT a separate gross-profit
+  subtotal (common IFRS "by function" presentation — Nestlé/NESN.SW) got
+  `gross_margin = 0`, which cascaded into negative EBIT, negative equity, and
+  negative total assets across the whole forward projection. The `fm verify`
+  gate was green because the committed `NESN_SW_snapshot.json` PINNED the bug
+  (`gross_profit: [.,.,0,0,0,0,0]`, EPS −9.28); NESN is already excluded from
+  `full_is_parity` because the Python reference crashes on it.
+- **Fix:** derive `gross_margin` from `revenue − cogs` when the gross-profit
+  line is absent — consistent with fm-research metrics, fm-extract LTM/period,
+  and the fm-excel projection formula (the engine was the lone hold-out). Nestlé
+  now models at its real ~46% gross margin, positive EBIT/net income, balanced
+  sheet, verification passes. The 4 fixtures WITH a gross-profit line are
+  byte-for-byte unchanged (parity/snapshot gates confirm).
+- **Files:** `finmodel-core/fm-engine/src/engine.rs` (fallback + regression
+  test); regenerated `tieout/excel_snapshots/NESN_SW_snapshot.json` (now pins
+  the CORRECT projection); new `finmodel-core/fm-cli/examples/regen_snapshot.rs`
+  (Rust-native snapshot regenerator, replaces the defunct Python
+  `build_excel_snapshots.py` path — its extraction cache is gone); new
+  `finmodel-core/fm-agent/examples/nonusa_agentic_drive.rs` (end-to-end golden
+  earnings-review drive for NESN.SW + non-US workflow-router assertions, with
+  the operator standing in for the LLM). Commit `bca257f`.
+- **Agentic layer exercised (own-LLM substitution, no key):** the pure reducer
+  drove Prepare→Plan→parallel read batch→auto-run draft→export approval gate→
+  synthesize→verify→memory→clean RunCompleted for a non-US name; the keyword
+  workflow router classified 6 real non-US asks correctly (earnings/comps/DCF/
+  M&A/brief/pitch). Offline research reached real non-US sources (Nestlé FY24 IR,
+  Yahoo NESN.SW) and degraded honestly without synthesis.
+- **Live legs NOT run this session (no OpenRouter/Anthropic key):** checklist
+  step 1 (live tie-out) skipped — but it guards the EXTRACTION pipeline, which
+  this change does not touch (projection-only). Live LLM extraction/synthesis
+  unverified; all deterministic engine/reducer/router paths are tested.
+
 ## HANDOVER — v0.9.37 SHIPPED + LIVE (2026-07-21) — dispatch_swarm parallel subagent fan-out
 **Tagged v0.9.37; Latest on finmodel-releases; CI green (run 29854045813, all 5
 jobs); endpoint VERIFIED (latest.json 0.9.37, sig 420, installer HTTP 200,
