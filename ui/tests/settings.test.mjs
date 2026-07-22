@@ -45,3 +45,53 @@ test("Scheduled tab lists follow-ups and cancel works", async () => {
     /Nothing scheduled/,
   );
 });
+
+
+test("Cursor subscription button wires the local gateway", async () => {
+  const ctx = setupDom();
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: true,
+    model: "gpt-5.6",
+    base_url: "https://openrouter.ai/api/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
+      {
+        id: "cursor",
+        name: "Cursor (via OMP gateway)",
+        base: "http://127.0.0.1:4000/v1",
+        chat_ready: true,
+      },
+    ],
+    cursor: { chat_ready: true, available: true, reason: "" },
+    opencode: { chat_ready: false, reason: "needs key" },
+  });
+  ctx.invokeHandlers.list_models = async () => [];
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+  ctx.invokeHandlers.use_cursor_omp = async () => ({
+    base_url: "http://127.0.0.1:4000/v1",
+    model: "cursor/claude-4.6-sonnet-medium",
+    chat_ready: true,
+  });
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+  const use = document.getElementById("useCursorOmp");
+  assert.equal(use.hidden, false, "Use Cursor is shown when OAuth is ready");
+  use.click();
+  await tick();
+  assert.ok(
+    ctx.invokeLog.some((entry) => entry.name === "use_cursor_omp"),
+    "Use Cursor invokes the gateway command",
+  );
+  assert.match(
+    document.getElementById("cursorProbeStatus").textContent,
+    /Cursor chat ready via http:\/\/127\.0\.0\.1:4000\/v1/,
+  );
+});

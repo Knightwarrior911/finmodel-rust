@@ -511,10 +511,13 @@ fn obtain_extraction(
     if !s.edgar_contact.trim().is_empty() {
         fm_fetch::edgar::set_edgar_contact(s.edgar_contact.trim().to_string());
     }
-    let has_key = !s.openrouter_api_key.trim().is_empty();
+    let has_key = crate::commands::settings::has_effective_credentials(&s);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&s) {
+        return Err(AppError::Engine(e));
+    }
     let llm_cfg = fm_extract::LlmConfig {
-        api_key: s.openrouter_api_key.trim().to_string(),
-        model: s.model.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&s),
+        model: crate::commands::settings::effective_model(&s),
     };
     if has_key {
         match fm_extract::fetch_xbrl(ticker) {
@@ -586,14 +589,14 @@ pub(crate) fn analyze_pdf_blocking(
     let label = if label.is_empty() { "PDF" } else { label };
 
     let s = read_settings(app);
-    if s.openrouter_api_key.trim().is_empty() {
+    if !crate::commands::settings::has_effective_credentials(&s) {
         return Err(AppError::Config(
             "PDF analysis needs an OpenRouter API key (Settings)".into(),
         ));
     }
     let llm_cfg = fm_extract::LlmConfig {
-        api_key: s.openrouter_api_key.trim().to_string(),
-        model: s.model.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&s),
+        model: crate::commands::settings::effective_model(&s),
     };
     // Mirror fetch_non_us_filing's periods: the last full year and the two prior.
     let year = fm_extract::current_year() - 1;

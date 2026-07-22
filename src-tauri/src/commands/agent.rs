@@ -168,10 +168,29 @@ pub async fn agent_resume(
             .unwrap_or_default()
     });
     let settings = read_settings(&app);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(AppError::Engine(e));
+    }
+    if !crate::commands::settings::has_effective_credentials(&settings) {
+        return Err(AppError::Config(
+            if crate::commands::settings::is_cursor_gateway(&settings) {
+                "Cursor OAuth missing/expired — run omp /login cursor, then Use Cursor.".into()
+            } else {
+                "No API key set. Add one in Settings first.".into()
+            },
+        ));
+    }
     let model = orig
         .model
         .clone()
-        .unwrap_or_else(|| settings.model.trim().to_string());
+        .map(|m| {
+            if crate::commands::settings::is_cursor_gateway(&settings) {
+                crate::commands::omp_gateway::qualify_cursor_model(&m)
+            } else {
+                m
+            }
+        })
+        .unwrap_or_else(|| crate::commands::settings::effective_model(&settings));
     let tools_ok = settings
         .model_capability
         .as_ref()
@@ -187,7 +206,7 @@ pub async fn agent_resume(
         workspace_id: workspace,
         user_msg,
         attachments: Vec::new(),
-        api_key: settings.openrouter_api_key.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&settings),
         model,
         tools_ok,
         policy: mode.policy(),
@@ -522,8 +541,19 @@ pub(crate) async fn send_message_inner_mode(
         return Err(AppError::Config("empty message".into()));
     }
 
-    // No key is allowed: LiveDriver routes to the FallbackDispatcher.
+    // No key is allowed for non-Cursor providers: LiveDriver routes to the
+    // FallbackDispatcher. Cursor gateway still needs OAuth + a live gateway.
     let settings = read_settings(&app);
+    if crate::commands::settings::is_cursor_gateway(&settings) {
+        if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+            return Err(AppError::Engine(e));
+        }
+        if !crate::commands::settings::has_effective_credentials(&settings) {
+            return Err(AppError::Config(
+                "Cursor OAuth missing/expired — run omp /login cursor, then Use Cursor.".into(),
+            ));
+        }
+    }
 
     let app_store = store(&app)?;
     let handle = app_store.handle.clone();
@@ -546,7 +576,7 @@ pub(crate) async fn send_message_inner_mode(
 
     let conv_for_insert = conv_id.clone();
     let run_for_insert = run_id.clone();
-    let model = settings.model.trim().to_string();
+    let model = crate::commands::settings::effective_model(&settings);
     let workspace_for_insert = workspace.clone();
     let text_for_insert = text.clone();
     let model_for_insert = model.clone();
@@ -623,7 +653,7 @@ pub(crate) async fn send_message_inner_mode(
         workspace_id: workspace,
         user_msg: text,
         attachments,
-        api_key: settings.openrouter_api_key.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&settings),
         model,
         tools_ok,
         // Outcome modes (goal/loop) run under the WORKFLOW guard rails;
@@ -1345,13 +1375,16 @@ pub async fn skill_suggest(app: tauri::AppHandle, transcript: String) -> AppResu
         return Err(AppError::Config("nothing to abstract into a skill".into()));
     }
     let settings = crate::commands::settings::read_settings(&app);
-    let api_key = settings.openrouter_api_key.trim().to_string();
-    if api_key.is_empty() {
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(AppError::Engine(e));
+    }
+    if !crate::commands::settings::has_effective_credentials(&settings) {
         return Err(AppError::Config(
-            "add an API key in Settings to generate a skill".into(),
+            "add an API key (or Use Cursor) in Settings to generate a skill".into(),
         ));
     }
-    let model = settings.model.trim().to_string();
+    let api_key = crate::commands::settings::effective_api_key(&settings);
+    let model = crate::commands::settings::effective_model(&settings);
     // Honor the configured provider (Settings.base_url), not a hardcoded endpoint.
     let chat_url = crate::commands::settings::chat_completions_url(&settings);
     const SYS: &str = "You turn a solved financial-analyst task into a reusable SKILL.md playbook. Output ONLY the SKILL.md, nothing else. Exact format: a line with `---`, then `name:` (kebab-case, <=40 chars), then `description:` (one line describing WHEN to use this), then a line with `---`, then generalized numbered steps. Generalize away specifics (tickers, years, company names) into instructions that name the app's tools where relevant (get_financials, benchmark_peers, research, read_filing, build_model, get_quote). Keep it under 15 lines.";

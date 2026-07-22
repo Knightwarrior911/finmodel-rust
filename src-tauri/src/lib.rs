@@ -35,6 +35,14 @@ pub fn run() {
                     // deletions stay sticky per the .seeded marker).
                     let _ = agent::skills::seed_builtin_skills(&dir);
                     let _ = agent::agents::seed_builtin_agents(&dir);
+                    // Personal OpenCode Go: if the keyring is empty, pull a key
+                    // from OPENCODE_API_KEY / OpenCode auth.json / OMP agent.db
+                    // so the user never has to set an env var before launch.
+                    if let Some(src) =
+                        commands::subscription::maybe_auto_import_opencode_go(&app.handle())
+                    {
+                        eprintln!("startup: imported OpenCode Go key from {src}");
+                    }
                     // Re-register persisted Recent artifacts (generated memos,
                     // models, decks + their folders) so open_path allowlists
                     // them after a restart — otherwise reloaded card Open /

@@ -876,9 +876,12 @@ fn tool_run_agent(
     const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only research tools only. You CANNOT open local files or folders (analyze_pdf works only on a PDF the user has attached, identified by an artifact id in the task) - if the task refers to documents or a data room you were not handed in the task text, say so plainly rather than guessing. Tool reach across regions: get_financials covers US tickers AND many non-US issuers (foreign 20-F filers in native currency, Europe-only companies by legal name or LEI via the ESEF index, Japan via EDINET). list_filings and read_filing reach SEC EDGAR by ticker - INCLUDING foreign private issuers that file a 20-F (pass form:\\\"20-F\\\") - but NOT home-market-only filings; for a company that files only in its local market (no SEC filing), get narrative and disclosures (risk factors, management discussion, notes) from research, or from web_search against the local exchange and the company's IR page. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
     let system = crate::agent::agents::agent_system_prompt(&dir, &def, GROUND_RULES);
     let settings = crate::commands::settings::read_settings(app);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(e);
+    }
     let cfg = fm_extract::LlmConfig {
-        api_key: settings.openrouter_api_key.trim().to_string(),
-        model: settings.model.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&settings),
+        model: crate::commands::settings::effective_model(&settings),
     };
     tauri::async_runtime::block_on(crate::agent::delegate::run_child_loop(
         app,
@@ -911,9 +914,12 @@ fn tool_data_room(
         })
         .unwrap_or_default();
     let settings = crate::commands::settings::read_settings(app);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(e);
+    }
     let cfg = fm_extract::LlmConfig {
-        api_key: settings.openrouter_api_key.trim().to_string(),
-        model: settings.model.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&settings),
+        model: crate::commands::settings::effective_model(&settings),
     };
     tauri::async_runtime::block_on(crate::commands::dataroom::run_data_room(
         app,
@@ -940,9 +946,12 @@ fn tool_delegate(
         .filter(|s| !s.is_empty())
         .ok_or("delegate_analysis needs a `task`")?;
     let settings = crate::commands::settings::read_settings(app);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(e);
+    }
     let cfg = fm_extract::LlmConfig {
-        api_key: settings.openrouter_api_key.trim().to_string(),
-        model: settings.model.trim().to_string(),
+        api_key: crate::commands::settings::effective_api_key(&settings),
+        model: crate::commands::settings::effective_model(&settings),
     };
     tauri::async_runtime::block_on(crate::agent::delegate::run_delegate_loop(
         app,
@@ -1133,8 +1142,16 @@ fn tool_swarm(
     let (context, slices) = parse_swarm_tasks(args)?;
     // Fail before spawning any thread if the key is missing - every child
     // would otherwise fail with the same message.
-    if read_settings(app).openrouter_api_key.trim().is_empty() {
-        return Err("a swarm needs the OpenRouter key configured in Settings".into());
+    let swarm_settings = read_settings(app);
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&swarm_settings) {
+        return Err(e);
+    }
+    if !crate::commands::settings::has_effective_credentials(&swarm_settings) {
+        return Err(if crate::commands::settings::is_cursor_gateway(&swarm_settings) {
+            "a swarm needs Cursor OAuth (omp /login cursor) or Use Cursor in Settings".into()
+        } else {
+            "a swarm needs the API key configured in Settings".into()
+        });
     }
     // Resolve the ACTIVE run's shared global/per-run semaphores once. Every
     // child acquires one permit before provider/tool I/O, so even several
@@ -1302,9 +1319,12 @@ fn tool_draft_memo(
     // 2. Fill the prose slots (memo-grade writing goes to the synthesis model
     //    when configured; production tests run the main model = gpt-4.1-mini).
     let settings = read_settings(app);
-    let api_key = settings.openrouter_api_key.trim().to_string();
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(e);
+    }
+    let api_key = crate::commands::settings::effective_api_key(&settings);
     let write_model = if settings.synthesis_model.trim().is_empty() {
-        settings.model.trim().to_string()
+        crate::commands::settings::effective_model(&settings)
     } else {
         settings.synthesis_model.trim().to_string()
     };
@@ -1502,9 +1522,16 @@ fn tool_research(
     request.validate().map_err(|e| e.to_string())?;
 
     let settings = read_settings(app);
-    let api_key = settings.openrouter_api_key.trim().to_string();
-    if api_key.is_empty() {
-        return Err("research requires an OpenRouter API key".into());
+    if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
+        return Err(e);
+    }
+    let api_key = crate::commands::settings::effective_api_key(&settings);
+    if !crate::commands::settings::has_effective_credentials(&settings) {
+        return Err(if crate::commands::settings::is_cursor_gateway(&settings) {
+            "research requires Cursor OAuth (omp /login cursor)".into()
+        } else {
+            "research requires an API key".into()
+        });
     }
     // The memo-grade synthesis runs on the stronger model when configured.
     let model = if settings.synthesis_model.trim().is_empty() {

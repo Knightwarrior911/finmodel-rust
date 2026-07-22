@@ -9,12 +9,14 @@ pub mod dataroom;
 pub mod mcp;
 pub mod model;
 pub mod news;
+pub mod omp_gateway;
 pub mod research;
 pub mod research_state;
 pub mod run;
 pub mod search;
 pub mod secrets;
 pub mod settings;
+pub mod subscription;
 pub mod update;
 
 /// All bridge commands registered in one place. `lib.rs` calls
@@ -88,6 +90,13 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         attachments::stage_attachment,
         settings::set_model,
         settings::refine_prompt,
+        subscription::subscription_providers_status,
+        subscription::import_opencode_go_key,
+        subscription::connect_opencode_go,
+        subscription::probe_cursor_models,
+        omp_gateway::ensure_cursor_omp_gateway,
+        omp_gateway::use_cursor_omp,
+        omp_gateway::connect_cursor_omp,
         update::check_for_update,
         update::install_update,
         update::restart_app,

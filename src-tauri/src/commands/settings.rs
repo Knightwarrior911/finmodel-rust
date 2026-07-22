@@ -45,6 +45,47 @@ pub fn is_openrouter(s: &Settings) -> bool {
     provider_base(s).contains("openrouter.ai")
 }
 
+/// True when Settings point at the local Cursor OMP gateway.
+pub fn is_cursor_gateway(s: &Settings) -> bool {
+    crate::commands::omp_gateway::is_cursor_gateway_base(&provider_base(s))
+}
+
+/// API key used for outbound OpenAI-compatible calls.
+/// Cursor gateway uses a dummy bearer (`--no-auth`) and must not require
+/// overwriting the stored OpenRouter/OpenCode key.
+pub fn effective_api_key(s: &Settings) -> String {
+    if is_cursor_gateway(s) {
+        return crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER.to_string();
+    }
+    s.openrouter_api_key.trim().to_string()
+}
+
+/// Whether chat/list_models can proceed for the configured provider.
+pub fn has_effective_credentials(s: &Settings) -> bool {
+    if is_cursor_gateway(s) {
+        let cur = crate::commands::subscription::cursor_omp_status();
+        return cur.present && !cur.expired;
+    }
+    !s.openrouter_api_key.trim().is_empty()
+}
+
+/// Model id for outbound calls (Cursor gateway needs `cursor/<id>`).
+pub fn effective_model(s: &Settings) -> String {
+    if is_cursor_gateway(s) {
+        crate::commands::omp_gateway::qualify_cursor_model(&s.model)
+    } else {
+        s.model.clone()
+    }
+}
+
+/// Ensure local OMP gateway is up when Cursor is selected.
+pub fn ensure_provider_ready(s: &Settings) -> Result<(), String> {
+    if is_cursor_gateway(s) {
+        crate::commands::omp_gateway::ensure_cursor_gateway()?;
+    }
+    Ok(())
+}
+
 /// A recently generated output file (4.2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecentEntry {
@@ -192,8 +233,11 @@ pub fn write_settings(app: &tauri::AppHandle, s: &Settings) -> AppResult<()> {
 /// unit-testable without an `AppHandle`.
 pub fn settings_view_json(s: &Settings, version: &str) -> serde_json::Value {
     serde_json::json!({
-        "has_key": !s.openrouter_api_key.trim().is_empty(),
-        "model": s.model,
+        "has_key": has_effective_credentials(s),
+        "cursor_gateway": is_cursor_gateway(s),
+        "model": effective_model(s),
+        "base_url": provider_base(s),
+        "subscription_providers_enabled": crate::commands::subscription::subscription_providers_enabled(),
         "edgar_contact": s.edgar_contact,
         "out_dir": s.out_dir,
         "mcp_command": s.mcp_command,
@@ -357,12 +401,19 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
     // Network fetch — run off the IPC thread.
     tauri::async_runtime::spawn_blocking(move || {
         let s = read_settings(&app);
-        if s.openrouter_api_key.trim().is_empty() {
+        if let Err(e) = ensure_provider_ready(&s) {
+            return Err(AppError::Engine(e));
+        }
+        if !has_effective_credentials(&s) {
             return Err(AppError::Config(
-                "No API key set. Add one in Settings first.".into(),
+                if is_cursor_gateway(&s) {
+                    "Cursor OAuth missing/expired in ~/.omp/agent/agent.db. Run omp /login cursor, then Use Cursor.".into()
+                } else {
+                    "No API key set. Add one in Settings first.".into()
+                }
             ));
         }
-        let key = s.openrouter_api_key.trim().to_string();
+        let key = effective_api_key(&s);
         // OpenRouter's catalog carries capability badges; other OpenAI-compatible
         // providers expose a plainer `{base}/models` (ids only).
         if is_openrouter(&s) {
@@ -438,18 +489,28 @@ pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
 pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppResult<String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut s = read_settings(&app);
-        if s.openrouter_api_key.trim().is_empty() {
+        if let Err(e) = ensure_provider_ready(&s) {
+            return Err(AppError::Engine(e));
+        }
+        if !has_effective_credentials(&s) {
             return Err(AppError::Config(
-                "No OpenRouter API key set. Add one in Settings first.".into(),
+                if is_cursor_gateway(&s) {
+                    "Cursor OAuth missing/expired in ~/.omp/agent/agent.db.".into()
+                } else {
+                    "No OpenRouter API key set. Add one in Settings first.".into()
+                }
             ));
         }
-        let key = s.openrouter_api_key.trim().to_string();
-        let wanted = model_id
+        let key = effective_api_key(&s);
+        let mut wanted = model_id
             .as_deref()
             .map(str::trim)
             .filter(|m| !m.is_empty())
-            .unwrap_or(s.model.as_str())
-            .to_string();
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| effective_model(&s));
+        if is_cursor_gateway(&s) {
+            wanted = crate::commands::omp_gateway::qualify_cursor_model(&wanted);
+        }
 
         // Any failed probe for this model must invalidate a prior cache so
         // run_llm_turn falls back to app routing + plain JSON.
@@ -854,7 +915,7 @@ pub async fn refine_prompt(
     let power = mode.as_deref() == Some("power");
     tauri::async_runtime::spawn_blocking(move || {
         let s = read_settings(&app);
-        let key = s.openrouter_api_key.trim().to_string();
+        let key = effective_api_key(&s);
         if key.is_empty() {
             return Err(AppError::Config("Add your API key in Settings first.".into()));
         }
@@ -941,6 +1002,9 @@ mod tests {
         // The raw key never leaks; only a boolean presence flag.
         assert_eq!(v.get("has_key").and_then(|b| b.as_bool()), Some(true));
         assert!(v.get("openrouter_api_key").is_none());
+        // Provider base must round-trip to the UI (OpenCode Go / custom).
+        assert!(v.get("base_url").and_then(|b| b.as_str()).is_some());
+        assert!(v.get("subscription_providers_enabled").and_then(|b| b.as_bool()).is_some());
         // The role profiles round-trip out to the UI.
         let worker_model = v
             .get("model_profiles")

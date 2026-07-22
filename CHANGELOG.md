@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.39 - 2026-07-22 - Personal subscription providers and OMP-backed Cursor chat
+
+- **In-app Connect for OpenCode Go + Cursor (no pre-launch setup).** Connect OpenCode Go reuses env/auth.json/OMP when present, otherwise opens opencode.ai/auth and focuses the API key field. Connect Cursor reuses `~/.omp/agent/agent.db` OAuth when present, otherwise spawns `omp auth-broker login cursor` (browser PKCE owned by omp) and wires the local auth-gateway for chat. UI guidance only when auth is actually required.
+- **OpenCode Go + Cursor (via OMP gateway) on by default** (no env before launch). Settings can select OpenCode Go (`https://opencode.ai/zen/go/v1`) and import a key from OPENCODE_API_KEY / OpenCode auth.json / OMP agent.db. **Cursor is selectable for chat**: **Use Cursor** / Provider → Cursor starts local `omp auth-broker` + `omp auth-gateway` and points `base_url` at `http://127.0.0.1:4000/v1` (reuses OAuth in `~/.omp/agent/agent.db`; does not overwrite your API key). Default model `cursor/claude-4.6-sonnet-medium` (also try `cursor/default`; avoid bare `composer-1.5` which often 502s with Connect `invalid_argument`). Opt out with `FINMODEL_DISABLE_SUBSCRIPTION_PROVIDERS=1`. Empty keyring auto-imports OpenCode Go on startup. See docs/LOCAL_SUBSCRIPTION_PROVIDERS.md.
+- **Settings now returns `base_url`** in load_settings, so the provider dropdown restores the saved endpoint instead of always snapping back to OpenRouter.
+
 ## v0.9.38 - 2026-07-22 - Correct margins for filers that report cost of sales without a gross-profit line
 
 - **Models for IFRS "by function" filers no longer collapse into a loss.** When

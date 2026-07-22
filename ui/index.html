@@ -962,6 +962,31 @@ Tie-out: check a finished model against a trusted answer key, cell by cell.
             />
             <span id="keyStatus" class="field-hint"></span>
           </label>
+          <div id="subscriptionProvidersBox" class="field" hidden>
+            <span class="field-label">Personal subscription providers</span>
+            <p id="subscriptionProvidersNote" class="field-hint">
+              Reuses local OpenCode / OMP credentials when present. Connect only when login is required.
+            </p>
+            <span class="field-row">
+              <button type="button" id="connectOpencodeGo" class="btn-ghost">
+                Connect OpenCode Go
+              </button>
+              <button type="button" id="importOpencodeGo" class="btn-ghost">
+                Import OpenCode Go key
+              </button>
+              <button type="button" id="connectCursorOmp" class="btn-ghost">
+                Connect Cursor
+              </button>
+              <button type="button" id="useCursorOmp" class="btn-ghost">
+                Use Cursor
+              </button>
+              <button type="button" id="probeCursorModels" class="btn-ghost">
+                Probe Cursor models
+              </button>
+            </span>
+            <span id="importOpencodeStatus" class="field-hint"></span>
+            <span id="cursorProbeStatus" class="field-hint"></span>
+          </div>
           <label class="field">
             <span class="field-label">Model</span>
             <span class="field-row">
