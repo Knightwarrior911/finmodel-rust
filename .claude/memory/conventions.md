@@ -39,6 +39,15 @@
   (`take_side_cards` drained by the actor), not `emit_tool`.
 - Model replies parsed as JSON: guard `find('{')..=rfind('}')` with `start <= end` (a `}` before
   `{` panics the slice). Applies to any new model-JSON parser.
+- **Gross margin without a gross-profit line (v0.9.38 fix — do NOT revert):**
+  `fm-engine::derive_assumptions` derives `gross_margin` from `revenue − cogs` when a filing
+  reports COGS but no explicit `gross_profit` subtotal (IFRS "by function" filers — Nestlé /
+  NESN.SW). Reading `gross_profit` ONLY (the old "match engine.py" behavior) yields a 0% margin
+  that cascades to negative EBIT / equity / total assets across the whole projection. Every
+  other layer already derives rev−cogs (fm-research metrics, fm-extract LTM/period, the fm-excel
+  projection formula) — the engine was the lone hold-out. NESN is excluded from `full_is_parity`
+  (the Python reference crashes on its null gross_profit); its model snapshot is pinned from the
+  corrected Rust engine, not the defunct Python oracle.
 
 ## Prompt caching (Anthropic/Gemini via OpenRouter)
 - `mark_cache_prefix` (chat.rs) anchors the **first** leading system layer (the large stable

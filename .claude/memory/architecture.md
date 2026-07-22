@@ -15,6 +15,11 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
     `quality_eval.rs` = offline answer-quality grader + model×prompt sweep + committed gate.
   - `fm-agent` — budget `Policy` (INTERACTIVE/WORKFLOW), `Risk` enum, workflows, ids, `types::Claim`.
   - `fm-build` / `fm-excel` / `fm-pptx` — model/workbook/deck generation.
+  - `fm-cli` — offline pipeline CLI (`build`/`verify`/`benchmark`/`research`) over committed
+    non-US fixtures (no key needed); `examples/regen_snapshot.rs` re-pins a model tie-out
+    snapshot from the current engine (see workflows.md).
+    `fm-agent/examples/nonusa_agentic_drive.rs` drives the reducer end-to-end for a non-US
+    earnings review with the operator standing in for the LLM (own-key-free).
 - `src-tauri/` — the app crate `finmodel-app` (lib + bin). Owns the agent runtime, tool
   registry, Tauri commands. Depends on the core crates by path.
 

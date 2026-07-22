@@ -19,15 +19,28 @@ Fast local loops:
 Ignored live tests hit the real model/network (run only when online):
 `cargo test --lib data_room_live_smoke -- --ignored --nocapture`
 
+## Regenerate a committed model snapshot (after an fm-engine change)
+An fm-engine change that alters a projected statement also changes the committed
+`tieout/excel_snapshots/<TICKER>_snapshot.json` and breaks `fm verify` / `parity` /
+`snapshot_parity`. Regenerate from the corrected Rust pipeline (self-checks to 0 diffs before
+writing): `cd finmodel-core && cargo run -p fm-cli --example regen_snapshot -- <TICKER>`.
+Replaces the defunct Python `tieout/build_excel_snapshots.py` (its extraction cache is gone).
+Offline `fm build` / `fm verify` fixtures are ALL non-US: SAND.ST, ASML.AS, NOVO-B.CO, NESN.SW, ATCO-B.ST.
+
 ## Build the desktop app (NSIS installer, Windows)
 `cd src-tauri && CI=true cargo tauri build --bundles nsis` — UNSIGNED, local smoke only.
 - Produces `src-tauri/target/release/bundle/nsis/finmodel_<ver>_x64-setup.exe`.
-- For a RELEASE, sign DURING the build by passing the updater key IN-ENV (authoritative path;
-  the tauri-cli honors the key CONTENTS, not a path):
-  `TAURI_SIGNING_PRIVATE_KEY="$(cat < /c/Users/vinit/.tauri/finmodel.key)" \`
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" CI=true cargo tauri build --bundles nsis`
+- For a RELEASE, sign DURING the build by passing the updater key IN-ENV (the tauri-cli honors
+  the key CONTENTS, not a path). Run it SYNCHRONOUSLY — NEVER in a background/async job: that
+  shell has no `/c/` mount (the key read ENOENTs) and sets `CI=1`, which tauri-cli rejects with
+  `invalid value '1' for '--ci'`. The absolute `/c/Users/vinit/.tauri/finmodel.key` also
+  intermittently ENOENTs (Defender appears to lock `.key` on access), so read it by cd-ing into
+  its dir inside a retry loop:
+  `cd src-tauri && export CI=true TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \`
+  `&& for i in 1 2 3 4 5; do K="$(cd /c/Users/vinit/.tauri && cat finmodel.key)"; [ -n "$K" ] && break; sleep 2; done \`
+  `&& export TAURI_SIGNING_PRIVATE_KEY="$K" && cargo tauri build --bundles nsis`
   → also emits `finmodel_<ver>_x64-setup.exe.sig` (the minisign sig for `latest.json`).
-  NEVER commit or echo the key; read it via `< redirection` (the bare arg form fails on this shell).
+  NEVER commit or echo the key.
 
 ## Release ritual (see docs/RELEASE_CHECKLIST.md for the authoritative version)
 Source repo `Knightwarrior911/finmodel-rust` is PRIVATE; releases go to PUBLIC
