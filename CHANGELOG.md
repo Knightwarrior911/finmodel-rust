@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.38 - 2026-07-22 - Correct margins for filers that report cost of sales without a gross-profit line
+
+- **Models for IFRS "by function" filers no longer collapse into a loss.** When
+  a company reports cost of goods sold but no separate "Gross profit" subtotal —
+  a common non-US / IFRS income-statement presentation (Nestlé, for example) —
+  the projection engine read a 0% gross margin and cascaded it into a negative
+  operating profit, negative equity, and even negative total assets across the
+  forward model. The engine now derives gross margin from revenue − cost of
+  sales in that case, matching how every other layer already treats a missing
+  gross-profit line (the metrics builder, the LTM/period reconcilers, and the
+  workbook's own gross-profit formula). Nestlé now models at its real ~46%
+  gross margin with a balanced, positive projection; filers that do report an
+  explicit gross-profit line are byte-for-byte unchanged.
+
 ## v0.9.37 - 2026-07-21 - Dispatch a swarm of analysts in one move
 
 - **`dispatch_swarm` — an army of subagents in a single call.** For a long

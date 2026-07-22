@@ -118,10 +118,13 @@ impl ModelEngine {
         let base_growth = Self::pct_growth_avg(rev.unwrap()).max(-0.10);
         a.insert("revenue_growth".into(), base_growth);
 
-        // gross_margin from gross_profit ONLY (matches engine.py — it does not
-        // fall back to cogs). A filing with COGS but no gross_profit line yields
-        // gross_margin = 0, which projects a low/negative-margin scenario — this
-        // is the NESN case where the reference projects a loss.
+        // gross_margin: prefer an explicit gross_profit line; if the filing
+        // reports COGS without a separate gross-profit subtotal (a common IFRS
+        // "by function" presentation — e.g. Nestlé), derive it from
+        // revenue − cogs per period. This matches fm-research metrics,
+        // fm-extract LTM/period, and the fm-excel projection formula. Without
+        // the fallback a COGS-only filer gets gross_margin = 0, which drives
+        // the entire projection to a spurious loss (negative EBIT/equity).
         if let Some(gp) = is.get("gross_profit") {
             let r: Vec<f64> = rv
                 .iter()
@@ -131,6 +134,22 @@ impl ModelEngine {
                     _ => None,
                 })
                 .collect();
+            a.insert(
+                "gross_margin".into(),
+                if r.is_empty() { 0.0 } else { Self::avg(&r) },
+            );
+        } else if let Some(cogs) = is.get("cogs") {
+            let r: Vec<f64> = rev
+                .map(|rr| {
+                    rr.iter()
+                        .zip(cogs.iter())
+                        .filter_map(|(ro, co)| match (ro, co) {
+                            (Some(rval), Some(cval)) if *rval > 1e-9 => Some((rval - cval) / rval),
+                            _ => None,
+                        })
+                        .collect::<Vec<f64>>()
+                })
+                .unwrap_or_default();
             a.insert(
                 "gross_margin".into(),
                 if r.is_empty() { 0.0 } else { Self::avg(&r) },
@@ -627,6 +646,47 @@ mod tests {
                 tl,
                 te
             );
+        }
+    }
+
+    #[test]
+    fn gross_margin_falls_back_to_revenue_minus_cogs_without_gross_profit_line() {
+        // IFRS "by function" filers (e.g. Nestlé) report COGS but no separate
+        // gross-profit subtotal. The engine must derive the margin from
+        // revenue − cogs, not collapse it to 0 — the pre-fix behavior drove the
+        // whole projection to a spurious loss (gross_profit 0 → negative equity).
+        let mut data = sample_data();
+        data.income_statement.remove("gross_profit");
+        assert!(data.income_statement.get("gross_profit").is_none());
+
+        let engine = ModelEngine::new(
+            data,
+            CompanyConfig {
+                name: "IfrsCo".into(),
+                hist_periods: 3,
+                proj_periods: 3,
+                ..Default::default()
+            },
+        );
+        let a = engine.derive_assumptions();
+        // 600/1000 = 660/1100 = 726/1210 = 0.40 — identical to the explicit
+        // gross_profit line in `derive_all_assumptions`.
+        assert!(
+            (a["gross_margin"] - 0.40).abs() < 1e-6,
+            "gross_margin fallback = {}, expected 0.40",
+            a["gross_margin"]
+        );
+
+        // The projection must stay sane: positive gross profit every year and
+        // non-negative equity (never the pre-fix negative-equity collapse).
+        let ass: HashMap<String, Vec<f64>> =
+            a.iter().map(|(k, v)| (k.clone(), vec![*v; 3])).collect();
+        let p = engine.project(&ass);
+        for i in 0..3 {
+            let gp = p.income_statement["gross_profit"][i].unwrap_or(0.0);
+            let te = p.balance_sheet["total_equity"][i].unwrap_or(0.0);
+            assert!(gp > 0.0, "projected gross_profit must be positive, got {gp}");
+            assert!(te > 0.0, "projected total_equity must stay positive, got {te}");
         }
     }
 }
