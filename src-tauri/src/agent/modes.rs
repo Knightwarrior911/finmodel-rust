@@ -119,7 +119,12 @@ mod tests {
         assert!(!AgentMode::Loop.read_only());
         // Analyst is the silent default: no doctrine layer.
         assert!(AgentMode::Analyst.system_layer().is_none());
-        for m in [AgentMode::Plan, AgentMode::Goal, AgentMode::Loop, AgentMode::Skeptic] {
+        for m in [
+            AgentMode::Plan,
+            AgentMode::Goal,
+            AgentMode::Loop,
+            AgentMode::Skeptic,
+        ] {
             assert!(m.system_layer().is_some(), "{m:?} needs a doctrine layer");
         }
     }

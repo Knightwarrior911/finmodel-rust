@@ -291,8 +291,8 @@ fn redact_provider_error(status: Option<u16>, body: &str) -> String {
         "transport"
     };
     let msg = match status {
-        Some(code) => format!("OpenRouter request failed ({category}, HTTP {code})"),
-        None => format!("OpenRouter request failed ({category})"),
+        Some(code) => format!("Model request failed ({category}, HTTP {code})"),
+        None => format!("Model request failed ({category})"),
     };
     if msg.chars().count() > MAX_ERROR_CHARS {
         msg.chars().take(MAX_ERROR_CHARS).collect()
@@ -781,7 +781,9 @@ pub(crate) fn model_scaffolding(model: &str) -> Option<&'static str> {
     }
     // Small variants of any vendor scaffold. Segment match, not substring —
     // "gemini" must never match "mini".
-    const SMALL_MARKS: [&str; 8] = ["mini", "nano", "flash", "haiku", "lite", "small", "tiny", "fast"];
+    const SMALL_MARKS: [&str; 8] = [
+        "mini", "nano", "flash", "haiku", "lite", "small", "tiny", "fast",
+    ];
     let small = m
         .split(|c: char| !c.is_ascii_alphanumeric())
         .any(|seg| SMALL_MARKS.contains(&seg));
@@ -790,7 +792,8 @@ pub(crate) fn model_scaffolding(model: &str) -> Option<&'static str> {
     }
     // Frontier families that follow the terse doctrine without help.
     let frontier = (m.starts_with("anthropic/") && (m.contains("sonnet") || m.contains("opus")))
-        || (m.starts_with("openai/") && (m.contains("gpt-5") || m.contains("o3") || m.contains("o4")))
+        || (m.starts_with("openai/")
+            && (m.contains("gpt-5") || m.contains("o3") || m.contains("o4")))
         || (m.starts_with("google/") && m.contains("pro"))
         || (m.starts_with("x-ai/") && m.contains("grok-4"));
     if frontier {
@@ -820,8 +823,7 @@ pub(crate) fn seed_agent_messages_for_model(
     let user_content: Value = if images.is_empty() {
         json!(user_text)
     } else {
-        let mut parts: Vec<Value> =
-            vec![json!({ "type": "text", "text": user_text })];
+        let mut parts: Vec<Value> = vec![json!({ "type": "text", "text": user_text })];
         for url in images {
             parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
         }
@@ -870,7 +872,10 @@ fn tool_run_agent(
         return Err(if bench.is_empty() {
             "no agents defined yet - the user can create them in Settings -> Agents".to_string()
         } else {
-            format!("no agent named `{name}`. Available agents: {}", bench.join(", "))
+            format!(
+                "no agent named `{name}`. Available agents: {}",
+                bench.join(", ")
+            )
         });
     };
     const GROUND_RULES: &str = "Ground rules (non-negotiable): you are a dispatched subagent inside finmodel with read-only research tools only. You CANNOT open local files or folders (analyze_pdf works only on a PDF the user has attached, identified by an artifact id in the task) - if the task refers to documents or a data room you were not handed in the task text, say so plainly rather than guessing. Tool reach across regions: get_financials covers US tickers AND many non-US issuers (foreign 20-F filers in native currency, Europe-only companies by legal name or LEI via the ESEF index, Japan via EDINET). list_filings and read_filing reach SEC EDGAR by ticker - INCLUDING foreign private issuers that file a 20-F (pass form:\\\"20-F\\\") - but NOT home-market-only filings; for a company that files only in its local market (no SEC filing), get narrative and disclosures (risk factors, management discussion, notes) from research, or from web_search against the local exchange and the company's IR page. Every material figure must come from a tool result in THIS conversation; independent lookups go in one turn as parallel tool calls; you have a small round budget. Finish with a compact findings brief: lead with the answer, then key figures with period labels, then one line on sources. No preamble.";
@@ -1147,11 +1152,13 @@ fn tool_swarm(
         return Err(e);
     }
     if !crate::commands::settings::has_effective_credentials(&swarm_settings) {
-        return Err(if crate::commands::settings::is_cursor_gateway(&swarm_settings) {
-            "a swarm needs Cursor OAuth (omp /login cursor) or Use Cursor in Settings".into()
-        } else {
-            "a swarm needs the API key configured in Settings".into()
-        });
+        return Err(
+            if crate::commands::settings::is_cursor_gateway(&swarm_settings) {
+                "a swarm needs Cursor OAuth (omp /login cursor) or Use Cursor in Settings".into()
+            } else {
+                "a swarm needs the API key configured in Settings".into()
+            },
+        );
     }
     // Resolve the ACTIVE run's shared global/per-run semaphores once. Every
     // child acquires one permit before provider/tool I/O, so even several
@@ -1212,8 +1219,10 @@ fn tool_swarm(
     }
     let mut rows = collected.into_inner();
     rows.sort_by_key(|(i, _, _)| *i);
-    let ordered: Vec<(SwarmSlice, Result<(String, Value), String>)> =
-        rows.into_iter().map(|(_, slice, outcome)| (slice, outcome)).collect();
+    let ordered: Vec<(SwarmSlice, Result<(String, Value), String>)> = rows
+        .into_iter()
+        .map(|(_, slice, outcome)| (slice, outcome))
+        .collect();
     Ok(build_swarm_output(&context, &ordered))
 }
 
@@ -1329,8 +1338,7 @@ fn tool_draft_memo(
         settings.synthesis_model.trim().to_string()
     };
     let chat_url = crate::commands::settings::chat_completions_url(&settings);
-    let (sections, fallbacks) =
-        memo::draft_sections(&api_key, &write_model, &chat_url, &kind, &ev);
+    let (sections, fallbacks) = memo::draft_sections(&api_key, &write_model, &chat_url, &kind, &ev);
 
     // 3. Render + persist the artifact.
     let now = iso_now();
@@ -1357,7 +1365,12 @@ fn tool_draft_memo(
     // Collision-safe basename shared by the memo and its deck: a time suffix
     // (HHMMSS) plus an incrementing guard so re-drafting the same company/kind
     // — even twice in one second — never silently overwrites an earlier file.
-    let hms: String = now.get(11..19).unwrap_or("").chars().filter(|c| c.is_ascii_digit()).collect();
+    let hms: String = now
+        .get(11..19)
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect();
     let base0 = format!("{stem}_{kind}_{today}_{hms}");
     let mut base = base0.clone();
     let mut n = 2;
@@ -1380,8 +1393,7 @@ fn tool_draft_memo(
             .map(|(h, t, _)| (h.clone(), t.clone()))
             .collect();
         let fig_rows = memo::deck_fig_rows(&ev);
-        let src_titles: Vec<String> =
-            ev.sources.iter().map(|(t, _)| t.clone()).collect();
+        let src_titles: Vec<String> = ev.sources.iter().map(|(t, _)| t.clone()).collect();
         let deck = fm_pptx::writer::deck::write_memo_deck(
             &company,
             memo::kind_label(&kind),
@@ -1402,7 +1414,11 @@ fn tool_draft_memo(
     // rehydrated by list_recent after restart) so the card's Open / Show-in-
     // folder buttons actually resolve — open_path rejects unregistered paths.
     let klabel = memo::kind_label(&kind);
-    crate::commands::model::push_recent(app, &path.to_string_lossy(), &format!("{company} — {klabel}"));
+    crate::commands::model::push_recent(
+        app,
+        &path.to_string_lossy(),
+        &format!("{company} — {klabel}"),
+    );
     if let Some(pp) = &pptx_path {
         crate::commands::model::push_recent(app, pp, &format!("{company} — {klabel} deck"));
     }
@@ -1472,7 +1488,14 @@ impl ToolBackend for ChatToolBackend<'_> {
         args: &Value,
         ctx: &SessionContext,
     ) -> Result<(String, Value), String> {
-        run_tool(self.app, name, args, &ctx.user_msg, &ctx.conversation_id, &ctx.cancel)
+        run_tool(
+            self.app,
+            name,
+            args,
+            &ctx.user_msg,
+            &ctx.conversation_id,
+            &ctx.cancel,
+        )
     }
 }
 
@@ -1962,7 +1985,7 @@ fn tool_get_financials_with_key(args: &Value, edinet_key: &str) -> Result<(Strin
                 } else {
                     return Err(format!(
                         "Couldn't find {ticker} on SEC EDGAR ({us_err}) or in the European filings index ({esef_err})"
-                    ))
+                    ));
                 }
             }
         },
@@ -1980,10 +2003,20 @@ fn tool_get_financials_with_key(args: &Value, edinet_key: &str) -> Result<(Strin
         if let Ok((mut text, mut card)) = result {
             if let Ok(segs) = fm_fetch::segments::fetch_segment_revenue(&cik) {
                 if !segs.is_empty() {
-                    text.push_str("\nSegment revenue (latest annual, from the filing's XBRL instance):\n");
+                    text.push_str(
+                        "\nSegment revenue (latest annual, from the filing's XBRL instance):\n",
+                    );
                     for f in &segs {
-                        text.push_str(&format!("  {}: {:.1}M{}\n", f.segment, f.value / 1.0e6,
-                            if f.eliminations { " (eliminations)" } else { "" }));
+                        text.push_str(&format!(
+                            "  {}: {:.1}M{}\n",
+                            f.segment,
+                            f.value / 1.0e6,
+                            if f.eliminations {
+                                " (eliminations)"
+                            } else {
+                                ""
+                            }
+                        ));
                     }
                     card["segments"] = serde_json::to_value(&segs).unwrap_or(Value::Null);
                 }
@@ -2147,9 +2180,7 @@ fn annual_series(
                 continue;
             };
             let accn = v["accn"].as_str().unwrap_or("").to_string();
-            if v["fp"].as_str() != Some("FY")
-                || !v["form"].as_str().map_or(false, is_annual_form)
-            {
+            if v["fp"].as_str() != Some("FY") || !v["form"].as_str().map_or(false, is_annual_form) {
                 continue;
             }
             let filed = v["filed"].as_str().unwrap_or("").to_string();
@@ -2356,7 +2387,10 @@ fn financials_from_facts(
     } else {
         "Net income"
     };
-    let mut axis: Vec<String> = series[axis_src].iter().map(|(_, e, _, _)| e.clone()).collect();
+    let mut axis: Vec<String> = series[axis_src]
+        .iter()
+        .map(|(_, e, _, _)| e.clone())
+        .collect();
     if let Some(y) = want_year {
         axis.retain(|end| {
             end.get(..4)
@@ -2644,7 +2678,11 @@ fn financials_from_facts(
                 .find(|(_, e, _, _)| e == end)
                 .map(|(_, _, _, a)| filing_index_url(cik, a))
                 .unwrap_or_default();
-            if url.is_empty() { json!(null) } else { json!(url) }
+            if url.is_empty() {
+                json!(null)
+            } else {
+                json!(url)
+            }
         })
         .collect();
     let form_word = if is_ifrs {
@@ -2963,14 +3001,19 @@ mod tests {
             ]
         }))
         .expect("valid");
-        assert_eq!(context, "Compare latest annual margins on a consistent basis.");
+        assert_eq!(
+            context,
+            "Compare latest annual margins on a consistent basis."
+        );
         assert_eq!(ok.len(), 2);
         assert_eq!(ok[0].name.as_deref(), Some("NVDA"));
         assert_eq!(ok[0].task, "margins for NVDA");
         assert_eq!(ok[0].agent, None);
         assert_eq!(ok[1].agent.as_deref(), Some("Screener"));
         assert!(parse_swarm_tasks(&json!({ "context": "x", "tasks": [] })).is_err());
-        assert!(parse_swarm_tasks(&json!({ "context": "x", "tasks": [{ "agent": "x" }] })).is_err());
+        assert!(
+            parse_swarm_tasks(&json!({ "context": "x", "tasks": [{ "agent": "x" }] })).is_err()
+        );
         assert!(parse_swarm_tasks(&json!({
             "context": "x",
             "tasks": [
@@ -2998,15 +3041,27 @@ mod tests {
         };
         let outcomes = vec![
             (
-                SwarmSlice { name: Some("NVDA".into()), task: "NVDA margins".into(), agent: None },
+                SwarmSlice {
+                    name: Some("NVDA".into()),
+                    task: "NVDA margins".into(),
+                    agent: None,
+                },
                 Ok(("brief a".into(), child_card("NVDA gross margin 75%.", 0.01))),
             ),
             (
-                SwarmSlice { name: Some("AMD".into()), task: "AMD margins".into(), agent: Some("Screener".into()) },
+                SwarmSlice {
+                    name: Some("AMD".into()),
+                    task: "AMD margins".into(),
+                    agent: Some("Screener".into()),
+                },
                 Ok(("brief b".into(), child_card("AMD gross margin 50%.", 0.02))),
             ),
             (
-                SwarmSlice { name: Some("INTC".into()), task: "INTC margins".into(), agent: None },
+                SwarmSlice {
+                    name: Some("INTC".into()),
+                    task: "INTC margins".into(),
+                    agent: None,
+                },
                 Err("ran out of rounds".into()),
             ),
         ];
@@ -3019,7 +3074,10 @@ mod tests {
         assert_eq!(card["usage"]["completion_tokens"], 40);
         assert!((card["usage"]["cost"].as_f64().unwrap() - 0.03).abs() < 1e-9);
         assert_eq!(card["agents"][2]["ok"], false);
-        assert!(card["agents"][2]["error"].as_str().unwrap().contains("rounds"));
+        assert!(card["agents"][2]["error"]
+            .as_str()
+            .unwrap()
+            .contains("rounds"));
         assert_eq!(card["agents"][1]["agent"], "Screener");
         assert_eq!(card["agents"][0]["name"], "NVDA");
         assert!(summary.contains("2/3 subagents"));
@@ -3091,11 +3149,20 @@ mod tests {
         let out = req["messages"].as_array().unwrap();
         // The stable first layer carries the marker.
         assert_eq!(out[0]["content"][0]["type"], json!("text"));
-        assert_eq!(out[0]["content"][0]["text"], json!("base prompt + tools + mode"));
-        assert_eq!(out[0]["content"][0]["cache_control"]["type"], json!("ephemeral"));
+        assert_eq!(
+            out[0]["content"][0]["text"],
+            json!("base prompt + tools + mode")
+        );
+        assert_eq!(
+            out[0]["content"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
         // The volatile memories layer is left a plain string — NOT the anchor
         // (anchoring it would move the breakpoint every turn and miss cache).
-        assert_eq!(out[1]["content"], json!("Recalled context:\n- turn-specific memory"));
+        assert_eq!(
+            out[1]["content"],
+            json!("Recalled context:\n- turn-specific memory")
+        );
         assert_eq!(out[2]["content"], json!("hi"));
     }
 
@@ -3266,6 +3333,10 @@ mod tests {
         let body = r#"{"error":{"message":"sk-or-v1-SECRET_KEY rate limited"}}"#;
         let msg = redact_provider_error(Some(429), body);
         assert!(msg.contains("rate_limit"), "got: {msg}");
+        assert!(
+            !msg.contains("OpenRouter"),
+            "shared transport mislabeled provider"
+        );
         assert!(msg.contains("HTTP 429"));
         assert!(!msg.contains("SECRET"));
         assert!(!msg.contains("sk-or"));
@@ -3515,8 +3586,18 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
             true,
         ),
         ("Operating income", &["OperatingIncomeLoss"], "ebit", true),
-        ("Net income", &["NetIncomeLoss", "ProfitLoss"], "net_income", true),
-        ("Diluted EPS", &["EarningsPerShareDiluted"], "eps_diluted", false),
+        (
+            "Net income",
+            &["NetIncomeLoss", "ProfitLoss"],
+            "net_income",
+            true,
+        ),
+        (
+            "Diluted EPS",
+            &["EarningsPerShareDiluted"],
+            "eps_diluted",
+            false,
+        ),
     ];
     let pick = |us_tags: &'static [&'static str], key: &str| -> &'static [&'static str] {
         if is_ifrs {
@@ -3531,7 +3612,11 @@ fn financials_quarterly(ticker: &str, cik: &str, raw: &Value) -> Result<(String,
         std::collections::BTreeMap::new();
     let eps_unit = format!("{cur}/shares");
     for &(label, us_tags, key, derivable) in metrics {
-        let unit: &str = if label == "Diluted EPS" { &eps_unit } else { &cur };
+        let unit: &str = if label == "Diluted EPS" {
+            &eps_unit
+        } else {
+            &cur
+        };
         let (quarters, annuals) = duration_facts(us, pick(us_tags, key), unit);
         let mut m: std::collections::BTreeMap<String, (f64, bool)> = quarters
             .iter()
@@ -3781,8 +3866,14 @@ mod financials_tests {
         });
         let (text, card) = financials_from_facts("EURC", "0", &raw, None, 3).unwrap();
         assert_eq!(card["currency"], "EUR", "card currency:\n{text}");
-        assert!(text.contains("figures in EUR"), "currency note missing:\n{text}");
-        assert!(text.contains("annual report (20-F/IFRS)"), "form word missing:\n{text}");
+        assert!(
+            text.contains("figures in EUR"),
+            "currency note missing:\n{text}"
+        );
+        assert!(
+            text.contains("annual report (20-F/IFRS)"),
+            "form word missing:\n{text}"
+        );
         assert!(text.contains("€31.80B"), "euro formatting missing:\n{text}");
         assert!(text.contains("€5.12"), "euro EPS missing:\n{text}");
         // Derived rows still compute off the IFRS series.
@@ -3794,9 +3885,7 @@ mod financials_tests {
     /// FY labels from the period end (Toyota's FY2025 ends 2025-03-31).
     #[test]
     fn financials_ifrs_jpy_march_fy() {
-        let fy = |v: f64, end: &str, filed: &str| {
-            serde_json::json!({ "val": v, "end": end, "fp": "FY", "form": "20-F", "filed": filed })
-        };
+        let fy = |v: f64, end: &str, filed: &str| serde_json::json!({ "val": v, "end": end, "fp": "FY", "form": "20-F", "filed": filed });
         let raw = serde_json::json!({
             "entityName": "Nihon KK",
             "facts": { "ifrs-full": {
@@ -3859,7 +3948,6 @@ mod financials_tests {
         assert!(text.contains("figures in EUR"), "{text}");
     }
 
-
     /// LIVE (network): a European company with NO US listing routes to the
     /// ESEF filings index and yields a EUR spread through the SAME pipeline.
     /// Run: cargo test --lib financials_live_esef -- --ignored --nocapture
@@ -3887,8 +3975,11 @@ mod financials_tests {
         println!("{text}");
         assert_eq!(card["currency"], "JPY", "{text}");
         let fy = card["fiscal_year"].as_str().unwrap_or("");
-        assert!(fy >= "2024", "stale taxonomy served: FY{fy}
-{text}");
+        assert!(
+            fy >= "2024",
+            "stale taxonomy served: FY{fy}
+{text}"
+        );
         assert!(text.contains("¥"), "{text}");
     }
 }

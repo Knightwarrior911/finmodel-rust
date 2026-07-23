@@ -279,8 +279,7 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
     {
         let s = crate::commands::settings::read_settings(&app);
         guard.budget_usd = s.conversation_budget_usd;
-        let openrouter =
-            crate::commands::settings::is_openrouter(&s) && !api_key.trim().is_empty();
+        let openrouter = crate::commands::settings::is_openrouter(&s) && !api_key.trim().is_empty();
         let has_images = app
             .try_state::<crate::commands::artifacts::ArtifactRegistry>()
             .map(|reg| crate::commands::attachments::has_image_attachments(&reg, &attachments))
@@ -384,11 +383,16 @@ async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
         let msg = if blocks.is_empty() {
             user_msg
         } else {
-            format!("{user_msg}
+            format!(
+                "{user_msg}
 
-{}", blocks.join("
+{}",
+                blocks.join(
+                    "
 
-"))
+"
+                )
+            )
         };
         (msg, images)
     } else {
@@ -541,17 +545,24 @@ pub(crate) async fn send_message_inner_mode(
         return Err(AppError::Config("empty message".into()));
     }
 
-    // No key is allowed for non-Cursor providers: LiveDriver routes to the
-    // FallbackDispatcher. Cursor gateway still needs OAuth + a live gateway.
+    // API-key providers may run keyless through the deterministic fallback.
+    // Subscription models require their OMP credential and a live gateway.
     let settings = read_settings(&app);
-    if crate::commands::settings::is_cursor_gateway(&settings) {
-        if let Err(e) = crate::commands::settings::ensure_provider_ready(&settings) {
-            return Err(AppError::Engine(e));
-        }
+    if crate::commands::settings::is_omp_gateway(&settings) {
+        let readiness = settings.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::commands::settings::ensure_provider_ready(&readiness)
+        })
+        .await
+        .map_err(|e| AppError::Engine(format!("OMP gateway readiness task failed: {e}")))?
+        .map_err(AppError::Engine)?;
         if !crate::commands::settings::has_effective_credentials(&settings) {
-            return Err(AppError::Config(
-                "Cursor OAuth missing/expired — run omp /login cursor, then Use Cursor.".into(),
-            ));
+            let message = if crate::commands::settings::is_cursor_gateway(&settings) {
+                "Cursor OAuth missing/expired — connect Cursor in Settings."
+            } else {
+                "OpenCode Go credential missing — connect OpenCode Go in Settings."
+            };
+            return Err(AppError::Config(message.into()));
         }
     }
 
@@ -812,7 +823,10 @@ where
     loop {
         let now = crate::store::now_iso();
         let claimed = handle
-            .call(move |db| db.claim_due_schedule(&now, "tick").map_err(|e| e.to_string()))
+            .call(move |db| {
+                db.claim_due_schedule(&now, "tick")
+                    .map_err(|e| e.to_string())
+            })
             .await;
         let Ok(Some(id)) = claimed else { break };
         let sid = id.clone();
@@ -824,7 +838,8 @@ where
             let retry = iso_in_secs(15 * 60);
             let _ = handle
                 .call(move |db| {
-                    db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string())
+                    db.fail_schedule_attempt(&sid, 5, &retry)
+                        .map_err(|e| e.to_string())
                 })
                 .await;
             continue;
@@ -872,7 +887,8 @@ where
                 let retry = iso_in_secs(15 * 60);
                 let _ = handle
                     .call(move |db| {
-                        db.fail_schedule_attempt(&sid, 5, &retry).map_err(|e| e.to_string())
+                        db.fail_schedule_attempt(&sid, 5, &retry)
+                            .map_err(|e| e.to_string())
                     })
                     .await;
             }
@@ -915,15 +931,27 @@ mod schedule_tests {
         (crate::store::StoreHandle::spawn(db), dir)
     }
 
-    fn insert(handle: &crate::store::StoreHandle, id: &str, recurrence: Option<&str>, prompt: &str) {
+    fn insert(
+        handle: &crate::store::StoreHandle,
+        id: &str,
+        recurrence: Option<&str>,
+        prompt: &str,
+    ) {
         let id = id.to_string();
         let rec = recurrence.map(str::to_string);
         let scope = serde_json::json!({ "prompt": prompt }).to_string();
         let fut = handle.call(move |db| {
             db.insert_schedule(
-                &id, None, None, "UTC", rec.as_deref(),
+                &id,
+                None,
+                None,
+                "UTC",
+                rec.as_deref(),
                 "2020-01-01T00:00:00Z", // long past due
-                &scope, None, None, "2020-01-01T00:00:00Z",
+                &scope,
+                None,
+                None,
+                "2020-01-01T00:00:00Z",
             )
             .map_err(|e| e.to_string())
         });
@@ -955,7 +983,10 @@ mod schedule_tests {
         }));
         let mut got = launched.lock().unwrap().clone();
         got.sort();
-        assert_eq!(got, vec!["check TSLA again".to_string(), "morning brief".to_string()]);
+        assert_eq!(
+            got,
+            vec!["check TSLA again".to_string(), "morning brief".to_string()]
+        );
         // One-shot finished; recurring re-armed pending with a FUTURE due time
         // (a second immediate sweep launches nothing).
         assert_eq!(state(&handle, "one").0, "done");
@@ -971,7 +1002,11 @@ mod schedule_tests {
                 Ok(())
             }
         }));
-        assert_eq!(n.load(Ordering::SeqCst), 0, "re-armed schedule is not due yet");
+        assert_eq!(
+            n.load(Ordering::SeqCst),
+            0,
+            "re-armed schedule is not due yet"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -985,7 +1020,8 @@ mod schedule_tests {
             // preserves the attempts counter — exactly the state a matured
             // backoff would reach).
             let fut = handle.call(|db| {
-                db.rearm_schedule("bad", "2020-01-01T00:00:00Z").map_err(|e| e.to_string())
+                db.rearm_schedule("bad", "2020-01-01T00:00:00Z")
+                    .map_err(|e| e.to_string())
             });
             tauri::async_runtime::block_on(fut).unwrap();
             tauri::async_runtime::block_on(sweep_due_schedules(&handle, |_c, _p| async {
@@ -1316,7 +1352,10 @@ pub async fn skills_save(app: tauri::AppHandle, name: String, content: String) -
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agents_list(app: tauri::AppHandle) -> AppResult<String> {
     use tauri::Manager;
-    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| AppError::Config(e.to_string()))?;
     let agents = crate::agent::agents::list_agents(&dir);
     serde_json::to_string(&agents).map_err(|e| AppError::Config(e.to_string()))
 }
@@ -1324,7 +1363,10 @@ pub async fn agents_list(app: tauri::AppHandle) -> AppResult<String> {
 #[tauri::command]
 pub fn agents_get(app: tauri::AppHandle, name: String) -> AppResult<String> {
     use tauri::Manager;
-    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| AppError::Config(e.to_string()))?;
     crate::agent::agents::get_agent_md(&dir, &name)
         .ok_or_else(|| AppError::Config(format!("agent `{name}` not found")))
 }
@@ -1332,7 +1374,10 @@ pub fn agents_get(app: tauri::AppHandle, name: String) -> AppResult<String> {
 #[tauri::command]
 pub async fn agents_save(app: tauri::AppHandle, name: String, content: String) -> AppResult<()> {
     use tauri::Manager;
-    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| AppError::Config(e.to_string()))?;
     crate::agent::agents::save_agent(&dir, &name, &content)
         .map(|_| ())
         .map_err(AppError::Config)
@@ -1341,7 +1386,10 @@ pub async fn agents_save(app: tauri::AppHandle, name: String, content: String) -
 #[tauri::command]
 pub fn agents_delete(app: tauri::AppHandle, name: String) -> AppResult<()> {
     use tauri::Manager;
-    let dir = app.path().app_config_dir().map_err(|e| AppError::Config(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| AppError::Config(e.to_string()))?;
     crate::agent::agents::delete_agent(&dir, &name).map_err(AppError::Config)
 }
 

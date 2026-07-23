@@ -69,7 +69,10 @@ pub(crate) fn walk_room(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
             }
             if p.is_dir() {
                 if depth + 1 > MAX_DEPTH {
-                    skipped.push(format!("{} (deeper than {MAX_DEPTH} levels)", rel_of(root, &p)));
+                    skipped.push(format!(
+                        "{} (deeper than {MAX_DEPTH} levels)",
+                        rel_of(root, &p)
+                    ));
                 } else {
                     stack.push((p, depth + 1));
                 }
@@ -87,7 +90,9 @@ pub(crate) fn walk_room(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
                 }
                 continue;
             }
-            let too_big = std::fs::metadata(&p).map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true);
+            let too_big = std::fs::metadata(&p)
+                .map(|m| m.len() > MAX_FILE_BYTES)
+                .unwrap_or(true);
             if too_big {
                 skipped.push(format!("{} (over the size cap)", rel_of(root, &p)));
                 continue;
@@ -124,7 +129,11 @@ pub(crate) fn extract_file(root: &Path, p: &Path) -> Result<RoomFile, String> {
         fm_extract::pdf_pages(&p.to_string_lossy()).map_err(|e| e.to_string())?
     } else {
         let raw = std::fs::read_to_string(p).map_err(|e| e.to_string())?;
-        let text = if ext == "htm" || ext == "html" { strip_tags(&raw) } else { raw };
+        let text = if ext == "htm" || ext == "html" {
+            strip_tags(&raw)
+        } else {
+            raw
+        };
         vec![text]
     };
     Ok(RoomFile {
@@ -149,7 +158,9 @@ pub(crate) fn strip_tags(html: &str) -> String {
             if lower[pos..].starts_with("<script") || lower[pos..].starts_with("<style") {
                 in_script = true;
             }
-            if in_script && (lower[pos..].starts_with("</script") || lower[pos..].starts_with("</style")) {
+            if in_script
+                && (lower[pos..].starts_with("</script") || lower[pos..].starts_with("</style"))
+            {
                 in_script = false;
             }
             i += 1;
@@ -181,13 +192,21 @@ pub(crate) fn chunk_room(files: &[RoomFile]) -> Vec<Chunk> {
                 continue;
             }
             if text.len() <= CHUNK_TARGET {
-                chunks.push(Chunk { file_idx: fi, page: pi + 1, text: text.to_string() });
+                chunks.push(Chunk {
+                    file_idx: fi,
+                    page: pi + 1,
+                    text: text.to_string(),
+                });
                 continue;
             }
             let mut cur = String::new();
             for para in text.split("\n\n") {
                 if !cur.is_empty() && cur.len() + para.len() + 2 > CHUNK_TARGET {
-                    chunks.push(Chunk { file_idx: fi, page: pi + 1, text: cur.clone() });
+                    chunks.push(Chunk {
+                        file_idx: fi,
+                        page: pi + 1,
+                        text: cur.clone(),
+                    });
                     cur.clear();
                 }
                 if para.len() > CHUNK_TARGET {
@@ -198,7 +217,11 @@ pub(crate) fn chunk_room(files: &[RoomFile]) -> Vec<Chunk> {
                         while cut > 0 && !rest.is_char_boundary(cut) {
                             cut -= 1;
                         }
-                        chunks.push(Chunk { file_idx: fi, page: pi + 1, text: rest[..cut].to_string() });
+                        chunks.push(Chunk {
+                            file_idx: fi,
+                            page: pi + 1,
+                            text: rest[..cut].to_string(),
+                        });
                         rest = &rest[cut..];
                     }
                     cur.push_str(rest);
@@ -210,7 +233,11 @@ pub(crate) fn chunk_room(files: &[RoomFile]) -> Vec<Chunk> {
                 }
             }
             if !cur.trim().is_empty() {
-                chunks.push(Chunk { file_idx: fi, page: pi + 1, text: cur });
+                chunks.push(Chunk {
+                    file_idx: fi,
+                    page: pi + 1,
+                    text: cur,
+                });
             }
         }
     }
@@ -280,7 +307,11 @@ pub(crate) fn bm25_top_k(chunks: &[Chunk], query: &str, k: usize) -> Vec<usize> 
             (score, i)
         })
         .collect();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1)));
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.cmp(&b.1))
+    });
     scored
         .into_iter()
         .filter(|(s, _)| *s > 0.0)
@@ -291,7 +322,12 @@ pub(crate) fn bm25_top_k(chunks: &[Chunk], query: &str, k: usize) -> Vec<usize> 
 
 /// Whitespace-normalized verbatim check: does `quote` appear in `text`?
 pub(crate) fn quote_verified(text: &str, quote: &str) -> bool {
-    let norm = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let norm = |s: &str| {
+        s.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
     let q = norm(quote);
     if q.len() < 4 {
         return false;
@@ -476,7 +512,15 @@ pub(crate) async fn run_data_room(
         }
         q_cards.push(
             answer_question(
-                app, cfg, conversation_id, &run, cancel, &files, &chunks, q, &mut usage_total,
+                app,
+                cfg,
+                conversation_id,
+                &run,
+                cancel,
+                &files,
+                &chunks,
+                q,
+                &mut usage_total,
             )
             .await,
         );
@@ -519,7 +563,11 @@ pub(crate) async fn run_data_room(
                 "   [{} p.{}{}] \"{}\"\n",
                 f["file"].as_str().unwrap_or(""),
                 f["page"],
-                if f["verified"] == true { "" } else { " - UNVERIFIED" },
+                if f["verified"] == true {
+                    ""
+                } else {
+                    " - UNVERIFIED"
+                },
                 f["quote"].as_str().unwrap_or("")
             ));
         }
@@ -556,9 +604,18 @@ mod tests {
     #[test]
     fn bm25_ranks_the_relevant_file_first() {
         let (_, chunks) = room(&[
-            ("legal/nda.txt", "Mutual non-disclosure agreement between the parties."),
-            ("fin/model.txt", "FY2025 revenue was 96,307 thousand USD with EBITDA margin of 31%."),
-            ("hr/handbook.txt", "Vacation policy and onboarding checklist."),
+            (
+                "legal/nda.txt",
+                "Mutual non-disclosure agreement between the parties.",
+            ),
+            (
+                "fin/model.txt",
+                "FY2025 revenue was 96,307 thousand USD with EBITDA margin of 31%.",
+            ),
+            (
+                "hr/handbook.txt",
+                "Vacation policy and onboarding checklist.",
+            ),
         ]);
         let top = bm25_top_k(&chunks, "what was FY2025 revenue?", 3);
         assert_eq!(top[0], 1, "the financials chunk must rank first");
@@ -570,7 +627,10 @@ mod tests {
     fn quotes_verify_whitespace_normalized_and_reject_paraphrase() {
         let text = "Revenue for the year\n  was  96,307 thousand USD.";
         assert!(quote_verified(text, "revenue for the year was 96,307"));
-        assert!(!quote_verified(text, "revenue was approximately 96 million"));
+        assert!(!quote_verified(
+            text,
+            "revenue was approximately 96 million"
+        ));
         assert!(!quote_verified(text, "was")); // too short to prove anything
     }
 
@@ -585,7 +645,10 @@ mod tests {
         let chunks = chunk_room(&[f]);
         assert!(chunks.len() >= 3, "long page split: {}", chunks.len());
         assert_eq!(chunks[0].page, 1);
-        assert!(chunks[1..].iter().all(|c| c.page == 2), "page provenance survives splits");
+        assert!(
+            chunks[1..].iter().all(|c| c.page == 2),
+            "page provenance survives splits"
+        );
         assert!(chunks.iter().all(|c| c.text.len() <= CHUNK_TARGET + 2));
     }
 
@@ -599,14 +662,20 @@ mod tests {
         std::fs::write(sub.join("c.docx"), "not yet").unwrap();
         let (files, skipped) = walk_room(&dir);
         assert_eq!(files.len(), 2);
-        assert!(skipped.iter().any(|s| s.contains(".docx not supported")), "{skipped:?}");
+        assert!(
+            skipped.iter().any(|s| s.contains(".docx not supported")),
+            "{skipped:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn resolve_findings_enforces_the_citation_contract() {
         let (files, chunks) = room(&[
-            ("fin/accounts.txt", "Revenue for fiscal year 2025 was 96,307 thousand USD."),
+            (
+                "fin/accounts.txt",
+                "Revenue for fiscal year 2025 was 96,307 thousand USD.",
+            ),
             ("legal/nda.txt", "Mutual non-disclosure agreement."),
         ]);
         let top = vec![0usize, 1];
@@ -625,7 +694,10 @@ mod tests {
         assert_eq!(findings[0]["file"], "fin/accounts.txt");
         assert_eq!(findings[0]["page"], 1);
         assert_eq!(findings[0]["verified"], true);
-        assert_eq!(findings[1]["verified"], false, "paraphrase flagged, not trusted");
+        assert_eq!(
+            findings[1]["verified"], false,
+            "paraphrase flagged, not trusted"
+        );
         // Non-JSON reply degrades to prose with zero findings.
         let (answer, findings) = resolve_findings("I could not find it.", &top, &chunks, &files);
         assert_eq!(answer, "I could not find it.");

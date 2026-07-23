@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.41 - 2026-07-23 - Reliable OMP subscriptions and visible search results
+
+- **OpenCode Go now runs through OMP.** `opencode-go/grok-4.5` uses the local OMP auth-gateway and OMP-owned credential instead of copying a key into finmodel or calling the direct endpoint that returned HTTP 401. Only OMP `agent.db` metadata can mark it ready; Connect opens OMP's interactive key-login terminal and polls until OMP saves the credential. Cursor and OpenCode Go share the gateway without model/provider mix-ups.
+- **Web search survives model outages.** Explicit web-search requests deterministically fall back to `web_search` when a model times out, close after the successful tool result, and keep the result card visible instead of replacing it with `Done` or an API error.
+- **Honest provider errors and quiet Settings.** Shared transport failures no longer claim every provider is OpenRouter. Background OMP probes and gateway processes stay hidden; only the interactive OpenCode Go key prompt opens a terminal.
+
 ## v0.9.40 - 2026-07-22 - Provider-specific subscription model catalogs
 
 - **Separate live model catalogs.** Selecting Cursor, OpenRouter, or OpenCode Go now refreshes only that provider’s models, so model choices cannot leak across subscriptions.

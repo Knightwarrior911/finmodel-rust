@@ -184,7 +184,13 @@ fn validate_swarm(args: &Value) -> Result<(), String> {
 fn validate_data_room(args: &Value) -> Result<(), String> {
     require_nonempty(args, "path")?;
     match args.get("questions").and_then(|v| v.as_array()) {
-        Some(a) if !a.is_empty() && a.iter().all(|q| q.as_str().map_or(false, |s| !s.trim().is_empty())) => Ok(()),
+        Some(a)
+            if !a.is_empty()
+                && a.iter()
+                    .all(|q| q.as_str().map_or(false, |s| !s.trim().is_empty())) =>
+        {
+            Ok(())
+        }
         _ => Err("`questions` must be a non-empty array of questions".into()),
     }
 }
@@ -1006,9 +1012,14 @@ mod tests {
         assert_eq!(spec.risk, Risk::ReadOnly);
         assert!(spec.model_visible, "swarm is offered to the orchestrator");
         // Empty / missing tasks rejected.
-        assert!(r.validate_call("dispatch_swarm", &serde_json::json!({})).is_err());
         assert!(r
-            .validate_call("dispatch_swarm", &serde_json::json!({ "context": "peer sweep", "tasks": [] }))
+            .validate_call("dispatch_swarm", &serde_json::json!({}))
+            .is_err());
+        assert!(r
+            .validate_call(
+                "dispatch_swarm",
+                &serde_json::json!({ "context": "peer sweep", "tasks": [] })
+            )
             .is_err());
         // A slice missing `task` is rejected.
         assert!(r
@@ -1022,7 +1033,10 @@ mod tests {
             .map(|i| serde_json::json!({ "task": format!("slice {i}") }))
             .collect();
         assert!(r
-            .validate_call("dispatch_swarm", &serde_json::json!({ "context": "peer sweep", "tasks": too_many }))
+            .validate_call(
+                "dispatch_swarm",
+                &serde_json::json!({ "context": "peer sweep", "tasks": too_many })
+            )
             .is_err());
         // A mix of default and named-agent slices passes.
         assert!(r

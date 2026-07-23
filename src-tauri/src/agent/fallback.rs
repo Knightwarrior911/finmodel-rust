@@ -101,14 +101,32 @@ fn has_any(m: &str, words: &[&str]) -> bool {
 }
 
 /// Deterministically resolve a free-text no-key message to a tool or Direct.
-/// Precedence matters: news → quote → filings → benchmark (before build) →
-/// build → research → direct.
+/// Precedence matters: explicit web search → news → quote → filings →
+/// benchmark (before build) → build → research → direct.
 pub fn dispatch(registry: &ToolRegistry, message: &str) -> FallbackDecision {
     let m = message.to_lowercase();
     let ticker = first_ticker(message);
     let tickers = all_tickers(message);
 
-    // 1. News.
+    // 1. Explicit web search. Keep this ahead of news: "use web search for
+    // latest news" means the user chose the search backend, not the news feed.
+    if has_any(
+        &m,
+        &[
+            "web_search",
+            "web search",
+            "search the web",
+            "google search",
+        ],
+    ) {
+        return tool(
+            registry,
+            "web_search",
+            json!({ "query": strip_lead(message) }),
+        );
+    }
+
+    // 2. News.
     if has_any(&m, &["news", "headline", "headlines", "latest on"]) {
         let topic = ticker.clone().unwrap_or_else(|| strip_lead(message));
         return tool(registry, "get_news", json!({ "query": topic }));
@@ -431,8 +449,7 @@ mod tests {
             ("build a dcf model for NVDA", Some("build_model")),
             ("the figma adobe merger", Some("research_deal")),
             ("research the semiconductor supply chain", Some("research")),
-            // FallbackDispatcher does not route free-text web_search (Quick Action does).
-            ("search the web for margins", None),
+            ("search the web for margins", Some("web_search")),
             ("what is a discounted cash flow", None),
             ("tell me a joke about accounting", None),
             (

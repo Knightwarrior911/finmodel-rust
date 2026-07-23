@@ -955,13 +955,29 @@ fn schedule_lifecycle_list_cancel_rearm() {
     let db = mem_db(&td);
     let now = "2026-07-19T10:00:00Z";
     db.insert_schedule(
-        "sch1", None, None, "UTC", Some("daily"),
-        "2026-07-19T09:00:00Z", r#"{"prompt":"morning brief"}"#, None, None, now,
+        "sch1",
+        None,
+        None,
+        "UTC",
+        Some("daily"),
+        "2026-07-19T09:00:00Z",
+        r#"{"prompt":"morning brief"}"#,
+        None,
+        None,
+        now,
     )
     .unwrap();
     db.insert_schedule(
-        "sch2", None, None, "UTC", None,
-        "2026-07-20T09:00:00Z", r#"{"prompt":"one shot"}"#, None, None, now,
+        "sch2",
+        None,
+        None,
+        "UTC",
+        None,
+        "2026-07-20T09:00:00Z",
+        r#"{"prompt":"one shot"}"#,
+        None,
+        None,
+        now,
     )
     .unwrap();
 
@@ -984,7 +1000,8 @@ fn schedule_lifecycle_list_cancel_rearm() {
     db.cancel_schedule("sch2").unwrap();
     assert!(db.list_schedules().unwrap().is_empty());
     assert_eq!(
-        db.claim_due_schedule("2026-07-21T00:00:00Z", "tick").unwrap(),
+        db.claim_due_schedule("2026-07-21T00:00:00Z", "tick")
+            .unwrap(),
         None
     );
 }
@@ -997,17 +1014,31 @@ fn conversation_spend_sums_run_costs_and_survives_finish() {
     db.create_conversation("c1", &w, "t", NOW).unwrap();
     db.create_conversation("c2", &w, "t", NOW).unwrap();
     for (run, conv) in [("r1", "c1"), ("r2", "c1"), ("r3", "c2")] {
-        db.insert_run(run, conv, None, None, "running", "preparing", None, None, NOW)
-            .unwrap();
-    }
-    db.set_run_usage("r1", r#"{"prompt_tokens":10,"completion_tokens":5,"cost_usd":0.25}"#)
+        db.insert_run(
+            run,
+            conv,
+            None,
+            None,
+            "running",
+            "preparing",
+            None,
+            None,
+            NOW,
+        )
         .unwrap();
+    }
+    db.set_run_usage(
+        "r1",
+        r#"{"prompt_tokens":10,"completion_tokens":5,"cost_usd":0.25}"#,
+    )
+    .unwrap();
     db.set_run_usage("r2", r#"{"cost_usd":0.50}"#).unwrap();
     // Another conversation's spend never bleeds in.
     db.set_run_usage("r3", r#"{"cost_usd":9.99}"#).unwrap();
     assert!((db.conversation_spend_usd("c1").unwrap() - 0.75).abs() < 1e-9);
     // finish_run with usage_json=None must KEEP the driver's snapshot.
-    db.finish_run("r1", "completed", "done", None, None, NOW).unwrap();
+    db.finish_run("r1", "completed", "done", None, None, NOW)
+        .unwrap();
     assert!((db.conversation_spend_usd("c1").unwrap() - 0.75).abs() < 1e-9);
     // Junk rows count as zero, never poison the sum.
     db.set_run_usage("r2", "not json").unwrap();

@@ -1,10 +1,10 @@
 //! Personal subscription providers — on by default.
 //!
-//! - OpenCode Go (`https://opencode.ai/zen/go/v1`) — selectable chat provider;
-//!   key from env / OpenCode `auth.json` / OMP `agent.db` (auto-imported on
-//!   first launch when the keyring is empty).
-//! - Cursor — chat-ready via local OMP auth-gateway (`http://127.0.0.1:4000/v1`).
-//!   Reuses OAuth from `~/.omp/agent/agent.db` (never raw api2.cursor.sh).
+//! - OpenCode Go — chat-ready through the local OMP auth-gateway
+//!   (`http://127.0.0.1:4000/v1`), reusing `opencode-go` credentials from
+//!   `~/.omp/agent/agent.db`.
+//! - Cursor — chat-ready through the same local OMP auth-gateway.
+//!   Both providers keep subscription credentials out of finmodel requests.
 //!
 //! Opt out with `FINMODEL_DISABLE_SUBSCRIPTION_PROVIDERS=1`. Legacy
 //! `FINMODEL_ENABLE_SUBSCRIPTION_PROVIDERS=0/false/off` also disables.
@@ -13,8 +13,7 @@ use serde_json::json;
 
 use crate::error::{AppError, AppResult};
 
-/// OpenCode Go OpenAI-compatible root (chat = `{base}/chat/completions`).
-pub const OPENCODE_GO_BASE_URL: &str = "https://opencode.ai/zen/go/v1";
+pub const OPENCODE_GO_MODEL: &str = "opencode-go/grok-4.5";
 
 /// OpenCode console page where the user copies an API key (OMP-compatible flow).
 pub const OPENCODE_AUTH_URL: &str = "https://opencode.ai/auth";
@@ -58,17 +57,15 @@ pub fn gated_providers() -> Vec<serde_json::Value> {
     if !subscription_providers_enabled() {
         return Vec::new();
     }
-    let found_go = find_opencode_go_key().is_some();
+    let found_go = find_opencode_go_credential().is_some();
     let mut out = vec![json!({
         "id": "opencode-go",
         "name": "OpenCode Go (personal)",
-        "base": OPENCODE_GO_BASE_URL,
-        "auth": "api_key",
-        // Selectable once a key is findable or already in the keyring.
-        // Connect OpenCode Go guides paste/import when missing.
-        "chat_ready": found_go || crate::commands::secrets::get_api_key().is_some(),
+        "base": crate::commands::omp_gateway::GATEWAY_BASE_URL,
+        "auth": "omp_auth",
+        "chat_ready": found_go,
         "key_found_locally": found_go,
-        "note": "Personal-use only. Connect opens opencode.ai/auth when no key is found; otherwise Import reuses env/auth.json/OMP.",
+        "note": "Personal-use only. Routes chat through the local OMP auth-gateway using OMP's opencode-go credential.",
     })];
     let cur = cursor_omp_status();
     out.push(json!({
@@ -85,72 +82,22 @@ pub fn gated_providers() -> Vec<serde_json::Value> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FoundKey {
-    pub key: String,
+pub struct FoundCredential {
     pub source: String,
 }
 
-/// Pull an OpenCode API key from env, OpenCode auth.json, or OMP agent.db.
-/// Does not touch the OS credential store — callers decide whether to save.
-pub fn find_opencode_go_key() -> Option<FoundKey> {
-    if let Ok(v) = std::env::var("OPENCODE_API_KEY") {
-        let v = v.trim().to_string();
-        if !v.is_empty() {
-            return Some(FoundKey {
-                key: v,
-                source: "env:OPENCODE_API_KEY".into(),
-            });
-        }
+/// Find metadata for the OpenCode Go credential owned by OMP's auth broker.
+///
+/// The local gateway reads `~/.omp/agent/agent.db`; finmodel checks only that
+/// an enabled credential row exists and never reads its secret `data` column.
+pub fn find_opencode_go_credential() -> Option<FoundCredential> {
+    let path = omp_agent_db_path()?;
+    if !omp_has_api_key("opencode-go") {
+        return None;
     }
-    for path in opencode_auth_paths() {
-        if !path.exists() {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if let Some(key) = parse_opencode_auth_key(&text) {
-            return Some(FoundKey {
-                key,
-                source: format!("file:{}", path.display()),
-            });
-        }
-    }
-    if let Some(key) = read_omp_api_key("opencode-go") {
-        return Some(FoundKey {
-            key,
-            source: format!("omp-db:{}", omp_agent_db_path()?.display()),
-        });
-    }
-    None
-}
-
-/// Candidate OpenCode CLI auth.json locations (Windows + XDG-style).
-pub fn opencode_auth_paths() -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    if let Some(home) = dirs_home() {
-        out.push(
-            home.join(".local")
-                .join("share")
-                .join("opencode")
-                .join("auth.json"),
-        );
-        out.push(home.join(".config").join("opencode").join("auth.json"));
-        out.push(home.join(".opencode").join("auth.json"));
-        out.push(
-            home.join("AppData")
-                .join("Roaming")
-                .join("opencode")
-                .join("auth.json"),
-        );
-        out.push(
-            home.join("AppData")
-                .join("Local")
-                .join("opencode")
-                .join("auth.json"),
-        );
-    }
-    out
+    Some(FoundCredential {
+        source: format!("omp-db:{}", path.display()),
+    })
 }
 
 fn dirs_home() -> Option<std::path::PathBuf> {
@@ -164,27 +111,31 @@ fn omp_agent_db_path() -> Option<std::path::PathBuf> {
     Some(home.join(".omp").join("agent").join("agent.db"))
 }
 
-/// Read a static API key for `provider` from OMP's SQLite auth vault.
-pub fn read_omp_api_key(provider: &str) -> Option<String> {
-    let path = omp_agent_db_path()?;
+/// Check whether OMP owns an enabled static API-key credential for `provider`.
+fn omp_has_api_key(provider: &str) -> bool {
+    let Some(path) = omp_agent_db_path() else {
+        return false;
+    };
     if !path.exists() {
-        return None;
+        return false;
     }
-    let conn =
+    let Ok(conn) =
         rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .ok()?;
-    let data: String = conn
-        .query_row(
-            "SELECT data FROM auth_credentials \
-             WHERE provider = ?1 AND disabled_cause IS NULL \
-             AND credential_type = 'api_key' \
-             ORDER BY id DESC LIMIT 1",
-            [provider],
-            |row| row.get(0),
-        )
-        .ok()?;
-    let v: serde_json::Value = serde_json::from_str(&data).ok()?;
-    api_key_from_auth_entry(&v)
+    else {
+        return false;
+    };
+    omp_has_api_key_in(&conn, provider)
+}
+
+fn omp_has_api_key_in(conn: &rusqlite::Connection, provider: &str) -> bool {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM auth_credentials \
+         WHERE provider = ?1 AND disabled_cause IS NULL \
+         AND credential_type = 'api_key')",
+        [provider],
+        |row| row.get::<_, bool>(0),
+    )
+    .unwrap_or(false)
 }
 
 /// Cursor OAuth snapshot from OMP agent.db (never returns token material).
@@ -261,70 +212,53 @@ pub fn cursor_omp_status() -> CursorOmpStatus {
     }
 }
 
-/// Extract an API key from OpenCode's `auth.json` map.
-///
-/// Prefers provider ids `opencode-go`, then `opencode-zen`, then `opencode`.
-/// Accepts `{ "type": "api", "key": "..." }` (and a few `apiKey`/`token` aliases).
-/// OAuth entries without a static key are ignored.
-pub fn parse_opencode_auth_key(text: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(text).ok()?;
-    let obj = v.as_object()?;
-    for id in ["opencode-go", "opencode-zen", "opencode"] {
-        if let Some(entry) = obj.get(id) {
-            if let Some(k) = api_key_from_auth_entry(entry) {
-                return Some(k);
-            }
-        }
+/// Parse Cursor model ids from the local OMP auth-gateway's OpenAI catalog.
+/// The gateway is the chat path itself, so Settings never needs to launch the
+/// terminal-oriented `omp models` CLI just to populate a dropdown.
+pub fn parse_cursor_gateway_models_json(text: &str) -> Result<Vec<String>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("gateway model json decode: {e}"))?;
+    let data = v
+        .get("data")
+        .and_then(|models| models.as_array())
+        .ok_or_else(|| "gateway model json missing data array".to_string())?;
+    let ids: Vec<String> = data
+        .iter()
+        .filter(|model| model.get("owned_by").and_then(|owner| owner.as_str()) == Some("cursor"))
+        .filter_map(|model| model.get("id").and_then(|id| id.as_str()))
+        .filter_map(|id| id.strip_prefix("cursor/"))
+        .map(str::to_string)
+        .collect();
+    if ids.is_empty() {
+        return Err("gateway model catalog contains no Cursor models".into());
     }
-    // Last resort: any entry that looks like a static API key provider.
-    for (_id, entry) in obj {
-        if let Some(k) = api_key_from_auth_entry(entry) {
-            return Some(k);
-        }
-    }
-    None
+    Ok(ids)
 }
 
-fn api_key_from_auth_entry(entry: &serde_json::Value) -> Option<String> {
-    let obj = entry.as_object()?;
-    let ty = obj
-        .get("type")
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    // Prefer explicit api entries; still accept a bare key field.
-    // OMP agent.db api_key rows often omit `type` and only store `{key}`.
-    if !ty.is_empty() && ty != "api" && ty != "api_key" {
-        return None;
-    }
-    for field in ["key", "apiKey", "api_key", "token"] {
-        if let Some(k) = obj.get(field).and_then(|x| x.as_str()) {
-            let k = k.trim();
-            if !k.is_empty() {
-                return Some(k.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Live Cursor model probe via the installed `omp` CLI (reuses agent.db login).
-/// Returns redacted summary only — never tokens.
+/// Read Cursor's live models from the local OMP auth-gateway. This never starts
+/// a process: opening Settings must not launch a terminal as a side effect.
 pub fn probe_cursor_models_via_omp() -> Result<(usize, Vec<String>), String> {
-    let output = std::process::Command::new("omp")
-        .args(["models", "cursor", "--json"])
-        .output()
-        .map_err(|e| format!("omp not runnable: {e}"))?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "omp models cursor failed (status {:?}): {}",
-            output.status.code(),
-            err.chars().take(240).collect::<String>()
-        ));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("gateway client: {e}"))?;
+    let response = client
+        .get(format!(
+            "{}/models",
+            crate::commands::omp_gateway::GATEWAY_BASE_URL
+        ))
+        .bearer_auth(crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER)
+        .send()
+        .map_err(|e| format!("gateway /models: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("gateway /models HTTP {}", response.status()));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    parse_omp_cursor_models_json(&text)
+    let ids = parse_cursor_gateway_models_json(
+        &response
+            .text()
+            .map_err(|e| format!("gateway model body: {e}"))?,
+    )?;
+    Ok((ids.len(), ids))
 }
 
 /// Parse `omp models cursor --json` into (count, complete model ids).
@@ -364,19 +298,17 @@ pub fn subscription_providers_status() -> AppResult<String> {
     } else {
         "Cursor logged in via OMP. Select Cursor or click Use Cursor to chat.".into()
     };
-    let found = find_opencode_go_key();
-    let opencode_ready = found.is_some() || crate::commands::secrets::get_api_key().is_some();
+    let found = find_opencode_go_credential();
+    let opencode_ready = found.is_some();
     let opencode_reason = if !subscription_providers_enabled() {
         format!("Disabled via {DISABLE_ENV}=1.")
-    } else if let Some(ref f) = found {
+    } else if let Some(f) = &found {
         format!(
-            "OpenCode Go key available locally ({}). Import or Connect to use it.",
+            "OpenCode Go credential available through OMP ({}). Select OpenCode Go to use the local gateway.",
             f.source
         )
-    } else if crate::commands::secrets::get_api_key().is_some() {
-        "A key is already saved in Settings. Select OpenCode Go to use it against zen/go.".into()
     } else {
-        "No OpenCode Go key found. Click Connect OpenCode Go to open opencode.ai/auth, then paste the key in Settings."
+        "No OpenCode Go credential found in OMP. Click Connect OpenCode Go and finish the terminal login."
             .into()
     };
     Ok(json!({
@@ -404,8 +336,8 @@ pub fn subscription_providers_status() -> AppResult<String> {
     .to_string())
 }
 
-/// Import an OpenCode Go API key into finmodel's OS keyring and point
-/// `base_url` at the Go endpoint. Gated; no-op surface when disabled.
+/// Import an OpenCode Go credential and point finmodel at OMP's local gateway.
+/// Gated; no-op surface when disabled.
 #[tauri::command(rename_all = "snake_case")]
 pub fn import_opencode_go_key(app: tauri::AppHandle) -> AppResult<String> {
     if !subscription_providers_enabled() {
@@ -413,30 +345,32 @@ pub fn import_opencode_go_key(app: tauri::AppHandle) -> AppResult<String> {
             "Subscription providers are disabled ({DISABLE_ENV}=1)."
         )));
     }
-    let found = find_opencode_go_key().ok_or_else(|| {
+    let found = find_opencode_go_credential().ok_or_else(|| {
         AppError::Config(
-            "No OpenCode API key found. Click Connect OpenCode Go to open              opencode.ai/auth, paste the key in Settings, or save it to              OPENCODE_API_KEY / OpenCode auth.json / OMP agent.db then Import."
+            "No OpenCode Go credential found in OMP. Click Connect OpenCode Go and finish the terminal login, then Import again."
                 .into(),
         )
     })?;
-    crate::commands::secrets::set_api_key(&found.key).map_err(AppError::Config)?;
+    crate::commands::omp_gateway::ensure_cursor_gateway().map_err(AppError::Engine)?;
     let mut s = crate::commands::settings::read_settings(&app);
-    s.openrouter_api_key = found.key;
-    s.base_url = OPENCODE_GO_BASE_URL.to_string();
+    s.base_url = crate::commands::omp_gateway::GATEWAY_BASE_URL.to_string();
+    s.model = OPENCODE_GO_MODEL.to_string();
     // Provider changed — drop stale capability cache.
     s.model_capability = None;
     crate::commands::settings::write_settings(&app, &s)?;
     Ok(json!({
         "ok": true,
-        "base_url": OPENCODE_GO_BASE_URL,
+        "base_url": crate::commands::omp_gateway::GATEWAY_BASE_URL,
+        "model": OPENCODE_GO_MODEL,
         "source": found.source,
-        "has_key": true,
+        "has_key": false,
+        "credential_owner": "omp",
     })
     .to_string())
 }
 
-/// Connect OpenCode Go: reuse a locally discoverable key when present; otherwise
-/// open https://opencode.ai/auth and return paste guidance (no DIY OAuth).
+/// Connect OpenCode Go: reuse OMP's credential when present; otherwise open an
+/// interactive OMP login console that saves the pasted key into agent.db.
 #[tauri::command(rename_all = "snake_case")]
 pub fn connect_opencode_go(app: tauri::AppHandle) -> AppResult<String> {
     if !subscription_providers_enabled() {
@@ -444,60 +378,57 @@ pub fn connect_opencode_go(app: tauri::AppHandle) -> AppResult<String> {
             "Subscription providers are disabled ({DISABLE_ENV}=1)."
         )));
     }
-    if let Some(found) = find_opencode_go_key() {
-        crate::commands::secrets::set_api_key(&found.key).map_err(AppError::Config)?;
+    if let Some(found) = find_opencode_go_credential() {
+        crate::commands::omp_gateway::ensure_cursor_gateway().map_err(AppError::Engine)?;
         let mut s = crate::commands::settings::read_settings(&app);
-        s.openrouter_api_key = found.key;
-        s.base_url = OPENCODE_GO_BASE_URL.to_string();
+        s.base_url = crate::commands::omp_gateway::GATEWAY_BASE_URL.to_string();
+        s.model = OPENCODE_GO_MODEL.to_string();
         s.model_capability = None;
         crate::commands::settings::write_settings(&app, &s)?;
         return Ok(json!({
             "ok": true,
             "chat_ready": true,
             "needs_auth": false,
-            "base_url": OPENCODE_GO_BASE_URL,
+            "base_url": crate::commands::omp_gateway::GATEWAY_BASE_URL,
+            "model": OPENCODE_GO_MODEL,
             "source": found.source,
-            "has_key": true,
-            "guidance": "OpenCode Go key imported and provider selected.",
+            "has_key": false,
+            "credential_owner": "omp",
+            "guidance": "OpenCode Go connected through the local OMP auth-gateway.",
         })
         .to_string());
     }
 
     use tauri_plugin_opener::OpenerExt;
-    let _ = app.opener().open_url(OPENCODE_AUTH_URL, None::<&str>);
-    // Point provider at Go so Save after paste is one step; no key written yet.
-    let mut s = crate::commands::settings::read_settings(&app);
-    s.base_url = OPENCODE_GO_BASE_URL.to_string();
-    s.model_capability = None;
-    let _ = crate::commands::settings::write_settings(&app, &s);
+    app.opener()
+        .open_url(OPENCODE_AUTH_URL, None::<&str>)
+        .map_err(|e| AppError::Engine(format!("failed to open OpenCode Go login page: {e}")))?;
+    crate::commands::omp_gateway::start_opencode_go_login().map_err(AppError::Engine)?;
     Ok(json!({
         "ok": true,
         "chat_ready": false,
         "needs_auth": true,
+        "waiting": true,
         "auth_url": OPENCODE_AUTH_URL,
-        "base_url": OPENCODE_GO_BASE_URL,
-        "guidance": "Log in at opencode.ai/auth, copy your API key, paste it into Settings → API key, then Save. Or save the key to OpenCode/OMP and click Import OpenCode Go key.",
+        "base_url": crate::commands::omp_gateway::GATEWAY_BASE_URL,
+        "model": OPENCODE_GO_MODEL,
+        "guidance": "OpenCode Go login opened in a terminal. Sign in on opencode.ai, paste the key into that OMP terminal, and Settings will connect automatically. Finmodel never receives the credential.",
     })
     .to_string())
 }
 
-/// If the keyring has no API key yet, import OpenCode Go from local sources
-/// and point `base_url` at Go. Never overwrites an existing key. Returns a
-/// short source label when import happened.
+/// Migrate an already-selected OpenCode Go model from the obsolete direct
+/// endpoint to OMP's gateway. Never copies or overwrites credentials.
 pub fn maybe_auto_import_opencode_go(app: &tauri::AppHandle) -> Option<String> {
     if !subscription_providers_enabled() {
         return None;
     }
-    if crate::commands::secrets::get_api_key().is_some() {
-        return None;
-    }
-    let found = find_opencode_go_key()?;
-    if crate::commands::secrets::set_api_key(&found.key).is_err() {
-        return None;
-    }
+    let found = find_opencode_go_credential()?;
     let mut s = crate::commands::settings::read_settings(app);
-    s.openrouter_api_key = found.key;
-    s.base_url = OPENCODE_GO_BASE_URL.to_string();
+    if !s.model.trim().starts_with("opencode-go/") {
+        return None;
+    }
+    s.base_url = crate::commands::omp_gateway::GATEWAY_BASE_URL.to_string();
     s.model_capability = None;
     if crate::commands::settings::write_settings(app, &s).is_err() {
         return None;
@@ -552,33 +483,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_prefers_opencode_go_api_key() {
-        let text = r#"{
-            "xai": {"type":"oauth","access":"a","refresh":"r"},
-            "opencode": {"type":"api","key":"sk-fallback"},
-            "opencode-go": {"type":"api","key":"sk-go"}
-        }"#;
-        assert_eq!(parse_opencode_auth_key(text).as_deref(), Some("sk-go"));
+    fn opencode_readiness_checks_metadata_without_secret_data() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE auth_credentials (
+                provider TEXT NOT NULL,
+                credential_type TEXT NOT NULL,
+                disabled_cause TEXT
+            );
+            INSERT INTO auth_credentials VALUES ('opencode-go', 'api_key', NULL);",
+        )
+        .unwrap();
+        assert!(omp_has_api_key_in(&conn, "opencode-go"));
+        assert!(!omp_has_api_key_in(&conn, "cursor"));
     }
 
     #[test]
-    fn parse_skips_oauth_only_entries() {
-        let text = r#"{"xai":{"type":"oauth","access":"a","refresh":"r"}}"#;
-        assert_eq!(parse_opencode_auth_key(text), None);
-    }
-
-    #[test]
-    fn parse_accepts_opencode_zen_alias() {
-        let text = r#"{"opencode-zen":{"type":"api","key":"sk-zen"}}"#;
-        assert_eq!(parse_opencode_auth_key(text).as_deref(), Some("sk-zen"));
-    }
-
-    #[test]
-    fn parse_omp_api_key_row_without_type() {
-        // OMP agent.db stores `{ "key": "..." }` without a type field.
+    fn parses_only_cursor_models_from_gateway_catalog() {
+        let text = r#"{"data":[
+            {"id":"cursor/claude-4.6-sonnet-medium","owned_by":"cursor"},
+            {"id":"cursor/cursor-grok-4.5-medium","owned_by":"cursor"},
+            {"id":"openrouter/anthropic/claude","owned_by":"openrouter"}
+        ]}"#;
         assert_eq!(
-            api_key_from_auth_entry(&json!({"key": "sk-from-omp"})).as_deref(),
-            Some("sk-from-omp")
+            parse_cursor_gateway_models_json(text).unwrap(),
+            vec![
+                "claude-4.6-sonnet-medium".to_string(),
+                "cursor-grok-4.5-medium".to_string(),
+            ]
         );
     }
 

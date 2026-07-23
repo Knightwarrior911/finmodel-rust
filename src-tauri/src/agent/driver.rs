@@ -527,9 +527,8 @@ fn recompute_authoritative(
                     if s != 0.0 {
                         let recomputed = n / s;
                         let claimed: Option<f64> = claim.normalized_value.parse().ok();
-                        let basis_mismatch = claimed.map_or(false, |c| {
-                            c != 0.0 && ((recomputed - c) / c).abs() > 0.10
-                        });
+                        let basis_mismatch = claimed
+                            .map_or(false, |c| c != 0.0 && ((recomputed - c) / c).abs() > 0.10);
                         if !basis_mismatch {
                             return Some((recomputed, MetricClass::RoundedCurrency, 2));
                         }
@@ -539,7 +538,10 @@ fn recompute_authoritative(
             // EBITDA == operating income (EBIT) + depreciation & amortization
             m if m.starts_with("ebitda") => {
                 let ebit = get(&["operating_income", "ebit"]);
-                let da = get(&["depreciation_&_amortization", "depreciation_and_amortization"]);
+                let da = get(&[
+                    "depreciation_&_amortization",
+                    "depreciation_and_amortization",
+                ]);
                 if let (Some(e), Some(d)) = (ebit, da) {
                     return Some((e + d, MetricClass::ExactQuantity, 0));
                 }
@@ -673,7 +675,10 @@ impl LiveDriver {
         // base seed (before the user turn) — same slot every mode.
         if let Some(layer) = mode.system_layer() {
             let at = messages.len().saturating_sub(1);
-            messages.insert(at, serde_json::json!({ "role": "system", "content": layer }));
+            messages.insert(
+                at,
+                serde_json::json!({ "role": "system", "content": layer }),
+            );
         }
         let tools = if !tools_enabled {
             Vec::new()
@@ -1062,7 +1067,9 @@ pub(crate) fn uncited_figures(text: &str, haystack: &str) -> usize {
             let start = if currency { i + 1 } else { i };
             let mut j = start;
             let mut core = String::new();
-            while j < bytes.len() && (bytes[j].is_ascii_digit() || bytes[j] == '.' || bytes[j] == ',') {
+            while j < bytes.len()
+                && (bytes[j].is_ascii_digit() || bytes[j] == '.' || bytes[j] == ',')
+            {
                 if bytes[j] != ',' {
                     core.push(bytes[j]);
                 }
@@ -1085,7 +1092,11 @@ pub(crate) fn uncited_figures(text: &str, haystack: &str) -> usize {
                     .unwrap_or(false);
             let lower_tail = tail_trim.to_ascii_lowercase();
             let scale_word = scales.iter().any(|w| lower_tail.starts_with(w));
-            if (currency || pct || scale_word || (currency && scale_letter) || (scale_letter && core.contains('.')))
+            if (currency
+                || pct
+                || scale_word
+                || (currency && scale_letter)
+                || (scale_letter && core.contains('.')))
                 && !contains_number(haystack, &core)
             {
                 count += 1;
@@ -1236,17 +1247,31 @@ pub(crate) mod finisher {
     /// Success: drop the nudge, append the strong model's prose.
     pub fn succeed(messages: &mut Vec<Value>, content: &str) {
         let nudge = messages.pop();
-        debug_assert!(nudge.map(|n| n["content"] == COMPOSE_NUDGE).unwrap_or(false));
+        debug_assert!(nudge
+            .map(|n| n["content"] == COMPOSE_NUDGE)
+            .unwrap_or(false));
         messages.push(serde_json::json!({ "role": "assistant", "content": content }));
     }
 
     /// Failure: drop the nudge, restore the fast draft verbatim.
     pub fn fail(messages: &mut Vec<Value>, draft: Option<Value>) {
         let nudge = messages.pop();
-        debug_assert!(nudge.map(|n| n["content"] == COMPOSE_NUDGE).unwrap_or(false));
+        debug_assert!(nudge
+            .map(|n| n["content"] == COMPOSE_NUDGE)
+            .unwrap_or(false));
         if let Some(d) = draft {
             messages.push(d);
         }
+    }
+}
+
+fn fallback_tool_for_provider_failure(
+    registry: &ToolRegistry,
+    message: &str,
+) -> Option<(String, Value)> {
+    match crate::agent::fallback::dispatch(registry, message) {
+        crate::agent::fallback::FallbackDecision::Tool { name, args } => Some((name, args)),
+        crate::agent::fallback::FallbackDecision::Direct => None,
     }
 }
 
@@ -1302,6 +1327,15 @@ impl LiveDriver {
                 fast
             }
         }
+    }
+
+    fn fallback_after_provider_failure(&mut self) -> Option<ModelOut> {
+        if self.fallback_served
+            || fallback_tool_for_provider_failure(&self.registry, &self.ctx.user_msg).is_none()
+        {
+            return None;
+        }
+        Some(self.fallback_model_out())
     }
 
     /// No-key turn: resolve the message through the isolated FallbackDispatcher.
@@ -1571,6 +1605,12 @@ impl Driver for LiveDriver {
     }
 
     async fn request_model(&mut self) -> ModelOut {
+        // A provider failure can hand the turn to the deterministic fallback.
+        // After its tool runs, close locally instead of calling the failed
+        // provider again and overwriting a successful result with error prose.
+        if self.fallback_served {
+            return self.fallback_model_out();
+        }
         // No key: deterministic FallbackDispatcher instead of a provider call.
         if self.cfg.api_key.trim().is_empty() {
             return self.fallback_model_out();
@@ -1621,7 +1661,11 @@ impl Driver for LiveDriver {
         let strong_model = {
             let s = crate::commands::settings::read_settings(&self.app);
             let m = s.synthesis_model.trim().to_string();
-            if m.is_empty() || m == self.cfg.model { None } else { Some(m) }
+            if m.is_empty() || m == self.cfg.model {
+                None
+            } else {
+                Some(m)
+            }
         };
         let run = if strong_model.is_some() {
             format!("{}:draft", self.ctx.run_id)
@@ -1733,7 +1777,7 @@ impl Driver for LiveDriver {
                         }
                         model_out_from_stream(&self.registry, &acc, self.out_dir_path().as_deref())
                     }
-                    Err(err) => {
+                    Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ the model request failed — check your API key and model in Settings. ({err})"
                         );
@@ -1742,7 +1786,7 @@ impl Driver for LiveDriver {
                             final_answer: true,
                             tokens: 0,
                         }
-                    }
+                    }),
                 }
             }
             Err(e)
@@ -1770,7 +1814,7 @@ impl Driver for LiveDriver {
                 .await
                 {
                     Ok(acc) => self.accept_stream(&acc),
-                    Err(err) => {
+                    Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ this conversation has grown too long for the model to read in one go, even after trimming older turns. Start a fresh chat and I'll pick up from there. ({err})"
                         );
@@ -1779,7 +1823,7 @@ impl Driver for LiveDriver {
                             final_answer: true,
                             tokens: 0,
                         }
-                    }
+                    }),
                 }
             }
             Err(e) if crate::agent::provider::classify_provider_error(&e).is_retryable() => {
@@ -1807,7 +1851,7 @@ impl Driver for LiveDriver {
                 .await
                 {
                     Ok(acc) => self.accept_stream(&acc),
-                    Err(err) => {
+                    Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ the model service is busy right now — I tried twice. Give it a moment and send again. ({err})"
                         );
@@ -1816,10 +1860,10 @@ impl Driver for LiveDriver {
                             final_answer: true,
                             tokens: 0,
                         }
-                    }
+                    }),
                 }
             }
-            Err(e) => {
+            Err(e) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                 self.last_content = format!(
                     "⚠ the model request failed — check your API key and model in Settings. ({e})"
                 );
@@ -1828,7 +1872,7 @@ impl Driver for LiveDriver {
                     final_answer: true,
                     tokens: 0,
                 }
-            }
+            }),
         }
     }
 
@@ -2286,6 +2330,24 @@ mod tests {
     use fm_agent::types::EventKind;
 
     #[test]
+    fn provider_failure_falls_back_only_for_deterministic_tool_intents() {
+        let registry = ToolRegistry::shared();
+        let search = fallback_tool_for_provider_failure(
+            registry,
+            "Use web_search to find Tesla news from the last week",
+        )
+        .expect("search request should have a deterministic fallback");
+        assert_eq!(search.0, "web_search");
+        assert_eq!(
+            search.1["query"],
+            "Use web_search to find Tesla news from the last week"
+        );
+        assert!(
+            fallback_tool_for_provider_failure(registry, "Explain discounted cash flow").is_none()
+        );
+    }
+
+    #[test]
     fn memory_directive_parses_explicit_saves() {
         assert_eq!(
             parse_memory_directive("Remember that I prefer USD millions."),
@@ -2347,14 +2409,23 @@ mod tests {
     #[test]
     fn drift_detector_counts_only_unwhitelisted_material_figures() {
         // Two invented figures, empty history → drift.
-        assert_eq!(uncited_figures("Revenue grew 23% to $96.3B in FY2024.", ""), 2);
+        assert_eq!(
+            uncited_figures("Revenue grew 23% to $96.3B in FY2024.", ""),
+            2
+        );
         // The SAME figures present in history (prior tool results) → clean.
         let hist = "get_financials: revenue 96.3 B USD, growth 23 %";
         assert_eq!(uncited_figures("Revenue grew 23% to $96.3B.", hist), 0);
         // A year is not a material figure; bare prose numbers don't fire.
-        assert_eq!(uncited_figures("In 2024 the company had a strong year.", ""), 0);
+        assert_eq!(
+            uncited_figures("In 2024 the company had a strong year.", ""),
+            0
+        );
         // Word scales count ($ and "billion" forms).
-        assert_eq!(uncited_figures("about 4.2 billion of capex and $1.1B of buybacks", ""), 2);
+        assert_eq!(
+            uncited_figures("about 4.2 billion of capex and $1.1B of buybacks", ""),
+            2
+        );
         // One figure only → below the >=2 gate the caller applies.
         assert_eq!(uncited_figures("Margin was 45%.", ""), 1);
     }
@@ -2403,7 +2474,10 @@ mod tests {
         assert!(plan.contains("PLAN MODE"));
         let skeptic = agent_system_prompt("openai/gpt-4.1-mini", AgentMode::Skeptic);
         assert!(skeptic.contains("SKEPTIC MODE"));
-        assert!(skeptic.contains("Workflow (follow exactly)"), "layers stack");
+        assert!(
+            skeptic.contains("Workflow (follow exactly)"),
+            "layers stack"
+        );
     }
     #[test]
     fn persona_reaches_every_live_prompt() {
@@ -2568,7 +2642,12 @@ mod tests {
         };
         // 29.76B / 2.494B = 11.93… — the filed 11.93 verifies under the
         // rounded-currency tolerance.
-        let env = envelope_from_card("s".into(), card(11.93), fm_agent::types::Trust::Trusted, "ws-a");
+        let env = envelope_from_card(
+            "s".into(),
+            card(11.93),
+            fm_agent::types::Trust::Trusted,
+            "ws-a",
+        );
         let values: HashMap<String, f64> = env
             .claims
             .iter()
@@ -2580,7 +2659,12 @@ mod tests {
         // A subtly wrong EPS (within the 10% basis band, outside the cents
         // tolerance) must fail — that's the restatement/typo the identity exists
         // to catch.
-        let env = envelope_from_card("s".into(), card(12.50), fm_agent::types::Trust::Trusted, "ws-a");
+        let env = envelope_from_card(
+            "s".into(),
+            card(12.50),
+            fm_agent::types::Trust::Trusted,
+            "ws-a",
+        );
         let values: HashMap<String, f64> = env
             .claims
             .iter()
@@ -2599,14 +2683,24 @@ mod tests {
         // numerator-basis mismatch (IFRS consolidated vs owners-of-parent),
         // not a wrong claim — the identity stands down and the claim verifies
         // against its own source value.
-        let env = envelope_from_card("s".into(), card(14.50), fm_agent::types::Trust::Trusted, "ws-a");
+        let env = envelope_from_card(
+            "s".into(),
+            card(14.50),
+            fm_agent::types::Trust::Trusted,
+            "ws-a",
+        );
         let values: HashMap<String, f64> = env
             .claims
             .iter()
             .map(|c| (c.claim_key.clone(), c.normalized_value.parse().unwrap()))
             .collect();
         let report = verify_run(&env.claims, |c| recompute_authoritative(c, &values));
-        assert_eq!(report.status, ClaimStatus::Verified, "NCI stand-down: {:?}", report.claims);
+        assert_eq!(
+            report.status,
+            ClaimStatus::Verified,
+            "NCI stand-down: {:?}",
+            report.claims
+        );
     }
 
     #[test]
@@ -3411,7 +3505,9 @@ mod finisher_tests {
         })));
         assert!(g.over_budget(), "prior + run spend crosses the ceiling");
         // Negative / NaN provider costs are ignored, never crediting spend back.
-        g.charge(Some(&serde_json::json!({ "cost": -5.0, "total_tokens": 10 })));
+        g.charge(Some(
+            &serde_json::json!({ "cost": -5.0, "total_tokens": 10 }),
+        ));
         assert!(g.run_spend_usd >= 0.2);
         // The persisted snapshot carries the summable cost field.
         let v: serde_json::Value = serde_json::from_str(&g.usage_json()).unwrap();

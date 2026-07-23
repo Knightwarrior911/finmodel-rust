@@ -66,6 +66,37 @@ function activeProviders() {
 }
 
 let cursorLoginPollTimer = null;
+let opencodeLoginPollTimer = null;
+
+function stopOpenCodeLoginPoll() {
+  if (opencodeLoginPollTimer) {
+    clearInterval(opencodeLoginPollTimer);
+    opencodeLoginPollTimer = null;
+  }
+}
+
+function startOpenCodeLoginPoll(onReady) {
+  stopOpenCodeLoginPoll();
+  let ticks = 0;
+  opencodeLoginPollTimer = setInterval(async () => {
+    ticks += 1;
+    if (ticks > 150) {
+      stopOpenCodeLoginPoll();
+      return;
+    }
+    try {
+      const st = await refreshSubscriptionProviders();
+      populateProviders();
+      populateProviderBaseList();
+      if (st?.opencode?.chat_ready) {
+        stopOpenCodeLoginPoll();
+        if (onReady) await onReady();
+      }
+    } catch (_) {}
+  }, 2000);
+  opencodeLoginPollTimer.unref?.();
+}
+
 
 function normalizeModelEntries(raw) {
   let value = raw;
@@ -144,7 +175,7 @@ async function refreshSubscriptionProviders() {
       const o = st.opencode || {};
       if (note && st.enabled) {
         const parts = [];
-        if (!o.chat_ready) parts.push("OpenCode Go needs Connect (or paste a key).");
+        if (!o.chat_ready) parts.push("OpenCode Go needs Connect through OMP.");
         else parts.push("OpenCode Go is ready — select it in Provider.");
         if (!(c.chat_ready || c.available))
           parts.push("Cursor needs Connect (omp browser login).");
@@ -203,7 +234,7 @@ async function applyCursorProvider() {
   await refreshSubscriptionProviders();
   populateProviders();
   populateProviderBaseList();
-  setProviderFromBase(res.base_url);
+  setProviderFromBase(res.base_url, res.model);
   if (res.model && $("modelSelect")) $("modelSelect").value = res.model;
   return res;
 }
@@ -254,8 +285,15 @@ async function populateModelCatalogList() {
     /* no key yet / offline — fields still accept typing */
   }
 }
-function setProviderFromBase(base) {
+function setProviderFromBase(base, model = "") {
   const b = (base || "").replace(/\/+$/, "");
+  const gateway = "http://127.0.0.1:4000/v1";
+  if (b === gateway) {
+    $("providerSelect").value = String(model).startsWith("opencode-go/")
+      ? "opencode-go"
+      : "cursor";
+    return;
+  }
   const match = activeProviders().find((p) => p.base && p.base === b);
   $("providerSelect").value = match ? match.id : b ? "custom" : "openrouter";
   $("baseUrl").value = b || "https://openrouter.ai/api/v1";
@@ -324,16 +362,21 @@ export async function openSettings() {
   clearStatus();
   try {
     const s = await call("load_settings");
-    $("keyStatus").textContent = s.has_key
-      ? "Your key is saved. Leave blank to keep it."
-      : "No key yet — you're in demo mode with sample companies.";
+    const subscriptionGateway =
+      String(s.base_url || "").replace(/\/+$/, "") ===
+      "http://127.0.0.1:4000/v1";
+    $("keyStatus").textContent = subscriptionGateway
+      ? "Subscription credential stays in OMP."
+      : s.has_key
+        ? "Your key is saved. Leave blank to keep it."
+        : "No key yet — you're in demo mode with sample companies.";
     const sel = $("modelSelect");
     if (s.model)
       sel.innerHTML = `<option value="${escapeHtml(s.model)}">${escapeHtml(s.model)}</option>`;
     await refreshSubscriptionProviders();
     populateProviders();
     populateProviderBaseList();
-    setProviderFromBase(s.base_url);
+    setProviderFromBase(s.base_url, s.model);
     await refreshModelOptionsForProvider($("providerSelect")?.value || "", s.model);
     if (s.has_key) populateModelCatalogList(); // fire-and-forget pick list
     $("edgarContact").value = s.edgar_contact || "";
@@ -897,16 +940,22 @@ export function initSettings(opts = {}) {
         await refreshSubscriptionProviders();
         populateProviders();
         populateProviderBaseList();
-        if (res.base_url) setProviderFromBase(res.base_url);
-        else $("baseUrl").value = p.base;
-        await refreshModelOptionsForProvider("opencode-go", res.model || "");
+        if (!res.needs_auth && res.base_url) {
+          setProviderFromBase(res.base_url, res.model || "");
+          await refreshModelOptionsForProvider("opencode-go", res.model || "");
+        } else if (!res.needs_auth) {
+          $("baseUrl").value = p.base;
+        }
         if (res.needs_auth) {
-          const key = $("apiKey");
-          if (key) key.focus();
-          setStatus(res.guidance || "Paste OpenCode API key, then Save.", "info");
+          startOpenCodeLoginPoll(() => connectGo?.click());
+          setStatus(
+            res.guidance || "Finish OpenCode Go login in the OMP terminal.",
+            "info",
+          );
         } else {
-          $("keyStatus").textContent = "Your key is saved. Leave blank to keep it.";
-          setStatus("OpenCode Go connected.", "info");
+          stopOpenCodeLoginPoll();
+          $("keyStatus").textContent = "Subscription credential stays in OMP.";
+          setStatus("OpenCode Go connected through OMP.", "info");
           onSaved();
         }
       } catch (err) {
@@ -923,7 +972,7 @@ export function initSettings(opts = {}) {
           await refreshSubscriptionProviders();
           populateProviders();
           populateProviderBaseList();
-          setProviderFromBase(res.base_url);
+          setProviderFromBase(res.base_url, res.model);
           if (res.model && $("modelSelect")) $("modelSelect").value = res.model;
           await refreshModelOptionsForProvider("cursor", res.model || "");
           setStatus("Cursor ready via OMP gateway — model " + (res.model || "cursor/claude-4.6-sonnet-medium") + ".", "info");
@@ -1033,18 +1082,22 @@ export function initSettings(opts = {}) {
         await refreshSubscriptionProviders();
         populateProviders();
         populateProviderBaseList();
-        if (res.base_url) setProviderFromBase(res.base_url);
+        if (!res.needs_auth && res.base_url) {
+          setProviderFromBase(res.base_url, res.model || "");
+        }
         if (res.needs_auth) {
-          if (st) st.textContent = res.guidance || "Paste your OpenCode API key above, then Save.";
-          const key = $("apiKey");
-          if (key) {
-            key.focus();
-            key.scrollIntoView({ block: "nearest" });
+          startOpenCodeLoginPoll(() => connectGo.click());
+          if (st) {
+            st.textContent =
+              res.guidance || "Authenticate through OpenCode or OMP, then reconnect.";
           }
-          setStatus(res.guidance || "Paste OpenCode API key, then Save.", "info");
+          setStatus(
+            res.guidance || "Authenticate through OpenCode or OMP, then reconnect.",
+            "info",
+          );
         } else {
-          $("keyStatus").textContent =
-            "Your key is saved. Leave blank to keep it.";
+          stopOpenCodeLoginPoll();
+          $("keyStatus").textContent = "Subscription credential stays in OMP.";
           if (st) st.textContent = `Connected from ${res.source || "local"}.`;
           setStatus("OpenCode Go connected.", "info");
           onSaved();
@@ -1066,11 +1119,10 @@ export function initSettings(opts = {}) {
         await refreshSubscriptionProviders();
         populateProviders();
         populateProviderBaseList();
-        setProviderFromBase(res.base_url);
-        $("keyStatus").textContent =
-          "Your key is saved. Leave blank to keep it.";
-        if (st) st.textContent = `Imported from ${res.source}.`;
-        setStatus("OpenCode Go key imported — Save if you also change model.", "info");
+        setProviderFromBase(res.base_url, res.model);
+        $("keyStatus").textContent = "Subscription credential stays in OMP.";
+        if (st) st.textContent = `Connected through OMP from ${res.source}.`;
+        setStatus("OpenCode Go connected through OMP.", "info");
         onSaved();
       } catch (e) {
         if (st) st.textContent = "";
@@ -1092,7 +1144,7 @@ export function initSettings(opts = {}) {
           await refreshSubscriptionProviders();
           populateProviders();
           populateProviderBaseList();
-          setProviderFromBase(res.base_url);
+          setProviderFromBase(res.base_url, res.model);
           if (res.model && $("modelSelect")) $("modelSelect").value = res.model;
           await refreshModelOptionsForProvider("cursor", res.model || "");
           if (stEl)

@@ -35,13 +35,18 @@ pub fn run() {
                     // deletions stay sticky per the .seeded marker).
                     let _ = agent::skills::seed_builtin_skills(&dir);
                     let _ = agent::agents::seed_builtin_agents(&dir);
-                    // Personal OpenCode Go: if the keyring is empty, pull a key
-                    // from OPENCODE_API_KEY / OpenCode auth.json / OMP agent.db
-                    // so the user never has to set an env var before launch.
+                    // If an OMP-backed OpenCode Go selection predates the local
+                    // gateway cutover, migrate only its endpoint. Credentials
+                    // remain owned by OMP's agent.db.
                     if let Some(src) =
                         commands::subscription::maybe_auto_import_opencode_go(&app.handle())
                     {
-                        eprintln!("startup: imported OpenCode Go key from {src}");
+                        eprintln!("startup: migrated OpenCode Go gateway selection from {src}");
+                    }
+                    if let Ok(Some(model)) =
+                        commands::omp_gateway::reconcile_cursor_model(&app.handle())
+                    {
+                        eprintln!("startup: replaced stale Cursor model with {model}");
                     }
                     // Re-register persisted Recent artifacts (generated memos,
                     // models, decks + their folders) so open_path allowlists

@@ -1073,7 +1073,7 @@ async function sendViaAgent(msg) {
   }
   const terminal = await waitForAgentTerminal(activeRunId);
   lastTerminalKind = terminal.kind;
-  surfaceMinimalAnswer(terminal);
+  await surfaceMinimalAnswer(terminal);
   // Plan mode is one-shot: the plan is delivered, so the chip flips back —
   // your "go ahead" should RUN the plan, not produce another plan.
   if (mode === "plan") setMode("analyst");
@@ -1185,8 +1185,31 @@ function renderScheduleOffer(commitment) {
 /// surface a minimal final answer so the turn never renders empty. Always human
 /// prose — never raw payload JSON (a budget stop once leaked
 /// '{"detail":"rounds","kind":"budget"}' into the chat).
-function surfaceMinimalAnswer(terminal) {
+async function surfaceMinimalAnswer(terminal) {
   if (activeTurn && activeTurn.assistantNode) return;
+  if (
+    terminal.kind === "run_completed" &&
+    turnCardTypes.size > 0
+  )
+    return;
+  const conversationId = terminal.env && terminal.env.conversation_id;
+  if (conversationId) {
+    try {
+      const conv = await call("load_conversation", { id: conversationId });
+      const messages = conv.messages || [];
+      const lastUser = messages.map((m) => m && m.role).lastIndexOf("user");
+      const persisted = messages
+        .slice(lastUser + 1)
+        .reverse()
+        .find((m) => m && m.role === "assistant" && String(m.content || "").trim());
+      if (persisted) {
+        appendAssistant(persisted.content, true);
+        return;
+      }
+    } catch (_) {
+      // Keep the live turn usable even if a post-terminal reload is unavailable.
+    }
+  }
   const payload =
     (terminal.env && terminal.env.event && terminal.env.event.payload) || {};
   const stop = payload.stop;
@@ -1218,7 +1241,9 @@ function surfaceMinimalAnswer(terminal) {
     }
     default:
       text =
-        typeof payload.detail === "string" ? payload.detail : "Done.";
+        typeof payload.detail === "string"
+          ? payload.detail
+          : "This run finished without a response. Please retry the request.";
   }
   appendAssistant(text, true);
 }
@@ -1283,7 +1308,7 @@ async function resumeRun(interruptedRunId) {
       activeRunId;
     const terminal = await waitForAgentTerminal(activeRunId);
     lastTerminalKind = terminal.kind;
-    surfaceMinimalAnswer(terminal);
+    await surfaceMinimalAnswer(terminal);
     cancelled = stopping;
   } catch (e) {
     const errText = e && e.message ? e.message : String(e);

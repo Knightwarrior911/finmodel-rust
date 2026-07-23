@@ -69,6 +69,117 @@ test("load failure announces + retains, offers keyboard retry (no silent new cha
   assert.ok(retry, "keyboard-reachable retry present");
 });
 
+test("completed run without a streamed delta reloads its persisted prose", async () => {
+  const { ctx } = await bootChat();
+  let resolveSend;
+  ctx.invokeHandlers.agent_send = () =>
+    new Promise((resolve) => {
+      resolveSend = resolve;
+    });
+  ctx.invokeHandlers.load_conversation = async () => ({
+    id: "c-no-delta",
+    messages: [
+      { role: "user", content: "find Tesla news" },
+      {
+        role: "assistant",
+        content: "⚠ the model request failed — check your API key and model in Settings. (HTTP 404)",
+      },
+    ],
+    last_run: { id: "run-no-delta", status: "completed" },
+  });
+
+  document.getElementById("chatInput").value = "find Tesla news";
+  document.getElementById("chatSend").click();
+  await tick();
+  assert.ok(ctx.invokeLog.some((entry) => entry.name === "agent_send"), "agent send invoked");
+  resolveSend({ conversation_id: "c-no-delta", run_id: "run-no-delta" });
+  await tick();
+  await tick();
+  ctx.emit("agent_event", {
+    run_id: "run-no-delta",
+    conversation_id: "c-no-delta",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+  await tick();
+
+  assert.match(document.getElementById("chatScroll").textContent, /HTTP 404/);
+  assert.doesNotMatch(document.getElementById("chatScroll").textContent, /^Done.$/m);
+});
+
+test("completed run with a result card does not invent terminal prose", async () => {
+  const { ctx } = await bootChat();
+  ctx.invokeHandlers.agent_send = async () => ({
+    conversation_id: "c-card",
+    run_id: "run-card",
+  });
+  ctx.invokeHandlers.load_conversation = async () => ({
+    id: "c-card",
+    messages: [{ role: "user", content: "search the web" }],
+    last_run: { id: "run-card", status: "completed" },
+  });
+
+  document.getElementById("chatInput").value = "search the web";
+  document.getElementById("chatSend").click();
+  await tick();
+  await tick();
+  ctx.emit("agent_event", {
+    run_id: "run-card",
+    conversation_id: "c-card",
+    event: {
+      kind: "result_part_added",
+      payload: { card: { type: "financials", entity: "Search results", rows: [] } },
+    },
+  });
+  ctx.emit("agent_event", {
+    run_id: "run-card",
+    conversation_id: "c-card",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+  await tick();
+
+  const text = document.getElementById("chatScroll").textContent;
+  assert.doesNotMatch(text, /finished without a response/i);
+  assert.doesNotMatch(text, /model request failed/i);
+});
+
+test("terminal recovery never reuses a prior assistant response", async () => {
+  const { ctx } = await bootChat();
+  let resolveSend;
+  ctx.invokeHandlers.agent_send = () =>
+    new Promise((resolve) => {
+      resolveSend = resolve;
+    });
+  ctx.invokeHandlers.load_conversation = async () => ({
+    id: "c-prior",
+    messages: [
+      { role: "user", content: "old request" },
+      { role: "assistant", content: "old answer must not be reused" },
+      { role: "user", content: "current request" },
+    ],
+    last_run: { id: "run-prior", status: "completed" },
+  });
+
+  document.getElementById("chatInput").value = "current request";
+  document.getElementById("chatSend").click();
+  await tick();
+  resolveSend({ conversation_id: "c-prior", run_id: "run-prior" });
+  await tick();
+  await tick();
+  ctx.emit("agent_event", {
+    run_id: "run-prior",
+    conversation_id: "c-prior",
+    event: { kind: "run_completed", payload: {} },
+  });
+  await tick();
+  await tick();
+
+  const text = document.getElementById("chatScroll").textContent;
+  assert.doesNotMatch(text, /old answer must not be reused/);
+  assert.match(text, /finished without a response/);
+});
+
 test("pause surfaces a Resume affordance that relaunches via agent_resume", async () => {
   const { ctx } = await bootChat();
   let resumeArg = null;

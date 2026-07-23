@@ -1,19 +1,17 @@
 # Filing Tie-Out Report
 
-Code fingerprint: `07ebec5aac4ba99d`  
-Aggregate: **96.86%** over 7 companies (339/350 cells)
+Code fingerprint: `9f068fd560b1e63f`  
+Aggregate: **97.43%** over 7 companies (341/350 cells)
 
-## ATCO-B.ST — Atlas Copco AB  (93.75%)
+## ATCO-B.ST — Atlas Copco AB  (97.92%)
 Years [2022, 2023] · reported SEK · GT unverifiable 0
 
 - income_statement: 16/16 (100.0%)
-- balance_sheet: 18/20 (90.0%)
+- balance_sheet: 20/20 (100.0%)
 - cash_flow_statement: 11/12 (91.67%)
 
 | statement | line | year | filing | model | pg |
 |---|---|---|---:|---:|---:|
-| balance_sheet | ppe_net | 2022 | 12720 | 15409 | 86 |
-| balance_sheet | ppe_net | 2023 | 14358 | 18703 | 86 |
 | cash_flow_statement | dividends_paid | 2023 | 11203 | 11211 | 88 |
 
 ## SAND.ST — Sandvik AB  (100.0%)

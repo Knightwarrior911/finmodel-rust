@@ -35,8 +35,13 @@ pub(crate) fn child_tool_belt() -> Vec<Value> {
     // dispatch_swarm - a child never fans out again) and deliverable/meta tools
     // (draft_memo, use_skill) - a child returns a findings brief, never
     // artifacts or behavior changes.
-    const EXCLUDED: [&str; 5] =
-        ["delegate_analysis", "run_agent", "dispatch_swarm", "draft_memo", "use_skill"];
+    const EXCLUDED: [&str; 5] = [
+        "delegate_analysis",
+        "run_agent",
+        "dispatch_swarm",
+        "draft_memo",
+        "use_skill",
+    ];
     crate::agent::tools::ToolRegistry::shared()
         .agent_schemas_read_only()
         .into_iter()
@@ -52,7 +57,12 @@ pub(crate) fn child_tool_belt() -> Vec<Value> {
 /// tools, but WITH `use_skill` - user agents are built to use the skill
 /// library (their listed skills are also preloaded into the prompt).
 pub(crate) fn agent_tool_belt() -> Vec<Value> {
-    const EXCLUDED: [&str; 4] = ["delegate_analysis", "run_agent", "dispatch_swarm", "draft_memo"];
+    const EXCLUDED: [&str; 4] = [
+        "delegate_analysis",
+        "run_agent",
+        "dispatch_swarm",
+        "draft_memo",
+    ];
     crate::agent::tools::ToolRegistry::shared()
         .agent_schemas_read_only()
         .into_iter()
@@ -131,8 +141,17 @@ pub(crate) async fn run_delegate_loop(
     conversation_id: &str,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(String, Value), String> {
-    run_child_loop(app, cfg, CHILD_PROMPT, child_tool_belt(), None, task, conversation_id, cancel)
-        .await
+    run_child_loop(
+        app,
+        cfg,
+        CHILD_PROMPT,
+        child_tool_belt(),
+        None,
+        task,
+        conversation_id,
+        cancel,
+    )
+    .await
 }
 
 /// The shared child-agent loop (delegate_analysis + run_agent). Returns
@@ -301,13 +320,22 @@ mod tests {
             .iter()
             .filter_map(|v| v.pointer("/function/name").and_then(|n| n.as_str()))
             .collect();
-        assert!(!names.contains(&"delegate_analysis"), "no recursion: {names:?}");
+        assert!(
+            !names.contains(&"delegate_analysis"),
+            "no recursion: {names:?}"
+        );
         assert!(!names.contains(&"use_skill"), "meta tools stay out");
         assert!(!names.contains(&"run_agent"), "no nesting from delegates");
-        assert!(!names.contains(&"dispatch_swarm"), "no swarm nesting from delegates");
+        assert!(
+            !names.contains(&"dispatch_swarm"),
+            "no swarm nesting from delegates"
+        );
         // Write-risk tools must be absent from the child belt entirely.
         for banned in ["build_model", "draft_memo"] {
-            assert!(!names.contains(&banned), "{banned} leaked into the child belt");
+            assert!(
+                !names.contains(&banned),
+                "{banned} leaked into the child belt"
+            );
         }
         // The research surface is present (the point of delegation).
         assert!(names.contains(&"research"));
@@ -318,12 +346,22 @@ mod tests {
     fn agent_belt_keeps_skills_but_never_nests() {
         let names: Vec<String> = agent_tool_belt()
             .iter()
-            .filter_map(|v| v.pointer("/function/name").and_then(|x| x.as_str()).map(String::from))
+            .filter_map(|v| {
+                v.pointer("/function/name")
+                    .and_then(|x| x.as_str())
+                    .map(String::from)
+            })
             .collect();
         // Agents are BUILT to use the skill library.
         assert!(names.iter().any(|x| x == "use_skill"), "{names:?}");
         // But never dispatch further agents or delegates, and never draft.
-        for banned in ["run_agent", "delegate_analysis", "dispatch_swarm", "draft_memo", "build_model"] {
+        for banned in [
+            "run_agent",
+            "delegate_analysis",
+            "dispatch_swarm",
+            "draft_memo",
+            "build_model",
+        ] {
             assert!(!names.iter().any(|x| x == banned), "{banned} leaked");
         }
     }
@@ -351,7 +389,10 @@ mod tests {
         assert_eq!(e["note"], "SAP SE — annual report (20-F/IFRS)");
         // Usage: rounds sum; reported cost carries through only when present.
         let mut t = (0u64, 0u64, 0.0f64, false);
-        add_usage(&mut t, Some(&json!({"prompt_tokens": 900, "completion_tokens": 100})));
+        add_usage(
+            &mut t,
+            Some(&json!({"prompt_tokens": 900, "completion_tokens": 100})),
+        );
         add_usage(
             &mut t,
             Some(&json!({"prompt_tokens": 1100, "completion_tokens": 200, "cost": 0.004})),

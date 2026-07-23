@@ -109,7 +109,9 @@ pub fn get_agent(config_dir: &Path, name: &str) -> Option<AgentDef> {
         return None;
     }
     let path = agents_dir(config_dir).join(format!("{}.md", name.trim()));
-    std::fs::read_to_string(path).ok().and_then(|s| parse_agent(&s))
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| parse_agent(&s))
 }
 
 /// Raw AGENT.md text for the editor.
@@ -140,8 +142,9 @@ pub fn save_agent(config_dir: &Path, name: &str, content: &str) -> Result<PathBu
     if !is_valid_name(name) {
         return Err("invalid agent name".into());
     }
-    let parsed = parse_agent(content)
-        .ok_or("content is not a valid AGENT.md (need name + description frontmatter and a body)")?;
+    let parsed = parse_agent(content).ok_or(
+        "content is not a valid AGENT.md (need name + description frontmatter and a body)",
+    )?;
     if parsed.name.trim() != name.trim() {
         return Err(format!(
             "frontmatter name `{}` must match file name `{}`",
@@ -279,7 +282,10 @@ mod tests {
         // Save + list + get + delete.
         save_agent(&dir, "dd-reviewer", MD).unwrap();
         assert_eq!(list_agents(&dir).len(), 1);
-        assert_eq!(get_agent(&dir, "dd-reviewer").unwrap().description, "Red-teams deal documents");
+        assert_eq!(
+            get_agent(&dir, "dd-reviewer").unwrap().description,
+            "Red-teams deal documents"
+        );
         // Name mismatch and traversal names rejected.
         assert!(save_agent(&dir, "other-name", MD).is_err());
         assert!(save_agent(&dir, "../evil", MD).is_err());
@@ -293,7 +299,10 @@ mod tests {
         assert!(parse_agent("no frontmatter at all").is_none());
         assert!(parse_agent("---\nname: x\n---\n").is_none(), "empty body");
         assert!(parse_agent("---\nname: bad name!\ndescription: d\n---\nbody").is_none());
-        assert!(parse_agent("---\ndescription: d\n---\nbody").is_none(), "no name");
+        assert!(
+            parse_agent("---\ndescription: d\n---\nbody").is_none(),
+            "no name"
+        );
     }
 
     #[test]
@@ -320,8 +329,9 @@ mod tests {
     }
     #[test]
     fn bundled_agents_parse_match_names_and_cite_real_skills() {
-        let known: std::collections::HashSet<&str> =
-            crate::agent::skills::builtin_skill_names().into_iter().collect();
+        let known: std::collections::HashSet<&str> = crate::agent::skills::builtin_skill_names()
+            .into_iter()
+            .collect();
         assert_eq!(BUILTIN_AGENTS.len(), 5, "the starter bench is five agents");
         for (name, content) in BUILTIN_AGENTS {
             let def = parse_agent(content)
@@ -349,7 +359,11 @@ mod tests {
         save_agent(&dir, "comps-analyst", mine).unwrap();
         // First run writes every OTHER agent, skips the pre-existing one.
         let n = seed_builtin_agents(&dir);
-        assert_eq!(n, BUILTIN_AGENTS.len() - 1, "the user's file is not overwritten");
+        assert_eq!(
+            n,
+            BUILTIN_AGENTS.len() - 1,
+            "the user's file is not overwritten"
+        );
         assert_eq!(list_agents(&dir).len(), BUILTIN_AGENTS.len());
         assert_eq!(
             get_agent(&dir, "comps-analyst").unwrap().description,
@@ -360,7 +374,10 @@ mod tests {
         delete_agent(&dir, "credit-analyst").unwrap();
         let n2 = seed_builtin_agents(&dir);
         assert_eq!(n2, 0, "marker makes re-seeding a no-op");
-        assert!(get_agent(&dir, "credit-analyst").is_none(), "deletion stays sticky");
+        assert!(
+            get_agent(&dir, "credit-analyst").is_none(),
+            "deletion stays sticky"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]

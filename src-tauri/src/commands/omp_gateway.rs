@@ -41,12 +41,59 @@ pub fn qualify_cursor_model(model: &str) -> String {
     }
 }
 
+/// Keep a persisted Cursor selection on a model the current OMP catalog accepts.
+/// The catalog contains bare IDs; outgoing requests always use the `cursor/` selector.
+pub fn resolve_cursor_model(saved: &str, available: &[String]) -> String {
+    let requested = qualify_cursor_model(saved);
+    if available
+        .iter()
+        .any(|id| qualify_cursor_model(id) == requested)
+    {
+        return requested;
+    }
+    let requested_id = requested.trim_start_matches("cursor/");
+    let requested_family = requested_id.trim_start_matches("cursor-");
+    if requested_family.starts_with("grok-4.5") {
+        let mut family_matches = available.iter().filter(|id| {
+            id.trim_start_matches("cursor/")
+                .trim_start_matches("cursor-")
+                .starts_with("grok-4.5")
+        });
+        if let Some(medium) = family_matches.clone().find(|id| id.ends_with("-medium")) {
+            return qualify_cursor_model(medium);
+        }
+        if let Some(candidate) = family_matches.next() {
+            return qualify_cursor_model(candidate);
+        }
+    }
+    for preferred in ["claude-4.6-sonnet-medium", "claude-4-sonnet"] {
+        if available.iter().any(|id| id == preferred) {
+            return qualify_cursor_model(preferred);
+        }
+    }
+    available
+        .first()
+        .map(|id| qualify_cursor_model(id))
+        .unwrap_or_else(|| requested)
+}
+
 fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_millis(250),
     )
     .is_ok()
+}
+
+/// Configure an OMP child command so CLI probes never flash a console on Windows.
+pub(crate) fn configure_hidden_command(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
 }
 
 fn omp_bin() -> Result<String, String> {
@@ -69,13 +116,12 @@ fn which_omp() -> Option<String> {
             return Some(candidate.to_string_lossy().into_owned());
         }
     }
-    Command::new("omp")
-        .arg("--version")
+    let mut cmd = Command::new("omp");
+    cmd.arg("--version")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .ok()
-        .map(|_| "omp".to_string())
+        .stderr(Stdio::null());
+    configure_hidden_command(&mut cmd);
+    cmd.status().ok().map(|_| "omp".to_string())
 }
 
 fn spawn_detached(bin: &str, args: &[&str]) -> Result<(), String> {
@@ -84,13 +130,7 @@ fn spawn_detached(bin: &str, args: &[&str]) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-    }
+    configure_hidden_command(&mut cmd);
     cmd.spawn()
         .map(|_| ())
         .map_err(|e| format!("failed to start `{bin} {}`: {e}", args.join(" ")))
@@ -105,13 +145,7 @@ fn spawn_omp_login_visible(bin: &str, provider: &str) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-    }
+    configure_hidden_command(&mut cmd);
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to start omp auth-broker login {provider}: {e}"))?;
@@ -130,6 +164,30 @@ fn spawn_omp_login_visible(bin: &str, provider: &str) -> Result<(), String> {
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// Open an interactive OMP login console for providers that require pasted
+/// input (OpenCode Go opens opencode.ai/auth, then prompts for its API key).
+pub fn start_opencode_go_login() -> Result<(), String> {
+    let bin = omp_bin()?;
+    let mut cmd = Command::new(&bin);
+    cmd.args(["auth-broker", "login", "opencode-go"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        cmd.creation_flags(CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP);
+    }
+    #[cfg(not(windows))]
+    {
+        cmd.stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to open interactive OpenCode Go login: {e}"))
 }
 
 fn watch_login_output<R: std::io::Read + Send + 'static>(
@@ -242,13 +300,7 @@ pub fn ensure_cursor_gateway() -> Result<(), String> {
         } else {
             cmd.env("OMP_AUTH_BROKER_URL", BROKER_URL);
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-        }
+        configure_hidden_command(&mut cmd);
         cmd.spawn()
             .map_err(|e| format!("failed to start auth-gateway: {e}"))?;
         if !wait_port(GATEWAY_PORT, Duration::from_secs(10)) {
@@ -282,6 +334,29 @@ pub fn gateway_status_json() -> serde_json::Value {
     })
 }
 
+/// Repair an obsolete Cursor model id once the live OMP catalog is available.
+/// This is deliberately a startup migration: a stale selection must never turn
+/// the user's first chat request into a gateway 404.
+pub fn reconcile_cursor_model(app: &tauri::AppHandle) -> Result<Option<String>, String> {
+    let mut settings = crate::commands::settings::read_settings(app);
+    if !crate::commands::settings::is_cursor_gateway(&settings) {
+        return Ok(None);
+    }
+    let status = crate::commands::subscription::cursor_omp_status();
+    if !status.present || status.expired {
+        return Ok(None);
+    }
+    let (_, available) = crate::commands::subscription::probe_cursor_models_via_omp()?;
+    let resolved = resolve_cursor_model(&settings.model, &available);
+    if resolved == settings.model {
+        return Ok(None);
+    }
+    settings.model = resolved.clone();
+    settings.model_capability = None;
+    crate::commands::settings::write_settings(app, &settings).map_err(|e| e.to_string())?;
+    Ok(Some(resolved))
+}
+
 /// Start (if needed) the OMP Cursor gateway and return a redacted status.
 #[tauri::command(rename_all = "snake_case")]
 pub fn ensure_cursor_omp_gateway() -> AppResult<String> {
@@ -294,12 +369,9 @@ fn wire_cursor_settings(app: &tauri::AppHandle, source: &str) -> AppResult<Strin
 
     let mut s = crate::commands::settings::read_settings(app);
     s.base_url = GATEWAY_BASE_URL.to_string();
-    if s.model.trim().is_empty() || (!s.model.contains("claude") && !s.model.starts_with("cursor/"))
-    {
-        s.model = "cursor/claude-4.6-sonnet-medium".into();
-    } else if !s.model.starts_with("cursor/") {
-        s.model = qualify_cursor_model(&s.model);
-    }
+    let (_, available) =
+        crate::commands::subscription::probe_cursor_models_via_omp().map_err(AppError::Engine)?;
+    s.model = resolve_cursor_model(&s.model, &available);
     s.model_capability = None;
     crate::commands::settings::write_settings(app, &s)?;
     Ok(json!({
@@ -382,6 +454,35 @@ pub fn connect_cursor_omp(app: tauri::AppHandle) -> AppResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replaces_a_stale_cursor_grok_model_with_live_family_variant() {
+        let available = vec![
+            "claude-4-sonnet".to_string(),
+            "claude-4.6-sonnet-medium".to_string(),
+            "cursor-grok-4.5-medium".to_string(),
+        ];
+        assert_eq!(
+            resolve_cursor_model("cursor/grok-4.5", &available),
+            "cursor/cursor-grok-4.5-medium"
+        );
+    }
+
+    #[test]
+    fn hidden_command_helper_runs_a_child_without_output() {
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "exit 0"]);
+            c
+        } else {
+            Command::new("true")
+        };
+        configure_hidden_command(&mut cmd);
+        let output = cmd.output().expect("hidden child should start");
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
 
     #[test]
     fn extracts_cursor_login_url() {

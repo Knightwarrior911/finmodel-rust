@@ -742,13 +742,20 @@ mod tests {
 
     #[test]
     fn vision_keeps_a_model_that_already_sees() {
-        let cat = vec![cat_model("a/sees", true, true, 128_000, "0.000001", "0.000002")];
-        assert_eq!(route_for_vision(&cat, "a/sees", 5.0), VisionRoute::KeepCurrent);
+        let cat = vec![cat_model(
+            "a/sees", true, true, 128_000, "0.000001", "0.000002",
+        )];
+        assert_eq!(
+            route_for_vision(&cat, "a/sees", 5.0),
+            VisionRoute::KeepCurrent
+        );
     }
 
     #[test]
     fn vision_never_routes_away_from_an_unknown_model() {
-        let cat = vec![cat_model("a/sees", true, true, 128_000, "0.000001", "0.000002")];
+        let cat = vec![cat_model(
+            "a/sees", true, true, 128_000, "0.000001", "0.000002",
+        )];
         assert_eq!(
             route_for_vision(&cat, "custom/self-hosted", 5.0),
             VisionRoute::CurrentUnknown
@@ -789,9 +796,15 @@ mod tests {
             cat_model("v/pricey", true, true, 200_000, "0.000003", "0.000012"),
         ];
         // Cap below every candidate → NoneAffordable, never a silent overshoot.
-        assert_eq!(route_for_vision(&cat, "t/blind", 1.0), VisionRoute::NoneAffordable);
+        assert_eq!(
+            route_for_vision(&cat, "t/blind", 1.0),
+            VisionRoute::NoneAffordable
+        );
         // Cap 0 / NaN → routing disabled outright.
-        assert_eq!(route_for_vision(&cat, "t/blind", 0.0), VisionRoute::NoneAffordable);
+        assert_eq!(
+            route_for_vision(&cat, "t/blind", 0.0),
+            VisionRoute::NoneAffordable
+        );
         assert_eq!(
             route_for_vision(&cat, "t/blind", f64::NAN),
             VisionRoute::NoneAffordable
@@ -805,6 +818,9 @@ mod tests {
             // No parseable price — must NOT be routed to, whatever the cap.
             cat_model("v/mystery", true, true, 128_000, "", ""),
         ];
-        assert_eq!(route_for_vision(&cat, "t/blind", 100.0), VisionRoute::NoneAffordable);
+        assert_eq!(
+            route_for_vision(&cat, "t/blind", 100.0),
+            VisionRoute::NoneAffordable
+        );
     }
 }

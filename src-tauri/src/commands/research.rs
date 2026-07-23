@@ -256,13 +256,45 @@ use std::net::ToSocketAddrs;
 /// [`fm_research::upgrade_company_candidates`]).
 fn question_name_tokens(question: &str) -> Vec<String> {
     const STOP: &[&str] = &[
-        "about", "annual", "call", "china", "company", "comparison",
-        "competition", "earnings", "english", "fashion", "financial",
-        "goods", "growth", "guidance", "impact", "income", "interim",
-        "investor", "latest", "leather", "management", "margin", "press",
-        "presentation", "quarter", "quarterly", "relations", "release",
-        "report", "results", "revenue", "said", "sales", "statement",
-        "tariff", "tariffs", "transcript", "what", "operating",
+        "about",
+        "annual",
+        "call",
+        "china",
+        "company",
+        "comparison",
+        "competition",
+        "earnings",
+        "english",
+        "fashion",
+        "financial",
+        "goods",
+        "growth",
+        "guidance",
+        "impact",
+        "income",
+        "interim",
+        "investor",
+        "latest",
+        "leather",
+        "management",
+        "margin",
+        "press",
+        "presentation",
+        "quarter",
+        "quarterly",
+        "relations",
+        "release",
+        "report",
+        "results",
+        "revenue",
+        "said",
+        "sales",
+        "statement",
+        "tariff",
+        "tariffs",
+        "transcript",
+        "what",
+        "operating",
     ];
     question
         .split(|c: char| !c.is_ascii_alphabetic())
@@ -526,11 +558,14 @@ impl HttpBackend {
                 // report / presentation results readable.
                 web_queries.push(format!("{core} annual report"));
                 web_queries.push(format!("{core} investor relations english"));
-                web_queries.push(format!("{core} {}", if earnings {
-                    "interim results announcement"
-                } else {
-                    "investor presentation"
-                }));
+                web_queries.push(format!(
+                    "{core} {}",
+                    if earnings {
+                        "interim results announcement"
+                    } else {
+                        "investor presentation"
+                    }
+                ));
             }
             web_queries.push(if earnings {
                 format!("{core} latest quarterly earnings results guidance")
@@ -574,7 +609,10 @@ impl HttpBackend {
                 // A web hit for the same quote page may already be in the
                 // ledger — never append a duplicate synthetic row.
                 let quote_url = format!("https://finance.yahoo.com/quote/{t}");
-                if ledger.iter().any(|s| s.canonical_url.trim_end_matches('/') == quote_url) {
+                if ledger
+                    .iter()
+                    .any(|s| s.canonical_url.trim_end_matches('/') == quote_url)
+                {
                     continue;
                 }
                 if let Ok(q) = fm_fetch::fetch_quote(t) {
@@ -660,9 +698,11 @@ impl ResearchBackend for HttpBackend {
         // "What did management say…" questions live in the call transcript —
         // hunt it at any depth, not just Deep.
         let ql = q.to_lowercase();
-        if ["say", "said", "mention", "discuss", "comment", "call", "guidance"]
-            .iter()
-            .any(|k| ql.contains(k))
+        if [
+            "say", "said", "mention", "discuss", "comment", "call", "guidance",
+        ]
+        .iter()
+        .any(|k| ql.contains(k))
         {
             queries.insert(2, with_subject("earnings call transcript"));
         }
@@ -1321,7 +1361,11 @@ mod tests {
         .await;
         match terminal {
             Action::Done(ResearchOutput::Digest(d)) => {
-                assert!(d.limitations[0].starts_with("Grounding:"), "{:?}", d.limitations);
+                assert!(
+                    d.limitations[0].starts_with("Grounding:"),
+                    "{:?}",
+                    d.limitations
+                );
                 assert_eq!(
                     d.limitations[1],
                     "The selected model could not produce a validated synthesis".to_string()
@@ -1422,7 +1466,9 @@ mod tests {
         match terminal {
             Action::Done(ResearchOutput::Digest(d)) => {
                 assert!(
-                    d.limitations.iter().any(|l| l.contains("ran out of research time")),
+                    d.limitations
+                        .iter()
+                        .any(|l| l.contains("ran out of research time")),
                     "expected deadline limitation, got {:?}",
                     d.limitations
                 );
@@ -1528,27 +1574,43 @@ mod plan_tests {
 
     #[test]
     fn primary_first_plan_targets_company_sources() {
-        let plan = tauri::async_runtime::block_on(
-            backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)),
-        )
-        .expect("deterministic plan");
+        let plan =
+            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)))
+                .expect("deterministic plan");
         // The FIRST queries hunt the company's own words; the open web is last.
         assert!(plan.queries[0].contains("investor relations"));
         assert!(plan.queries[1].contains("press release"));
-        assert!(plan.queries.iter().all(|q| q.contains("tariff")||q.contains("TSLA")));
+        assert!(plan
+            .queries
+            .iter()
+            .all(|q| q.contains("tariff") || q.contains("TSLA")));
 
         // Operator hygiene: every planned query drops the HR-noise domains,
         // and date operators (unsupported on the DDG fallback) never appear.
-        assert!(plan.queries.iter().all(|q| q.contains("-site:linkedin.com")), "{:?}", plan.queries);
-        assert!(plan.queries.iter().all(|q| !q.contains("before:") && !q.contains("after:")));
+        assert!(
+            plan.queries
+                .iter()
+                .all(|q| q.contains("-site:linkedin.com")),
+            "{:?}",
+            plan.queries
+        );
+        assert!(plan
+            .queries
+            .iter()
+            .all(|q| !q.contains("before:") && !q.contains("after:")));
         // Deep widens into presentations, transcripts, and filings.
-        let deep = tauri::async_runtime::block_on(
-            backend(&["TSLA"]).plan(&req(ResearchDepth::Deep)),
-        )
-        .unwrap();
+        let deep =
+            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&req(ResearchDepth::Deep)))
+                .unwrap();
         assert!(deep.queries.len() > plan.queries.len());
-        assert!(deep.queries.iter().any(|q| q.contains("investor presentation")));
-        assert!(deep.queries.iter().any(|q| q.contains("earnings call transcript")));
+        assert!(deep
+            .queries
+            .iter()
+            .any(|q| q.contains("investor presentation")));
+        assert!(deep
+            .queries
+            .iter()
+            .any(|q| q.contains("earnings call transcript")));
     }
 
     /// LIVE (network): the full acquisition path on a real question — plan
@@ -1570,7 +1632,9 @@ mod plan_tests {
         }
         assert!(!ledger.is_empty(), "search produced no candidates");
         assert!(
-            ledger.iter().all(|s| !s.canonical_url.contains("wikipedia")),
+            ledger
+                .iter()
+                .all(|s| !s.canonical_url.contains("wikipedia")),
             "wikipedia must never enter the ledger"
         );
         let read = tauri::async_runtime::block_on(b.read(ledger));
@@ -1580,7 +1644,10 @@ mod plan_tests {
             .count();
         println!("read ok: {ok}/{}", read.len());
         for s in &read {
-            println!("  {} [{:?}/{:?}] {}", s.id, s.kind, s.status, s.canonical_url);
+            println!(
+                "  {} [{:?}/{:?}] {}",
+                s.id, s.kind, s.status, s.canonical_url
+            );
         }
         assert!(ok >= 1, "at least one source must be readable");
     }
@@ -1610,18 +1677,19 @@ mod plan_tests {
     fn transcript_query_for_spoken_questions() {
         // The req() question asks about "tariff impact and China competition" —
         // no spoken-word cue, so no transcript query at Standard.
-        let plain = tauri::async_runtime::block_on(
-            backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)),
-        )
-        .unwrap();
+        let plain =
+            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&req(ResearchDepth::Standard)))
+                .unwrap();
         assert!(!plain.queries.iter().any(|q| q.contains("transcript")));
         // A "what did they say" question hunts the call transcript up front.
         let mut r = req(ResearchDepth::Standard);
         r.question = "did management say anything about tariffs on the call".into();
-        let spoken =
-            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).unwrap();
+        let spoken = tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).unwrap();
         assert!(
-            spoken.queries.iter().any(|q| q.contains("earnings call transcript")),
+            spoken
+                .queries
+                .iter()
+                .any(|q| q.contains("earnings call transcript")),
             "queries: {:?}",
             spoken.queries
         );
@@ -1631,9 +1699,7 @@ mod plan_tests {
     fn empty_question_yields_no_plan() {
         let mut r = req(ResearchDepth::Standard);
         r.question = String::new();
-        assert!(
-            tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).is_none()
-        );
+        assert!(tauri::async_runtime::block_on(backend(&["TSLA"]).plan(&r)).is_none());
     }
 }
 
@@ -1788,8 +1854,15 @@ mod pdf_tests {
         }
         assert!(!ledger.is_empty(), "no candidates");
         const BANNED: &[&str] = &[
-            "teamtailor", "linkedin", "ambitionbox", "glassdoor", "indeed",
-            "greenhouse", "lever.co", "/jobs", "/careers",
+            "teamtailor",
+            "linkedin",
+            "ambitionbox",
+            "glassdoor",
+            "indeed",
+            "greenhouse",
+            "lever.co",
+            "/jobs",
+            "/careers",
         ];
         for s in &ledger {
             let u = s.canonical_url.to_lowercase();
@@ -1817,7 +1890,10 @@ mod pdf_tests {
 
     #[test]
     fn quote_if_phrase_wraps_multiword_names() {
-        assert_eq!(quote_if_phrase("Toyota Motor Corporation"), "\"Toyota Motor Corporation\"");
+        assert_eq!(
+            quote_if_phrase("Toyota Motor Corporation"),
+            "\"Toyota Motor Corporation\""
+        );
         assert_eq!(quote_if_phrase("SAP"), "SAP");
         assert_eq!(quote_if_phrase("\"Already Quoted\""), "\"Already Quoted\"");
     }

@@ -7,22 +7,21 @@ launch. Opt out with:
 set FINMODEL_DISABLE_SUBSCRIPTION_PROVIDERS=1
 ```
 
-## OpenCode Go (chat-ready)
+## OpenCode Go (chat via local OMP gateway)
 
-Base URL: `https://opencode.ai/zen/go/v1` (OpenAI-compatible).
+Finmodel routes OpenCode Go chat through OMP's local gateway at
+`http://127.0.0.1:4000/v1`; subscription credentials remain in OpenCode or OMP
+and are never copied into finmodel requests.
 
-On first launch, if the keyring is empty, finmodel auto-imports a key from (in
-order):
+Finmodel recognizes OpenCode Go as ready only when OMP has an active
+`opencode-go` credential in `~/.omp/agent/agent.db`. Authenticate with OMP's
+`/login opencode-go`, then click **Connect OpenCode Go**. If authentication is
+missing, finmodel opens `https://opencode.ai/auth` and an interactive OMP
+terminal. OMP accepts the pasted key and saves it to agent.db; finmodel never reads it.
 
-1. `OPENCODE_API_KEY`
-2. OpenCode `auth.json` (`opencode-go` / `opencode`) under
-   `%USERPROFILE%\.local\share\opencode\`
-3. OMP `~/.omp/agent/agent.db` after `/login opencode-go`
-
-If none of those exist, Settings → **Connect OpenCode Go** opens
-`https://opencode.ai/auth` so you can copy a key, paste it into **API key**,
-and Save. **Import OpenCode Go key** still pulls from the local sources above
-without opening the browser.
+**Import OpenCode Go key** rechecks OMP's credential database; it never copies
+environment variables, OpenCode `auth.json`, or subscription secrets into
+finmodel's keyring.
 
 ## Cursor (chat via local OMP gateway)
 
@@ -38,8 +37,8 @@ Your saved API key is left unchanged; the gateway uses a dummy bearer with
 `--no-auth`.
 
 **Use Cursor** wires the gateway when OAuth is already present.
-**Probe Cursor models** lists the complete live catalog via `omp models cursor`;
-Provider → Cursor, OpenRouter, and OpenCode Go each keep their own model choices.
+**Probe Cursor models** lists the complete live catalog through OMP's local
+gateway; Provider → Cursor, OpenRouter, and OpenCode Go each keep separate model choices.
 
 Default model: `cursor/claude-4.6-sonnet-medium` (also try `cursor/default`).
 Avoid bare `composer-1.5` — it often returns Connect `invalid_argument` /

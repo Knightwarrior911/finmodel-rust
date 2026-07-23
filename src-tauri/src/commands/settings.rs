@@ -45,16 +45,25 @@ pub fn is_openrouter(s: &Settings) -> bool {
     provider_base(s).contains("openrouter.ai")
 }
 
-/// True when Settings point at the local Cursor OMP gateway.
-pub fn is_cursor_gateway(s: &Settings) -> bool {
+/// True when Settings point at the local OMP auth gateway.
+pub fn is_omp_gateway(s: &Settings) -> bool {
     crate::commands::omp_gateway::is_cursor_gateway_base(&provider_base(s))
+}
+
+/// True when the OMP gateway is serving a Cursor model.
+pub fn is_cursor_gateway(s: &Settings) -> bool {
+    is_omp_gateway(s) && !s.model.trim().starts_with("opencode-go/")
+}
+
+fn is_opencode_gateway(s: &Settings) -> bool {
+    is_omp_gateway(s) && s.model.trim().starts_with("opencode-go/")
 }
 
 /// API key used for outbound OpenAI-compatible calls.
 /// Cursor gateway uses a dummy bearer (`--no-auth`) and must not require
 /// overwriting the stored OpenRouter/OpenCode key.
 pub fn effective_api_key(s: &Settings) -> String {
-    if is_cursor_gateway(s) {
+    if is_omp_gateway(s) {
         return crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER.to_string();
     }
     s.openrouter_api_key.trim().to_string()
@@ -62,6 +71,9 @@ pub fn effective_api_key(s: &Settings) -> String {
 
 /// Whether chat/list_models can proceed for the configured provider.
 pub fn has_effective_credentials(s: &Settings) -> bool {
+    if is_opencode_gateway(s) {
+        return crate::commands::subscription::find_opencode_go_credential().is_some();
+    }
     if is_cursor_gateway(s) {
         let cur = crate::commands::subscription::cursor_omp_status();
         return cur.present && !cur.expired;
@@ -69,18 +81,19 @@ pub fn has_effective_credentials(s: &Settings) -> bool {
     !s.openrouter_api_key.trim().is_empty()
 }
 
-/// Model id for outbound calls (Cursor gateway needs `cursor/<id>`).
+/// Model id for outbound calls. Fully-qualified gateway selectors keep their
+/// provider prefix; legacy bare Cursor ids receive `cursor/`.
 pub fn effective_model(s: &Settings) -> String {
-    if is_cursor_gateway(s) {
+    if is_omp_gateway(s) && !s.model.trim().contains('/') {
         crate::commands::omp_gateway::qualify_cursor_model(&s.model)
     } else {
         s.model.clone()
     }
 }
 
-/// Ensure local OMP gateway is up when Cursor is selected.
+/// Ensure the local OMP gateway is up for subscription-backed models.
 pub fn ensure_provider_ready(s: &Settings) -> Result<(), String> {
-    if is_cursor_gateway(s) {
+    if is_omp_gateway(s) {
         crate::commands::omp_gateway::ensure_cursor_gateway()?;
     }
     Ok(())
@@ -415,6 +428,12 @@ pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> 
                 }
                 let (_, ids) = crate::commands::subscription::probe_cursor_models_via_omp()
                     .map_err(AppError::Engine)?;
+                let resolved = crate::commands::omp_gateway::resolve_cursor_model(&s.model, &ids);
+                if resolved != s.model {
+                    s.model = resolved;
+                    s.model_capability = None;
+                    write_settings(&app, &s)?;
+                }
                 let models = ids
                     .iter()
                     .map(|id| {
@@ -428,7 +447,10 @@ pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> 
             match provider {
                 "openrouter" => s.base_url = "https://openrouter.ai/api/v1".into(),
                 "opencode-go" => {
-                    s.base_url = crate::commands::subscription::OPENCODE_GO_BASE_URL.into()
+                    s.base_url = crate::commands::omp_gateway::GATEWAY_BASE_URL.into();
+                    if !s.model.starts_with("opencode-go/") {
+                        s.model = crate::commands::subscription::OPENCODE_GO_MODEL.into();
+                    }
                 }
                 _ => {}
             }
@@ -437,13 +459,14 @@ pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> 
             return Err(AppError::Engine(e));
         }
         if !has_effective_credentials(&s) {
-            return Err(AppError::Config(
-                if is_cursor_gateway(&s) {
-                    "Cursor OAuth missing/expired in ~/.omp/agent/agent.db. Run omp /login cursor, then Use Cursor.".into()
-                } else {
-                    "No API key set. Add one in Settings first.".into()
-                }
-            ));
+            return Err(AppError::Config(if is_opencode_gateway(&s) {
+                "OpenCode Go credentials missing in OMP agent.db — connect OpenCode Go in Settings."
+                    .into()
+            } else if is_cursor_gateway(&s) {
+                "Cursor OAuth missing/expired in OMP agent.db — connect Cursor in Settings.".into()
+            } else {
+                "No API key set. Add one in Settings first.".into()
+            }));
         }
         let key = effective_api_key(&s);
         // OpenRouter's catalog carries capability badges; other OpenAI-compatible
@@ -492,6 +515,10 @@ pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> 
             .map(|arr| {
                 arr.iter()
                     .filter_map(|m| m.get("id").and_then(|i| i.as_str()))
+                    .filter(|id| {
+                        provider_id.as_deref() != Some("opencode-go")
+                            || id.starts_with("opencode-go/")
+                    })
                     .map(|id| serde_json::json!({ "id": id, "name": id }))
                     .collect::<Vec<_>>()
             })
@@ -525,13 +552,11 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
             return Err(AppError::Engine(e));
         }
         if !has_effective_credentials(&s) {
-            return Err(AppError::Config(
-                if is_cursor_gateway(&s) {
-                    "Cursor OAuth missing/expired in ~/.omp/agent/agent.db.".into()
-                } else {
-                    "No OpenRouter API key set. Add one in Settings first.".into()
-                }
-            ));
+            return Err(AppError::Config(if is_cursor_gateway(&s) {
+                "Cursor OAuth missing/expired in ~/.omp/agent/agent.db.".into()
+            } else {
+                "No OpenRouter API key set. Add one in Settings first.".into()
+            }));
         }
         let key = effective_api_key(&s);
         let mut wanted = model_id
@@ -897,9 +922,7 @@ pub(crate) fn cached_openrouter_catalog(
             return Ok(models);
         }
     }
-    let fresh = Arc::new(
-        fm_extract::list_openrouter_models(api_key).map_err(|e| e.to_string())?,
-    );
+    let fresh = Arc::new(fm_extract::list_openrouter_models(api_key).map_err(|e| e.to_string())?);
     if let Ok(mut g) = cell.lock() {
         *g = Some((Instant::now(), Arc::clone(&fresh)));
     }
@@ -940,7 +963,9 @@ pub async fn refine_prompt(
 ) -> AppResult<String> {
     let draft = draft.trim().to_string();
     if draft.is_empty() {
-        return Err(AppError::Config("Type a question first, then I can tidy it up.".into()));
+        return Err(AppError::Config(
+            "Type a question first, then I can tidy it up.".into(),
+        ));
     }
     // Bounded input: a pasted document isn't a prompt to rewrite.
     let draft: String = draft.chars().take(8_000).collect();
@@ -949,7 +974,9 @@ pub async fn refine_prompt(
         let s = read_settings(&app);
         let key = effective_api_key(&s);
         if key.is_empty() {
-            return Err(AppError::Config("Add your API key in Settings first.".into()));
+            return Err(AppError::Config(
+                "Add your API key in Settings first.".into(),
+            ));
         }
         let url = format!("{}/chat/completions", provider_base(&s));
         let (system, cap) = if power {
@@ -961,7 +988,9 @@ pub async fn refine_prompt(
             .map_err(|e| AppError::Engine(format!("couldn't polish the prompt: {e}")))?;
         let text = out.trim();
         if text.is_empty() {
-            return Err(AppError::Engine("the model returned an empty rewrite".into()));
+            return Err(AppError::Engine(
+                "the model returned an empty rewrite".into(),
+            ));
         }
         Ok(serde_json::json!({ "text": text }).to_string())
     })
@@ -1019,6 +1048,20 @@ mod tests {
     }
 
     #[test]
+    fn omp_gateway_preserves_qualified_opencode_model() {
+        let s = Settings {
+            model: "opencode-go/grok-4.5".into(),
+            base_url: crate::commands::omp_gateway::GATEWAY_BASE_URL.into(),
+            ..Default::default()
+        };
+        assert_eq!(effective_model(&s), "opencode-go/grok-4.5");
+        assert_eq!(
+            effective_api_key(&s),
+            crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER
+        );
+    }
+
+    #[test]
     fn settings_view_exposes_model_profiles_never_key() {
         let mut s = Settings {
             model: "gpt-4".into(),
@@ -1036,7 +1079,10 @@ mod tests {
         assert!(v.get("openrouter_api_key").is_none());
         // Provider base must round-trip to the UI (OpenCode Go / custom).
         assert!(v.get("base_url").and_then(|b| b.as_str()).is_some());
-        assert!(v.get("subscription_providers_enabled").and_then(|b| b.as_bool()).is_some());
+        assert!(v
+            .get("subscription_providers_enabled")
+            .and_then(|b| b.as_bool())
+            .is_some());
         // The role profiles round-trip out to the UI.
         let worker_model = v
             .get("model_profiles")

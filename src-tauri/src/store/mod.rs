@@ -1177,10 +1177,7 @@ impl Db {
     }
 
     /// One schedule by id (the tick reads the claimed row's scope).
-    pub fn get_schedule(
-        &self,
-        id: &str,
-    ) -> StoreResult<Option<crate::store::models::ScheduleRow>> {
+    pub fn get_schedule(&self, id: &str) -> StoreResult<Option<crate::store::models::ScheduleRow>> {
         self.conn
             .query_row(
                 "SELECT id, conversation_id, recurrence, next_due, scope_json, status, last_outcome

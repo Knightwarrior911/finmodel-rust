@@ -19,8 +19,13 @@ use serde_json::Value;
 
 /// Memo kinds an analyst actually writes. Kept to three until each earns
 /// its structure.
-pub const KINDS: &[&str] =
-    &["earnings_note", "earnings_release", "company_profile", "deal_summary", "comps_note"];
+pub const KINDS: &[&str] = &[
+    "earnings_note",
+    "earnings_release",
+    "company_profile",
+    "deal_summary",
+    "comps_note",
+];
 
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
@@ -141,7 +146,11 @@ fn fmt_thousands(v: i64) -> String {
         }
         out.push(c);
     }
-    if neg { format!("-{out}") } else { out }
+    if neg {
+        format!("-{out}")
+    } else {
+        out
+    }
 }
 
 /// Parse the leading number out of a display cell like "97,690M" or
@@ -205,9 +214,8 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                             .iter()
                             .take(2)
                             .filter_map(|v| {
-                                v.as_f64().or_else(|| {
-                                    parse_display_num(v.as_str().unwrap_or(""))
-                                })
+                                v.as_f64()
+                                    .or_else(|| parse_display_num(v.as_str().unwrap_or("")))
                             })
                             .collect();
                         if nums.len() == 2 && nums[1].abs() > f64::EPSILON && periods.len() >= 2 {
@@ -275,7 +283,8 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                     ev.facts.push(line);
                 }
                 if let Some(u) = card["source"].as_str() {
-                    ev.sources.push(("SEC EDGAR company facts".into(), u.into()));
+                    ev.sources
+                        .push(("SEC EDGAR company facts".into(), u.into()));
                 }
             }
             "quote" => {
@@ -443,10 +452,7 @@ pub fn collect_evidence(cards: &[Value]) -> Evidence {
                     .map(|a| {
                         a.iter()
                             .filter_map(|r| {
-                                Some((
-                                    r["ticker"].as_str()?.to_string(),
-                                    r["revenue_m"].as_f64()?,
-                                ))
+                                Some((r["ticker"].as_str()?.to_string(), r["revenue_m"].as_f64()?))
                             })
                             .collect()
                     })
@@ -491,8 +497,10 @@ pub fn draft_sections(
         .enumerate()
         .map(|(i, (t, _))| format!("[S{}] {}", i + 1, t))
         .collect::<Vec<_>>()
-        .join("
-");
+        .join(
+            "
+",
+        );
     let system = "You are drafting one section of an investment-banking memo. Use ONLY the facts provided. Cite research statements as [S<n>] from the source list. No hedging filler; no adjectives like impressive or remarkable; plain declarative sentences an MD would sign.";
     let mut sections: Vec<(String, String, bool)> = Vec::new();
     let mut fallbacks = 0usize;
@@ -510,10 +518,14 @@ RESEARCH NOTES:
 
 SOURCES:
 {source_list}",
-            ev.facts.join("
-"),
-            ev.notes.join("
-"),
+            ev.facts.join(
+                "
+"
+            ),
+            ev.notes.join(
+                "
+"
+            ),
         );
         let mut text: Option<String> = None;
         if !api_key.is_empty() {
@@ -529,7 +541,12 @@ SOURCES:
 Your previous draft was REJECTED: {reason}. Fix exactly that and rewrite."
                         );
                         if let Ok(second) = crate::commands::settings::complete_once(
-                            api_key, model, chat_url, system, &retry_user, 300,
+                            api_key,
+                            model,
+                            chat_url,
+                            system,
+                            &retry_user,
+                            300,
                         ) {
                             if validate_slot(&second, ev, max_s).is_ok() {
                                 text = Some(second.trim().to_string());
@@ -642,7 +659,9 @@ pub fn validate_slot(text: &str, ev: &Evidence, max_sentences: usize) -> Result<
     }
     let sentences = sentences.max(1);
     if sentences > max_sentences + 1 {
-        return Err(format!("too many sentences ({sentences} > {max_sentences})"));
+        return Err(format!(
+            "too many sentences ({sentences} > {max_sentences})"
+        ));
     }
     let lower = t.to_lowercase();
     for s in SLOP {
@@ -687,8 +706,14 @@ pub fn fallback_text(heading: &str, ev: &Evidence) -> String {
         // Word-token match (not substring) so "unexpected" never reads as
         // "expect"; surface a real guidance note, else state none was given.
         let is_guidance = |n: &str| {
-            const G: [&str; 6] =
-                ["guidance", "outlook", "forecast", "expects", "expected", "expecting"];
+            const G: [&str; 6] = [
+                "guidance",
+                "outlook",
+                "forecast",
+                "expects",
+                "expected",
+                "expecting",
+            ];
             n.to_lowercase()
                 .split(|c: char| !c.is_alphanumeric())
                 .any(|t| G.contains(&t))
@@ -741,7 +766,9 @@ pub fn render_markdown(
     if kind == "earnings_release" {
         md.push_str("**DRAFT — NOT FOR DISTRIBUTION.** Generated from cited evidence for internal review; figures and any quotations must be verified against the company's official release before any use.\n\n");
     }
-    md.push_str(&format!("*Prepared {date} · finmodel · sources cited below*\n\n"));
+    md.push_str(&format!(
+        "*Prepared {date} · finmodel · sources cited below*\n\n"
+    ));
     for (heading, text, fell_back) in sections {
         md.push_str(&format!("## {heading}\n\n{text}\n"));
         if *fell_back {
@@ -754,7 +781,11 @@ pub fn render_markdown(
         md.push_str("| Item | Value |\n|---|---|\n");
         for f in ev.facts.iter().take(20) {
             let (k, v) = f.split_once([':', '—']).unwrap_or((f.as_str(), ""));
-            md.push_str(&format!("| {} | {} |\n", k.trim(), v.trim().replace('|', "/")));
+            md.push_str(&format!(
+                "| {} | {} |\n",
+                k.trim(),
+                v.trim().replace('|', "/")
+            ));
         }
         md.push('\n');
     }
@@ -795,7 +826,7 @@ mod tests {
                         {"id": "S1", "final_url": "https://ir.tesla.com/press/q1", "title": "Q1 Update"}
                     ]
                 }
-            })
+            }),
         ])
     }
 
@@ -815,7 +846,9 @@ mod tests {
     fn validation_rejects_invented_numbers_and_accepts_evidence_numbers() {
         let ev = pack();
         // Evidence numbers, formatted differently, pass.
-        assert!(validate_slot("Revenue reached $97,690M with net income of 7091M.", &ev, 2).is_ok());
+        assert!(
+            validate_slot("Revenue reached $97,690M with net income of 7091M.", &ev, 2).is_ok()
+        );
         // An invented figure rejects with the offending token named.
         let err = validate_slot("Revenue reached $99,999M.", &ev, 2).unwrap_err();
         assert!(err.contains("99,999"), "{err}");
@@ -884,27 +917,32 @@ mod tests {
     fn real_app_cards_distill() {
         let raw = include_str!("../../tests/fixtures/real_cards.json");
         let fixtures: serde_json::Value = serde_json::from_str(raw).unwrap();
-        let cards: Vec<Value> = fixtures
-            .as_object()
-            .unwrap()
-            .values()
-            .cloned()
-            .collect();
+        let cards: Vec<Value> = fixtures.as_object().unwrap().values().cloned().collect();
         let ev = collect_evidence(&cards);
         assert!(!ev.is_empty(), "real cards produced no evidence");
-        assert!(!ev.facts.is_empty(), "no facts from real financials/quote cards");
+        assert!(
+            !ev.facts.is_empty(),
+            "no facts from real financials/quote cards"
+        );
         assert!(!ev.numbers.is_empty(), "no numbers absorbed");
         assert!(!ev.sources.is_empty(), "no sources from real research card");
-        assert!(!ev.company.is_empty(), "company not inferred from real card");
+        assert!(
+            !ev.company.is_empty(),
+            "company not inferred from real card"
+        );
         // Engine-computed margins appear when revenue + profit lines exist.
         assert!(
-            ev.facts.iter().any(|f| f.starts_with("Gross margin (engine-computed):")),
+            ev.facts
+                .iter()
+                .any(|f| f.starts_with("Gross margin (engine-computed):")),
             "no engine-computed gross margin; facts: {:?}",
             ev.facts.iter().take(8).collect::<Vec<_>>()
         );
         // The real model card (TSLA DCF) distills into valuation facts.
         assert!(
-            ev.facts.iter().any(|f| f.starts_with("DCF value per share")),
+            ev.facts
+                .iter()
+                .any(|f| f.starts_with("DCF value per share")),
             "model card valuation not distilled"
         );
         assert!(ev.numbers.contains("32.36"), "DCF per-share number missing");
@@ -920,7 +958,8 @@ mod tests {
             "type": "financials", "entity": "Tesla, Inc.", "ticker": "TSLA",
             "rows": [ { "label": "Revenue", "display": "97,690M" } ]
         });
-        let stray = json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" });
+        let stray =
+            json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" });
         let own = json!({ "type": "quote", "ticker": "tsla", "price": 382.13, "currency": "USD" });
         let ev = collect_evidence(&[fin, stray, own]);
         assert_eq!(ev.ticker, "TSLA");
@@ -929,9 +968,14 @@ mod tests {
             "stray AAPL quote leaked: {:?}",
             ev.facts
         );
-        assert!(ev.facts.iter().any(|f| f.contains("382.13")), "case-insensitive own quote kept");
+        assert!(
+            ev.facts.iter().any(|f| f.contains("382.13")),
+            "case-insensitive own quote kept"
+        );
         // Without a known subject ticker, quotes pass through (no basis to filter).
-        let ev2 = collect_evidence(&[json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" })]);
+        let ev2 = collect_evidence(&[
+            json!({ "type": "quote", "ticker": "AAPL", "price": 333.74, "currency": "USD" }),
+        ]);
         assert!(ev2.facts.iter().any(|f| f.contains("AAPL")));
     }
 
@@ -1071,7 +1115,8 @@ mod tests {
                 { "ticker": "AMD", "fiscal_year": "2024", "revenue_m": 25785.0, "ebitda_margin": 0.21, "net_debt_to_ebitda": 0.1 }
             ]
         });
-        let quote = json!({ "type": "quote", "ticker": "NVDA", "price": 788.17, "currency": "USD" });
+        let quote =
+            json!({ "type": "quote", "ticker": "NVDA", "price": 788.17, "currency": "USD" });
         let ev = collect_evidence(&[bench, quote]);
         let (sections, fallbacks) = draft_sections(
             &key,
@@ -1081,12 +1126,18 @@ mod tests {
             &ev,
         );
         for (h, t, fb) in &sections {
-            println!("== {h} {}
+            println!(
+                "== {h} {}
 {t}
-", if *fb { "[FALLBACK]" } else { "[model]" });
+",
+                if *fb { "[FALLBACK]" } else { "[model]" }
+            );
         }
         println!("fallbacks: {fallbacks}/{}", sections.len());
-        assert!(fallbacks < sections.len(), "mini never validated a comps section");
+        assert!(
+            fallbacks < sections.len(),
+            "mini never validated a comps section"
+        );
     }
 
     /// LIVE: company_profile through the production loop with gpt-4.1-mini
@@ -1110,12 +1161,18 @@ mod tests {
             &ev,
         );
         for (h, t, fb) in &sections {
-            println!("== {h} {}
+            println!(
+                "== {h} {}
 {t}
-", if *fb { "[FALLBACK]" } else { "[model]" });
+",
+                if *fb { "[FALLBACK]" } else { "[model]" }
+            );
         }
         println!("fallbacks: {fallbacks}/{}", sections.len());
-        assert!(fallbacks < sections.len(), "mini never validated a profile section");
+        assert!(
+            fallbacks < sections.len(),
+            "mini never validated a profile section"
+        );
     }
 
     /// LIVE: deal_summary through the production loop with gpt-4.1-mini over
@@ -1163,12 +1220,18 @@ mod tests {
             &ev,
         );
         for (h, t, fb) in &sections {
-            println!("== {h} {}
+            println!(
+                "== {h} {}
 {t}
-", if *fb { "[FALLBACK]" } else { "[model]" });
+",
+                if *fb { "[FALLBACK]" } else { "[model]" }
+            );
         }
         println!("fallbacks: {fallbacks}/{}", sections.len());
-        assert!(fallbacks < sections.len(), "mini never validated a deal section");
+        assert!(
+            fallbacks < sections.len(),
+            "mini never validated a deal section"
+        );
     }
 
     /// LIVE (network + configured key): the FULL production drafting loop —
@@ -1195,12 +1258,21 @@ mod tests {
         );
         assert_eq!(sections.len(), section_specs("earnings_note").len());
         for (h, t, fb) in &sections {
-            println!("== {h} {}
+            println!(
+                "== {h} {}
 {t}
-", if *fb { "[FALLBACK]" } else { "[model]" });
+",
+                if *fb { "[FALLBACK]" } else { "[model]" }
+            );
             assert!(!t.trim().is_empty(), "empty section {h}");
         }
-        let md = render_markdown("earnings_note", &ev.company.clone(), "2026-07-19", &sections, &ev);
+        let md = render_markdown(
+            "earnings_note",
+            &ev.company.clone(),
+            "2026-07-19",
+            &sections,
+            &ev,
+        );
         assert!(md.contains("## Sources"));
         println!("fallbacks: {fallbacks}/{}", sections.len());
         println!("==== FULL MEMO ====");
@@ -1280,7 +1352,10 @@ mod tests {
             .map(|(h, _, _)| (h.to_string(), "x".to_string(), false))
             .collect();
         let md = render_markdown("earnings_release", "TestCo", "2026-07-21", &sections, &ev);
-        assert!(md.contains("DRAFT — NOT FOR DISTRIBUTION"), "banner missing:\n{md}");
+        assert!(
+            md.contains("DRAFT — NOT FOR DISTRIBUTION"),
+            "banner missing:\n{md}"
+        );
         let note = render_markdown("earnings_note", "TestCo", "2026-07-21", &sections, &ev);
         assert!(!note.contains("NOT FOR DISTRIBUTION"));
     }
@@ -1300,8 +1375,11 @@ mod tests {
             "The company provided no guidance in the sources reviewed."
         );
         // A real guidance note is surfaced.
-        ev.notes.push("Management raised full-year guidance to 12% growth".into());
-        assert!(fallback_text("Outlook", &ev).to_lowercase().contains("guidance"));
+        ev.notes
+            .push("Management raised full-year guidance to 12% growth".into());
+        assert!(fallback_text("Outlook", &ev)
+            .to_lowercase()
+            .contains("guidance"));
         // Financial highlights is a figure section → draws from facts.
         assert!(fallback_text("Financial highlights", &ev).contains("96,000"));
     }

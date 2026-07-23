@@ -155,7 +155,11 @@ impl ArtifactRegistry {
         let is_pdf = label.to_ascii_lowercase().ends_with(".pdf");
         let id = self.register(
             path,
-            if is_pdf { ArtifactKind::UserPdf } else { ArtifactKind::UserFile },
+            if is_pdf {
+                ArtifactKind::UserPdf
+            } else {
+                ArtifactKind::UserFile
+            },
             label.clone(),
             Some(conversation_id.to_string()),
         )?;
@@ -425,13 +429,17 @@ mod tests {
         // (contains_path). A generated memo/deck AND its containing folder
         // must both register, so "Open" and "Show in folder" resolve.
         let reg = ArtifactRegistry::default();
-        let file = std::path::PathBuf::from("C:/out/memos/TestCo_earnings_note_2026-07-21_121733.md");
+        let file =
+            std::path::PathBuf::from("C:/out/memos/TestCo_earnings_note_2026-07-21_121733.md");
         let folder = std::path::PathBuf::from("C:/out/memos");
         assert!(!reg.contains_path(&file));
         reg.ensure_generated(file.clone(), "memo");
         reg.ensure_generated(folder.clone(), "folder");
         assert!(reg.contains_path(&file), "Open memo would be rejected");
-        assert!(reg.contains_path(&folder), "Show in folder would be rejected");
+        assert!(
+            reg.contains_path(&folder),
+            "Show in folder would be rejected"
+        );
     }
 
     #[test]

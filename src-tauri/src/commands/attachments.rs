@@ -98,7 +98,13 @@ fn safe_stem(name: &str) -> String {
         .unwrap_or("attachment");
     let cleaned: String = base
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     cleaned.chars().take(80).collect()
 }
@@ -148,7 +154,11 @@ pub fn stage_attachment(
         .map_err(|e| AppError::Config(format!("no config dir: {e}")))?
         .join("attachments");
     std::fs::create_dir_all(&dir).map_err(|e| AppError::Config(format!("attachments dir: {e}")))?;
-    let file = dir.join(format!("{}_{}", &crate::commands::chat::iso_now()[..10], safe_stem(&name)));
+    let file = dir.join(format!(
+        "{}_{}",
+        &crate::commands::chat::iso_now()[..10],
+        safe_stem(&name)
+    ));
     // Avoid collisions: suffix a counter when the day+name already exists.
     let file = unique_path(file);
     std::fs::write(&file, &bytes).map_err(|e| AppError::Config(format!("save attachment: {e}")))?;
@@ -174,8 +184,16 @@ fn unique_path(p: PathBuf) -> PathBuf {
     if !p.exists() {
         return p;
     }
-    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("a").to_string();
-    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_string();
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("a")
+        .to_string();
+    let ext = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
     for i in 1..1000 {
         let cand = p.with_file_name(if ext.is_empty() {
             format!("{stem}({i})")
@@ -233,7 +251,11 @@ fn extract_pptx(path: &Path) -> Result<String, String> {
                 }
             }
             if !slide_text.is_empty() {
-                out.push_str(&format!("--- Slide {} ---\n{}\n", i + 1, slide_text.join("\n")));
+                out.push_str(&format!(
+                    "--- Slide {} ---\n{}\n",
+                    i + 1,
+                    slide_text.join("\n")
+                ));
             }
         }
     }
@@ -316,7 +338,9 @@ pub(crate) fn docx_xml_to_text(xml: &str) -> String {
                     continue;
                 }
                 let body = &after[gt + 1..];
-                let Some(end) = body.find("</w:t>") else { break };
+                let Some(end) = body.find("</w:t>") else {
+                    break;
+                };
                 out.push_str(&unescape_xml(&body[..end]));
                 rest = &body[end + 6..];
             }
@@ -394,9 +418,13 @@ pub fn build_attachment_context(
                         let mime = image_mime(&path.to_string_lossy());
                         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                         images.push(format!("data:{mime};base64,{b64}"));
-                        blocks.push(format!("[Attached image \u{201c}{label}\u{201d} — shown above.]"));
+                        blocks.push(format!(
+                            "[Attached image \u{201c}{label}\u{201d} — shown above.]"
+                        ));
                     }
-                    Err(e) => blocks.push(format!("[Image \u{201c}{label}\u{201d} unreadable: {e}]")),
+                    Err(e) => {
+                        blocks.push(format!("[Image \u{201c}{label}\u{201d} unreadable: {e}]"))
+                    }
                 }
             }
             AttachmentClass::Pdf => {
@@ -493,7 +521,12 @@ mod tests {
         let pdf = dir.join("deck.pdf");
         std::fs::write(&pdf, b"%PDF-1.4 fake").unwrap();
         let t_id = reg
-            .register(txt, ArtifactKind::UserFile, "notes.txt", Some("stg-1".into()))
+            .register(
+                txt,
+                ArtifactKind::UserFile,
+                "notes.txt",
+                Some("stg-1".into()),
+            )
             .unwrap();
         let p_id = reg
             .register(pdf, ArtifactKind::UserPdf, "deck.pdf", Some("stg-1".into()))

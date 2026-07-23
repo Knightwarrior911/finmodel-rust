@@ -97,20 +97,67 @@ test("Cursor subscription button wires the local gateway", async () => {
 });
 
 
-test("provider picker keeps Cursor, OpenRouter, and OpenCode Go catalogs separate", async () => {
+test("OpenCode auth handoff preserves settings until credentials exist", async () => {
   const ctx = setupDom();
-  let saved = null;
   ctx.invokeHandlers.load_settings = async () => ({
-    has_key: true,
-    model: "openrouter/existing",
+    has_key: false,
+    model: "openrouter/auto",
     base_url: "https://openrouter.ai/api/v1",
     auto_route_vision: true,
   });
   ctx.invokeHandlers.subscription_providers_status = async () => ({
     enabled: true,
     providers: [
+      {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        base: "http://127.0.0.1:4000/v1",
+        chat_ready: false,
+      },
+    ],
+    cursor: { chat_ready: false, available: false, reason: "" },
+    opencode: { chat_ready: false, reason: "needs authentication" },
+  });
+  ctx.invokeHandlers.connect_opencode_go = async () => ({
+    base_url: "http://127.0.0.1:4000/v1",
+    needs_auth: true,
+    guidance: "Authenticate through OpenCode or OMP, then reconnect.",
+  });
+  ctx.invokeHandlers.list_models = async () => [];
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  const provider = document.getElementById("providerSelect");
+  assert.equal(provider.value, "openrouter");
+  document.getElementById("connectOpencodeGo").click();
+  await tick();
+  await tick();
+
+  assert.equal(provider.value, "openrouter");
+});
+
+
+test("provider picker keeps Cursor, OpenRouter, and OpenCode Go catalogs separate", async () => {
+  const ctx = setupDom();
+  let saved = null;
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: true,
+    model: "opencode-go/model-b",
+    base_url: "http://127.0.0.1:4000/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
       { id: "openrouter", name: "OpenRouter", base: "https://openrouter.ai/api/v1", chat_ready: true },
-      { id: "opencode-go", name: "OpenCode Go", base: "https://opencode.ai/zen/go/v1", chat_ready: true },
+      { id: "opencode-go", name: "OpenCode Go", base: "http://127.0.0.1:4000/v1", chat_ready: true },
       { id: "cursor", name: "Cursor (via OMP gateway)", base: "http://127.0.0.1:4000/v1", chat_ready: true },
     ],
     cursor: { chat_ready: true, available: true, reason: "" },
@@ -122,9 +169,10 @@ test("provider picker keeps Cursor, OpenRouter, and OpenCode Go catalogs separat
     return [];
   };
   ctx.invokeHandlers.connect_opencode_go = async () => ({
-    base_url: "https://opencode.ai/zen/go/v1",
+    base_url: "http://127.0.0.1:4000/v1",
     model: "opencode-go/model-b",
     needs_auth: false,
+    credential_owner: "omp",
   });
   ctx.invokeHandlers.connect_cursor_omp = async () => ({
     base_url: "http://127.0.0.1:4000/v1",
@@ -158,6 +206,7 @@ test("provider picker keeps Cursor, OpenRouter, and OpenCode Go catalogs separat
 
   const provider = document.getElementById("providerSelect");
   const models = document.getElementById("modelSelect");
+  assert.equal(provider.value, "opencode-go", "model prefix disambiguates shared gateway");
   provider.value = "cursor";
   provider.dispatchEvent(new window.Event("change", { bubbles: true }));
   await tick();
