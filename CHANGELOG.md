@@ -4,6 +4,7 @@
 
 - **Separate live model catalogs.** Selecting Cursor, OpenRouter, or OpenCode Go now refreshes only that provider’s models, so model choices cannot leak across subscriptions.
 - **Complete Cursor catalog.** Cursor exposes every model returned by `omp models cursor`, including Grok, instead of a truncated sample. Selected models persist through Save.
+- **Codex-backed tie-out option.** Claude remains the default; ChatGPT Pro users can run the committed 339/350 baseline guard with `FINMODEL_TIEOUT_TRANSPORT=codex` using read-only, ephemeral Codex execution.
 
 ## v0.9.39 - 2026-07-22 - Personal subscription providers and OMP-backed Cursor chat
 

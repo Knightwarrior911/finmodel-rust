@@ -13,12 +13,19 @@ def _llm_complete(system_text: str, user_text: str, max_tokens: int) -> str:
     """Call the configured LLM provider and return the raw text response.
 
     Provider selection (checked in order):
-      1. DEEPSEEK_API_KEY set   → DeepSeek (openai-compatible, ~10x cheaper)
-      2. ANTHROPIC_API_KEY set  → Anthropic SDK
-      3. Neither set            → Claude Code CLI (uses active Claude Code session)
+      1. FINMODEL_TIEOUT_TRANSPORT=codex → read-only, ephemeral Codex CLI
+      2. DEEPSEEK_API_KEY set   → DeepSeek (openai-compatible, ~10x cheaper)
+      3. ANTHROPIC_API_KEY set  → Anthropic SDK
+      4. Neither set            → Claude Code CLI (active Claude session)
 
-    Override model with FINMODEL_LLM_MODEL env var.
+    Override model with FINMODEL_LLM_MODEL or FINMODEL_TIEOUT_MODEL.
     """
+    transport = os.environ.get("FINMODEL_TIEOUT_TRANSPORT", "claude").strip().lower()
+    if transport == "codex":
+        return _llm_complete_via_codex(system_text, user_text)
+    if transport != "claude":
+        raise ValueError("FINMODEL_TIEOUT_TRANSPORT must be claude or codex")
+
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
@@ -127,6 +134,63 @@ def _llm_complete_via_cli(system_text: str, user_text: str) -> str:
         out = "\n".join(inner).strip()
     return out
 
+
+def _llm_complete_via_codex(system_text: str, user_text: str) -> str:
+    """Run one read-only, ephemeral Codex CLI request for the tie-out gate."""
+    import tempfile as _tmp
+    import sys as _sys
+
+    with _tmp.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as answer:
+        answer_file = answer.name
+    prompt = system_text + (chr(10) * 2) + "Process the following piped input per those instructions and return only the requested JSON." + (chr(10) * 2) + user_text
+    try:
+        model = (
+            os.environ.get("FINMODEL_TIEOUT_MODEL")
+            or os.environ.get("FINMODEL_LLM_MODEL")
+            or "gpt-5.5"
+        )
+        args = [
+            "exec", "--ephemeral", "--sandbox", "read-only",
+            "--skip-git-repo-check", "--model", model,
+            "--output-last-message", answer_file, "-",
+        ]
+        if _sys.platform == "win32":
+            proc = subprocess.Popen(
+                ["cmd", "/c", "codex"] + args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _stdout, stderr_bytes = proc.communicate(
+                input=prompt.encode("utf-8"), timeout=300
+            )
+            err = stderr_bytes.decode("utf-8", errors="replace")
+            rc = proc.returncode
+        else:
+            result = subprocess.run(
+                ["codex"] + args,
+                input=prompt, capture_output=True, text=True, timeout=300,
+                encoding="utf-8", errors="replace",
+            )
+            err, rc = result.stderr, result.returncode
+        if rc != 0:
+            raise RuntimeError(f"codex CLI error (rc={rc}): {err[:400]}")
+        with open(answer_file, encoding="utf-8") as output:
+            out = output.read().strip()
+    finally:
+        try:
+            os.unlink(answer_file)
+        except FileNotFoundError:
+            pass
+
+    fence = chr(96) * 3
+    if out.startswith(fence):
+        lines = out.splitlines()
+        inner = lines[1:]
+        if inner and inner[-1].strip() == fence:
+            inner = inner[:-1]
+        out = chr(10).join(inner).strip()
+    return out
 NOTES_SYSTEM_PROMPT = """You are a senior financial analyst extracting data from company filing text.
 Extract ALL financial data found: D&A schedules, debt maturities, tax rates, working capital details,
 CapEx breakdown, SBC expense, lease obligations, segment data, and any other quantitative footnote data.

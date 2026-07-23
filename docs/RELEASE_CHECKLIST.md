@@ -5,14 +5,19 @@
 
 ---
 
-## 1. Full live tie-out run (API keys required)
+## 1. Full live tie-out run (validated Claude or Codex transport)
 
 The tie-out harness verifies every historical cell of the extraction pipeline against
-the source filing PDFs. This requires a working `claude` CLI or Anthropic API key.
+the source filing PDFs. Claude remains the default transport. ChatGPT Pro users can
+select the authenticated Codex CLI explicitly; it uses read-only, ephemeral execution
+and must satisfy the same no-new-mismatches baseline guard.
 
 ```bash
-# From the repo root:
+# Claude/Anthropic (default):
 python -m tieout.run_tieout
+
+# ChatGPT Pro/Codex:
+FINMODEL_TIEOUT_TRANSPORT=codex python -m tieout.run_tieout
 ```
 
 **Acceptance:** matches the committed baseline — 339/350 (96.86%) across the 7-company basket, with no *new* mismatches vs `_baseline_wave0.json` (the pytest guard enforces this). The 11 known mismatches are documented extraction-convention targets, not regressions.
