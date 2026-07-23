@@ -95,3 +95,97 @@ test("Cursor subscription button wires the local gateway", async () => {
     /Cursor chat ready via http:\/\/127\.0\.0\.1:4000\/v1/,
   );
 });
+
+
+test("provider picker keeps Cursor, OpenRouter, and OpenCode Go catalogs separate", async () => {
+  const ctx = setupDom();
+  let saved = null;
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: true,
+    model: "openrouter/existing",
+    base_url: "https://openrouter.ai/api/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
+      { id: "openrouter", name: "OpenRouter", base: "https://openrouter.ai/api/v1", chat_ready: true },
+      { id: "opencode-go", name: "OpenCode Go", base: "https://opencode.ai/zen/go/v1", chat_ready: true },
+      { id: "cursor", name: "Cursor (via OMP gateway)", base: "http://127.0.0.1:4000/v1", chat_ready: true },
+    ],
+    cursor: { chat_ready: true, available: true, reason: "" },
+    opencode: { chat_ready: true, reason: "" },
+  });
+  ctx.invokeHandlers.list_models = async (args = {}) => {
+    if (args.provider_id === "openrouter") return [{ id: "openrouter/model-a", name: "OpenRouter A" }];
+    if (args.provider_id === "opencode-go") return [{ id: "opencode-go/model-b", name: "OpenCode Go B" }];
+    return [];
+  };
+  ctx.invokeHandlers.connect_opencode_go = async () => ({
+    base_url: "https://opencode.ai/zen/go/v1",
+    model: "opencode-go/model-b",
+    needs_auth: false,
+  });
+  ctx.invokeHandlers.connect_cursor_omp = async () => ({
+    base_url: "http://127.0.0.1:4000/v1",
+    model: "cursor/claude-4.6-sonnet-medium",
+    chat_ready: true,
+  });
+  ctx.invokeHandlers.probe_cursor_models = async () => ({
+    ok: true,
+    count: 2,
+    models: [
+      { id: "cursor/claude-4.6-sonnet-medium", name: "Claude 4.6 Sonnet Medium" },
+      { id: "cursor/cursor-grok-4.5-medium", name: "Grok 4.5 Medium" },
+    ],
+  });
+  ctx.invokeHandlers.use_cursor_omp = async () => ({
+    base_url: "http://127.0.0.1:4000/v1",
+    model: "cursor/claude-4.6-sonnet-medium",
+    chat_ready: true,
+  });
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+  ctx.invokeHandlers.save_settings = async (args) => { saved = args; return "{}"; };
+  ctx.invokeHandlers.test_model = async () => ({ model_id: "selected" });
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  const provider = document.getElementById("providerSelect");
+  const models = document.getElementById("modelSelect");
+  provider.value = "cursor";
+  provider.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  await tick();
+  assert.deepEqual(
+    [...models.options].map((o) => o.value),
+    ["cursor/claude-4.6-sonnet-medium", "cursor/cursor-grok-4.5-medium"],
+  );
+
+  models.value = "cursor/cursor-grok-4.5-medium";
+  provider.value = "openrouter";
+  provider.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  await tick();
+  assert.deepEqual([...models.options].map((o) => o.value), ["openrouter/model-a"]);
+
+  provider.value = "opencode-go";
+  provider.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  await tick();
+  assert.deepEqual([...models.options].map((o) => o.value), ["opencode-go/model-b"]);
+
+  provider.value = "cursor";
+  provider.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await tick();
+  await tick();
+  models.value = "cursor/cursor-grok-4.5-medium";
+  document.getElementById("saveSettings").click();
+  await tick();
+  assert.equal(saved.model, "cursor/cursor-grok-4.5-medium");
+});

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.40 - 2026-07-22 - Provider-specific subscription model catalogs
+
+- **Separate live model catalogs.** Selecting Cursor, OpenRouter, or OpenCode Go now refreshes only that provider’s models, so model choices cannot leak across subscriptions.
+- **Complete Cursor catalog.** Cursor exposes every model returned by `omp models cursor`, including Grok, instead of a truncated sample. Selected models persist through Save.
+
 ## v0.9.39 - 2026-07-22 - Personal subscription providers and OMP-backed Cursor chat
 
 - **In-app Connect for OpenCode Go + Cursor (no pre-launch setup).** Connect OpenCode Go reuses env/auth.json/OMP when present, otherwise opens opencode.ai/auth and focuses the API key field. Connect Cursor reuses `~/.omp/agent/agent.db` OAuth when present, otherwise spawns `omp auth-broker login cursor` (browser PKCE owned by omp) and wires the local auth-gateway for chat. UI guidance only when auth is actually required.

@@ -327,7 +327,7 @@ pub fn probe_cursor_models_via_omp() -> Result<(usize, Vec<String>), String> {
     parse_omp_cursor_models_json(&text)
 }
 
-/// Parse `omp models cursor --json` into (count, sample ids).
+/// Parse `omp models cursor --json` into (count, complete model ids).
 pub fn parse_omp_cursor_models_json(text: &str) -> Result<(usize, Vec<String>), String> {
     let v: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("omp json decode: {e}"))?;
@@ -346,8 +346,7 @@ pub fn parse_omp_cursor_models_json(text: &str) -> Result<(usize, Vec<String>), 
                 .map(|s| s.to_string())
         })
         .collect();
-    let sample = ids.iter().take(12).cloned().collect();
-    Ok((ids.len(), sample))
+    Ok((ids.len(), ids))
 }
 
 /// `{ enabled, providers, cursor }` — never secrets.
@@ -527,10 +526,19 @@ pub fn probe_cursor_models() -> AppResult<String> {
                 .into(),
         ));
     }
-    let (count, sample) = probe_cursor_models_via_omp().map_err(AppError::Engine)?;
+    let (count, ids) = probe_cursor_models_via_omp().map_err(AppError::Engine)?;
+    let sample = ids.iter().take(12).cloned().collect::<Vec<_>>();
+    let models = ids
+        .iter()
+        .map(|id| {
+            let qualified = crate::commands::omp_gateway::qualify_cursor_model(id);
+            json!({ "id": qualified, "name": id })
+        })
+        .collect::<Vec<_>>();
     Ok(json!({
         "ok": true,
         "count": count,
+        "models": models,
         "sample": sample,
         "source": cur.source,
         "chat_ready": true,
@@ -575,13 +583,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_omp_cursor_models_json_counts_sample() {
-        let text =
-            r#"{"models":[{"id":"claude-4-sonnet"},{"id":"gpt-5.2"},{"name":"composer-1"}]}"#;
-        let (n, sample) = parse_omp_cursor_models_json(text).unwrap();
-        assert_eq!(n, 3);
-        assert_eq!(sample[0], "claude-4-sonnet");
-        assert!(sample.contains(&"composer-1".to_string()));
+    fn parse_omp_cursor_models_returns_complete_catalog() {
+        let text = r#"{"models":[
+            {"id":"claude-4-sonnet"},{"id":"gpt-5.2"},{"name":"composer-1"},
+            {"id":"m-4"},{"id":"m-5"},{"id":"m-6"},{"id":"m-7"},
+            {"id":"m-8"},{"id":"m-9"},{"id":"m-10"},{"id":"m-11"},
+            {"id":"m-12"},{"id":"cursor-grok-4.5-medium"}
+        ]}"#;
+        let (n, models) = parse_omp_cursor_models_json(text).unwrap();
+        assert_eq!(n, 13);
+        assert_eq!(models.len(), 13);
+        assert_eq!(models[0], "claude-4-sonnet");
+        assert_eq!(models[12], "cursor-grok-4.5-medium");
     }
 
     #[test]

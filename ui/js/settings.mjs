@@ -67,6 +67,52 @@ function activeProviders() {
 
 let cursorLoginPollTimer = null;
 
+function normalizeModelEntries(raw) {
+  let value = raw;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch (_) { return []; }
+  }
+  const entries = Array.isArray(value) ? value : value?.models;
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((m) => (typeof m === "string" ? { id: m, name: m } : m))
+    .filter((m) => m && m.id)
+    .map((m) => ({ ...m, id: String(m.id) }));
+}
+
+function modelOptionLabel(m) {
+  const name = String(m.name || "").trim();
+  return name && name !== m.id ? name + " — " + m.id : m.id;
+}
+
+async function fetchProviderModels(providerId) {
+  if (providerId === "cursor") {
+    const res = await call("probe_cursor_models");
+    return normalizeModelEntries(res);
+  }
+  const payload = providerId ? { provider_id: providerId } : {};
+  return normalizeModelEntries(await call("list_models", payload));
+}
+
+async function refreshModelOptionsForProvider(providerId, preferredModel = "") {
+  const sel = $("modelSelect");
+  if (!sel) return [];
+  const current = preferredModel || sel.value || "";
+  try {
+    const models = await fetchProviderModels(providerId);
+    if (!models.length) {
+      if (current) sel.innerHTML = "<option value=\"" + escapeHtml(current) + "\">" + escapeHtml(current) + "</option>";
+      return models;
+    }
+    sel.innerHTML = models.map((m) => "<option value=\"" + escapeHtml(m.id) + "\">" + escapeHtml(modelOptionLabel(m)) + "</option>").join("");
+    if (models.some((m) => m.id === current)) sel.value = current;
+    return models;
+  } catch (_) {
+    if (current) sel.innerHTML = "<option value=\"" + escapeHtml(current) + "\">" + escapeHtml(current) + "</option>";
+    return [];
+  }
+}
+
 function stopCursorLoginPoll() {
   if (cursorLoginPollTimer) {
     clearInterval(cursorLoginPollTimer);
@@ -191,20 +237,23 @@ async function populateModelCatalogList() {
   const dl = document.getElementById("modelCatalogList");
   if (!dl) return;
   try {
-    const models = await call("list_models");
+    const providerId = $("providerSelect")?.value || "";
+    const raw = await call("list_models", providerId ? { provider_id: providerId } : {});
+    const models = normalizeModelEntries(raw);
     dl.innerHTML = models
-      .map(
-        (m) =>
-          `<option value="${escapeHtml(m.id)}">${escapeHtml(
-            [m.name, m.vision ? "sees images" : ""].filter(Boolean).join(" · "),
-          )}</option>`,
-      )
+      .map((m) => {
+        const badges = [
+          m.native_tools ? "uses tools" : null,
+          m.vision ? "sees images" : null,
+        ].filter(Boolean).join(" · ");
+        const label = badges ? modelOptionLabel(m) + " · " + badges : modelOptionLabel(m);
+        return "<option value=\"" + escapeHtml(m.id) + "\">" + escapeHtml(label) + "</option>";
+      })
       .join("");
   } catch (_) {
     /* no key yet / offline — fields still accept typing */
   }
 }
-
 function setProviderFromBase(base) {
   const b = (base || "").replace(/\/+$/, "");
   const match = activeProviders().find((p) => p.base && p.base === b);
@@ -284,8 +333,9 @@ export async function openSettings() {
     await refreshSubscriptionProviders();
     populateProviders();
     populateProviderBaseList();
-    if (s.has_key) populateModelCatalogList(); // fire-and-forget pick list
     setProviderFromBase(s.base_url);
+    await refreshModelOptionsForProvider($("providerSelect")?.value || "", s.model);
+    if (s.has_key) populateModelCatalogList(); // fire-and-forget pick list
     $("edgarContact").value = s.edgar_contact || "";
     $("outDir").value = s.out_dir || "";
     $("mcpCommand").value = s.mcp_command || "";
@@ -849,23 +899,23 @@ export function initSettings(opts = {}) {
         populateProviderBaseList();
         if (res.base_url) setProviderFromBase(res.base_url);
         else $("baseUrl").value = p.base;
+        await refreshModelOptionsForProvider("opencode-go", res.model || "");
         if (res.needs_auth) {
           const key = $("apiKey");
           if (key) key.focus();
           setStatus(res.guidance || "Paste OpenCode API key, then Save.", "info");
         } else {
-          $("keyStatus").textContent =
-            "Your key is saved. Leave blank to keep it.";
+          $("keyStatus").textContent = "Your key is saved. Leave blank to keep it.";
           setStatus("OpenCode Go connected.", "info");
           onSaved();
         }
       } catch (err) {
-        setStatus(`OpenCode Go setup failed: ${err.message || err}`, "error");
+        setStatus("OpenCode Go setup failed: " + (err.message || err), "error");
         $("baseUrl").value = p.base;
       }
       return;
     }
-        if (p.id === "cursor") {
+    if (p.id === "cursor") {
       try {
         setStatus("Connecting Cursor via OMP…", "info");
         const res = await call("connect_cursor_omp");
@@ -875,30 +925,28 @@ export function initSettings(opts = {}) {
           populateProviderBaseList();
           setProviderFromBase(res.base_url);
           if (res.model && $("modelSelect")) $("modelSelect").value = res.model;
-          setStatus(
-            `Cursor ready via OMP gateway — model ${res.model || "cursor/claude-4.6-sonnet-medium"}.`,
-            "info",
-          );
+          await refreshModelOptionsForProvider("cursor", res.model || "");
+          setStatus("Cursor ready via OMP gateway — model " + (res.model || "cursor/claude-4.6-sonnet-medium") + ".", "info");
           onSaved();
         } else {
           $("baseUrl").value = p.base;
           setStatus(res.guidance || "Complete Cursor login in the omp window.", "info");
           startCursorLoginPoll(async () => {
             const wired = await applyCursorProvider();
-            setStatus(
-              `Cursor ready via OMP gateway — model ${wired.model || "cursor/claude-4.6-sonnet-medium"}.`,
-              "info",
-            );
+            await refreshModelOptionsForProvider("cursor", wired.model || "");
+            setStatus("Cursor ready via OMP gateway — model " + (wired.model || "cursor/claude-4.6-sonnet-medium") + ".", "info");
             onSaved();
           });
         }
       } catch (err) {
-        setStatus(`Cursor setup failed: ${err.message || err}`, "error");
+        setStatus("Cursor setup failed: " + (err.message || err), "error");
         $("baseUrl").value = p.base;
       }
       return;
     }
+
     $("baseUrl").value = p.base;
+    await refreshModelOptionsForProvider(p.id);
   });
 
   $("saveSettings").addEventListener("click", async () => {
@@ -1046,6 +1094,7 @@ export function initSettings(opts = {}) {
           populateProviderBaseList();
           setProviderFromBase(res.base_url);
           if (res.model && $("modelSelect")) $("modelSelect").value = res.model;
+          await refreshModelOptionsForProvider("cursor", res.model || "");
           if (stEl)
             stEl.textContent = `Cursor chat ready via ${res.base_url} (model ${res.model}).`;
           setStatus("Cursor connected through local OMP gateway.", "info");
@@ -1057,6 +1106,7 @@ export function initSettings(opts = {}) {
         startCursorLoginPoll(async () => {
           try {
             const wired = await applyCursorProvider();
+            await refreshModelOptionsForProvider("cursor", wired.model || "");
             if (stEl)
               stEl.textContent = `Cursor chat ready via ${wired.base_url} (model ${wired.model}).`;
             setStatus("Cursor connected through local OMP gateway.", "info");
@@ -1079,6 +1129,7 @@ export function initSettings(opts = {}) {
       if (st) st.textContent = "Starting OMP Cursor gateway…";
       try {
         const res = await applyCursorProvider();
+        await refreshModelOptionsForProvider("cursor", res.model || "");
         if (st)
           st.textContent = `Cursor chat ready via ${res.base_url} (model ${res.model}).`;
         setStatus("Cursor wired through local OMP gateway. Save to keep.", "info");
@@ -1096,12 +1147,12 @@ export function initSettings(opts = {}) {
       const st = $("cursorProbeStatus");
       if (st) st.textContent = "Probing Cursor models via omp…";
       try {
-        const res = await call("probe_cursor_models");
-        const sample = (res.sample || []).slice(0, 3).join(", ") || "—";
+        const models = await refreshModelOptionsForProvider("cursor");
+        const sample = models.slice(0, 3).map((m) => m.id).join(", ") || "—";
         if (st)
           st.textContent =
-            `Cursor models: ${res.count} (e.g. ${sample}). Use Cursor or select Provider → Cursor to chat.`;
-        setStatus(`Cursor probe ok — ${res.count} models.`, "info");
+            `Cursor models: ${models.length} (e.g. ${sample}). Use Cursor or select Provider → Cursor to chat.`;
+        setStatus(`Cursor probe ok — ${models.length} models.`, "info");
       } catch (e) {
         if (st) st.textContent = (e && e.message) || String(e);
         setStatus(`Cursor probe failed: ${e.message || e}`, "error");
@@ -1150,20 +1201,8 @@ export function initSettings(opts = {}) {
         base_url: $("baseUrl").value,
       });
       $("apiKey").value = "";
-      const models = await call("list_models");
-      const sel = $("modelSelect");
-      sel.innerHTML = models
-        .map((m) => {
-          const badges = [
-            m.native_tools ? "uses tools" : null,
-            m.vision ? "sees images" : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          const label = badges ? `${m.id} — ${badges}` : m.id;
-          return `<option value="${escapeHtml(m.id)}">${escapeHtml(label)}</option>`;
-        })
-        .join("");
+      const models = await refreshModelOptionsForProvider($("providerSelect")?.value || "");
+      await populateModelCatalogList();
     } catch (e) {
       setStatus(`Model list failed: ${e.message || e}`, "error");
     } finally {

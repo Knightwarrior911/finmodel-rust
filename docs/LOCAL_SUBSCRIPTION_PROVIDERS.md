@@ -28,16 +28,18 @@ without opening the browser.
 
 Reuses OMP `~/.omp/agent/agent.db` when you are already logged in.
 
-If OAuth is missing/expired, Settings → **Connect Cursor** (or Provider →
-Cursor) launches `omp auth-broker login cursor` in the background and opens the
-Cursor browser login automatically — omp owns the PKCE flow. Settings keeps
-checking until login completes, then finmodel starts local `omp auth-broker` +
-`omp auth-gateway` and points `base_url` at `http://127.0.0.1:4000/v1`.
+If OAuth is missing/expired, Settings → **Connect Cursor** launches
+`omp auth-broker login cursor` in the background and opens the Cursor browser
+login automatically — omp owns the PKCE flow. Settings keeps checking until login
+completes, then finmodel starts local `omp auth-broker` + `omp auth-gateway` and
+points `base_url` at `http://127.0.0.1:4000/v1`. Once chat-ready, Provider →
+Cursor switches the model picker to the live Cursor catalog.
 Your saved API key is left unchanged; the gateway uses a dummy bearer with
 `--no-auth`.
 
 **Use Cursor** wires the gateway when OAuth is already present.
-**Probe Cursor models** lists usable ids via `omp models cursor`.
+**Probe Cursor models** lists the complete live catalog via `omp models cursor`;
+Provider → Cursor, OpenRouter, and OpenCode Go each keep their own model choices.
 
 Default model: `cursor/claude-4.6-sonnet-medium` (also try `cursor/default`).
 Avoid bare `composer-1.5` — it often returns Connect `invalid_argument` /

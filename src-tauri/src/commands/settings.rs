@@ -397,10 +397,42 @@ pub fn clear_api_key(app: tauri::AppHandle) -> AppResult<String> {
 /// native_tools, strict_json }` for UI badges. Catalog fetch is NOT a capability
 /// probe — only [`test_model`] writes `model_capability` (Phase 1.3).
 #[tauri::command(rename_all = "snake_case")]
-pub async fn list_models(app: tauri::AppHandle) -> AppResult<String> {
+pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> AppResult<String> {
     // Network fetch — run off the IPC thread.
     tauri::async_runtime::spawn_blocking(move || {
-        let s = read_settings(&app);
+        let mut s = read_settings(&app);
+        if let Some(provider) = provider_id.as_deref() {
+            if provider == "cursor" {
+                if !crate::commands::subscription::subscription_providers_enabled() {
+                    return Err(AppError::Config("Subscription providers are disabled.".into()));
+                }
+                let cur = crate::commands::subscription::cursor_omp_status();
+                if !cur.present {
+                    return Err(AppError::Config("No Cursor OAuth in ~/.omp/agent/agent.db. Click Connect Cursor to log in via omp.".into()));
+                }
+                if cur.expired {
+                    return Err(AppError::Config("Cursor OAuth expired in OMP agent.db — click Connect Cursor to re-login via omp.".into()));
+                }
+                let (_, ids) = crate::commands::subscription::probe_cursor_models_via_omp()
+                    .map_err(AppError::Engine)?;
+                let models = ids
+                    .iter()
+                    .map(|id| {
+                        let qualified = crate::commands::omp_gateway::qualify_cursor_model(id);
+                        serde_json::json!({ "id": qualified, "name": id })
+                    })
+                    .collect::<Vec<_>>();
+                return serde_json::to_string(&models)
+                    .map_err(|e| AppError::Engine(e.to_string()));
+            }
+            match provider {
+                "openrouter" => s.base_url = "https://openrouter.ai/api/v1".into(),
+                "opencode-go" => {
+                    s.base_url = crate::commands::subscription::OPENCODE_GO_BASE_URL.into()
+                }
+                _ => {}
+            }
+        }
         if let Err(e) = ensure_provider_ready(&s) {
             return Err(AppError::Engine(e));
         }
