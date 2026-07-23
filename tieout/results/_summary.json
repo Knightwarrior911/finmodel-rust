@@ -1,10 +1,10 @@
 {
-  "fingerprint": "07ebec5aac4ba99d",
+  "fingerprint": "9f068fd560b1e63f",
   "companies": {
     "ATCO-B.ST": {
-      "pct": 93.75,
+      "pct": 97.92,
       "trusted": 48,
-      "matched": 45,
+      "matched": 47,
       "years": [
         2022,
         2023
@@ -17,8 +17,8 @@
         },
         "balance_sheet": {
           "trusted": 20,
-          "matched": 18,
-          "pct": 90.0
+          "matched": 20,
+          "pct": 100.0
         },
         "cash_flow_statement": {
           "trusted": 12,
@@ -186,7 +186,7 @@
   },
   "skipped": {},
   "total_trusted": 350,
-  "total_matched": 339,
-  "aggregate_pct": 96.86,
+  "total_matched": 341,
+  "aggregate_pct": 97.43,
   "measured_companies": 7
 }
