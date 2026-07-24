@@ -3606,11 +3606,6 @@ mod tests {
     // Integration tests (SseParser byte-stream extraction)
     // -----------------------------------------------------------------------
 
-    fn parse_raw_sse(bytes: &[u8]) -> SseParser {
-        let mut parser = SseParser::new();
-        let _ = parser.feed_bytes(bytes);
-        parser
-    }
 
     #[test]
     fn integration_eof_without_done_and_no_finish_is_incomplete() {
