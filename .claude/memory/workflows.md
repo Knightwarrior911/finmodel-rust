@@ -68,3 +68,27 @@ Source repo `Knightwarrior911/finmodel-rust` is PRIVATE; releases go to PUBLIC
 ## OpenRouter key
 Stored in the OS credential store, not `settings.json`. In code: `commands::secrets::get_api_key()`
 (service `finmodel`, account `openrouter_api_key`). Tests read it via that fn.
+
+## Integration and lifecycle tests (v0.9.42)
+- Rust integration tests (chat.rs): `cargo test --lib integration_` — 5 tests covering
+  EOF/incomplete, provider error classification, mixed frame (text+reasoning+finish),
+  UTF-8 codepoint split, empty finish_reason. These feed raw bytes through `SseParser`
+  and verify the typed event contract end-to-end.
+- SSE transport tests (Node): `node --test tests/test_sse_transport.mjs` — 6 tests
+  covering normal stream, error envelope, EOF without [DONE], empty finish_reason,
+  mixed frame, multi-byte UTF-8 split. These test the HTTP transport layer.
+- Lifecycle tests (RUSTFLAGS required): `OMP_LIFECYCLE_TEST=1 cargo test --lib lifecycle_ -- --ignored --test-threads=1`
+  — 2 tests: (1) app-owned spawn + `shutdown_owned_processes` kills both, (2) pre-existing
+  external processes survive `shutdown_owned_processes`. Uses `PortStateGuard` RAII to
+  restore pre-test state. NEVER run with parallel test threads (fixed ports 8765/4000).
+- Retry decision: `cargo test --lib retry_decision_gates` — pure `RetryDecision` helper.
+- Compose nudge: `cargo test --lib compose_nudge_retry` — verifies retry omits tools and
+  restores history.
+- Mixed frame: `cargo test --lib sse_mixed_frame` — LiveFrame carries text+reasoning+finish
+  without mutating TurnMeta.
+
+Updated test counts (v0.9.42):
+- App lib: `cargo test --lib` ≈ 437 tests
+- Integration: 5 (chat.rs)
+- Transport: 6 (Node)
+- Lifecycle: 2 (ignored, env-gated)

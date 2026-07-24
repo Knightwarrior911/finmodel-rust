@@ -28,4 +28,4 @@ one indigo accent, evidence-forward, CSS-only motion). `CHANGELOG.md` is the use
 ## References (not auto-loaded — open when needed)
 - `docs/RELEASE_CHECKLIST.md` — authoritative release ritual.
 - `docs/HANDOVER_LOG.md` — full dated session-handover archive (was this file's old body).
-- Latest shipped: **v0.9.36** (see top of `CHANGELOG.md`).
+- Latest shipped: **v0.9.42** (see top of `CHANGELOG.md`).

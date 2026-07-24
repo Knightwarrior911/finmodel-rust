@@ -72,3 +72,38 @@ peers, reads filings/PDFs, researches deals, and runs an agentic analyst loop.
 - Config dir: `C:/Users/<user>/AppData/Roaming/com.finmodel.desktop/`
   — `settings.json`, `skills/*.md`, `agents/*.md`, `finmodel.db` (SQLite conversations/runs).
 - App identifier: `com.finmodel.desktop`.
+
+## SSE streaming and typed events (v0.9.42)
+- `LiveFrame` (chat.rs): typed result of parsing one SSE data payload — carries `text`,
+  `reasoning`, `finish_reason`, `native_finish_reason`. `apply_delta` returns
+  `Result<LiveFrame, ProviderError>` — a typed parser with NO meta side effects for
+  reasoning/finish; callers accumulate frame fields into `TurnMeta`.
+- `SseParser` (chat.rs): reusable byte-stream parser. `feed_bytes` drains `sse_take_lines`,
+  calls `apply_delta`, accumulates meta. Returns `Vec<SseEvent>`. Production loop checks
+  `parser.seen_done()` after each batch to break immediately on `[DONE]` (prevents keep-alive
+  timeout). Provider errors emit `SseEvent::Error(e.clone())` immediately.
+- `SseEvent` enum: `Frame(LiveFrame)`, `Done { content, calls, meta }`, `Eof { ... }`,
+  `Error(ProviderError)`. `finish()` consumes the parser for terminal state.
+- `sse_take_lines` (chat.rs): drains complete SSE lines from a raw byte buffer; incomplete
+  trailing bytes (including mid-codepoint UTF-8) stay in `buf` until the next chunk.
+- `stream_terminal_ok` (chat.rs): `[DONE]` always succeeds; without it, a non-empty
+  `finish_reason` is required — all other EOF is `incomplete_stream`.
+
+## Provider subscription quality (v0.9.42)
+- `omp_gateway.rs`: `OwnedOmpProcesses` holds `Child` handles for app-spawned broker/gateway.
+  `shutdown_owned_processes()` kills owned process trees via `taskkill /T /F /PID` on Windows.
+  `ensure_cursor_gateway()` validates existing listeners (healthz + version + auth + models)
+  before reusing; never reuses unauthenticated or incompatible services.
+- `gateway_bearer()` reads `~/.omp/auth-gateway.token` backend-only; never serialized to
+  Settings/UI/events. `GATEWAY_DUMMY_BEARER` removed.
+- `RetryDecision` (driver.rs): pure enum (`Accept`/`FailNoEvidence`/`Retry`) + helper
+  `retry_decision(is_non_answer, is_cancelled, has_tool_evidence)`. `ensure_answer_stream`
+  uses it — retries only with tool evidence, one compose-nudge retry, no tools on retry.
+- `omp_subscription_capability` (settings.rs): derives `ModelCapability` from model prefix
+  (`opencode-go/` → native_tools=true, `cursor/` → native_tools=false). `apply_omp_capability`
+  seeds capability on OMP gateway without live probe. `update_selected_model` invalidates on
+  same-base model switch.
+- `cursor_omp_status` (subscription.rs): `reusable()` method accepts refreshable Cursor OAuth
+  (checks `refresh` field presence). Stored expiry is diagnostic, not authoritative.
+- Non-answer classifier: `is_non_answer_text` rejects empty/status variants (`done`, `complete`,
+  etc.). `ensure_answer_stream` retries once with compose nudge; fails visibly without evidence.

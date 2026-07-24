@@ -65,3 +65,37 @@
   regression FLOORS (`>=`); never lower a floor to make a regression pass. Facts match answer
   PROSE only (not citation quotes); `quote_integrity` mirrors `validate_synthesis` (verbatim,
   case-sensitive), so the scorer never grants grounding production would reject.
+
+## Typed event contract (v0.9.42)
+- `apply_delta` returns `Result<LiveFrame, ProviderError>` — NOT `Result<Option<String>, _>`.
+  `LiveFrame` carries typed fields; callers accumulate into `TurnMeta` themselves.
+- Reasoning, finish_reason, native_finish_reason are NEVER mutated inside `apply_delta`.
+  They live in `LiveFrame` and callers push them into `meta` after each frame.
+- `SseParser::feed_bytes` returns `Vec<SseEvent>`. Production loop MUST check
+  `parser.seen_done()` after each batch to break on `[DONE]` immediately — prevents
+  keep-alive timeout on SSE connections.
+- Provider errors emit `SseEvent::Error(e.clone())` immediately AND store `terminal_error`.
+  The production loop breaks on error; `finish()` also returns it.
+
+## OMP lifecycle conventions (v0.9.42)
+- `OwnedOmpProcesses` holds `Child` handles only for processes the app spawned.
+  `shutdown_owned_processes()` kills only owned process trees — pre-existing external
+  OMP processes must survive.
+- On Windows, use `taskkill /T /F /PID` (process tree kill) — `child.kill()` only kills
+  the wrapper, not serving descendants.
+- Never use `taskkill /F /IM omp.exe` in tests — that kills ALL omp processes globally.
+  Capture specific PIDs via `netstat -ano` and kill only those.
+- `PortStateGuard` RAII: capture initial port state before test, restore on drop even on panic.
+- Gateway bearer token (`~/.omp/auth-gateway.token`) is backend-only — never serialized to
+  Settings, UI payloads, events, logs, or durable chat state.
+
+## Provider capability conventions (v0.9.42)
+- `model_capability` is invalidated on: model change, API key change, base_url change,
+  provider connect/import, cursor wire/reconcile, startup reconciliation.
+- OpenCode Go models (`opencode-go/`) get `native_tools=true` from OMP catalog — no
+  forced non-streaming probe (that times out at 120s).
+- Cursor models (`cursor/`) get `native_tools=false` — direct chat only, no finmodel tools.
+  Agent send with Cursor + tools_ok=false returns a clear error directing to OpenCode Go.
+- `update_selected_model` centralizes model mutation and always invalidates capability.
+- `is_non_answer_text` classifies: empty, `done`, `complete`, `completed`, `finished`,
+  `task complete`, `task completed` (case-insensitive, punctuation-stripped).
