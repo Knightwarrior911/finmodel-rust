@@ -2,11 +2,9 @@
 
 ## What you need first
 
-- **OMP** installed (the provider gateway that manages logins)
-  ```bash
-  # Install via bun
-  bun install -g omp
-  ```
+- **OMP** installed (the provider gateway that manages logins).
+  OMP is installed separately — see `~/.bun/bin/omp` or ask the repo owner for the
+  installer. The app auto-detects it on PATH.
 - **finmodel** desktop app installed (the `.exe` from the release)
 
 ---
@@ -20,7 +18,8 @@
 5. Once signed in, the app detects the login and wires the local gateway automatically
 6. You'll see **"Cursor live gateway verified"** in Settings
 
-Cursor handles plain chat and synthesis. It does **not** support finmodel's research tools (financial analysis, model building, etc.) — that's by design.
+Cursor handles plain chat and synthesis. It does **not** support finmodel's research tools
+(financial analysis, model building, filing reads) — that's by design.
 
 ---
 
@@ -36,19 +35,32 @@ Cursor handles plain chat and synthesis. It does **not** support finmodel's rese
 4. Back in the app, click **Use existing OpenCode Go login** (or it auto-connects)
 5. You'll see **"OpenCode Go live gateway verified"** in Settings
 
-OpenCode Go is the one with **full tool support** — financial analysis, model building, research, filing reads, everything.
+OpenCode Go is the provider with **full tool support** — financial analysis, model building,
+research, filing reads, everything.
 
 ---
 
-## Which one to pick?
+## What about ChatGPT / OpenAI?
+
+The app does **not** use ChatGPT Pro or OpenAI API directly for live chat. ChatGPT Pro is
+an optional transport for the internal tie-out quality test only (see `docs/RELEASE_CHECKLIST.md`).
+It does not supply API credits for finmodel's chat or tools.
+
+For live chat and tools, use **OpenCode Go** or set up an **OpenRouter** API key in Settings
+(OpenRouter provides access to many models including OpenAI, Anthropic, etc.).
+
+---
+
+## Which provider to use?
 
 | Provider | Chat | Research Tools | Financial Models |
 |----------|------|----------------|-----------------|
 | **OpenCode Go** | ✅ | ✅ | ✅ |
 | **Cursor** | ✅ | ❌ | ❌ |
-| **OpenRouter** | ✅ | ✅ | ✅ (if key set) |
+| **OpenRouter** | ✅ | ✅ | ✅ (with API key) |
 
-If you want the full finmodel experience (building models, reading filings, running financial analysis), use **OpenCode Go**. If you just want quick chat/summaries, Cursor is fine.
+If you want the full finmodel experience (building models, reading filings, running financial
+analysis), use **OpenCode Go**. If you just want quick chat/summaries, Cursor is fine.
 
 ---
 
@@ -57,7 +69,8 @@ If you want the full finmodel experience (building models, reading filings, runn
 - **"No Cursor OAuth"** → Click Connect Cursor again and complete the browser login
 - **"No OpenCode Go credential"** → Click Connect OpenCode Go and complete the terminal login
 - **"Gateway not verified"** → Restart the app; OMP services start automatically on first use
-- **Tools not working** → Make sure you're on OpenCode Go, not Cursor. Settings shows which provider is active.
+- **Tools not working** → Make sure you're on OpenCode Go, not Cursor. Settings shows which
+  provider is active.
 
 ---
 
@@ -66,4 +79,6 @@ If you want the full finmodel experience (building models, reading filings, runn
 Once connected, try asking in the chat:
 > "Get the latest revenue for Apple"
 
-If you're on OpenCode Go, it will call the `get_financials` tool and return actual SEC EDGAR numbers. If you're on Cursor, it'll answer from memory (which finmodel doesn't trust — it wants tool-sourced data).
+If you're on OpenCode Go, it will call the `get_financials` tool and return actual SEC EDGAR
+numbers. If you're on Cursor, it'll answer from memory (which finmodel doesn't trust — it
+wants tool-sourced data).
