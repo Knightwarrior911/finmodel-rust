@@ -65,7 +65,7 @@ test("Cursor subscription button wires the local gateway", async () => {
         chat_ready: true,
       },
     ],
-    cursor: { chat_ready: true, available: true, reason: "" },
+    cursor: { chat_ready: true, available: true, present: true, reason: "" },
     opencode: { chat_ready: false, reason: "needs key" },
   });
   ctx.invokeHandlers.list_models = async () => [];
@@ -94,6 +94,98 @@ test("Cursor subscription button wires the local gateway", async () => {
     document.getElementById("cursorProbeStatus").textContent,
     /Cursor chat ready via http:\/\/127\.0\.0\.1:4000\/v1/,
   );
+});
+
+
+test("stored subscription logins are not reported as live readiness", async () => {
+  const ctx = setupDom();
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: true,
+    model: "gpt-5.6",
+    base_url: "https://openrouter.ai/api/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
+      { id: "cursor", name: "Cursor", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+      { id: "opencode-go", name: "OpenCode Go", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+    ],
+    cursor: {
+      chat_ready: false,
+      available: false,
+      present: true,
+      expired: true,
+      refresh_present: true,
+      reason: "Cursor login is stored in OMP, but live gateway readiness has not been verified.",
+    },
+    opencode: {
+      chat_ready: false,
+      credential_present: true,
+      reason: "OpenCode Go login is stored in OMP, but live gateway readiness has not been verified.",
+    },
+  });
+  ctx.invokeHandlers.list_models = async () => [];
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  assert.doesNotMatch(
+    document.getElementById("cursorProbeStatus").textContent,
+    /chat-ready/i,
+  );
+  assert.match(
+    document.getElementById("cursorProbeStatus").textContent,
+    /not been verified/i,
+  );
+  assert.equal(document.getElementById("useCursorOmp").hidden, false);
+  assert.equal(document.getElementById("connectCursorOmp").hidden, true);
+  assert.match(document.getElementById("useCursorOmp").textContent, /Use existing Cursor login/);
+  assert.match(document.getElementById("importOpencodeGo").textContent, /Use existing OpenCode Go login/);
+});
+
+
+test("expired Cursor login without refresh offers reconnect", async () => {
+  const ctx = setupDom();
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: false,
+    model: "openrouter/auto",
+    base_url: "https://openrouter.ai/api/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [],
+    cursor: {
+      chat_ready: false,
+      available: false,
+      present: true,
+      expired: true,
+      refresh_present: false,
+      reason: "Cursor login expired and cannot be refreshed. Connect Cursor again.",
+    },
+    opencode: { chat_ready: false, credential_present: false, reason: "" },
+  });
+  ctx.invokeHandlers.list_models = async () => [];
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  assert.equal(document.getElementById("connectCursorOmp").hidden, false);
+  assert.equal(document.getElementById("useCursorOmp").hidden, true);
+  assert.match(document.getElementById("cursorProbeStatus").textContent, /expired.*connect/i);
 });
 
 
@@ -141,6 +233,107 @@ test("OpenCode auth handoff preserves settings until credentials exist", async (
   await tick();
 
   assert.equal(provider.value, "openrouter");
+});
+
+
+test("stopped saved Cursor provider keeps its catalog scoped", async () => {
+  const ctx = setupDom();
+  const listCalls = [];
+  let cursorProbes = 0;
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: false,
+    model: "cursor/claude-4.6-sonnet-medium",
+    base_url: "http://127.0.0.1:4000/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
+      { id: "opencode-go", name: "OpenCode Go", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+      { id: "cursor", name: "Cursor (via OMP gateway)", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+    ],
+    cursor: { chat_ready: false, available: false, present: true, reason: "live gateway stopped" },
+    opencode: { chat_ready: false, credential_present: true, reason: "live gateway stopped" },
+  });
+  ctx.invokeHandlers.list_models = async (args = {}) => {
+    listCalls.push(args);
+    return [
+      { id: "opencode-go/model-b", name: "OpenCode Go B" },
+      { id: "cursor/claude-4.6-sonnet-medium", name: "Cursor Claude" },
+    ];
+  };
+  ctx.invokeHandlers.probe_cursor_models = async () => {
+    cursorProbes += 1;
+    return {
+      ok: true,
+      models: [{ id: "cursor/claude-4.6-sonnet-medium", name: "Cursor Claude" }],
+    };
+  };
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  assert.equal(document.getElementById("providerSelect").value, "cursor");
+  assert.equal(document.getElementById("baseUrl").value, "http://127.0.0.1:4000/v1");
+  assert.equal(cursorProbes, 1);
+  assert.deepEqual(listCalls, [], "must not request the combined gateway catalog");
+  assert.deepEqual(
+    [...document.getElementById("modelSelect").options].map((o) => o.value),
+    ["cursor/claude-4.6-sonnet-medium"],
+  );
+});
+
+
+test("saved localhost OpenCode gateway keeps its catalog scoped", async () => {
+  const ctx = setupDom();
+  const listCalls = [];
+  ctx.invokeHandlers.load_settings = async () => ({
+    has_key: false,
+    model: "opencode-go/model-b",
+    base_url: "http://localhost:4000/v1",
+    auto_route_vision: true,
+  });
+  ctx.invokeHandlers.subscription_providers_status = async () => ({
+    enabled: true,
+    providers: [
+      { id: "opencode-go", name: "OpenCode Go", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+      { id: "cursor", name: "Cursor (via OMP gateway)", base: "http://127.0.0.1:4000/v1", chat_ready: false },
+    ],
+    cursor: { chat_ready: false, present: true, reason: "live gateway stopped" },
+    opencode: { chat_ready: false, credential_present: true, reason: "live gateway stopped" },
+  });
+  ctx.invokeHandlers.list_models = async (args = {}) => {
+    listCalls.push(args);
+    return args.provider_id === "opencode-go"
+      ? [{ id: "opencode-go/model-b", name: "OpenCode Go B" }]
+      : [
+          { id: "opencode-go/model-b", name: "OpenCode Go B" },
+          { id: "cursor/model-a", name: "Cursor A" },
+        ];
+  };
+  ctx.invokeHandlers.memory_list = async () => [];
+  ctx.invokeHandlers.skills_list = async () => [];
+  ctx.invokeHandlers.agents_list = async () => [];
+  ctx.invokeHandlers.schedules_list = async () => [];
+
+  const settings = await importModule("settings.mjs");
+  settings.initSettings({ onSaved: () => {} });
+  await settings.openSettings();
+  await tick();
+
+  assert.equal(document.getElementById("providerSelect").value, "opencode-go");
+  assert.equal(document.getElementById("baseUrl").value, "http://127.0.0.1:4000/v1");
+  assert.deepEqual(listCalls, [{ provider_id: "opencode-go" }]);
+  assert.deepEqual(
+    [...document.getElementById("modelSelect").options].map((o) => o.value),
+    ["opencode-go/model-b"],
+  );
 });
 
 

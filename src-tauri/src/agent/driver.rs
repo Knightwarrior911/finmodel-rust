@@ -356,6 +356,61 @@ fn refine_write_risk(name: &str, args: &Value, out_dir: Option<&std::path::Path>
     }
 }
 
+const NON_ANSWER_FAILURE: &str = "The model returned no usable answer twice. Try another model or reconnect this provider in Settings.";
+
+fn is_non_answer_text(content: &str) -> bool {
+    let normalized = content
+        .trim()
+        .trim_matches(|character: char| !character.is_alphanumeric())
+        .to_ascii_lowercase();
+    normalized.is_empty()
+        || matches!(
+            normalized.as_str(),
+            "done"
+                | "all done"
+                | "complete"
+                | "completed"
+                | "finished"
+                | "task complete"
+                | "task completed"
+        )
+}
+
+fn stream_is_non_answer(acc: &crate::agent::provider::StreamAccumulator) -> bool {
+    acc.complete_calls().is_empty() && is_non_answer_text(&acc.content)
+}
+
+fn assistant_tool_message(acc: &crate::agent::provider::StreamAccumulator) -> Option<Value> {
+    let calls = acc
+        .complete_calls()
+        .into_iter()
+        .map(|call| {
+            serde_json::json!({
+                "id": call.id,
+                "type": "function",
+                "function": { "name": call.name, "arguments": call.arguments },
+            })
+        })
+        .collect::<Vec<_>>();
+    if calls.is_empty() {
+        return None;
+    }
+    let content = if acc.content.is_empty() {
+        Value::Null
+    } else {
+        Value::String(acc.content.clone())
+    };
+    let mut message = serde_json::json!({
+        "role": "assistant",
+        "content": content,
+        "tool_calls": calls,
+    });
+    if !acc.reasoning_content.is_empty() {
+        message["reasoning_content"] = Value::String(acc.reasoning_content.clone());
+    }
+    Some(message)
+}
+
 /// Map an accumulated provider stream into a reducer [`ModelOut`], classifying
 /// each complete tool call's risk / approval need / argument validity through
 /// the [`ToolRegistry`]. This is the exact seam a live OpenRouter driver's
@@ -399,6 +454,29 @@ pub fn model_out_from_stream(
         calls,
         final_answer,
         tokens,
+    }
+}
+
+/// Pure decision for the answer-retry gate (Phase 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetryDecision {
+    Accept,
+    FailNoEvidence,
+    Retry,
+}
+
+/// Decide whether a non-answer stream should be retried, failed, or accepted.
+pub(crate) fn retry_decision(
+    is_non_answer: bool,
+    is_cancelled: bool,
+    has_tool_evidence: bool,
+) -> RetryDecision {
+    if !is_non_answer || is_cancelled {
+        RetryDecision::Accept
+    } else if has_tool_evidence {
+        RetryDecision::Retry
+    } else {
+        RetryDecision::FailNoEvidence
     }
 }
 
@@ -889,30 +967,9 @@ impl LiveDriver {
     }
 
     fn append_assistant_tool_calls(&mut self, acc: &crate::agent::provider::StreamAccumulator) {
-        let calls: Vec<Value> = acc
-            .complete_calls()
-            .into_iter()
-            .map(|c| {
-                serde_json::json!({
-                    "id": c.id,
-                    "type": "function",
-                    "function": { "name": c.name, "arguments": c.arguments },
-                })
-            })
-            .collect();
-        if calls.is_empty() {
-            return;
+        if let Some(message) = assistant_tool_message(acc) {
+            self.messages.push(message);
         }
-        let content = if acc.content.is_empty() {
-            Value::Null
-        } else {
-            Value::String(acc.content.clone())
-        };
-        self.messages.push(serde_json::json!({
-            "role": "assistant",
-            "content": content,
-            "tool_calls": calls,
-        }));
     }
 
     /// Accept a completed provider stream: record content, seed pending tool
@@ -921,17 +978,26 @@ impl LiveDriver {
     /// accept logic never drifts across arms.
     fn accept_stream(&mut self, acc: &crate::agent::provider::StreamAccumulator) -> ModelOut {
         self.charge_round(acc);
+        let out = model_out_from_stream(&self.registry, acc, self.out_dir_path().as_deref());
+        if stream_is_non_answer(acc) {
+            if self.ctx.cancel.is_cancelled() {
+                self.last_content.clear();
+            } else {
+                self.last_content = NON_ANSWER_FAILURE.to_string();
+            }
+            return out;
+        }
         self.last_content = acc.content.clone();
         self.seed_pending_from_acc(acc);
         if !acc.complete_calls().is_empty() {
             self.append_assistant_tool_calls(acc);
-        } else if !acc.content.trim().is_empty() {
+        } else {
             self.messages.push(serde_json::json!({
                 "role": "assistant",
                 "content": acc.content,
             }));
         }
-        model_out_from_stream(&self.registry, acc, self.out_dir_path().as_deref())
+        out
     }
     /// Drift detector wrapper: whitelist = every message already in the
     /// visible history EXCEPT the just-drafted answer (accept_stream appended
@@ -1275,7 +1341,100 @@ fn fallback_tool_for_provider_failure(
     }
 }
 
+
 impl LiveDriver {
+    /// Retry one successful but empty/status-only stream before any caller can
+    /// accept it. Retries only when tool evidence exists — without evidence the
+    /// model likely has no context to answer from, and a retry would waste a
+    /// round on another empty/status response. The retry carries no tools and
+    /// uses a compose-nudge prompt so the model synthesises a prose answer from
+    /// the tool results already in history.
+    async fn ensure_answer_stream(
+        &mut self,
+        acc: crate::agent::provider::StreamAccumulator,
+        run: &str,
+        model: &str,
+        _tools: &[serde_json::Value],
+    ) -> Result<crate::agent::provider::StreamAccumulator, ModelOut> {
+        match retry_decision(
+            stream_is_non_answer(&acc),
+            self.ctx.cancel.is_cancelled(),
+            !self.turn_results.is_empty(),
+        ) {
+            RetryDecision::Accept => return Ok(acc),
+            RetryDecision::FailNoEvidence => {
+                self.last_content = NON_ANSWER_FAILURE.to_string();
+                return Err(ModelOut {
+                    calls: vec![],
+                    final_answer: true,
+                    tokens: 0,
+                });
+            }
+            RetryDecision::Retry => {}
+        }
+
+        // The status-only response was billable, but is never accepted into
+        // history or persisted as the user's answer.
+        self.charge_round(&acc);
+
+        // Build a retry request WITHOUT tools, using the compose nudge so the
+        // model synthesises a final bare-prose answer from existing evidence.
+        // The nudge is pushed only for the request, then popped — never enters
+        // durable conversation history.
+        let retry = {
+            self.messages.push(serde_json::json!({
+                "role": "system",
+                "content": finisher::COMPOSE_NUDGE,
+            }));
+            let req = crate::commands::chat::build_chat_request(
+                model,
+                &self.messages,
+                &[], // no tools on retry
+                true,
+                false,
+            );
+            let popped = self.messages.pop();
+            debug_assert!(popped
+                .map(|m| m["content"] == finisher::COMPOSE_NUDGE)
+                .unwrap_or(false));
+            req
+        };
+
+        match crate::commands::chat::stream_completion_for_agent(
+            &self.app,
+            &self.ctx.conversation_id,
+            run,
+            &self.cfg,
+            &retry,
+            &self.ctx.cancel,
+            self.remaining(),
+        )
+        .await
+        {
+            Ok(retry_acc) => {
+                // Accept only non-empty, non-status prose (Phase 3).
+                if !stream_is_non_answer(&retry_acc) {
+                    Ok(retry_acc)
+                } else {
+                    self.last_content = NON_ANSWER_FAILURE.to_string();
+                    Err(ModelOut {
+                        calls: vec![],
+                        final_answer: true,
+                        tokens: 0,
+                    })
+                }
+            }
+            Err(_) => {
+                self.last_content = NON_ANSWER_FAILURE.to_string();
+                Err(ModelOut {
+                    calls: vec![],
+                    final_answer: true,
+                    tokens: 0,
+                })
+            }
+        }
+    }
+
     /// Stream-handoff finisher: the fast model signalled it was done; the
     /// configured synthesis model now writes the prose the user sees. The
     /// fast draft is removed from history (evidence stays — tool results are
@@ -1292,10 +1451,11 @@ impl LiveDriver {
             true,
             false,
         );
+        let run = self.ctx.run_id.clone();
         let result = crate::commands::chat::stream_completion_for_agent(
             &self.app,
             &self.ctx.conversation_id,
-            &self.ctx.run_id, // REAL id: this is the stream the user watches
+            &run, // REAL id: this is the stream the user watches
             &self.cfg,
             &req,
             &self.ctx.cancel,
@@ -1303,24 +1463,40 @@ impl LiveDriver {
         )
         .await;
         match result {
-            Ok(acc) if !acc.content.trim().is_empty() => {
-                self.charge_round(&acc);
-                finisher::succeed(&mut self.messages, &acc.content);
-                self.last_content = acc.content.clone();
-                ModelOut {
-                    calls: vec![],
-                    final_answer: true,
-                    tokens: fast.tokens.saturating_add(
-                        acc.meta
-                            .usage
-                            .as_ref()
-                            .and_then(|u| u.get("total_tokens"))
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0),
-                    ),
+            Ok(acc) => match self
+                .ensure_answer_stream(acc, &run, strong, &no_tools)
+                .await
+            {
+                Ok(acc) if !is_non_answer_text(&acc.content) => {
+                    self.charge_round(&acc);
+                    finisher::succeed(&mut self.messages, &acc.content);
+                    self.last_content = acc.content.clone();
+                    ModelOut {
+                        calls: vec![],
+                        final_answer: true,
+                        tokens: fast.tokens.saturating_add(
+                            acc.meta
+                                .usage
+                                .as_ref()
+                                .and_then(|u| u.get("total_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
+                        ),
+                    }
                 }
-            }
-            _ => {
+                Ok(acc) => {
+                    self.charge_round(&acc);
+                    finisher::fail(&mut self.messages, draft);
+                    self.last_content = draft_content;
+                    fast
+                }
+                Err(_) => {
+                    finisher::fail(&mut self.messages, draft);
+                    self.last_content = draft_content;
+                    fast
+                }
+            },
+            Err(_) => {
                 // Strong model unavailable: the fast draft still answers.
                 finisher::fail(&mut self.messages, draft);
                 self.last_content = draft_content;
@@ -1682,6 +1858,13 @@ impl Driver for LiveDriver {
 
         match result {
             Ok(acc) => {
+                let acc = match self
+                    .ensure_answer_stream(acc, &run, &cfg.model, &tools)
+                    .await
+                {
+                    Ok(acc) => acc,
+                    Err(out) => return out,
+                };
                 let mut out = self.accept_stream(&acc);
                 // Drift rule (doctrine, enforced): a final answer stating
                 // material figures with ZERO tool evidence in this run gets
@@ -1726,7 +1909,14 @@ impl Driver for LiveDriver {
                     )
                     .await
                     {
-                        out = self.accept_stream(&acc2);
+                        let prior_content = self.last_content.clone();
+                        match self
+                            .ensure_answer_stream(acc2, &run, &cfg.model, &tools)
+                            .await
+                        {
+                            Ok(acc2) => out = self.accept_stream(&acc2),
+                            Err(_) => self.last_content = prior_content,
+                        }
                     }
                 }
                 if let (Some(strong), true) =
@@ -1766,17 +1956,10 @@ impl Driver for LiveDriver {
                 )
                 .await
                 {
-                    Ok(acc) => {
-                        self.charge_round(&acc);
-                        self.last_content = acc.content.clone();
-                        if !acc.content.trim().is_empty() {
-                            self.messages.push(serde_json::json!({
-                                "role": "assistant",
-                                "content": acc.content,
-                            }));
-                        }
-                        model_out_from_stream(&self.registry, &acc, self.out_dir_path().as_deref())
-                    }
+                    Ok(acc) => match self.ensure_answer_stream(acc, &run, &cfg.model, &tools).await {
+                        Ok(acc) => self.accept_stream(&acc),
+                        Err(out) => out,
+                    },
                     Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ the model request failed — check your API key and model in Settings. ({err})"
@@ -1813,7 +1996,10 @@ impl Driver for LiveDriver {
                 )
                 .await
                 {
-                    Ok(acc) => self.accept_stream(&acc),
+                    Ok(acc) => match self.ensure_answer_stream(acc, &run, &cfg.model, &tools).await {
+                        Ok(acc) => self.accept_stream(&acc),
+                        Err(out) => out,
+                    },
                     Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ this conversation has grown too long for the model to read in one go, even after trimming older turns. Start a fresh chat and I'll pick up from there. ({err})"
@@ -1850,7 +2036,10 @@ impl Driver for LiveDriver {
                 )
                 .await
                 {
-                    Ok(acc) => self.accept_stream(&acc),
+                    Ok(acc) => match self.ensure_answer_stream(acc, &run, &cfg.model, &tools).await {
+                        Ok(acc) => self.accept_stream(&acc),
+                        Err(out) => out,
+                    },
                     Err(err) => self.fallback_after_provider_failure().unwrap_or_else(|| {
                         self.last_content = format!(
                             "⚠ the model service is busy right now — I tried twice. Give it a moment and send again. ({err})"
@@ -2070,10 +2259,11 @@ impl Driver for LiveDriver {
             true,
             false,
         );
+        let run = self.ctx.run_id.clone();
         let result = crate::commands::chat::stream_completion_for_agent(
             &self.app,
             &self.ctx.conversation_id,
-            &self.ctx.run_id,
+            &run,
             &self.cfg,
             &req,
             &self.ctx.cancel,
@@ -2081,12 +2271,29 @@ impl Driver for LiveDriver {
         )
         .await;
         if let Ok(acc) = result {
-            if !acc.content.trim().is_empty() {
-                self.last_content = acc.content.clone();
-                self.messages.push(serde_json::json!({
-                    "role": "assistant",
-                    "content": acc.content,
-                }));
+            let prior_content = self.last_content.clone();
+            match self
+                .ensure_answer_stream(acc, &run, &wrap_model, &no_tools)
+                .await
+            {
+                Ok(acc) => {
+                    self.charge_round(&acc);
+                    if !is_non_answer_text(&acc.content) {
+                        self.last_content = acc.content.clone();
+                        self.messages.push(serde_json::json!({
+                            "role": "assistant",
+                            "content": acc.content,
+                        }));
+                    } else if is_non_answer_text(&prior_content) {
+                        self.last_content = NON_ANSWER_FAILURE.to_string();
+                    } else {
+                        self.last_content = prior_content;
+                    }
+                }
+                Err(_) if !is_non_answer_text(&prior_content) => {
+                    self.last_content = prior_content;
+                }
+                Err(_) => {}
             }
         }
     }
@@ -3039,6 +3246,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_status_only_model_output_as_a_final_answer() {
+        for text in [
+            "",
+            "   ",
+            "done",
+            "Done.",
+            "all done!",
+            "task complete",
+            "Done ✅",
+            "✅ Done",
+            "“Task complete”",
+        ] {
+            assert!(is_non_answer_text(text), "expected rejection for {text:?}");
+        }
+        assert!(!is_non_answer_text(
+            "Done. The model is saved to output.xlsx."
+        ));
+        assert!(!is_non_answer_text("The requested analysis is complete."));
+    }
+
+    #[test]
+    fn empty_text_with_a_complete_tool_call_is_not_a_non_answer() {
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"q","function":{"name":"get_quote","arguments":"{\"ticker\":\"NVDA\"}"}}]}}]}"#,
+        ]);
+        assert!(!stream_is_non_answer(&acc));
+    }
+
+    #[test]
     fn stream_content_only_is_final_answer() {
         let reg = ToolRegistry::builtin();
         let acc = crate::agent::provider::accumulate(&[
@@ -3051,6 +3287,17 @@ mod tests {
         assert!(out.final_answer);
         assert!(out.calls.is_empty());
         assert_eq!(out.tokens, 42);
+    }
+
+    #[test]
+    fn assistant_tool_message_replays_provider_reasoning() {
+        let acc = crate::agent::provider::accumulate(&[
+            r#"{"choices":[{"delta":{"reasoning_content":"Need quote."}}]}"#,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"q","function":{"name":"get_quote","arguments":"{\"ticker\":\"NVDA\"}"}}]}}]}"#,
+        ]);
+        let message = assistant_tool_message(&acc).unwrap();
+        assert_eq!(message["reasoning_content"], "Need quote.");
+        assert_eq!(message["tool_calls"][0]["id"], "q");
     }
 
     #[test]
@@ -3422,6 +3669,48 @@ mod finisher_tests {
         assert_eq!(m2.len(), 5); // nothing popped, nudge pushed
     }
 
+    #[test]
+    fn retry_decision_gates_on_evidence() {
+        use super::{retry_decision, RetryDecision};
+        assert_eq!(retry_decision(false, false, true), RetryDecision::Accept);
+        assert_eq!(retry_decision(true, true, true), RetryDecision::Accept);
+        assert_eq!(retry_decision(true, false, true), RetryDecision::Retry);
+        assert_eq!(retry_decision(true, false, false), RetryDecision::FailNoEvidence);
+    }
+
+    #[test]
+    fn compose_nudge_retry_omits_tools_and_restores_history() {
+        let mut messages = history_with_draft();
+        let before = messages.clone();
+        messages.push(json!({
+            "role": "system",
+            "content": finisher::COMPOSE_NUDGE,
+        }));
+        let request = crate::commands::chat::build_chat_request(
+            "strong-model",
+            &messages,
+            &[],
+            true,
+            false,
+        );
+        let popped = messages.pop();
+        assert_eq!(
+            popped.unwrap()["content"],
+            finisher::COMPOSE_NUDGE,
+            "nudge must be popped"
+        );
+        assert_eq!(messages, before, "history must be restored");
+        assert!(
+            request.get("tools").is_none(),
+            "retry request must not carry tools"
+        );
+        let req_msgs = request["messages"].as_array().unwrap();
+        assert_eq!(
+            req_msgs.last().unwrap()["content"],
+            finisher::COMPOSE_NUDGE,
+            "nudge must be the terminal message"
+        );
+    }
     #[test]
     fn success_replaces_draft_with_strong_prose() {
         let mut m = history_with_draft();

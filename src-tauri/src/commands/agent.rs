@@ -197,6 +197,7 @@ pub async fn agent_resume(
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
     let mode = crate::agent::modes::AgentMode::parse(orig.policy.as_deref());
+    cursor_requires_tool_capable_route(&settings, tools_ok, mode)?;
     let _ = launch_run(LaunchSpec {
         app: app.clone(),
         registry: (*registry).clone(),
@@ -247,6 +248,29 @@ struct LaunchSpec {
 ///
 /// Returns an optional `model_note` for the UI when the turn was auto-routed
 /// to a vision-capable model (`{ using, using_id, usual }`).
+
+fn cursor_requires_tool_capable_route(
+    settings: &crate::commands::settings::Settings,
+    tools_ok: bool,
+    mode: crate::agent::modes::AgentMode,
+) -> Result<(), AppError> {
+    if !crate::commands::settings::is_cursor_gateway(settings) || tools_ok {
+        return Ok(());
+    }
+    // Cursor via the auth-gateway is honest direct/synthesis-only. Analyst chat
+    // may continue without tools; autonomous tool-required modes fail early.
+    match mode {
+        crate::agent::modes::AgentMode::Goal
+        | crate::agent::modes::AgentMode::Loop
+        | crate::agent::modes::AgentMode::Plan
+        | crate::agent::modes::AgentMode::Skeptic => Err(AppError::Config(
+            "Cursor via OMP auth-gateway is direct/synthesis-only — it does not support              finmodel's research and financial-analysis tools. For tool-backed financial              runs, switch to OpenCode Go (or another tool-capable route) in Settings."
+                .into(),
+        )),
+        crate::agent::modes::AgentMode::Analyst => Ok(()),
+    }
+}
+
 async fn launch_run(spec: LaunchSpec) -> AppResult<Option<serde_json::Value>> {
     use crate::agent::driver::{CostGuard, LiveDriver};
     use crate::agent::events::TauriEventSink;
@@ -654,6 +678,7 @@ pub(crate) async fn send_message_inner_mode(
         .as_ref()
         .map(|c| c.model_id == model && c.native_tools)
         .unwrap_or(false);
+    cursor_requires_tool_capable_route(&settings, tools_ok, mode)?;
 
     let model_note = launch_run(LaunchSpec {
         app: app.clone(),

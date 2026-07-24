@@ -59,14 +59,58 @@ fn is_opencode_gateway(s: &Settings) -> bool {
     is_omp_gateway(s) && s.model.trim().starts_with("opencode-go/")
 }
 
+/// Catalog-derived capability for OMP subscription models without a live probe.
+/// `opencode-go/<id>` → native_tools=true, strict_json=false.
+/// `cursor/<id>` → native_tools=false, strict_json=false.
+/// Anything else → None.
+pub fn omp_subscription_capability(model: &str) -> Option<ModelCapability> {
+    let model = model.trim();
+    if model.starts_with("opencode-go/") {
+        Some(ModelCapability {
+            model_id: model.to_string(),
+            native_tools: true,
+            strict_json: false,
+            tested_at: chrono_like_now(),
+        })
+    } else if model.starts_with("cursor/") {
+        Some(ModelCapability {
+            model_id: model.to_string(),
+            native_tools: false,
+            strict_json: false,
+            tested_at: chrono_like_now(),
+        })
+    } else {
+        None
+    }
+}
+
+/// If settings point at the OMP gateway, derive capability from the effective
+/// model using catalog knowledge rather than live probes. Leaves capability
+/// unchanged for non-OMP providers.
+pub fn apply_omp_capability(settings: &mut Settings) {
+    if is_omp_gateway(settings) {
+        let model = effective_model(settings);
+        if let Some(cap) = omp_subscription_capability(&model) {
+            settings.model_capability = Some(cap);
+        }
+    }
+}
+
 /// API key used for outbound OpenAI-compatible calls.
-/// Cursor gateway uses a dummy bearer (`--no-auth`) and must not require
-/// overwriting the stored OpenRouter/OpenCode key.
-pub fn effective_api_key(s: &Settings) -> String {
+/// The local OMP gateway bearer remains owned by OMP and never overwrites the
+/// stored OpenRouter/OpenCode key.
+fn effective_api_key_from(s: &Settings, gateway_bearer: Option<String>) -> String {
     if is_omp_gateway(s) {
-        return crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER.to_string();
+        return gateway_bearer.unwrap_or_default();
     }
     s.openrouter_api_key.trim().to_string()
+}
+
+pub fn effective_api_key(s: &Settings) -> String {
+    let gateway_bearer = is_omp_gateway(s)
+        .then(|| crate::commands::omp_gateway::gateway_bearer().ok())
+        .flatten();
+    effective_api_key_from(s, gateway_bearer)
 }
 
 /// Whether chat/list_models can proceed for the configured provider.
@@ -76,7 +120,7 @@ pub fn has_effective_credentials(s: &Settings) -> bool {
     }
     if is_cursor_gateway(s) {
         let cur = crate::commands::subscription::cursor_omp_status();
-        return cur.present && !cur.expired;
+        return cur.reusable();
     }
     !s.openrouter_api_key.trim().is_empty()
 }
@@ -91,8 +135,34 @@ pub fn effective_model(s: &Settings) -> String {
     }
 }
 
-/// Ensure the local OMP gateway is up for subscription-backed models.
+pub(crate) fn update_selected_model(settings: &mut Settings, model: &str) {
+    let model = model.trim();
+    if settings.model != model {
+        settings.model = model.to_string();
+        settings.model_capability = None;
+    }
+    // On OMP gateway, reseed from catalog knowledge so tools_ok works
+    // without requiring an explicit Test model click.
+    apply_omp_capability(settings);
+}
+
+/// Ensure usable subscription credentials and the local OMP gateway are ready.
 pub fn ensure_provider_ready(s: &Settings) -> Result<(), String> {
+    if is_cursor_gateway(s) {
+        let cursor = crate::commands::subscription::cursor_omp_status();
+        if !cursor.reusable() {
+            return Err(if cursor.present {
+                "Cursor login expired without a refresh token. Connect Cursor again in Settings."
+                    .into()
+            } else {
+                "Cursor login missing. Connect Cursor in Settings.".into()
+            });
+        }
+    } else if is_opencode_gateway(s)
+        && crate::commands::subscription::find_opencode_go_credential().is_none()
+    {
+        return Err("OpenCode Go credentials missing. Connect OpenCode Go in Settings.".into());
+    }
     if is_omp_gateway(s) {
         crate::commands::omp_gateway::ensure_cursor_gateway()?;
     }
@@ -309,11 +379,13 @@ pub fn save_settings(
     let mut s = read_settings(&app);
     if !api_key.trim().is_empty() {
         crate::commands::secrets::set_api_key(api_key.trim()).map_err(AppError::Config)?;
-        // Memory copy for this process; never persisted.
+        // Memory copy for this process; never persisted. A changed account must
+        // never inherit capabilities probed with the prior credential.
         s.openrouter_api_key = api_key.trim().to_string();
+        s.model_capability = None;
     }
     if !model.trim().is_empty() {
-        s.model = model.trim().to_string();
+        update_selected_model(&mut s, &model);
     }
     if let Some(b) = base_url {
         let b = b.trim().to_string();
@@ -323,6 +395,9 @@ pub fn save_settings(
         }
         s.base_url = b;
     }
+    // After any provider change, reseed OMP capability if the base now
+    // points at the OMP gateway.
+    apply_omp_capability(&mut s);
     // These are set-if-present (blank string clears; absent keeps existing).
     if let Some(c) = edgar_contact {
         s.edgar_contact = c.trim().to_string();
@@ -401,6 +476,7 @@ pub fn clear_api_key(app: tauri::AppHandle) -> AppResult<String> {
     crate::commands::secrets::delete_api_key().map_err(AppError::Config)?;
     let mut s = read_settings(&app);
     s.openrouter_api_key = String::new();
+    s.model_capability = None;
     write_settings(&app, &s)?;
     Ok(serde_json::json!({ "ok": true }).to_string())
 }
@@ -421,17 +497,17 @@ pub async fn list_models(app: tauri::AppHandle, provider_id: Option<String>) -> 
                 }
                 let cur = crate::commands::subscription::cursor_omp_status();
                 if !cur.present {
-                    return Err(AppError::Config("No Cursor OAuth in ~/.omp/agent/agent.db. Click Connect Cursor to log in via omp.".into()));
+                    return Err(AppError::Config("No Cursor login in ~/.omp/agent/agent.db. Click Connect Cursor to log in via omp.".into()));
                 }
-                if cur.expired {
-                    return Err(AppError::Config("Cursor OAuth expired in OMP agent.db — click Connect Cursor to re-login via omp.".into()));
+                if !cur.reusable() {
+                    return Err(AppError::Config("Cursor login expired without a refresh token. Click Connect Cursor to log in again.".into()));
                 }
+                ensure_provider_ready(&s).map_err(AppError::Engine)?;
                 let (_, ids) = crate::commands::subscription::probe_cursor_models_via_omp()
                     .map_err(AppError::Engine)?;
                 let resolved = crate::commands::omp_gateway::resolve_cursor_model(&s.model, &ids);
                 if resolved != s.model {
-                    s.model = resolved;
-                    s.model_capability = None;
+                    update_selected_model(&mut s, &resolved);
                     write_settings(&app, &s)?;
                 }
                 let models = ids
@@ -581,6 +657,36 @@ pub async fn test_model(app: tauri::AppHandle, model_id: Option<String>) -> AppR
                 let _ = write_settings(&app, s);
             }
         };
+
+        // OMP subscription models: derive capability from the authenticated
+        // gateway catalog without a forced non-streaming tool probe.
+        if is_omp_gateway(&s) {
+            let provider = if is_cursor_gateway(&s) {
+                "cursor"
+            } else {
+                "opencode-go"
+            };
+            let available = crate::commands::subscription::probe_provider_models_via_omp(provider)
+                .map_err(|e| {
+                    clear_matching_cache(&mut s);
+                    AppError::Engine(format!("OMP {provider} model probe failed: {e}"))
+                })?;
+            // wanted is already qualified (cursor/xxx or opencode-go/xxx).
+            // available entries include the provider/ prefix.
+            if !available.iter().any(|m| m == &wanted) {
+                clear_matching_cache(&mut s);
+                return Err(AppError::Config(format!(
+                    "Model `{wanted}` not found in the OMP {provider} catalog."
+                )));
+            }
+            if let Some(cap) = omp_subscription_capability(&wanted) {
+                s.model = wanted.clone();
+                s.model_capability = Some(cap.clone());
+                write_settings(&app, &s)?;
+                return serde_json::to_string(&cap)
+                    .map_err(|e| AppError::Engine(e.to_string()));
+            }
+        }
 
         let chat_url = chat_completions_url(&s);
         let openrouter = is_openrouter(&s);
@@ -830,7 +936,7 @@ pub fn set_model(app: tauri::AppHandle, model: String) -> AppResult<String> {
         return Err(AppError::Config("model id required".into()));
     }
     let mut s = read_settings(&app);
-    s.model = model.clone();
+    update_selected_model(&mut s, &model);
     write_settings(&app, &s)?;
     Ok(serde_json::json!({ "model": model }).to_string())
 }
@@ -1048,6 +1154,23 @@ mod tests {
     }
 
     #[test]
+    fn changing_the_selected_model_invalidates_its_capability_cache() {
+        let mut settings = Settings {
+            model: "old-model".into(),
+            model_capability: Some(ModelCapability {
+                model_id: "old-model".into(),
+                native_tools: true,
+                strict_json: true,
+                tested_at: "now".into(),
+            }),
+            ..Default::default()
+        };
+        update_selected_model(&mut settings, "new-model");
+        assert_eq!(settings.model, "new-model");
+        assert!(settings.model_capability.is_none());
+    }
+
+    #[test]
     fn omp_gateway_preserves_qualified_opencode_model() {
         let s = Settings {
             model: "opencode-go/grok-4.5".into(),
@@ -1056,9 +1179,157 @@ mod tests {
         };
         assert_eq!(effective_model(&s), "opencode-go/grok-4.5");
         assert_eq!(
-            effective_api_key(&s),
-            crate::commands::omp_gateway::GATEWAY_DUMMY_BEARER
+            effective_api_key_from(&s, Some("gateway-secret".into())),
+            "gateway-secret"
         );
+    }
+
+    #[test]
+    fn omp_subscription_capability_opencode_go_has_native_tools() {
+        let cap = omp_subscription_capability("opencode-go/grok-4.5").unwrap();
+        assert_eq!(cap.model_id, "opencode-go/grok-4.5");
+        assert!(cap.native_tools);
+        assert!(!cap.strict_json);
+        assert!(!cap.tested_at.is_empty());
+    }
+
+    #[test]
+    fn omp_subscription_capability_cursor_no_native_tools() {
+        let cap = omp_subscription_capability("cursor/claude-sonnet-4").unwrap();
+        assert_eq!(cap.model_id, "cursor/claude-sonnet-4");
+        assert!(!cap.native_tools);
+        assert!(!cap.strict_json);
+    }
+
+    #[test]
+    fn omp_subscription_capability_unknown_returns_none() {
+        assert!(omp_subscription_capability("openai/gpt-4").is_none());
+        assert!(omp_subscription_capability("").is_none());
+        assert!(omp_subscription_capability("    ").is_none());
+    }
+
+    #[test]
+    fn apply_omp_capability_opencode_go_on_omp_gateway() {
+        let mut s = Settings {
+            model: "opencode-go/grok-4.5".into(),
+            base_url: crate::commands::omp_gateway::GATEWAY_BASE_URL.into(),
+            ..Default::default()
+        };
+        apply_omp_capability(&mut s);
+        let cap = s.model_capability.unwrap();
+        assert_eq!(cap.model_id, "opencode-go/grok-4.5");
+        assert!(cap.native_tools);
+    }
+
+    #[test]
+    fn apply_omp_capability_cursor_on_omp_gateway() {
+        let mut s = Settings {
+            model: "cursor/claude-sonnet-4".into(),
+            base_url: crate::commands::omp_gateway::GATEWAY_BASE_URL.into(),
+            ..Default::default()
+        };
+        apply_omp_capability(&mut s);
+        let cap = s.model_capability.unwrap();
+        assert_eq!(cap.model_id, "cursor/claude-sonnet-4");
+        assert!(!cap.native_tools);
+    }
+
+    #[test]
+    fn apply_omp_capability_non_omp_leaves_capability_unchanged() {
+        let mut s = Settings {
+            model: "openai/gpt-4".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            model_capability: Some(ModelCapability {
+                model_id: "openai/gpt-4".into(),
+                native_tools: true,
+                strict_json: true,
+                tested_at: "2025-01-01T00:00:00Z".into(),
+            }),
+            ..Default::default()
+        };
+        apply_omp_capability(&mut s);
+        // Capability must survive unchanged for non-OMP providers.
+        let cap = s.model_capability.unwrap();
+        assert_eq!(cap.model_id, "openai/gpt-4");
+        assert!(cap.native_tools);
+        assert!(cap.strict_json);
+    }
+
+    #[test]
+    fn update_selected_model_same_base_model_on_omp_gateway_reseeds() {
+        let mut s = Settings {
+            model: "cursor/old-model".into(),
+            base_url: crate::commands::omp_gateway::GATEWAY_BASE_URL.into(),
+            model_capability: Some(ModelCapability {
+                model_id: "cursor/old-model".into(),
+                native_tools: false,
+                strict_json: false,
+                tested_at: "2025-01-01T00:00:00Z".into(),
+            }),
+            ..Default::default()
+        };
+        // Switch to another cursor model — capability should be reseeded.
+        update_selected_model(&mut s, "cursor/claude-sonnet-4");
+        assert_eq!(s.model, "cursor/claude-sonnet-4");
+        let cap = s.model_capability.unwrap();
+        assert_eq!(cap.model_id, "cursor/claude-sonnet-4");
+        assert!(!cap.native_tools);
+    }
+
+    #[test]
+    fn update_selected_model_switch_to_non_omp_on_omp_gateway_clears() {
+        let mut s = Settings {
+            model: "cursor/old-model".into(),
+            base_url: crate::commands::omp_gateway::GATEWAY_BASE_URL.into(),
+            model_capability: Some(ModelCapability {
+                model_id: "cursor/old-model".into(),
+                native_tools: false,
+                strict_json: false,
+                tested_at: "2025-01-01T00:00:00Z".into(),
+            }),
+            ..Default::default()
+        };
+        // Switch to a non-OMP model while still on the OMP base URL.
+        // apply_omp_capability should not match because the model doesn't
+        // start with opencode-go/ or cursor/.
+        update_selected_model(&mut s, "openai/gpt-4");
+        assert_eq!(s.model, "openai/gpt-4");
+        assert!(s.model_capability.is_none());
+    }
+
+    #[test]
+    fn update_selected_model_non_omp_gateway_leaves_capability_none() {
+        let mut s = Settings {
+            model: "anthropic/claude-sonnet-4".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model_capability: Some(ModelCapability {
+                model_id: "anthropic/claude-sonnet-4".into(),
+                native_tools: true,
+                strict_json: true,
+                tested_at: "2025-01-01T00:00:00Z".into(),
+            }),
+            ..Default::default()
+        };
+        update_selected_model(&mut s, "anthropic/claude-sonnet-4");
+        // Same model on non-OMP — capability unchanged.
+        let cap = s.model_capability.unwrap();
+        assert!(cap.native_tools);
+
+        let mut s2 = Settings {
+            model: "anthropic/claude-opus-4".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model_capability: Some(ModelCapability {
+                model_id: "anthropic/claude-opus-4".into(),
+                native_tools: true,
+                strict_json: true,
+                tested_at: "2025-01-01T00:00:00Z".into(),
+            }),
+            ..Default::default()
+        };
+        update_selected_model(&mut s2, "openai/gpt-4");
+        // Different model on non-OMP — capability cleared.
+        assert_eq!(s2.model, "openai/gpt-4");
+        assert!(s2.model_capability.is_none());
     }
 
     #[test]

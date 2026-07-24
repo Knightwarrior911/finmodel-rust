@@ -7,7 +7,7 @@ use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(commands::model::SessionCache::default())
@@ -161,6 +161,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(commands::handler())
-        .run(tauri::generate_context!())
-        .expect("error while running finmodel application");
+        .run(tauri::generate_context!());
+    commands::omp_gateway::shutdown_owned_processes();
+    result.expect("error while running finmodel application");
 }

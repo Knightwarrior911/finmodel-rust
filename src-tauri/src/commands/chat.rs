@@ -230,7 +230,7 @@ pub async fn rename_conversation(
 
 /// One accumulated tool call from the streamed `delta.tool_calls` fragments.
 #[derive(Clone, Debug, Default, PartialEq)]
-struct ToolCall {
+pub(crate) struct ToolCall {
     id: String,
     name: String,
     arguments: String,
@@ -255,14 +255,15 @@ enum StreamOutcome {
 /// Provider-reported terminal metadata captured from the stream (Phase 1.4).
 /// Counts/IDs only — never prompts, keys, paths, or provider bodies.
 #[derive(Clone, Debug, Default, PartialEq)]
-struct TurnMeta {
-    finish_reason: Option<String>,
-    native_finish_reason: Option<String>,
-    model: Option<String>,
-    provider: Option<String>,
-    usage: Option<Value>,
+pub(crate) struct TurnMeta {
+    pub(crate) finish_reason: Option<String>,
+    pub(crate) native_finish_reason: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) provider: Option<String>,
+    pub(crate) usage: Option<Value>,
+    pub(crate) reasoning_content: String,
     /// Count of SSE payloads that failed JSON parse (never the raw payload).
-    sse_parse_errors: u32,
+    pub(crate) sse_parse_errors: u32,
 }
 
 /// Redact a provider/transport error to a short category + status. Never retains
@@ -366,23 +367,39 @@ fn mark_cache_prefix(model: &str, msgs: &[Value]) -> Vec<Value> {
     }
     out
 }
+/// Typed event emitted by [`apply_delta`] for each successfully parsed SSE
+/// payload. Carries only the per-frame extracted fields — never mutates the
+/// shared `TurnMeta` for reasoning/finish_reason/native_finish_reason.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LiveFrame {
+    pub text: Option<String>,
+    pub reasoning: Option<String>,
+    pub finish_reason: Option<String>,
+    pub native_finish_reason: Option<String>,
+}
 
-/// Apply one SSE `data:` payload to the running accumulators. Returns the
-/// content chunk (for live emission), if any. Malformed JSON increments
-/// `meta.sse_parse_errors` and returns `None` (never stores the raw payload).
+
+/// Apply one SSE `data:` payload to the running accumulators. Returns a
+/// [`LiveFrame`] carrying per-frame extracted fields. Malformed JSON
+/// increments `meta.sse_parse_errors` and returns a default frame.
+/// Reasoning/finish_reason/native_finish_reason are captured in the frame
+/// but NOT written to `meta` — the caller accumulates them.
 fn apply_delta(
     content: &mut String,
     calls: &mut Vec<ToolCall>,
     meta: &mut TurnMeta,
     payload: &str,
-) -> Option<String> {
+) -> Result<LiveFrame, crate::agent::provider::ProviderError> {
     let v: Value = match serde_json::from_str(payload) {
         Ok(v) => v,
         Err(_) => {
             meta.sse_parse_errors = meta.sse_parse_errors.saturating_add(1);
-            return None;
+            return Ok(LiveFrame::default());
         }
     };
+    if let Some(error) = crate::agent::provider::provider_error_from_sse(&v) {
+        return Err(error);
+    }
     // Top-level model / provider ids (OpenRouter may send either on any chunk).
     if meta.model.is_none() {
         if let Some(m) = v.get("model").and_then(|m| m.as_str()) {
@@ -413,6 +430,12 @@ fn apply_delta(
             chunk = Some(c.to_string());
         }
     }
+    let reasoning = delta
+        .get("reasoning_content")
+        .or_else(|| delta.get("reasoning"))
+        .and_then(|value| value.as_str())
+        .filter(|r| !r.is_empty())
+        .map(|r| r.to_string());
     if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
         for tc in tcs {
             let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
@@ -440,16 +463,16 @@ fn apply_delta(
     // Terminal metadata: finish_reason / native_finish_reason (actionable:
     // length/content_filter) and provider-reported token usage (counts only).
     let choice0 = &v["choices"][0];
-    if let Some(fr) = choice0.get("finish_reason").and_then(|f| f.as_str()) {
-        if !fr.is_empty() {
-            meta.finish_reason = Some(fr.to_string());
-        }
-    }
-    if let Some(nfr) = choice0.get("native_finish_reason").and_then(|f| f.as_str()) {
-        if !nfr.is_empty() {
-            meta.native_finish_reason = Some(nfr.to_string());
-        }
-    }
+    let finish_reason = choice0
+        .get("finish_reason")
+        .and_then(|f| f.as_str())
+        .filter(|fr| !fr.is_empty())
+        .map(|fr| fr.to_string());
+    let native_finish_reason = choice0
+        .get("native_finish_reason")
+        .and_then(|f| f.as_str())
+        .filter(|nfr| !nfr.is_empty())
+        .map(|nfr| nfr.to_string());
     if v.get("usage").map(|u| u.is_object()).unwrap_or(false) {
         // Keep only numeric fields — never any content-bearing keys. `cost`
         // is OpenRouter's billed USD for the round (usage accounting); the
@@ -467,7 +490,7 @@ fn apply_delta(
         }
         meta.usage = Some(usage);
     }
-    chunk
+    Ok(LiveFrame { text: chunk, reasoning, finish_reason, native_finish_reason })
 }
 
 /// Accumulate full content + tool calls from a list of SSE `data:` payloads
@@ -481,9 +504,34 @@ fn sse_accumulate(events: &[&str]) -> (String, Vec<ToolCall>, TurnMeta) {
         if ev.trim() == "[DONE]" {
             break;
         }
-        apply_delta(&mut content, &mut calls, &mut meta, ev);
+        if let Ok(frame) = apply_delta(&mut content, &mut calls, &mut meta, ev) {
+            if let Some(r) = frame.reasoning {
+                meta.reasoning_content.push_str(&r);
+            }
+            if let Some(fr) = frame.finish_reason {
+                meta.finish_reason = Some(fr);
+            }
+            if let Some(nfr) = frame.native_finish_reason {
+                meta.native_finish_reason = Some(nfr);
+            }
+        }
     }
     (content, calls, meta)
+}
+
+/// Whether a stream terminal is acceptable. `[DONE]` always succeeds; without
+/// it the stream must have reported a non-empty finish_reason.
+/// Pure — unit-tested below via `stream_terminal_ok`.
+fn stream_terminal_ok(seen_done: bool, finish_reason: Option<&str>) -> Result<(), &'static str> {
+    let has_finish = finish_reason
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .is_some();
+    if seen_done || has_finish {
+        Ok(())
+    } else {
+        Err("incomplete_stream")
+    }
 }
 
 /// Drain complete SSE lines from a raw byte buffer. Incomplete trailing bytes
@@ -527,6 +575,133 @@ pub(crate) fn shared_http_client() -> Result<&'static reqwest::Client, String> {
         Err(e) => Err(e.clone()),
     }
 }
+/// Byte-level SSE parser that accumulates text, tool calls, and metadata
+/// across chunked HTTP responses. Replaces the inline `buf` + `sse_take_lines`
+/// pattern in the production streaming loop.
+pub(crate) struct SseParser {
+    buf: Vec<u8>,
+    content: String,
+    calls: Vec<ToolCall>,
+    meta: TurnMeta,
+    seen_done: bool,
+    terminal_error: Option<crate::agent::provider::ProviderError>,
+}
+
+/// Events yielded by [`SseParser::feed_bytes`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SseEvent {
+    /// A successfully parsed SSE frame — text, reasoning, finish_reason, etc.
+    Frame(LiveFrame),
+    /// Stream completed successfully (`[DONE]` received).
+    Done {
+        content: String,
+        calls: Vec<ToolCall>,
+        meta: TurnMeta,
+    },
+    /// Stream ended without `[DONE]` (EOF / connection drop).
+    Eof {
+        content: String,
+        calls: Vec<ToolCall>,
+        meta: TurnMeta,
+    },
+    /// Provider returned an error frame.
+    Error(crate::agent::provider::ProviderError),
+}
+
+impl SseParser {
+    pub fn new() -> Self {
+        Self {
+            buf: Vec::new(),
+            content: String::new(),
+            calls: Vec::new(),
+            meta: TurnMeta::default(),
+            seen_done: false,
+            terminal_error: None,
+        }
+    }
+
+    /// Feed raw bytes from the HTTP response body. Returns zero or more
+    /// [`SseEvent`]s for each complete SSE line parsed.
+    pub fn feed_bytes(&mut self, bytes: &[u8]) -> Vec<SseEvent> {
+        let mut events = Vec::new();
+        self.buf.extend_from_slice(bytes);
+
+        for line in sse_take_lines(&mut self.buf) {
+            let payload = match line.strip_prefix("data:") {
+                Some(p) => p.trim(),
+                None => continue,
+            };
+            if payload == "[DONE]" {
+                self.seen_done = true;
+                self.calls.retain(|c| !c.name.is_empty());
+                return events;
+            }
+            if payload.is_empty() {
+                continue;
+            }
+            match apply_delta(&mut self.content, &mut self.calls, &mut self.meta, payload) {
+                Ok(frame) => {
+                    // Accumulate reasoning / finish_reason / native_finish_reason
+                    // from the frame into meta for the final outcome.
+                    if let Some(r) = &frame.reasoning {
+                        self.meta.reasoning_content.push_str(r);
+                    }
+                    if let Some(fr) = &frame.finish_reason {
+                        self.meta.finish_reason = Some(fr.clone());
+                    }
+                    if let Some(nfr) = &frame.native_finish_reason {
+                        self.meta.native_finish_reason = Some(nfr.clone());
+                    }
+                    events.push(SseEvent::Frame(frame));
+                }
+                Err(e) => {
+                    self.terminal_error = Some(e.clone());
+                    events.push(SseEvent::Error(e));
+                    return events;
+                }
+            }
+        }
+        events
+    }
+
+    /// Consume the parser and return the terminal event.
+    pub fn finish(mut self) -> SseEvent {
+        self.calls.retain(|c| !c.name.is_empty());
+        if self.seen_done {
+            SseEvent::Done {
+                content: self.content,
+                calls: self.calls,
+                meta: self.meta,
+            }
+        } else if self.terminal_error.is_some() {
+            SseEvent::Error(self.terminal_error.unwrap())
+        } else {
+            SseEvent::Eof {
+                content: self.content,
+                calls: self.calls,
+                meta: self.meta,
+            }
+        }
+    }
+
+    /// Whether `[DONE]` was received.
+    pub fn seen_done(&self) -> bool {
+        self.seen_done
+    }
+
+    /// Current accumulated content.
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
+    #[cfg(test)]
+
+    /// Access accumulated metadata (for tests).
+    pub fn meta(&self) -> &TurnMeta {
+        &self.meta
+    }
+}
+
 
 async fn openrouter_stream_async(
     app: &tauri::AppHandle,
@@ -596,18 +771,14 @@ async fn openrouter_stream_async(
         return StreamOutcome::Failed(redact_provider_error(Some(code), &body));
     }
 
-    let mut content = String::new();
-    let mut calls: Vec<ToolCall> = Vec::new();
-    let mut meta = TurnMeta::default();
-    // Byte buffer so multibyte UTF-8 split across chunks is never lossy-decoded mid-codepoint.
-    let mut buf: Vec<u8> = Vec::new();
+    let mut parser = SseParser::new();
     let mut stream = resp.bytes_stream();
 
     loop {
         // Race next chunk against cancel and no-progress timeout.
         let next = tokio::select! {
             _ = cancel.cancelled() => {
-                return StreamOutcome::Cancelled { content };
+                return StreamOutcome::Cancelled { content: parser.content().to_string() };
             }
             chunk = tokio::time::timeout(NO_PROGRESS_TIMEOUT, stream.next()) => chunk,
         };
@@ -621,74 +792,82 @@ async fn openrouter_stream_async(
                 return StreamOutcome::Failed(redact_provider_error(None, &e.to_string()));
             }
             Ok(Some(Ok(bytes))) => {
-                buf.extend_from_slice(&bytes);
-                for line in sse_take_lines(&mut buf) {
-                    let payload = match line.strip_prefix("data:") {
-                        Some(p) => p.trim(),
-                        None => continue,
-                    };
-                    if payload == "[DONE]" {
-                        calls.retain(|c| !c.name.is_empty());
-                        if let Some(usage) = &meta.usage {
-                            emit_chat(
-                                app,
-                                "chat_usage",
-                                conv_id,
-                                run_id,
-                                json!({
-                                    "usage": usage,
-                                    "model": meta.model,
-                                    "provider": meta.provider,
-                                    "finish_reason": meta.finish_reason,
-                                    "native_finish_reason": meta.native_finish_reason,
-                                    "sse_parse_errors": meta.sse_parse_errors,
-                                }),
-                            );
+                for event in parser.feed_bytes(&bytes) {
+                    match event {
+                        SseEvent::Frame(frame) => {
+                            if let Some(chunk) = frame.text {
+                                emit_agent_ephemeral(
+                                    app,
+                                    conv_id,
+                                    run_id,
+                                    fm_agent::types::EventKind::AssistantTextDelta,
+                                    json!({ "text": chunk }),
+                                );
+                            }
                         }
-                        return StreamOutcome::Ok {
-                            content,
-                            tool_calls: calls,
-                            meta,
-                        };
+                        SseEvent::Error(e) => {
+                            return StreamOutcome::Failed(format!(
+                                "Model request failed ({})",
+                                e.as_str()
+                            ));
+                        }
+                        _ => {}
                     }
-                    if payload.is_empty() {
-                        continue;
-                    }
-                    if let Some(chunk) = apply_delta(&mut content, &mut calls, &mut meta, payload) {
-                        emit_agent_ephemeral(
-                            app,
-                            conv_id,
-                            run_id,
-                            fm_agent::types::EventKind::AssistantTextDelta,
-                            json!({ "text": chunk }),
-                        );
-                    }
+                }
+                if parser.seen_done() {
+                    break;
                 }
             }
         }
     }
 
-    calls.retain(|c| !c.name.is_empty());
-    if let Some(usage) = &meta.usage {
-        emit_chat(
-            app,
-            "chat_usage",
-            conv_id,
-            run_id,
-            json!({
-                "usage": usage,
-                "model": meta.model,
-                "provider": meta.provider,
-                "finish_reason": meta.finish_reason,
-                "native_finish_reason": meta.native_finish_reason,
-                "sse_parse_errors": meta.sse_parse_errors,
-            }),
-        );
-    }
-    StreamOutcome::Ok {
-        content,
-        tool_calls: calls,
-        meta,
+    match parser.finish() {
+        SseEvent::Done { content, calls, meta } => {
+            if let Some(usage) = &meta.usage {
+                emit_chat(
+                    app,
+                    "chat_usage",
+                    conv_id,
+                    run_id,
+                    json!({
+                        "usage": usage,
+                        "model": meta.model,
+                        "provider": meta.provider,
+                        "finish_reason": meta.finish_reason,
+                        "native_finish_reason": meta.native_finish_reason,
+                        "sse_parse_errors": meta.sse_parse_errors,
+                    }),
+                );
+            }
+            StreamOutcome::Ok { content, tool_calls: calls, meta }
+        }
+        SseEvent::Eof { content, calls, meta } => {
+            if let Some(usage) = &meta.usage {
+                emit_chat(
+                    app,
+                    "chat_usage",
+                    conv_id,
+                    run_id,
+                    json!({
+                        "usage": usage,
+                        "model": meta.model,
+                        "provider": meta.provider,
+                        "finish_reason": meta.finish_reason,
+                        "native_finish_reason": meta.native_finish_reason,
+                        "sse_parse_errors": meta.sse_parse_errors,
+                    }),
+                );
+            }
+            // EOF without [DONE] requires a non-empty finish_reason.
+            if let Err(msg) = stream_terminal_ok(false, meta.finish_reason.as_deref()) {
+                return StreamOutcome::Failed(redact_provider_error(None, msg));
+            }
+            StreamOutcome::Ok { content, tool_calls: calls, meta }
+        }
+        SseEvent::Error(e) => {
+            StreamOutcome::Failed(format!("Model request failed ({})", e.as_str()))
+        }
+        SseEvent::Frame(_) => unreachable!("finish() never returns Frame"),
     }
 }
 
@@ -702,6 +881,7 @@ fn legacy_to_accumulator(
     use crate::agent::provider::{AccToolCall, StreamAccumulator, TurnMeta as AccMeta};
     StreamAccumulator {
         content,
+        reasoning_content: meta.reasoning_content.clone(),
         calls: tool_calls
             .into_iter()
             .map(|c| AccToolCall {
@@ -716,6 +896,7 @@ fn legacy_to_accumulator(
             model: meta.model,
             provider: meta.provider,
             usage: meta.usage,
+            error: None,
             parse_errors: meta.sse_parse_errors,
         },
     }
@@ -3249,6 +3430,52 @@ mod tests {
     }
 
     #[test]
+    fn sse_reasoning_is_preserved_for_continuation() {
+        let events = [
+            r#"{"choices":[{"delta":{"reasoning_content":"Need the "}}]}"#,
+            r#"{"choices":[{"delta":{"reasoning_content":"ping tool."}}]}"#,
+            "[DONE]",
+        ];
+        let (_content, _calls, meta) = sse_accumulate(&events);
+        assert_eq!(meta.reasoning_content, "Need the ping tool.");
+    }
+
+    #[test]
+    fn sse_error_frame_is_a_typed_failure() {
+        let mut content = String::new();
+        let mut calls = Vec::new();
+        let mut meta = TurnMeta::default();
+        let error = apply_delta(
+            &mut content,
+            &mut calls,
+            &mut meta,
+            r#"{"error":{"message":"too many requests","code":429}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(error, crate::agent::provider::ProviderError::RateLimit);
+    }
+
+    #[test]
+    fn stream_terminal_ok_accepts_done_and_finish_reason() {
+        // [DONE] alone is always sufficient.
+        assert!(stream_terminal_ok(true, None).is_ok());
+        assert!(stream_terminal_ok(true, Some("stop")).is_ok());
+        // Without [DONE], a non-empty finish_reason is required.
+        assert!(stream_terminal_ok(false, Some("stop")).is_ok());
+        assert!(stream_terminal_ok(false, Some("length")).is_ok());
+        assert!(stream_terminal_ok(false, Some("content_filter")).is_ok());
+        assert!(stream_terminal_ok(false, Some("tool_calls")).is_ok());
+        // No [DONE] AND no/empty finish_reason → incomplete.
+        for bad in [None, Some(""), Some("   ")] {
+            let err = stream_terminal_ok(false, bad).unwrap_err();
+            assert!(
+                err.contains("incomplete_stream"),
+                "must contain exact token 'incomplete_stream', got: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn sse_take_lines_preserves_split_multibyte_utf8() {
         // € is UTF-8 E2 82 AC — split after first byte mid-codepoint.
         let payload = r#"data: {"choices":[{"delta":{"content":"café €"}}]}"#;
@@ -3354,6 +3581,217 @@ mod tests {
         let t = title_from(&long);
         assert_eq!(t.chars().count(), 49); // 48 + ellipsis
         assert!(t.ends_with('…'));
+    }
+    #[test]
+    fn sse_mixed_frame_text_reasoning_finish_all_survive() {
+        let mut content = String::new();
+        let mut calls = Vec::new();
+        let mut meta = TurnMeta::default();
+        let frame = apply_delta(
+            &mut content,
+            &mut calls,
+            &mut meta,
+            r#"{"choices":[{"delta":{"content":"Answer","reasoning_content":"Thinking"},"finish_reason":"stop"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(frame.text.as_deref(), Some("Answer"));
+        assert_eq!(frame.reasoning.as_deref(), Some("Thinking"));
+        assert_eq!(frame.finish_reason.as_deref(), Some("stop"));
+        // Meta must NOT be mutated by apply_delta for these fields.
+        assert!(meta.reasoning_content.is_empty());
+        assert!(meta.finish_reason.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration tests (SseParser byte-stream extraction)
+    // -----------------------------------------------------------------------
+
+    fn parse_raw_sse(bytes: &[u8]) -> SseParser {
+        let mut parser = SseParser::new();
+        let _ = parser.feed_bytes(bytes);
+        parser
+    }
+
+    #[test]
+    fn integration_eof_without_done_and_no_finish_is_incomplete() {
+        let raw = b"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n";
+        let mut parser = SseParser::new();
+        let _ = parser.feed_bytes(raw);
+        let event = parser.finish();
+        match event {
+            SseEvent::Eof { content, meta, .. } => {
+                assert_eq!(content, "partial");
+                assert!(stream_terminal_ok(false, meta.finish_reason.as_deref()).is_err());
+            }
+            other => panic!("expected Eof, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn integration_error_frame_returns_classified_error() {
+        let raw = b"data: {\"error\":{\"message\":\"rate limited\",\"code\":429}}\n\n";
+        let mut parser = SseParser::new();
+        let events = parser.feed_bytes(raw);
+        assert!(events.iter().any(|e| matches!(e, SseEvent::Error(_))));
+    }
+
+    #[test]
+    fn integration_mixed_frame_text_reasoning_finish_all_survive() {
+        let payload = r#"{"choices":[{"delta":{"content":"Answer","reasoning_content":"Thinking"},"finish_reason":"stop"}]}"#;
+        let raw = format!("data: {}\n\ndata: [DONE]\n\n", payload);
+        let mut parser = SseParser::new();
+        let events = parser.feed_bytes(raw.as_bytes());
+        assert!(events.iter().any(|e| matches!(e, SseEvent::Frame(f) if f.text.as_deref() == Some("Answer"))));
+        assert_eq!(parser.meta().reasoning_content, "Thinking");
+        assert_eq!(parser.meta().finish_reason.as_deref(), Some("stop"));
+    }
+
+    #[test]
+    fn integration_utf8_split_across_chunks() {
+        // caf€ where € = U+20AC (bytes E2 82 AC). Split between E2 and 82.
+        let euro = String::from_utf8(vec![0xe2, 0x82, 0xac]).unwrap();
+        let payload = format!(
+            r#"{{"choices":[{{"delta":{{"content":"caf{}"}},"finish_reason":null}}]}}"#,
+            euro
+        );
+        let raw = format!("data: {}
+
+data: [DONE]
+
+", payload);
+        let raw_bytes = raw.as_bytes();
+        // Find exact position of € (E2 82 AC) in raw bytes
+        let euro_pos = raw_bytes
+            .windows(3)
+            .position(|w| w == [0xE2, 0x82, 0xAC])
+            .expect("€ bytes not found in raw stream");
+        // Split between E2 (byte 0) and 82 (byte 1)
+        let split = euro_pos + 1;
+        let (c1, c2) = raw_bytes.split_at(split);
+        // Verify split is mid-codepoint
+        assert_eq!(c1.last(), Some(&0xE2), "chunk1 must end with E2");
+        assert_eq!(c2.first(), Some(&0x82), "chunk2 must start with 82");
+        let mut parser = SseParser::new();
+        let _ = parser.feed_bytes(c1);
+        let _ = parser.feed_bytes(c2);
+        match parser.finish() {
+            SseEvent::Done { content, .. } => {
+                assert_eq!(content, format!("caf{}", euro),
+                    "UTF-8 codepoint must reassemble exactly");
+            }
+            other => panic!("expected Done, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn integration_empty_finish_reason_after_done_succeeds() {
+        let raw = b"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"\"}]}\n\ndata: [DONE]\n\n";
+        let mut parser = SseParser::new();
+        let _ = parser.feed_bytes(raw);
+        match parser.finish() {
+            SseEvent::Done { meta, .. } => assert!(stream_terminal_ok(true, meta.finish_reason.as_deref()).is_ok()),
+            other => panic!("expected Done, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Lifecycle tests (ignored, env-gated)
+    // -----------------------------------------------------------------------
+
+    fn pid_on_port(port: u16) -> Option<u32> {
+        let output = std::process::Command::new("netstat").args(["-ano", "-p", "TCP"]).output().ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if line.contains(&format!(":{port}")) && line.contains("LISTENING") {
+                return line.split_whitespace().last()?.parse().ok();
+            }
+        }
+        None
+    }
+
+    fn kill_pid(pid: u32) {
+        let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
+
+    struct PortStateGuard { initial_broker: Option<u32>, initial_gateway: Option<u32> }
+    impl PortStateGuard {
+        fn capture() -> Self { Self { initial_broker: pid_on_port(crate::commands::omp_gateway::BROKER_PORT), initial_gateway: pid_on_port(crate::commands::omp_gateway::GATEWAY_PORT) } }
+    }
+    impl Drop for PortStateGuard {
+        fn drop(&mut self) {
+            if let Some(pid) = pid_on_port(crate::commands::omp_gateway::BROKER_PORT) {
+                if self.initial_broker != Some(pid) { kill_pid(pid); }
+            }
+            if let Some(pid) = pid_on_port(crate::commands::omp_gateway::GATEWAY_PORT) {
+                if self.initial_gateway != Some(pid) { kill_pid(pid); }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let bin = crate::commands::omp_gateway::omp_bin().unwrap_or_default();
+            if self.initial_broker.is_some() && !crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::BROKER_PORT) {
+                let _ = std::process::Command::new(&bin).args(["auth-broker", "serve"])
+                    .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+            }
+            if self.initial_gateway.is_some() && !crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::GATEWAY_PORT) {
+                if let Some(tok) = crate::commands::omp_gateway::broker_token() {
+                    let _ = std::process::Command::new(&bin).args(["auth-gateway", "serve", "--bind=127.0.0.1:4000"])
+                        .env("OMP_AUTH_BROKER_URL", crate::commands::omp_gateway::BROKER_URL).env("OMP_AUTH_BROKER_TOKEN", tok)
+                        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
+    }
+
+    #[test]
+    #[ignore = "OMP_LIFECYCLE_TEST=1 required"]
+    fn lifecycle_spawned_children_die_on_shutdown() {
+        if std::env::var("OMP_LIFECYCLE_TEST").unwrap_or_default() != "1" { return; }
+        let _guard = PortStateGuard::capture();
+        if let Some(p) = pid_on_port(crate::commands::omp_gateway::BROKER_PORT) { kill_pid(p); }
+        if let Some(p) = pid_on_port(crate::commands::omp_gateway::GATEWAY_PORT) { kill_pid(p); }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        assert!(!crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::BROKER_PORT));
+        assert!(!crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::GATEWAY_PORT));
+        crate::commands::omp_gateway::ensure_cursor_gateway().expect("ensure failed");
+        assert!(crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::BROKER_PORT));
+        assert!(crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::GATEWAY_PORT));
+        crate::commands::omp_gateway::shutdown_owned_processes();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        assert!(!crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::BROKER_PORT), "broker dead after shutdown");
+        assert!(!crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::GATEWAY_PORT), "gateway dead after shutdown");
+    }
+
+    #[test]
+    #[ignore = "OMP_LIFECYCLE_TEST=1 required"]
+    fn lifecycle_preexisting_survives_shutdown() {
+        if std::env::var("OMP_LIFECYCLE_TEST").unwrap_or_default() != "1" { return; }
+        let _guard = PortStateGuard::capture();
+        if let Some(p) = pid_on_port(crate::commands::omp_gateway::BROKER_PORT) { kill_pid(p); }
+        if let Some(p) = pid_on_port(crate::commands::omp_gateway::GATEWAY_PORT) { kill_pid(p); }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let bin = crate::commands::omp_gateway::omp_bin().expect("omp on PATH");
+        let mut ext_b = std::process::Command::new(&bin).args(["auth-broker", "serve"])
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().expect("spawn broker");
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let bp = ext_b.id();
+        let tok = crate::commands::omp_gateway::broker_token().expect("token");
+        let mut ext_g = std::process::Command::new(&bin).args(["auth-gateway", "serve", "--bind=127.0.0.1:4000"])
+            .env("OMP_AUTH_BROKER_URL", crate::commands::omp_gateway::BROKER_URL).env("OMP_AUTH_BROKER_TOKEN", &tok)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().expect("spawn gateway");
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        let gp = ext_g.id();
+        crate::commands::omp_gateway::ensure_cursor_gateway().expect("ensure on preexisting");
+        crate::commands::omp_gateway::shutdown_owned_processes();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert!(crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::BROKER_PORT), "external broker survives");
+        assert!(crate::commands::omp_gateway::port_open(crate::commands::omp_gateway::GATEWAY_PORT), "external gateway survives");
+        let check = |pid: u32| std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}")])
+            .output().map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string())).unwrap_or(false);
+        assert!(check(bp), "broker PID survives");
+        assert!(check(gp), "gateway PID survives");
+        let _ = ext_b.kill(); let _ = ext_g.kill();
+        let _ = ext_b.wait(); let _ = ext_g.wait();
     }
 }
 

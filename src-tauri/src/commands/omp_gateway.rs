@@ -8,7 +8,8 @@
 //! `base_url` at this loopback gateway when the user picks Cursor.
 
 use std::net::TcpStream;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::json;
@@ -20,9 +21,79 @@ pub const GATEWAY_BASE_URL: &str = "http://127.0.0.1:4000/v1";
 pub const GATEWAY_HOST: &str = "127.0.0.1";
 pub const GATEWAY_PORT: u16 = 4000;
 pub const BROKER_PORT: u16 = 8765;
+const SUPPORTED_OMP_MAJOR: u64 = 17;
 
-/// Bearer used with `omp auth-gateway serve --no-auth` (gateway ignores it).
-pub const GATEWAY_DUMMY_BEARER: &str = "omp-local";
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GatewayHealth {
+    version: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayAuthState {
+    Authenticated,
+}
+
+fn parse_gateway_health(text: &str) -> Result<GatewayHealth, String> {
+    let value: serde_json::Value = serde_json::from_str(text)
+        .map_err(|_| "OMP gateway health was not valid JSON".to_string())?;
+    if value.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return Err("OMP gateway health did not report ok".into());
+    }
+    let version = value
+        .get("version")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| "OMP gateway health omitted its version".to_string())?;
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|part| part.parse::<u64>().ok())
+        .ok_or_else(|| format!("unsupported OMP gateway version {version}"))?;
+    if major != SUPPORTED_OMP_MAJOR {
+        return Err(format!(
+            "unsupported OMP gateway version {version}; finmodel requires OMP {SUPPORTED_OMP_MAJOR}.x"
+        ));
+    }
+    Ok(GatewayHealth {
+        version: version.to_string(),
+    })
+}
+
+fn classify_gateway_auth(
+    unauthenticated_status: u16,
+    authenticated_status: u16,
+) -> Result<GatewayAuthState, String> {
+    if (200..300).contains(&unauthenticated_status) {
+        return Err(
+            "OMP gateway authentication disabled; stop that gateway before reconnecting".into(),
+        );
+    }
+    if !(200..300).contains(&authenticated_status) {
+        return Err("OMP gateway rejected its backend bearer token".into());
+    }
+    Ok(GatewayAuthState::Authenticated)
+}
+
+fn auth_gateway_token_path(home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".omp").join("auth-gateway.token")
+}
+
+pub fn gateway_bearer() -> Result<String, String> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| "home directory unavailable for OMP gateway token".to_string())?;
+    std::fs::read_to_string(auth_gateway_token_path(&home))
+        .map_err(|e| format!("cannot read OMP auth-gateway token: {e}"))
+        .map(|token| token.trim().to_string())
+        .and_then(|token| {
+            if token.is_empty() {
+                Err("OMP auth-gateway token file is empty".into())
+            } else {
+                Ok(token)
+            }
+        })
+}
 
 pub fn is_cursor_gateway_base(base: &str) -> bool {
     let b = base.trim().trim_end_matches('/');
@@ -77,7 +148,7 @@ pub fn resolve_cursor_model(saved: &str, available: &[String]) -> String {
         .unwrap_or_else(|| requested)
 }
 
-fn port_open(port: u16) -> bool {
+pub(crate) fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(
         &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_millis(250),
@@ -96,7 +167,7 @@ pub(crate) fn configure_hidden_command(cmd: &mut Command) {
     }
 }
 
-fn omp_bin() -> Result<String, String> {
+pub(crate) fn omp_bin() -> Result<String, String> {
     which_omp().ok_or_else(|| "omp not found on PATH (install Oh My Pi / omp)".into())
 }
 
@@ -124,7 +195,70 @@ fn which_omp() -> Option<String> {
     cmd.status().ok().map(|_| "omp".to_string())
 }
 
-fn spawn_detached(bin: &str, args: &[&str]) -> Result<(), String> {
+#[derive(Default)]
+struct OwnedOmpProcesses {
+    broker: Option<Child>,
+    gateway: Option<Child>,
+}
+
+impl OwnedOmpProcesses {
+    fn reap_finished(&mut self) {
+        reap_finished_child(&mut self.gateway);
+        reap_finished_child(&mut self.broker);
+    }
+
+    fn shutdown(&mut self) {
+        stop_owned_child(&mut self.gateway);
+        stop_owned_child(&mut self.broker);
+    }
+}
+
+fn reap_finished_child(slot: &mut Option<Child>) {
+    let finished = slot
+        .as_mut()
+        .and_then(|child| child.try_wait().ok())
+        .flatten()
+        .is_some();
+    if finished {
+        *slot = None;
+    }
+}
+
+fn stop_owned_child(slot: &mut Option<Child>) {
+    let Some(mut child) = slot.take() else {
+        return;
+    };
+    let pid = child.id();
+    // omp spawns a serving descendant — Child::id() is the wrapper, not the
+    // listener. Kill the process tree rooted at the wrapper PID.
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = child.kill();
+    }
+    // Reap without blocking forever — the tree kill should have ended it.
+    let _ = child.try_wait();
+}
+
+fn owned_omp_processes() -> &'static Mutex<OwnedOmpProcesses> {
+    static PROCESSES: OnceLock<Mutex<OwnedOmpProcesses>> = OnceLock::new();
+    PROCESSES.get_or_init(|| Mutex::new(OwnedOmpProcesses::default()))
+}
+
+pub fn shutdown_owned_processes() {
+    if let Ok(mut processes) = owned_omp_processes().lock() {
+        processes.shutdown();
+    }
+}
+
+fn spawn_owned(bin: &str, args: &[&str]) -> Result<Child, String> {
     let mut cmd = Command::new(bin);
     cmd.args(args)
         .stdin(Stdio::null())
@@ -132,8 +266,11 @@ fn spawn_detached(bin: &str, args: &[&str]) -> Result<(), String> {
         .stderr(Stdio::null());
     configure_hidden_command(&mut cmd);
     cmd.spawn()
-        .map(|_| ())
         .map_err(|e| format!("failed to start `{bin} {}`: {e}", args.join(" ")))
+}
+
+fn gateway_serve_args() -> [&'static str; 3] {
+    ["auth-gateway", "serve", "--bind=127.0.0.1:4000"]
 }
 
 /// Spawn OMP's provider-specific login and open the printed browser URL.
@@ -263,7 +400,7 @@ fn wait_port(port: u16, timeout: Duration) -> bool {
     port_open(port)
 }
 
-fn broker_token() -> Option<String> {
+pub(crate) fn broker_token() -> Option<String> {
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
     let path = std::path::PathBuf::from(home)
         .join(".omp")
@@ -274,63 +411,165 @@ fn broker_token() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Ensure local OMP broker + gateway are accepting connections.
+fn validate_broker(client: &reqwest::blocking::Client) -> Result<(), String> {
+    let response = client
+        .get(format!("{BROKER_URL}/v1/healthz"))
+        .send()
+        .map_err(|e| format!("OMP auth-broker health check failed: {e}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .map_err(|e| format!("OMP auth-broker health response failed: {e}"))?;
+    let ok = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| value.get("ok").and_then(|v| v.as_bool()))
+        == Some(true);
+    if !status.is_success() || !ok {
+        return Err(format!(
+            "unexpected service on OMP auth-broker port {BROKER_PORT}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_gateway(client: &reqwest::blocking::Client) -> Result<GatewayHealth, String> {
+    let health_response = client
+        .get(format!("http://{GATEWAY_HOST}:{GATEWAY_PORT}/healthz"))
+        .send()
+        .map_err(|e| format!("OMP auth-gateway health check failed: {e}"))?;
+    if !health_response.status().is_success() {
+        return Err(format!(
+            "OMP auth-gateway health HTTP {}",
+            health_response.status()
+        ));
+    }
+    let health = parse_gateway_health(
+        &health_response
+            .text()
+            .map_err(|e| format!("OMP auth-gateway health response failed: {e}"))?,
+    )?;
+
+    let models_url = format!("{GATEWAY_BASE_URL}/models");
+    let unauthenticated_status = client
+        .get(&models_url)
+        .send()
+        .map_err(|e| format!("OMP auth-gateway unauthenticated probe failed: {e}"))?
+        .status()
+        .as_u16();
+    let token = gateway_bearer()?;
+    let authenticated_response = client
+        .get(&models_url)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| format!("OMP auth-gateway authenticated probe failed: {e}"))?;
+    let authenticated_status = authenticated_response.status().as_u16();
+    classify_gateway_auth(unauthenticated_status, authenticated_status)?;
+    let models: serde_json::Value = authenticated_response
+        .json()
+        .map_err(|_| "OMP auth-gateway /models returned invalid JSON".to_string())?;
+    if models
+        .get("data")
+        .and_then(|data| data.as_array())
+        .is_none()
+    {
+        return Err("OMP auth-gateway /models omitted its data array".into());
+    }
+    Ok(health)
+}
+
+/// Validate already-running OMP services without spawning or adopting them.
+/// Settings uses this passive check before advertising provider readiness.
+pub(crate) fn validate_running_omp_services() -> Result<(), String> {
+    if !port_open(BROKER_PORT) || !port_open(GATEWAY_PORT) {
+        return Err("OMP broker/gateway is not running".into());
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|error| error.to_string())?;
+    validate_broker(&client)?;
+    validate_gateway(&client)?;
+    Ok(())
+}
+
+/// Ensure compatible, authenticated local OMP broker and gateway services are ready.
 pub fn ensure_cursor_gateway() -> Result<(), String> {
     let bin = omp_bin()?;
-    if !port_open(BROKER_PORT) {
-        spawn_detached(&bin, &["auth-broker", "serve"])?;
-        if !wait_port(BROKER_PORT, Duration::from_secs(8)) {
-            return Err("omp auth-broker did not open :8765".into());
-        }
-    }
-    if !port_open(GATEWAY_PORT) {
-        let mut cmd = Command::new(&bin);
-        cmd.args([
-            "auth-gateway",
-            "serve",
-            "--no-auth",
-            "--bind=127.0.0.1:4000",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-        if let Some(tok) = broker_token() {
-            cmd.env("OMP_AUTH_BROKER_URL", BROKER_URL);
-            cmd.env("OMP_AUTH_BROKER_TOKEN", tok);
-        } else {
-            cmd.env("OMP_AUTH_BROKER_URL", BROKER_URL);
-        }
-        configure_hidden_command(&mut cmd);
-        cmd.spawn()
-            .map_err(|e| format!("failed to start auth-gateway: {e}"))?;
-        if !wait_port(GATEWAY_PORT, Duration::from_secs(10)) {
-            return Err("omp auth-gateway did not open :4000".into());
-        }
-    }
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client
-        .get(format!("{GATEWAY_BASE_URL}/models"))
-        .bearer_auth(GATEWAY_DUMMY_BEARER)
-        .send()
-        .map_err(|e| format!("gateway /models: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("gateway /models HTTP {}", resp.status()));
+    let mut processes = owned_omp_processes()
+        .lock()
+        .map_err(|_| "OMP process manager lock poisoned".to_string())?;
+    processes.reap_finished();
+
+    if port_open(BROKER_PORT) {
+        validate_broker(&client)?;
+    } else {
+        processes.broker = Some(spawn_owned(&bin, &["auth-broker", "serve"])?);
+        if !wait_port(BROKER_PORT, Duration::from_secs(8)) {
+            stop_owned_child(&mut processes.broker);
+            return Err("omp auth-broker did not open :8765".into());
+        }
+        if let Err(error) = validate_broker(&client) {
+            stop_owned_child(&mut processes.broker);
+            return Err(error);
+        }
+    }
+
+    if port_open(GATEWAY_PORT) {
+        validate_gateway(&client)?;
+        return Ok(());
+    }
+
+    let broker_token =
+        broker_token().ok_or_else(|| "OMP auth-broker token was not created".to_string())?;
+    let mut command = Command::new(&bin);
+    command
+        .args(gateway_serve_args())
+        .env("OMP_AUTH_BROKER_URL", BROKER_URL)
+        .env("OMP_AUTH_BROKER_TOKEN", broker_token)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_hidden_command(&mut command);
+    processes.gateway = Some(
+        command
+            .spawn()
+            .map_err(|e| format!("failed to start authenticated OMP auth-gateway: {e}"))?,
+    );
+    if !wait_port(GATEWAY_PORT, Duration::from_secs(10)) {
+        stop_owned_child(&mut processes.gateway);
+        return Err("omp auth-gateway did not open :4000".into());
+    }
+    if let Err(error) = validate_gateway(&client) {
+        stop_owned_child(&mut processes.gateway);
+        return Err(error);
     }
     Ok(())
 }
 
 pub fn gateway_status_json() -> serde_json::Value {
-    let broker_up = port_open(BROKER_PORT);
-    let gateway_up = port_open(GATEWAY_PORT);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build();
+    let broker_ready = client
+        .as_ref()
+        .ok()
+        .map(|client| validate_broker(client).is_ok())
+        .unwrap_or(false);
+    let gateway_health = client
+        .as_ref()
+        .ok()
+        .and_then(|client| validate_gateway(client).ok());
     json!({
-        "broker_up": broker_up,
-        "gateway_up": gateway_up,
+        "broker_up": broker_ready,
+        "gateway_up": gateway_health.is_some(),
         "broker_url": BROKER_URL,
         "gateway_base": GATEWAY_BASE_URL,
-        "chat_ready": broker_up && gateway_up,
+        "chat_ready": broker_ready && gateway_health.is_some(),
+        "gateway_version": gateway_health.map(|health| health.version),
     })
 }
 
@@ -343,7 +582,7 @@ pub fn reconcile_cursor_model(app: &tauri::AppHandle) -> Result<Option<String>, 
         return Ok(None);
     }
     let status = crate::commands::subscription::cursor_omp_status();
-    if !status.present || status.expired {
+    if !status.reusable() {
         return Ok(None);
     }
     let (_, available) = crate::commands::subscription::probe_cursor_models_via_omp()?;
@@ -352,7 +591,7 @@ pub fn reconcile_cursor_model(app: &tauri::AppHandle) -> Result<Option<String>, 
         return Ok(None);
     }
     settings.model = resolved.clone();
-    settings.model_capability = None;
+    crate::commands::settings::apply_omp_capability(&mut settings);
     crate::commands::settings::write_settings(app, &settings).map_err(|e| e.to_string())?;
     Ok(Some(resolved))
 }
@@ -371,8 +610,8 @@ fn wire_cursor_settings(app: &tauri::AppHandle, source: &str) -> AppResult<Strin
     s.base_url = GATEWAY_BASE_URL.to_string();
     let (_, available) =
         crate::commands::subscription::probe_cursor_models_via_omp().map_err(AppError::Engine)?;
-    s.model = resolve_cursor_model(&s.model, &available);
-    s.model_capability = None;
+    let resolved = resolve_cursor_model(&s.model, &available);
+    crate::commands::settings::update_selected_model(&mut s, &resolved);
     crate::commands::settings::write_settings(app, &s)?;
     Ok(json!({
         "ok": true,
@@ -402,9 +641,9 @@ pub fn use_cursor_omp(app: tauri::AppHandle) -> AppResult<String> {
                 .into(),
         ));
     }
-    if cur.expired {
+    if !cur.reusable() {
         return Err(AppError::Config(
-            "Cursor OAuth expired in OMP agent.db — click Connect Cursor to re-login via omp."
+            "Cursor OAuth expired without a refresh token. Click Connect Cursor to log in again."
                 .into(),
         ));
     }
@@ -423,7 +662,7 @@ pub fn connect_cursor_omp(app: tauri::AppHandle) -> AppResult<String> {
         ));
     }
     let cur = crate::commands::subscription::cursor_omp_status();
-    if cur.present && !cur.expired {
+    if cur.reusable() {
         return wire_cursor_settings(&app, &cur.source);
     }
 
@@ -436,7 +675,7 @@ pub fn connect_cursor_omp(app: tauri::AppHandle) -> AppResult<String> {
     while std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(800));
         let cur = crate::commands::subscription::cursor_omp_status();
-        if cur.present && !cur.expired {
+        if cur.reusable() {
             return wire_cursor_settings(&app, &cur.source);
         }
     }
@@ -512,5 +751,223 @@ mod tests {
         assert!(is_cursor_gateway_base("http://127.0.0.1:4000/v1/"));
         assert!(!is_cursor_gateway_base("https://openrouter.ai/api/v1"));
         assert!(!is_cursor_gateway_base("https://api2.cursor.sh"));
+    }
+
+    #[test]
+    fn accepts_only_supported_omp_gateway_health() {
+        let health = parse_gateway_health(r#"{"ok":true,"version":"17.1.0"}"#).unwrap();
+        assert_eq!(health.version, "17.1.0");
+        assert!(parse_gateway_health(r#"{"ok":false,"version":"17.1.0"}"#).is_err());
+        assert!(parse_gateway_health(r#"{"ok":true,"version":"16.9.0"}"#).is_err());
+        assert!(parse_gateway_health("not-json").is_err());
+    }
+
+    #[test]
+    fn rejects_an_unauthenticated_gateway_listener() {
+        assert_eq!(
+            classify_gateway_auth(401, 200).unwrap(),
+            GatewayAuthState::Authenticated
+        );
+        assert!(classify_gateway_auth(200, 200)
+            .unwrap_err()
+            .contains("authentication disabled"));
+        assert!(classify_gateway_auth(401, 401)
+            .unwrap_err()
+            .contains("bearer token"));
+    }
+
+    #[test]
+    fn gateway_token_path_stays_under_omp_home() {
+        let home = std::path::Path::new("C:/test-home");
+        assert_eq!(
+            auth_gateway_token_path(home),
+            home.join(".omp").join("auth-gateway.token")
+        );
+    }
+
+    #[test]
+    fn gateway_serve_command_requires_authentication() {
+        let args = gateway_serve_args();
+        assert_eq!(args[0..2], ["auth-gateway", "serve"]);
+        assert!(!args.iter().any(|arg| *arg == "--no-auth"));
+        assert!(args.iter().any(|arg| *arg == "--bind=127.0.0.1:4000"));
+    }
+    /// Capture the PID listening on a TCP port (Windows netstat -ano).
+    fn pid_on_port(port: u16) -> Option<u32> {
+        let output = std::process::Command::new("netstat")
+            .args(["-ano", "-p", "TCP"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if line.contains(&format!(":{port}")) && line.contains("LISTENING") {
+                return line.split_whitespace().last()?.parse().ok();
+            }
+        }
+        None
+    }
+
+    /// Kill a process by PID (Windows taskkill /F /PID).
+    fn kill_pid(pid: u32) {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
+    /// RAII guard that captures initial port state and restores it on drop.
+    /// Even if tests panic, Drop restarts whatever was running before.
+    struct PortStateGuard {
+        initial_broker_pid: Option<u32>,
+        initial_gateway_pid: Option<u32>,
+    }
+
+    impl PortStateGuard {
+        /// Capture current state. Call BEFORE any test mutations.
+        fn capture() -> Self {
+            Self {
+                initial_broker_pid: pid_on_port(BROKER_PORT),
+                initial_gateway_pid: pid_on_port(GATEWAY_PORT),
+            }
+        }
+    }
+
+    impl Drop for PortStateGuard {
+        fn drop(&mut self) {
+            // Kill anything currently on the ports that we didn't start
+            if let Some(pid) = pid_on_port(BROKER_PORT) {
+                if self.initial_broker_pid != Some(pid) {
+                    kill_pid(pid);
+                }
+            }
+            if let Some(pid) = pid_on_port(GATEWAY_PORT) {
+                if self.initial_gateway_pid != Some(pid) {
+                    kill_pid(pid);
+                }
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            // Restart whatever was running before if it's now dead
+            let bin = omp_bin().unwrap_or_default();
+            if self.initial_broker_pid.is_some() && !port_open(BROKER_PORT) {
+                let _ = std::process::Command::new(&bin)
+                    .args(["auth-broker", "serve"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+            }
+            if self.initial_gateway_pid.is_some() && !port_open(GATEWAY_PORT) {
+                if let Some(tok) = broker_token() {
+                    let _ = std::process::Command::new(&bin)
+                        .args(["auth-gateway", "serve", "--bind=127.0.0.1:4000"])
+                        .env("OMP_AUTH_BROKER_URL", BROKER_URL)
+                        .env("OMP_AUTH_BROKER_TOKEN", tok)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
+                }
+            }
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    }
+
+    #[test]
+    #[ignore = "OMP_LIFECYCLE_TEST=1 required; uses fixed ports 8765/4000"]
+    fn lifecycle_spawned_children_die_on_shutdown() {
+        if std::env::var("OMP_LIFECYCLE_TEST").unwrap_or_default() != "1" {
+            return;
+        }
+        let _guard = PortStateGuard::capture();
+        // Kill whatever is on the ports now so we start clean
+        if let Some(pid) = pid_on_port(BROKER_PORT) { kill_pid(pid); }
+        if let Some(pid) = pid_on_port(GATEWAY_PORT) { kill_pid(pid); }
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(!port_open(BROKER_PORT), "broker port free after kill");
+        assert!(!port_open(GATEWAY_PORT), "gateway port free after kill");
+
+        // App spawns via ensure_cursor_gateway
+        let result = ensure_cursor_gateway();
+        assert!(result.is_ok(), "ensure failed: {:?}", result);
+        assert!(port_open(BROKER_PORT), "broker up after ensure");
+        assert!(port_open(GATEWAY_PORT), "gateway up after ensure");
+
+        let broker_pid = pid_on_port(BROKER_PORT);
+        let gateway_pid = pid_on_port(GATEWAY_PORT);
+        eprintln!("app-owned PIDs: broker={broker_pid:?}, gateway={gateway_pid:?}");
+
+        // Shutdown kills only app-owned
+        shutdown_owned_processes();
+        std::thread::sleep(Duration::from_secs(2));
+
+        assert!(!port_open(BROKER_PORT), "broker dead after shutdown");
+        assert!(!port_open(GATEWAY_PORT), "gateway dead after shutdown");
+        // guard.drop() restores initial state
+    }
+
+    #[test]
+    #[ignore = "OMP_LIFECYCLE_TEST=1 required; uses fixed ports 8765/4000"]
+    fn lifecycle_preexisting_survives_shutdown() {
+        if std::env::var("OMP_LIFECYCLE_TEST").unwrap_or_default() != "1" {
+            return;
+        }
+        let _guard = PortStateGuard::capture();
+        // Kill whatever is on the ports now
+        if let Some(pid) = pid_on_port(BROKER_PORT) { kill_pid(pid); }
+        if let Some(pid) = pid_on_port(GATEWAY_PORT) { kill_pid(pid); }
+        std::thread::sleep(Duration::from_secs(2));
+
+        // Start broker+gateway EXTERNALLY (not through ensure_cursor_gateway)
+        let bin = omp_bin().expect("omp on PATH");
+        let mut ext_broker = std::process::Command::new(&bin)
+            .args(["auth-broker", "serve"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn external broker");
+        std::thread::sleep(Duration::from_secs(3));
+        let ext_broker_pid = ext_broker.id();
+        assert!(port_open(BROKER_PORT), "external broker up");
+
+        let tok = broker_token().expect("broker token");
+        let mut ext_gateway = std::process::Command::new(&bin)
+            .args(["auth-gateway", "serve", "--bind=127.0.0.1:4000"])
+            .env("OMP_AUTH_BROKER_URL", BROKER_URL)
+            .env("OMP_AUTH_BROKER_TOKEN", &tok)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn external gateway");
+        std::thread::sleep(Duration::from_secs(4));
+        let ext_gateway_pid = ext_gateway.id();
+        assert!(port_open(GATEWAY_PORT), "external gateway up");
+        eprintln!("external PIDs: broker={ext_broker_pid}, gateway={ext_gateway_pid}");
+
+        // ensure_cursor_gateway detects existing, does NOT spawn new
+        let result = ensure_cursor_gateway();
+        assert!(result.is_ok(), "ensure on preexisting: {:?}", result);
+
+        // shutdown_owned_processes must NOT kill external processes
+        shutdown_owned_processes();
+        std::thread::sleep(Duration::from_secs(1));
+
+        assert!(port_open(BROKER_PORT), "external broker survives");
+        assert!(port_open(GATEWAY_PORT), "external gateway survives");
+
+        // Verify PIDs still alive
+        let check_pid = |pid: u32| -> bool {
+            std::process::Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}")])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                .unwrap_or(false)
+        };
+        assert!(check_pid(ext_broker_pid), "broker PID survives");
+        assert!(check_pid(ext_gateway_pid), "gateway PID survives");
+
+        // Cleanup external processes, guard.drop() restores initial state
+        let _ = ext_broker.kill();
+        let _ = ext_gateway.kill();
+        let _ = ext_broker.wait();
+        let _ = ext_gateway.wait();
     }
 }

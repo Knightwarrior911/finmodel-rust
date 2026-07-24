@@ -55,12 +55,35 @@ const PROVIDERS = [
 // Personal-use subscription providers (OpenCode Go + Cursor via OMP gateway).
 // Empty when FINMODEL_DISABLE_SUBSCRIPTION_PROVIDERS=1.
 let SUBSCRIPTION_PROVIDERS = [];
+// Preserve the identity of a saved gateway selection while its provider is
+// temporarily offline. It remains visible only as the current selection; the
+// live status response still controls which other subscriptions are offered.
+let SAVED_SUBSCRIPTION_PROVIDER = null;
+
+function subscriptionProviderFromSelection(base, model = "") {
+  const normalized = String(base || "").replace(/\/+$/, "");
+  const gateway = "http://127.0.0.1:4000/v1";
+  if (normalized !== gateway && normalized !== "http://localhost:4000/v1") return null;
+  const opencode = String(model).startsWith("opencode-go/");
+  return {
+    id: opencode ? "opencode-go" : "cursor",
+    name: opencode ? "OpenCode Go" : "Cursor (via OMP gateway)",
+    base: gateway,
+  };
+}
 
 function activeProviders() {
   // Keep Custom last so subscription entries sit with the named providers.
   const base = PROVIDERS.filter((p) => p.id !== "custom");
   const custom = PROVIDERS.find((p) => p.id === "custom");
-  const out = [...base, ...SUBSCRIPTION_PROVIDERS];
+  const subscriptions = [...SUBSCRIPTION_PROVIDERS];
+  if (
+    SAVED_SUBSCRIPTION_PROVIDER &&
+    !subscriptions.some((p) => p.id === SAVED_SUBSCRIPTION_PROVIDER.id)
+  ) {
+    subscriptions.push(SAVED_SUBSCRIPTION_PROVIDER);
+  }
+  const out = [...base, ...subscriptions];
   if (custom) out.push(custom);
   return out;
 }
@@ -173,13 +196,16 @@ async function refreshSubscriptionProviders() {
       const goNote = $("importOpencodeStatus");
       const c = st.cursor || {};
       const o = st.opencode || {};
+      const cursorReusable = !!c.present && (!c.expired || !!c.refresh_present);
       if (note && st.enabled) {
         const parts = [];
-        if (!o.chat_ready) parts.push("OpenCode Go needs Connect through OMP.");
-        else parts.push("OpenCode Go is ready — select it in Provider.");
-        if (!(c.chat_ready || c.available))
-          parts.push("Cursor needs Connect (omp browser login).");
-        else parts.push("Cursor is logged in — Use Cursor or select Provider → Cursor.");
+        if (o.chat_ready) parts.push("OpenCode Go live gateway verified.");
+        else if (o.credential_present) parts.push("OpenCode Go login stored; use it to verify the live gateway.");
+        else parts.push("OpenCode Go needs Connect through OMP.");
+        if (c.chat_ready) parts.push("Cursor live gateway verified.");
+        else if (cursorReusable) parts.push("Cursor login stored; use it to refresh and verify the live gateway.");
+        else if (c.present) parts.push("Cursor login expired and cannot refresh; connect again.");
+        else parts.push("Cursor needs Connect through OMP browser login.");
         note.textContent = parts.join(" ");
       }
       if (goNote && st.enabled) {
@@ -187,17 +213,17 @@ async function refreshSubscriptionProviders() {
       }
       if (cursorNote) {
         if (!st.enabled) cursorNote.textContent = "";
-        else if (c.chat_ready || c.available)
+        else if (c.chat_ready)
           cursorNote.textContent =
-            "Cursor via OMP: logged in and chat-ready. Prefer cursor/claude-4.6-sonnet-medium or cursor/default.";
+            "Cursor via OMP: live gateway verified. Prefer cursor/claude-4.6-sonnet-medium or cursor/default.";
         else
           cursorNote.textContent =
-            c.reason || "Cursor not available — click Connect Cursor.";
+            c.reason || "Cursor live gateway not verified — connect or use an existing login.";
       }
       const btnConnectCur = $("connectCursorOmp");
       const btnUseCur = $("useCursorOmp");
-      if (btnConnectCur) btnConnectCur.hidden = !st.enabled || !!(c.chat_ready || c.available);
-      if (btnUseCur) btnUseCur.hidden = !st.enabled || !(c.chat_ready || c.available);
+      if (btnConnectCur) btnConnectCur.hidden = !st.enabled || cursorReusable;
+      if (btnUseCur) btnUseCur.hidden = !st.enabled || !cursorReusable;
     }
     return st;
   } catch (_) {
@@ -287,16 +313,16 @@ async function populateModelCatalogList() {
 }
 function setProviderFromBase(base, model = "") {
   const b = (base || "").replace(/\/+$/, "");
-  const gateway = "http://127.0.0.1:4000/v1";
-  if (b === gateway) {
-    $("providerSelect").value = String(model).startsWith("opencode-go/")
-      ? "opencode-go"
-      : "cursor";
+  const savedSubscription = subscriptionProviderFromSelection(b, model);
+  $("baseUrl").value = savedSubscription?.base || b || "https://openrouter.ai/api/v1";
+  if (savedSubscription) {
+    SAVED_SUBSCRIPTION_PROVIDER = savedSubscription;
+    $("providerSelect").value = savedSubscription.id;
     return;
   }
+  SAVED_SUBSCRIPTION_PROVIDER = null;
   const match = activeProviders().find((p) => p.base && p.base === b);
   $("providerSelect").value = match ? match.id : b ? "custom" : "openrouter";
-  $("baseUrl").value = b || "https://openrouter.ai/api/v1";
 }
 
 function setStatus(msg, kind = "info") {
@@ -362,9 +388,8 @@ export async function openSettings() {
   clearStatus();
   try {
     const s = await call("load_settings");
-    const subscriptionGateway =
-      String(s.base_url || "").replace(/\/+$/, "") ===
-      "http://127.0.0.1:4000/v1";
+    SAVED_SUBSCRIPTION_PROVIDER = subscriptionProviderFromSelection(s.base_url, s.model);
+    const subscriptionGateway = SAVED_SUBSCRIPTION_PROVIDER !== null;
     $("keyStatus").textContent = subscriptionGateway
       ? "Subscription credential stays in OMP."
       : s.has_key
@@ -423,7 +448,11 @@ function renderCaps(cap) {
       "Not checked yet — click Test model and I'll find out what this model can do.";
     return;
   }
-  const tools = cap.native_tools ? "can use tools ✓" : "can't use tools ✗";
+  const tools = cap.native_tools
+    ? "can use tools ✓"
+    : cap.model_id.startsWith("cursor/")
+      ? "direct/synthesis-only (no finmodel tools)"
+      : "can't use tools ✗";
   const json = cap.strict_json ? "reliable tables ✓" : "loose tables";
   const when = cap.tested_at ? ` · checked ${cap.tested_at.slice(0, 10)}` : "";
   el.textContent = `${cap.model_id} — ${tools}, ${json}${when}`;
@@ -1188,7 +1217,9 @@ export function initSettings(opts = {}) {
         onSaved();
       } catch (e) {
         if (st) st.textContent = (e && e.message) || String(e);
-        setStatus(`Use Cursor failed: ${e.message || e}`, "error");
+        const reconnect = $("connectCursorOmp");
+        if (reconnect) reconnect.hidden = false;
+        setStatus(`Existing Cursor login failed: ${e.message || e}. Reconnect to authenticate again.`, "error");
       }
     });
   }
@@ -1280,7 +1311,11 @@ export function initSettings(opts = {}) {
       });
       renderCaps(cap);
       setStatus(
-        cap.native_tools ? `${cap.model_id} looks good — it can use the analyst's tools.` : `${cap.model_id} can't use tools — research and models won't work well with it.`,
+        cap.native_tools
+          ? `${cap.model_id} looks good — it can use the analyst's tools.`
+          : cap.model_id.startsWith("cursor/")
+            ? `${cap.model_id} is direct/synthesis-only via OMP. For tool-backed financial runs, switch to OpenCode Go in Settings.`
+            : `${cap.model_id} can't use tools — research and models won't work well with it.`,
         "ok",
       );
     } catch (e) {

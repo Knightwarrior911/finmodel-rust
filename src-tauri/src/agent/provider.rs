@@ -30,6 +30,8 @@ pub struct TurnMeta {
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ProviderError>,
     pub parse_errors: u32,
 }
 
@@ -37,6 +39,7 @@ pub struct TurnMeta {
 #[derive(Clone, Debug, Default)]
 pub struct StreamAccumulator {
     pub content: String,
+    pub reasoning_content: String,
     pub calls: Vec<AccToolCall>,
     pub meta: TurnMeta,
 }
@@ -62,6 +65,10 @@ impl StreamAccumulator {
                 return None;
             }
         };
+        if let Some(error) = provider_error_from_sse(&v) {
+            self.meta.error = Some(error);
+            return None;
+        }
         if let Some(m) = v.get("model").and_then(|m| m.as_str()) {
             self.meta.model = Some(m.to_string());
         }
@@ -76,6 +83,13 @@ impl StreamAccumulator {
                 self.content.push_str(c);
                 chunk = Some(c.to_string());
             }
+        }
+        if let Some(reasoning) = delta
+            .get("reasoning_content")
+            .or_else(|| delta.get("reasoning"))
+            .and_then(|value| value.as_str())
+        {
+            self.reasoning_content.push_str(reasoning);
         }
         if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
             for tc in tcs {
@@ -185,12 +199,78 @@ impl ProviderError {
                 | ProviderError::ToolIncompatible
         )
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProviderError::Auth => "auth",
+            ProviderError::Billing => "billing",
+            ProviderError::RateLimit => "rate_limit",
+            ProviderError::Capacity => "capacity",
+            ProviderError::Transport => "transport",
+            ProviderError::Timeout => "timeout",
+            ProviderError::ContextOverflow => "context_overflow",
+            ProviderError::ContentFilter => "content_filter",
+            ProviderError::ToolIncompatible => "tool_incompatible",
+            ProviderError::Unknown => "provider_error",
+        }
+    }
+}
+
+/// Recognize an OpenAI-compatible top-level SSE error without retaining its body.
+pub fn provider_error_from_sse(value: &Value) -> Option<ProviderError> {
+    let error = value.get("error")?;
+    let numeric_code = error
+        .get("status")
+        .or_else(|| error.get("status_code"))
+        .or_else(|| error.get("code"))
+        .and_then(|code| code.as_u64());
+    if let Some(code) = numeric_code {
+        return Some(match code {
+            401 | 403 => ProviderError::Auth,
+            402 => ProviderError::Billing,
+            429 => ProviderError::RateLimit,
+            500..=599 => ProviderError::Capacity,
+            _ => ProviderError::Unknown,
+        });
+    }
+    let mut hint = String::new();
+    for field in ["type", "code", "message"] {
+        if let Some(text) = error.get(field).and_then(|item| item.as_str()) {
+            if !hint.is_empty() {
+                hint.push(' ');
+            }
+            hint.push_str(text);
+        }
+    }
+    if hint.is_empty() {
+        if let Some(text) = error.as_str() {
+            hint.push_str(text);
+        }
+    }
+    Some(classify_provider_error(&hint))
 }
 
 /// Classify a redacted provider error string into a normalized category. Uses
 /// case-insensitive substring matching so it survives provider wording drift.
 pub fn classify_provider_error(msg: &str) -> ProviderError {
     let m = msg.to_lowercase();
+    if let Some(canonical) = m
+        .strip_prefix("model request failed (")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        return match canonical {
+            "auth" => ProviderError::Auth,
+            "billing" => ProviderError::Billing,
+            "rate_limit" => ProviderError::RateLimit,
+            "capacity" => ProviderError::Capacity,
+            "transport" => ProviderError::Transport,
+            "timeout" => ProviderError::Timeout,
+            "context_overflow" => ProviderError::ContextOverflow,
+            "content_filter" => ProviderError::ContentFilter,
+            "tool_incompatible" => ProviderError::ToolIncompatible,
+            _ => ProviderError::Unknown,
+        };
+    }
     let has = |needles: &[&str]| needles.iter().any(|n| m.contains(n));
     if has(&[
         "tools_unsupported",
@@ -313,6 +393,22 @@ mod tests {
         ]);
         assert_eq!(acc.calls.len(), 2);
         assert_eq!(acc.calls[1].name, "get_news");
+    }
+
+    #[test]
+    fn captures_reasoning_for_tool_call_replay() {
+        let acc = accumulate(&[
+            r#"{"choices":[{"delta":{"reasoning_content":"The user "}}]}"#,
+            r#"{"choices":[{"delta":{"reasoning_content":"asked for a tool."}}]}"#,
+        ]);
+        assert_eq!(acc.reasoning_content, "The user asked for a tool.");
+    }
+
+    #[test]
+    fn recognizes_top_level_sse_error_frames() {
+        let acc = accumulate(&[r#"{"error":{"message":"too many requests","code":429}}"#]);
+        assert_eq!(acc.meta.error, Some(ProviderError::RateLimit));
+        assert!(acc.content.is_empty());
     }
 
     #[test]
@@ -449,5 +545,24 @@ mod tests {
         );
         assert!(ProviderError::RateLimit.is_retryable());
         assert!(ProviderError::Auth.is_failover() && !ProviderError::Auth.is_retryable());
+    }
+
+    #[test]
+    fn canonical_stream_errors_survive_text_adapter_classification() {
+        for expected in [
+            ProviderError::Auth,
+            ProviderError::Billing,
+            ProviderError::RateLimit,
+            ProviderError::Capacity,
+            ProviderError::Transport,
+            ProviderError::Timeout,
+            ProviderError::ContextOverflow,
+            ProviderError::ContentFilter,
+            ProviderError::ToolIncompatible,
+            ProviderError::Unknown,
+        ] {
+            let message = format!("Model request failed ({})", expected.as_str());
+            assert_eq!(classify_provider_error(&message), expected, "{message}");
+        }
     }
 }
